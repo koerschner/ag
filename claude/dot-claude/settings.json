@@ -1,0 +1,12 @@
+{
+  "enabledPlugins": {
+    "typescript-lsp@claude-plugins-official": true,
+    "ralph-wiggum@claude-plugins-official": true
+  },
+  "alwaysThinkingEnabled": true,
+  "permissions": {
+    "allow": [
+      "Bash(/Users/natkoersch/.claude/plugins/cache/claude-plugins-official/ralph-wiggum/**/scripts/*.sh:*)"
+    ]
+  }
+}

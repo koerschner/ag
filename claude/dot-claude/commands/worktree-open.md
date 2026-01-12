@@ -10,6 +10,7 @@ Create a new git worktree for the branch "$1". Follow these steps:
 3. If the branch exists, create the worktree with: `git worktree add <path> $1`
 4. If the branch does not exist, create a new branch and worktree with: `git worktree add -b $1 <path>`
 5. List all worktrees with `git worktree list` to confirm creation
-6. Report the full path to the new worktree so I can navigate to it
+6. Navigate to the new worktree directory using `cd <path>`
+7. Confirm the new working directory and branch
 
 If no branch name is provided, ask me what branch I want to work on.

@@ -8,8 +8,7 @@ allowed-tools: Bash(snowsql:*)
 
 You are now connected to Snowflake using the connection named "$1".
 
-Available SnowSQL connections in ~/.snowsql/config:
-!`grep -E '^\[connections\.' ~/.snowsql/config | sed 's/\[connections\.//' | sed 's/\]//' | tr '\n' ', '`
+Connection configuration is stored in ~/.snowsql/config. You can read this file to see available connections if needed.
 
 To run queries, use the snowsql command:
 snowsql -c $1 -q "YOUR SQL QUERY HERE"

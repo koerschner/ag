@@ -38,14 +38,31 @@
       "Bash(gcloud sql instances patch:*)",
       "Bash(chmod:*)",
       "Bash(psql:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(PGPASSWORD='MShZs\\(T4\\(Z!AhLx6$wa+Q}NPwrA_:JEF' psql:*)",
+      "Bash(~/.pgpass)",
+      "Bash(dotchk --help:*)",
+      "Bash(dotchk:*)",
+      "Bash(stow:*)",
+      "Bash(git push)",
+      "Bash(git remote set-url:*)",
+      "Bash(cat:*)",
+      "Bash(open -g \"hammerspoon://hs.reload\")",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.hammerspoon.org)",
+      "Bash(git -C /Users/natkoersch/dotfiles log --oneline -20 hammerspoon/dot-hammerspoon/timetracker.lua)",
+      "Bash(git -C /Users/natkoersch/dotfiles log -p -5 hammerspoon/dot-hammerspoon/timetracker.lua)",
+      "Bash(git -C /Users/natkoersch/dotfiles show 47254e8:hammerspoon/dot-hammerspoon/timetracker.lua)",
+      "Bash(crontab -l:*)",
+      "Bash(git rebase:*)"
     ],
-    "defaultMode": "default"
+    "defaultMode": "acceptEdits"
   },
   "enabledPlugins": {
     "typescript-lsp@claude-plugins-official": true,
     "ralph-wiggum@claude-plugins-official": true,
-    "frontend-design@claude-plugins-official": true
+    "frontend-design@claude-plugins-official": true,
+    "swift-lsp@claude-plugins-official": true
   },
   "alwaysThinkingEnabled": true
 }

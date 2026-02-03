@@ -18,18 +18,20 @@ Generate **15-20 unique names** across these styles:
 2. **Two-Word Combos** (4-5 names): Word pairs (like DigitalOcean, CloudFlare)
 3. **Made-Up Words** (4-5 names): Invented/coined names (like Figma, Vercel, Twilio)
 4. **Abstract/Metaphorical** (2-3 names): Names that evoke feeling without being literal
+5. **Greek and Latin root words** (3-4 names): Names that are compounds of greek and latin roots (like Opterra)
 
 ## Requirements
 
 - Names should be **memorable, easy to spell, and easy to pronounce**
-- Prefer names **8 characters or fewer** when possible
+- Prefer names **12 characters or fewer** when possible
 - Avoid hyphens, numbers, or unusual characters
 - Consider the target audience and brand positioning
+- avoid x in the name, avoid "ova" and "wyn"
 
 ## Process
 
 1. First, brainstorm and list all name candidates
-2. Then check .com availability using `dotchk` for ALL names at once:
+2. Then check .com, .io, and .ai availability using `dotchk` for ALL names at once:
    ```
    dotchk name1.com name2.com name3.com ...
    ```

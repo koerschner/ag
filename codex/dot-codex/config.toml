@@ -41,5 +41,8 @@ trust_level = "trusted"
 [projects."/Users/steipete/Projects"]
 trust_level = "trusted"
 
+[projects."/Users/natkoersch/agentforge"]
+trust_level = "trusted"
+
 [sandbox_workspace_write]
 network_access = true

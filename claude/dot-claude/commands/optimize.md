@@ -1,1 +1,1 @@
-Analyze the performance of this code and suggest three specific optimizations:
+../../../agent-skills/_shared-skills/optimize/SKILL.md

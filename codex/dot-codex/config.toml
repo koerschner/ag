@@ -44,5 +44,17 @@ trust_level = "trusted"
 [projects."/Users/natkoersch/agentforge"]
 trust_level = "trusted"
 
+[projects."/Users/natkoersch/agentforge/local-logs"]
+trust_level = "trusted"
+
+[projects."/Users/natkoersch/agentforge/ghostfolio-evals-public-dataset"]
+trust_level = "trusted"
+
+[projects."/Users/natkoersch/legacylens/emacs"]
+trust_level = "trusted"
+
+[projects."/Users/natkoersch/legacylens"]
+trust_level = "trusted"
+
 [sandbox_workspace_write]
 network_access = true

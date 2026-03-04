@@ -1,1 +1,0 @@
-../../../agent-skills/_shared-skills/stack-go-js-pg/SKILL.md

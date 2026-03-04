@@ -1,1 +1,0 @@
-../../../agent-skills/_shared-skills/interview-with-log/SKILL.md

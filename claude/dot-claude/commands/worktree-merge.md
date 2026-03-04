@@ -1,1 +1,0 @@
-../../../agent-skills/_shared-skills/worktree-merge/SKILL.md

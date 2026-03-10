@@ -56,5 +56,8 @@ trust_level = "trusted"
 [projects."/Users/natkoersch/legacylens"]
 trust_level = "trusted"
 
+[projects."/Users/natkoersch/nerdy"]
+trust_level = "trusted"
+
 [sandbox_workspace_write]
 network_access = true

@@ -58,6 +58,10 @@
     ],
     "defaultMode": "acceptEdits"
   },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/scripts/context-bar.sh"
+  },
   "enabledPlugins": {
     "typescript-lsp@claude-plugins-official": true,
     "ralph-wiggum@claude-plugins-official": true,
@@ -65,10 +69,5 @@
     "swift-lsp@claude-plugins-official": true
   },
   "alwaysThinkingEnabled": true,
-  "skipDangerousModePermissionPrompt": true,
-  "effortLevel": "medium",
-  "statusLine": {
-    "type": "command",
-    "command": "~/.claude/scripts/context-bar.sh"
-  }
+  "skipDangerousModePermissionPrompt": true
 }

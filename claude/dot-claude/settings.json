@@ -54,7 +54,8 @@
       "Bash(git -C /Users/natkoersch/dotfiles log -p -5 hammerspoon/dot-hammerspoon/timetracker.lua)",
       "Bash(git -C /Users/natkoersch/dotfiles show 47254e8:hammerspoon/dot-hammerspoon/timetracker.lua)",
       "Bash(crontab -l:*)",
-      "Bash(git rebase:*)"
+      "Bash(git rebase:*)",
+      "mcp__pencil"
     ],
     "defaultMode": "acceptEdits"
   },

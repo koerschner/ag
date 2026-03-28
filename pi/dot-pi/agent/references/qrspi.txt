@@ -1,0 +1,87 @@
+QRSPI Step-by-Step
+
+This maps the QRSPI process to the Pi prompts we now have in dotfiles.
+
+Q = Questions
+Prompt: create-research-questions
+Path: ~/dotfiles/pi/dot-pi/agent/prompts/create-research-questions.md
+Purpose: Work with the user to turn a task/spec/ticket into a clean set of codebase research questions.
+Output: .pi/docs/<task>/YYYY-MM-DD-research-questions.md
+
+Suggested invocation:
+use the rpi:create-research-questions prompt for <task/spec/ticket>
+
+R = Research
+Prompt: create-research
+Path: ~/dotfiles/pi/dot-pi/agent/prompts/create-research.md
+Purpose: Research the current codebase and answer the approved research questions.
+Input: research questions doc or a clearly stated research area
+Output: .pi/docs/<task>/YYYY-MM-DD-research.md
+
+Suggested invocation:
+use the rpi:create-research prompt with .pi/docs/<task>/YYYY-MM-DD-research-questions.md
+
+D = Design
+Prompt: create-design-discussion
+Path: ~/dotfiles/pi/dot-pi/agent/prompts/create-design-discussion.md
+Purpose: Talk through design decisions, tradeoffs, and open questions before planning implementation.
+Input: change request + research findings
+Output: design discussion doc / design decisions for the task
+
+Suggested invocation:
+use the rpi:create-design-discussion prompt for .pi/docs/<task>
+
+S = Structure Outline
+Prompt: create-structure-outline
+Path: ~/dotfiles/pi/dot-pi/agent/prompts/create-structure-outline.md
+Purpose: Turn research + design decisions into phased structure/outline for implementation.
+Input: research document + design decisions
+Output: .pi/docs/<task>/YYYY-MM-DD-structure-outline.md
+
+Suggested invocation:
+use the rpi:create-structure-outline prompt for .pi/docs/<task>
+
+P = Plan
+Prompt: create-plan
+Path: ~/dotfiles/pi/dot-pi/agent/prompts/create-plan.md
+Purpose: Create the detailed implementation plan from the structure outline.
+Input: structure outline and related task docs
+Output: .pi/docs/<task>/YYYY-MM-DD-plan.md
+
+Suggested invocation:
+use the rpi:create-plan prompt for .pi/docs/<task>
+
+I = Implement
+Prompt: implement-plan
+Path: ~/dotfiles/pi/dot-pi/agent/prompts/implement-plan.md
+Purpose: Execute the plan in phases, verify each phase, and coordinate with the human between phases.
+Input: plan path
+Output: implemented changes + commits
+
+Suggested invocation:
+use the rpi:implement-plan prompt for .pi/docs/<task>/YYYY-MM-DD-plan.md
+
+PR = Pull Request
+Prompt: describe-pr
+Path: ~/dotfiles/pi/dot-pi/agent/prompts/describe-pr.md
+Purpose: Generate/update the PR description from the branch diff and task context.
+Input: current PR / branch / task context
+Output: .pi/docs/<task>/pr-description.md and updated PR body
+
+Suggested invocation:
+use the rpi:describe-pr prompt for .pi/docs/<task>
+
+Notes on the original graphic
+- Worktree appears in the graphic, but we intentionally did not keep setup-worktree because the referenced script could not be found in the riptide install.
+- So the practical sequence we kept is:
+  Questions -> Research -> Design -> Structure Outline -> Plan -> Implement -> Pull Request
+- ci-commit also exists as a separate utility prompt, but it is not a core QRSPI stage.
+
+Canonical prompt set retained from this migration
+- create-research-questions
+- create-research
+- create-design-discussion
+- create-structure-outline
+- create-plan
+- implement-plan
+- describe-pr

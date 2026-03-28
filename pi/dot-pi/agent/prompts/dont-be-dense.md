@@ -1,4 +1,6 @@
-Write this in a plain, imperative, low-nesting style with explicit control flow. Optimize for human readability. Prefer straightforward loops, intermediate variables, and step-by-step logic over cleverness.
+Write this in a plain, imperative, low-nesting style with explicit control flow. 
+Optimize for human readability. 
+Prefer straightforward loops, intermediate variables, and step-by-step logic over cleverness.
 
 For comments:
 - Comment the why when it is not obvious.

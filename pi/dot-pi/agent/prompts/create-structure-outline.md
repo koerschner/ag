@@ -67,7 +67,7 @@ You are creating a phased implementation plan based on research findings and des
 
 3. **Read the final output template**
 
-`Read(.pi/agent/references/structure_outline_final_answer.md)`
+`Read(~/.pi/agent/references/structure_outline_final_answer.md)`
 
 4. Respond to the user with a summary following the template, including GitHub permalinks
 

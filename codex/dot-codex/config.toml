@@ -62,6 +62,9 @@ trust_level = "trusted"
 [projects."/Users/natkoersch/gauntlet-capstone/deterministic-replay"]
 trust_level = "trusted"
 
+[projects."/Users/natkoersch/gauntlet-capstone/deterministic-record-replay"]
+trust_level = "trusted"
+
 [sandbox_workspace_write]
 network_access = true
 

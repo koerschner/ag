@@ -1,0 +1,15 @@
+{
+  "settings": {
+    "toolPrefix": "mcp",
+    "requestTimeoutMs": 30000,
+    "maxRetries": 5
+  },
+  "mcpServers": {
+    "linear": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mcp.linear.app/mcp"],
+      "lifecycle": "eager"
+    }
+  }
+}

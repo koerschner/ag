@@ -1,0 +1,1 @@
+When running any development process (such as starting an app, dev server, or watcher), start it inside a named tmux session. Then return the exact command the user can run to attach to that session, e.g. `tmux attach -t <session-name>`.

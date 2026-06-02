@@ -48,8 +48,67 @@ function notify(title: string, body: string): void {
 	}
 }
 
+const piPane = process.env.TMUX_PANE;
+const suspendHandlerKey = Symbol.for("nat.pi.notify.tmuxSuspendHandlerInstalled");
+
+function tmux(args: string[]): string | undefined {
+	if (!process.env.TMUX) return;
+
+	try {
+		const { execFileSync } = require("child_process");
+		return execFileSync("tmux", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+	} catch {
+		// Don't let tmux integration failures break Pi.
+	}
+}
+
+function tintPane(): void {
+	if (!piPane) return;
+	tmux(["set-option", "-p", "-t", piPane, "@rang", "1"]);
+	// tmux 3.6 removed `select-pane -P`; pane-local `window-style` is the supported tint.
+	// Use a subtle gray background rather than inverting the pane to a bright theme.
+	tmux(["set-option", "-p", "-t", piPane, "window-style", "bg=colour240"]);
+}
+
+function clearPaneTint(): void {
+	if (!piPane) return;
+	tmux(["set-option", "-p", "-t", piPane, "@rang", "0"]);
+	tmux(["set-option", "-p", "-t", piPane, "window-style", "default"]);
+}
+
+function installSuspendTintCleanup(): void {
+	if ((globalThis as Record<symbol, boolean>)[suspendHandlerKey]) return;
+	(globalThis as Record<symbol, boolean>)[suspendHandlerKey] = true;
+
+	const onSuspend = () => {
+		clearPaneTint();
+
+		// Let the terminal's normal Ctrl+Z behavior continue after clearing the tint.
+		process.removeListener("SIGTSTP", onSuspend);
+		process.once("SIGCONT", () => process.on("SIGTSTP", onSuspend));
+		process.kill(process.pid, "SIGTSTP");
+	};
+
+	process.on("SIGTSTP", onSuspend);
+}
+
 export default function (pi: ExtensionAPI) {
+	installSuspendTintCleanup();
+
+	pi.on("input", async () => {
+		clearPaneTint();
+	});
+
+	pi.on("before_agent_start", async () => {
+		clearPaneTint();
+	});
+
+	pi.on("session_shutdown", async () => {
+		clearPaneTint();
+	});
+
 	pi.on("agent_end", async () => {
 		notify("Pi", "Ready for input");
+		tintPane();
 	});
 }

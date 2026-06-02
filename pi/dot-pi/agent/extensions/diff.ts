@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -21,7 +21,7 @@ interface ParsedArgs {
 
 interface TmuxLaunch {
 	mode: LaunchMode;
-	paneId: string;
+	paneId?: string;
 	sessionName?: string;
 	attachCommand?: string;
 }
@@ -77,13 +77,22 @@ async function run(command: string, args: string[], options: { cwd?: string; tim
 	return String(result.stdout ?? "").trim();
 }
 
-async function commandExists(command: string): Promise<boolean> {
-	try {
-		await run("/bin/sh", ["-lc", `command -v ${shellQuote(command)}`], { timeout: 3_000 });
-		return true;
-	} catch {
-		return false;
-	}
+function commandExists(command: string): boolean {
+	const candidates = command.includes(path.sep)
+		? [command]
+		: (process.env.PATH ?? "")
+				.split(path.delimiter)
+				.filter(Boolean)
+				.map((directory) => path.join(directory, command));
+
+	return candidates.some((candidate) => {
+		try {
+			fs.accessSync(candidate, fs.constants.X_OK);
+			return true;
+		} catch {
+			return false;
+		}
+	});
 }
 
 function shellQuote(value: string): string {
@@ -210,57 +219,32 @@ function sanitizeSessionNamePart(input: string): string {
 	return input.replace(/[^A-Za-z0-9_.-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "repo";
 }
 
-async function launchHunk(cwd: string, mode: LaunchMode, hunkArgs: string[]): Promise<TmuxLaunch> {
+function spawnDetached(command: string, args: string[]): void {
+	const child = spawn(command, args, {
+		detached: true,
+		stdio: "ignore",
+	});
+	child.unref();
+}
+
+function launchHunk(cwd: string, mode: LaunchMode, hunkArgs: string[]): TmuxLaunch {
 	const shellCommand = buildHunkShellCommand(hunkArgs);
 
 	if (mode === "window") {
-		const paneId = await run("tmux", [
-			"new-window",
-			"-P",
-			"-F",
-			"#{pane_id}",
-			"-n",
-			"pi-diff",
-			"-c",
-			cwd,
-			shellCommand,
-		]);
-		return { mode, paneId };
+		spawnDetached("tmux", ["new-window", "-n", "pi-diff", "-c", cwd, shellCommand]);
+		return { mode };
 	}
 
 	if (mode === "pane") {
-		const paneId = await run("tmux", [
-			"split-window",
-			"-h",
-			"-P",
-			"-F",
-			"#{pane_id}",
-			"-c",
-			cwd,
-			shellCommand,
-		]);
-		return { mode, paneId };
+		spawnDetached("tmux", ["split-window", "-h", "-c", cwd, shellCommand]);
+		return { mode };
 	}
 
 	const sessionName = `pi-diff-${sanitizeSessionNamePart(path.basename(cwd))}-${process.pid}-${Date.now().toString(36)}`;
-	const paneId = await run("tmux", [
-		"new-session",
-		"-d",
-		"-P",
-		"-F",
-		"#{pane_id}",
-		"-s",
-		sessionName,
-		"-n",
-		"hunk",
-		"-c",
-		cwd,
-		shellCommand,
-	]);
+	spawnDetached("tmux", ["new-session", "-d", "-s", sessionName, "-n", "hunk", "-c", cwd, shellCommand]);
 
 	return {
 		mode,
-		paneId,
 		sessionName,
 		attachCommand: `tmux attach -t ${shellQuote(sessionName)}`,
 	};
@@ -298,13 +282,13 @@ async function waitForHunkSession(launch: TmuxLaunch, cwd: string): Promise<Hunk
 	const started = Date.now();
 	while (Date.now() - started < SESSION_REGISTER_TIMEOUT_MS) {
 		const sessions = await listHunkSessions().catch(() => []);
-		const byPane = sessions.find((session) => sessionMatchesPane(session, launch.paneId));
+		const byPane = launch.paneId ? sessions.find((session) => sessionMatchesPane(session, launch.paneId)) : undefined;
 		if (byPane) return byPane;
 
 		const byCwd = sessions.filter((session) => sessionMatchesCwd(session, cwd));
 		if (byCwd.length === 1) return byCwd[0];
 
-		if (!(await tmuxPaneExists(launch.paneId))) return undefined;
+		if (launch.paneId && !(await tmuxPaneExists(launch.paneId))) return undefined;
 		await sleep(250);
 	}
 	return undefined;
@@ -346,7 +330,7 @@ async function collectUserNotes(sessionId: string, launch: TmuxLaunch, onUpdate:
 				onUpdate(latestNotes);
 			}
 		} catch {
-			if (!(await tmuxPaneExists(launch.paneId))) break;
+			if (launch.paneId && !(await tmuxPaneExists(launch.paneId))) break;
 		}
 
 		await sleep(POLL_INTERVAL_MS);
@@ -436,12 +420,7 @@ export default function hunkDiffExtension(pi: ExtensionAPI) {
 				return;
 			}
 
-			if (!(await commandExists("hunk"))) {
-				ctx.ui.notify("Could not find `hunk`. Install it with `brew install modem-dev/tap/hunk` or `npm i -g hunkdiff`.", "error");
-				return;
-			}
-
-			if (!(await commandExists("tmux"))) {
+			if (!commandExists("tmux")) {
 				ctx.ui.notify("/diff uses tmux to run Hunk without corrupting Pi's TUI, but `tmux` was not found.", "error");
 				return;
 			}
@@ -449,59 +428,56 @@ export default function hunkDiffExtension(pi: ExtensionAPI) {
 			const cwd = ctx.cwd;
 			ctx.ui.setStatus(STATUS_KEY, "opening Hunk diff…");
 
-			let launch: TmuxLaunch;
-			try {
-				launch = await launchHunk(cwd, parsed.mode, parsed.hunkArgs);
-			} catch (error) {
-				ctx.ui.setStatus(STATUS_KEY, undefined);
-				ctx.ui.notify(`Failed to open Hunk in tmux: ${error instanceof Error ? error.message : String(error)}`, "error");
-				return;
-			}
+			const launch = launchHunk(cwd, parsed.mode, parsed.hunkArgs);
 
 			if (launch.attachCommand) {
 				ctx.ui.notify(`Hunk opened in tmux session. Attach with: ${launch.attachCommand}`, "info");
 			}
 
-			try {
-				const hunkSession = await waitForHunkSession(launch, cwd);
-				if (!hunkSession) {
+			void (async () => {
+				try {
+					const hunkSession = await waitForHunkSession(launch, cwd);
+					if (!hunkSession) {
+						ctx.ui.setStatus(STATUS_KEY, undefined);
+						ctx.ui.notify(
+							"Hunk opened, but its live session API did not register. Saved notes cannot be ingested from this run.",
+							"warning",
+						);
+						return;
+					}
+
+					ctx.ui.setStatus(STATUS_KEY, "Hunk open — 0 saved notes");
+					const notes = await collectUserNotes(hunkSession.sessionId, launch, (currentNotes) => {
+						ctx.ui.setStatus(STATUS_KEY, `Hunk open — ${currentNotes.length} saved note${currentNotes.length === 1 ? "" : "s"}`);
+					});
+
 					ctx.ui.setStatus(STATUS_KEY, undefined);
-					ctx.ui.notify(
-						"Hunk opened, but its live session API did not register. Saved notes cannot be ingested from this run.",
-						"warning",
-					);
-					return;
+
+					if (notes.length === 0) {
+						ctx.ui.notify("Hunk closed with no saved user notes; nothing was sent to the agent.", "info");
+						return;
+					}
+
+					(pi as unknown as { appendEntry?: (customType: string, data?: unknown) => void }).appendEntry?.("hunk-diff-review", {
+						cwd,
+						hunkArgs: parsed.hunkArgs,
+						notes,
+						completedAt: new Date().toISOString(),
+					});
+
+					const prompt = buildAgentPrompt(notes);
+					ctx.ui.notify(`Sending ${notes.length} Hunk note${notes.length === 1 ? "" : "s"} to the agent…`, "info");
+					if (ctx.isIdle()) {
+						pi.sendUserMessage(prompt);
+					} else {
+						pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+					}
+				} catch (error) {
+					ctx.ui.notify(`Failed while monitoring Hunk notes: ${error instanceof Error ? error.message : String(error)}`, "error");
+				} finally {
+					ctx.ui.setStatus(STATUS_KEY, undefined);
 				}
-
-				ctx.ui.setStatus(STATUS_KEY, "Hunk open — 0 saved notes");
-				const notes = await collectUserNotes(hunkSession.sessionId, launch, (currentNotes) => {
-					ctx.ui.setStatus(STATUS_KEY, `Hunk open — ${currentNotes.length} saved note${currentNotes.length === 1 ? "" : "s"}`);
-				});
-
-				ctx.ui.setStatus(STATUS_KEY, undefined);
-
-				if (notes.length === 0) {
-					ctx.ui.notify("Hunk closed with no saved user notes; nothing was sent to the agent.", "info");
-					return;
-				}
-
-				(pi as unknown as { appendEntry?: (customType: string, data?: unknown) => void }).appendEntry?.("hunk-diff-review", {
-					cwd,
-					hunkArgs: parsed.hunkArgs,
-					notes,
-					completedAt: new Date().toISOString(),
-				});
-
-				const prompt = buildAgentPrompt(notes);
-				ctx.ui.notify(`Sending ${notes.length} Hunk note${notes.length === 1 ? "" : "s"} to the agent…`, "info");
-				if (ctx.isIdle()) {
-					pi.sendUserMessage(prompt);
-				} else {
-					pi.sendUserMessage(prompt, { deliverAs: "followUp" });
-				}
-			} finally {
-				ctx.ui.setStatus(STATUS_KEY, undefined);
-			}
+			})();
 		},
 	});
 }

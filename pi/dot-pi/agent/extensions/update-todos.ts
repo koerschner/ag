@@ -22,8 +22,9 @@ Process:
    - If a similar todo exists, update or append the new context/evidence instead of creating a duplicate.
    - If no similar todo exists, create a new todo with a concise title, useful tags, and enough body detail to act on it later.
    - Preserve important provenance (PR number/comment URL/author/tool/source, file paths, observed symptoms, suggested fix, and uncertainty).
-4. If an existing todo is closed/completed but the context says it is still uncompleted, verify against the actual code/state before changing it:
-   - If code/state confirms it is still unresolved, reopen/update the todo and explain the evidence.
+4. If an existing todo is closed/completed but the context says it is still uncompleted or has further work to be done, verify against the actual code/state before changing it:
+   - A completed todo is allowed to be reopened when new evidence shows the underlying issue still has remaining work.
+   - If code/state confirms it is still unresolved or needs follow-up work, reopen/update the todo and explain the evidence.
    - If code/state confirms it is completed, keep it closed and append any useful note only if needed.
    - If you cannot verify, do not blindly reopen; append the uncertainty and ask what to do if necessary.
 5. Close or mark todos only when the code/state clearly proves the issue is done.

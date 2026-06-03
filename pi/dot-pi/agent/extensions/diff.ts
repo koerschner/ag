@@ -494,12 +494,46 @@ async function listChangedFiles(cwd: string): Promise<string[]> {
 	return Array.from(new Set([...tracked.split(/\r?\n/), ...untracked.split(/\r?\n/)].map((file) => file.trim()).filter(Boolean)));
 }
 
-function extractDiscussedFiles(text: string, changedFiles: string[]): string[] {
+async function listTrackedFiles(cwd: string): Promise<string[]> {
+	const tracked = await run("git", ["ls-files"], { cwd, timeout: 10_000 }).catch(() => "");
+	return tracked.split(/\r?\n/).map((file) => file.trim()).filter(Boolean);
+}
+
+function textMentionsPath(text: string, file: string): boolean {
 	const normalizedText = text.replace(/\\\//g, "/");
-	return changedFiles.filter((file) => {
-		const escaped = file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-		return new RegExp(`(^|[^A-Za-z0-9_./-])${escaped}($|[^A-Za-z0-9_./-])`).test(normalizedText);
-	});
+	const escaped = file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	return new RegExp(`(^|[^A-Za-z0-9_./-])${escaped}($|[^A-Za-z0-9_./-])`).test(normalizedText);
+}
+
+function extractDiscussedFiles(text: string, candidateFiles: string[]): string[] {
+	return candidateFiles.filter((file) => textMentionsPath(text, file));
+}
+
+function buildFullFilePatch(cwd: string, files: string[]): string {
+	return files
+		.map((file) => {
+			const absolutePath = path.join(cwd, file);
+			const content = fs.existsSync(absolutePath) ? fs.readFileSync(absolutePath, "utf8") : "";
+			const lines = content.length === 0 ? [] : content.replace(/\r\n/g, "\n").split("\n");
+			if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+			const addedLines = lines.map((line) => `+${line}`).join("\n");
+			return [
+				`diff --git a/${file} b/${file}`,
+				"new file mode 100644",
+				"index 0000000..0000000",
+				"--- /dev/null",
+				`+++ b/${file}`,
+				`@@ -0,0 +1,${Math.max(lines.length, 1)} @@`,
+				addedLines || "+",
+			].join("\n");
+		})
+		.join("\n\n");
+}
+
+function writeFullFilePatch(cwd: string, files: string[]): string {
+	const patchPath = path.join(os.tmpdir(), `pi-review-in-hunk-files-${process.pid}-${Date.now().toString(36)}.patch`);
+	fs.writeFileSync(patchPath, `${buildFullFilePatch(cwd, files)}\n`);
+	return patchPath;
 }
 
 function trimContext(text: string): string {
@@ -514,7 +548,7 @@ function summarizeContext(text: string): string {
 	return (firstMeaningfulLine ?? "Pi conversation context").slice(0, 160);
 }
 
-function writeReviewAgentContext(cwd: string, files: string[], assistantText: string): string {
+function writeReviewAgentContext(cwd: string, files: string[], assistantText: string, anchorAtTop: boolean): string {
 	const contextPath = path.join(os.tmpdir(), `pi-review-in-hunk-${process.pid}-${Date.now().toString(36)}.json`);
 	const summary = summarizeContext(assistantText);
 	const rationale = trimContext(assistantText);
@@ -528,6 +562,7 @@ function writeReviewAgentContext(cwd: string, files: string[], assistantText: st
 				{
 					summary,
 					rationale,
+					...(anchorAtTop ? { newRange: [1, 1] } : {}),
 					author: "Pi",
 					source: "last-assistant-message",
 					createdAt: new Date().toISOString(),
@@ -582,20 +617,44 @@ async function handleReviewInHunkCommand(pi: ExtensionAPI, args: string, ctx: Ex
 		return;
 	}
 
+	const explicitPathspec = getPathspecFromHunkArgs(parsed.hunkArgs);
 	const changedFiles = await listChangedFiles(ctx.cwd);
-	if (changedFiles.length === 0) {
-		ctx.ui.notify("No changed files found for Hunk to review.", "info");
+	const discussedChangedFiles = explicitPathspec.length > 0 ? explicitPathspec : extractDiscussedFiles(assistantText, changedFiles);
+
+	if (changedFiles.length > 0) {
+		const filesToReview = discussedChangedFiles.length > 0 ? discussedChangedFiles : changedFiles;
+		const contextPath = writeReviewAgentContext(ctx.cwd, filesToReview, assistantText, false);
+		parsed.hunkArgs = ["diff", "--agent-context", contextPath, "--agent-notes", "--", ...filesToReview];
+
+		ctx.ui.notify(
+			`Opening ${filesToReview.length} changed file${filesToReview.length === 1 ? "" : "s"} in Hunk with Pi conversation context.`,
+			"info",
+		);
+		await handleLaunchedHunk(pi, ctx, parsed);
 		return;
 	}
 
-	const explicitPathspec = getPathspecFromHunkArgs(parsed.hunkArgs);
-	const discussedFiles = explicitPathspec.length > 0 ? explicitPathspec : extractDiscussedFiles(assistantText, changedFiles);
-	const filesToReview = discussedFiles.length > 0 ? discussedFiles : changedFiles;
-	const contextPath = writeReviewAgentContext(ctx.cwd, filesToReview, assistantText);
-	parsed.hunkArgs = ["diff", "--agent-context", contextPath, "--agent-notes", "--", ...filesToReview];
+	const trackedFiles = await listTrackedFiles(ctx.cwd);
+	const discussedTrackedFiles = explicitPathspec.length > 0 ? explicitPathspec : extractDiscussedFiles(assistantText, trackedFiles);
+	const filesToReview = discussedTrackedFiles.filter((file) => {
+		try {
+			return fs.statSync(path.join(ctx.cwd, file)).isFile();
+		} catch {
+			return false;
+		}
+	});
+
+	if (filesToReview.length === 0) {
+		ctx.ui.notify("No changed files, and no existing files from the last assistant message could be found.", "info");
+		return;
+	}
+
+	const patchPath = writeFullFilePatch(ctx.cwd, filesToReview);
+	const contextPath = writeReviewAgentContext(ctx.cwd, filesToReview, assistantText, true);
+	parsed.hunkArgs = ["patch", patchPath, "--agent-context", contextPath, "--agent-notes"];
 
 	ctx.ui.notify(
-		`Opening ${filesToReview.length} file${filesToReview.length === 1 ? "" : "s"} in Hunk with Pi conversation context.`,
+		`No changes found; opening ${filesToReview.length} full file${filesToReview.length === 1 ? "" : "s"} as a synthetic Hunk patch with Pi context.`,
 		"info",
 	);
 	await handleLaunchedHunk(pi, ctx, parsed);

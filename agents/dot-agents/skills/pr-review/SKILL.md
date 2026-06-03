@@ -1,9 +1,9 @@
 ---
-name: pr-review
-description: "Rigorous multi-model code review for PRs, branches, diffs, commits, or pre-merge checks. Use this whenever the user asks to review a PR, review a branch or diff, check changes before merge, inspect a PR URL, owner/repo#number, branch name, commit SHA, staged changes, latest commit, or specific file paths. Treat AI output as a first draft: run independent Pi subagents on Claude Opus, GPT-5.5 extra-high reasoning, and Gemini; validate and synthesize severity-ranked findings before fixes."
+name: deep-review
+description: "Deep, rigorous multi-model code review for PRs, branches, diffs, commits, or pre-merge checks. Use this when the user explicitly asks for a deep review, thorough review, rigorous review, pre-merge check, PR review, branch review, or wants maximum confidence. Do not use for quick/casual reviews; use quick-review instead. Treat AI output as a first draft: run independent Pi subagents on Claude Opus, GPT-5.5 extra-high reasoning, and Gemini; validate and synthesize severity-ranked findings before fixes."
 ---
 
-# PR Review
+# Deep Review
 
 Use this skill for rigorous code review inspired by Nolan Lawson’s “write better code more slowly” approach: AI-generated or human-generated code is only a first draft. The value comes from independent review, synthesis, severity ranking, and validation before fixes happen.
 

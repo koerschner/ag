@@ -4,12 +4,16 @@ import { complete } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 
+const RUN_DURATION_CUSTOM_TYPE = "previous-prompt-footer-run-duration";
+
 type SessionPreviewState = {
 	submittedPrompt: string;
 	startedPrompt: string;
 	observedUserPrompt: string;
 	aiSummary: string;
 	summaryInFlight: boolean;
+	runStartedAt: number | null;
+	lastRunMs: number | null;
 };
 
 function sanitizeSingleLine(text: string): string {
@@ -22,6 +26,17 @@ function formatTokens(count: number): string {
 	if (count < 1000000) return `${Math.round(count / 1000)}k`;
 	if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
 	return `${Math.round(count / 1000000)}M`;
+}
+
+function formatDuration(ms: number): string {
+	const totalSeconds = Math.max(0, Math.round(ms / 1000));
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const seconds = totalSeconds % 60;
+
+	if (hours > 0) return `${hours}h${minutes.toString().padStart(2, "0")}m`;
+	if (minutes > 0) return `${minutes}m${seconds.toString().padStart(2, "0")}s`;
+	return `${seconds}s`;
 }
 
 function contentToText(content: unknown): string {
@@ -59,6 +74,22 @@ function getDisplayPrompt(_ctx: ExtensionContext, state: SessionPreviewState): s
 	return state.aiSummary;
 }
 
+function getThreadRunDurationMs(ctx: ExtensionContext, state: SessionPreviewState): number {
+	let total = 0;
+	for (const entry of ctx.sessionManager.getBranch()) {
+		const candidate = entry as { type?: string; customType?: string; data?: { ms?: unknown } };
+		if (candidate.type !== "custom" || candidate.customType !== RUN_DURATION_CUSTOM_TYPE) continue;
+		const ms = candidate.data?.ms;
+		if (typeof ms === "number" && Number.isFinite(ms) && ms > 0) total += ms;
+	}
+
+	if (state.runStartedAt !== null) {
+		total += Date.now() - state.runStartedAt;
+	}
+
+	return total;
+}
+
 export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 	const previewStateBySession = new Map<string, SessionPreviewState>();
 	const footerRenderersBySession = new Map<string, Set<() => void>>();
@@ -67,14 +98,22 @@ export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 		const key = getSessionKey(ctx);
 		let state = previewStateBySession.get(key);
 		if (!state) {
-			state = { submittedPrompt: "", startedPrompt: "", observedUserPrompt: "", aiSummary: "", summaryInFlight: false };
+			state = { submittedPrompt: "", startedPrompt: "", observedUserPrompt: "", aiSummary: "", summaryInFlight: false, runStartedAt: null, lastRunMs: null };
 			previewStateBySession.set(key, state);
 		}
 		return state;
 	};
 
 	const resetPreviewState = (ctx: ExtensionContext) => {
-		previewStateBySession.set(getSessionKey(ctx), { submittedPrompt: "", startedPrompt: "", observedUserPrompt: "", aiSummary: "", summaryInFlight: false });
+		previewStateBySession.set(getSessionKey(ctx), {
+			submittedPrompt: "",
+			startedPrompt: "",
+			observedUserPrompt: "",
+			aiSummary: "",
+			summaryInFlight: false,
+			runStartedAt: null,
+			lastRunMs: null,
+		});
 	};
 
 	const generateAiSummary = async (ctx: ExtensionContext) => {
@@ -254,6 +293,15 @@ export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 					if (totalCost || usingSubscription) {
 						statsParts.push(`$${totalCost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`);
 					}
+
+					const currentState = getPreviewState(ctx);
+					const threadRunMs = getThreadRunDurationMs(ctx, currentState);
+					if (currentState.lastRunMs !== null) {
+						statsParts.push(`⏱ ${formatDuration(currentState.lastRunMs)} Σ${formatDuration(threadRunMs)}`);
+					} else if (threadRunMs > 0) {
+						statsParts.push(`Σ${formatDuration(threadRunMs)}`);
+					}
+
 					statsParts.push(contextText);
 
 					let statsLeft = statsParts.join(" ");
@@ -281,7 +329,6 @@ export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 					const sessionName = ctx.sessionManager.getSessionName();
 					const locationText = `${dirName}${branch ? ` (${branch})` : ""}${sessionName ? ` • ${sessionName}` : ""}`;
 
-					const currentState = getPreviewState(ctx);
 					const aiSummary = currentState.aiSummary || getDisplayPrompt(ctx, currentState);
 
 					let topLine = theme.fg("dim", locationText);
@@ -373,10 +420,25 @@ export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("agent_start", (_event, ctx) => {
+		getPreviewState(ctx).runStartedAt = Date.now();
 		requestFooterRender(ctx);
 	});
 
 	pi.on("agent_end", (_event, ctx) => {
+		const state = getPreviewState(ctx);
+		if (state.runStartedAt !== null) {
+			const endedAt = Date.now();
+			state.lastRunMs = endedAt - state.runStartedAt;
+			(pi as unknown as { appendEntry?: (customType: string, data?: unknown) => void }).appendEntry?.(
+				RUN_DURATION_CUSTOM_TYPE,
+				{
+					ms: state.lastRunMs,
+					startedAt: new Date(state.runStartedAt).toISOString(),
+					endedAt: new Date(endedAt).toISOString(),
+				},
+			);
+			state.runStartedAt = null;
+		}
 		applyFooter(ctx);
 		requestFooterRender(ctx);
 		generateAiSummary(ctx).catch(() => {});

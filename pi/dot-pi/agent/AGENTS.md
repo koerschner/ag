@@ -1,1 +1,3 @@
 When running any development process (such as starting an app, dev server, or watcher), start it inside a named tmux session. If the app needs multiple related processes or services, run them in the same tmux session using separate tmux windows (tabs) or panes, so the user only needs one attach command. Then return the exact command the user can run to attach to that session, e.g. `tmux attach -t <session-name>`.
+
+Never create a git commit without consulting the user first and receiving explicit approval.

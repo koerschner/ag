@@ -98,6 +98,7 @@ Each reviewer prompt should ask it to:
 - Include file/line or diff evidence.
 - Avoid speculative findings.
 - Keep the report concise.
+- Return the report in the subagent response only; do not create, write, save, emit, or modify any files or artifacts (including `.md` files).
 
 ## Synthesis pass
 
@@ -110,7 +111,7 @@ After the quick reviewers return:
 
 ## Report format
 
-Return concise Markdown:
+Return concise Markdown in chat only. Never write the report to a file or create any review artifacts:
 
 ```markdown
 # Quick Review Report

@@ -107,7 +107,8 @@ The objective for each reviewer should say:
 - Do not propose fixes yet except brief direction when necessary to explain the issue.
 - Focus on correctness, maintainability, security, accessibility, performance, tests, and spec fidelity.
 - Avoid speculative findings; distinguish confirmed bugs from risks.
-- Return a concise Markdown report with severity tags and file references.
+- Return a concise Markdown report with severity tags and file references in the subagent response only.
+- Do not create, write, save, emit, or modify any files or artifacts (including `.md` files); all review output must stay in chat/subagent text.
 
 ## Definition of bug
 
@@ -195,7 +196,7 @@ Do not inflate severity. A good review is useful because it distinguishes merge 
 
 ## Synthesis pass
 
-After all reviewers return, synthesize their findings into a Markdown report.
+After all reviewers return, synthesize their findings into a Markdown report in chat only. Never write the report to a file or create any review artifacts.
 
 Validate findings before including them. Use code inspection, git/gh context, and targeted commands as needed. Remove or downgrade likely false positives.
 
@@ -325,4 +326,4 @@ Rules:
 - Never auto-request-changes.
 - Do not post comments without user confirmation.
 - Prefer concise inline comments for validated findings.
-- Keep the full synthesized report in Markdown locally or in chat.
+- Keep the full synthesized report in chat only; do not write local `.md` files or any other artifacts.

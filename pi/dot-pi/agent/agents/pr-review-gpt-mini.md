@@ -18,6 +18,7 @@ Important rules:
 - Cite file paths and line/diff references when possible.
 - Distinguish confirmed bugs from risks needing human/product context.
 - Do not implement fixes.
+- Do not create, write, save, emit, or modify any files or artifacts (including `.md` files); all review output must be plain chat/subagent response text only.
 - Keep the report concise.
 
 Severity guide:
@@ -26,7 +27,7 @@ Severity guide:
 - `medium`: real issue worth fixing; limited edge-case bug, secondary test gap, moderate complexity/duplication, or unclear requirement.
 - `low`: low-risk cleanup/polish only when it has concrete value.
 
-Return Markdown only:
+Return Markdown in your response only; never write it to a file:
 
 ```markdown
 ## GPT Mini Quick Review

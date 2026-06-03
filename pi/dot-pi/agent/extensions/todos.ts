@@ -129,6 +129,7 @@ type TodoOverlayAction = "back" | "work";
 
 type TodoMenuAction =
 	| "work"
+	| "worktree"
 	| "refine"
 	| "close"
 	| "reopen"
@@ -461,6 +462,7 @@ class TodoActionMenuComponent extends Container {
 		const options: SelectItem[] = [
 			{ value: "view", label: "view", description: "View todo" },
 			{ value: "work", label: "work", description: "Work on todo" },
+			{ value: "worktree", label: "worktree", description: "Launch this todo in a dedicated git worktree/tmux pane" },
 			{ value: "refine", label: "refine", description: "Refine task" },
 			...(closed
 				? [{ value: "reopen", label: "reopen", description: "Reopen todo" }]
@@ -1909,6 +1911,11 @@ export default function todosExtension(pi: ExtensionAPI) {
 					if (action === "work") {
 						const title = record.title || "(untitled)";
 						nextPrompt = `work on todo ${formatTodoId(record.id)} "${title}"`;
+						done();
+						return "exit";
+					}
+					if (action === "worktree") {
+						nextPrompt = `/todo-worktrees ${formatTodoId(record.id)}`;
 						done();
 						return "exit";
 					}

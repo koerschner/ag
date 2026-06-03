@@ -1,4 +1,4 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -71,6 +71,14 @@ function normalizePath(input: string): string {
 	}
 }
 
+function directoryExists(input: string): boolean {
+	try {
+		return fs.statSync(input).isDirectory();
+	} catch {
+		return false;
+	}
+}
+
 async function run(command: string, args: string[], options: { cwd?: string; timeout?: number } = {}): Promise<string> {
 	const result = await execFileAsync(command, args, {
 		cwd: options.cwd,
@@ -103,8 +111,9 @@ function shellQuote(value: string): string {
 	return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
-function buildHunkShellCommand(args: string[]): string {
-	return `exec ${["hunk", ...args].map(shellQuote).join(" ")}`;
+function buildHunkShellCommand(hunkCommand: string, args: string[]): string {
+	const pathPrefix = process.env.PATH ? `export PATH=${shellQuote(process.env.PATH)}; ` : "";
+	return `${pathPrefix}exec ${[hunkCommand, ...args].map(shellQuote).join(" ")}`;
 }
 
 function tokenizeArgs(input: string): string[] {
@@ -293,32 +302,81 @@ function sanitizeSessionNamePart(input: string): string {
 	return input.replace(/[^A-Za-z0-9_.-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "repo";
 }
 
-function spawnDetached(command: string, args: string[]): void {
-	const child = spawn(command, args, {
-		detached: true,
-		stdio: "ignore",
+function resolveExecutablePath(command: string): string | undefined {
+	if (command.includes(path.sep)) return commandExists(command) ? command : undefined;
+	return (process.env.PATH ?? "")
+		.split(path.delimiter)
+		.filter(Boolean)
+		.map((directory) => path.join(directory, command))
+		.find((candidate) => {
+			try {
+				fs.accessSync(candidate, fs.constants.X_OK);
+				return true;
+			} catch {
+				return false;
+			}
+		});
+}
+
+function createTmuxPane(args: string[]): string | undefined {
+	const output = execFileSync("tmux", args, {
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "pipe"],
 	});
-	child.unref();
+	return output.trim() || undefined;
 }
 
 function launchHunk(cwd: string, mode: LaunchMode, hunkArgs: string[]): TmuxLaunch {
-	const shellCommand = buildHunkShellCommand(hunkArgs);
+	const hunkCommand = resolveExecutablePath("hunk") ?? "hunk";
+	const shellCommand = buildHunkShellCommand(hunkCommand, hunkArgs);
+	const printPaneArgs = ["-P", "-F", "#{pane_id}"];
+	const tmuxEnvironmentArgs = process.env.PATH ? ["-e", `PATH=${process.env.PATH}`] : [];
 
 	if (mode === "window") {
-		spawnDetached("tmux", ["new-window", "-n", "pi-diff", "-c", cwd, shellCommand]);
-		return { mode };
+		const paneId = createTmuxPane([
+			"new-window",
+			...printPaneArgs,
+			...tmuxEnvironmentArgs,
+			"-n",
+			"pi-diff",
+			"-c",
+			cwd,
+			shellCommand,
+		]);
+		return { mode, paneId };
 	}
 
 	if (mode === "pane") {
-		spawnDetached("tmux", ["split-window", "-h", "-c", cwd, shellCommand]);
-		return { mode };
+		const paneId = createTmuxPane([
+			"split-window",
+			"-h",
+			...printPaneArgs,
+			...tmuxEnvironmentArgs,
+			"-c",
+			cwd,
+			shellCommand,
+		]);
+		return { mode, paneId };
 	}
 
 	const sessionName = `pi-diff-${sanitizeSessionNamePart(path.basename(cwd))}-${process.pid}-${Date.now().toString(36)}`;
-	spawnDetached("tmux", ["new-session", "-d", "-s", sessionName, "-n", "hunk", "-c", cwd, shellCommand]);
+	const paneId = createTmuxPane([
+		"new-session",
+		"-d",
+		...printPaneArgs,
+		...tmuxEnvironmentArgs,
+		"-s",
+		sessionName,
+		"-n",
+		"hunk",
+		"-c",
+		cwd,
+		shellCommand,
+	]);
 
 	return {
 		mode,
+		paneId,
 		sessionName,
 		attachCommand: `tmux attach -t ${shellQuote(sessionName)}`,
 	};
@@ -662,6 +720,14 @@ async function handleReviewInHunkCommand(pi: ExtensionAPI, args: string, ctx: Ex
 
 async function handleLaunchedHunk(pi: ExtensionAPI, ctx: ExtensionContext, parsed: ParsedArgs): Promise<void> {
 	const cwd = ctx.cwd;
+	if (!directoryExists(cwd)) {
+		ctx.ui.notify(
+			`Cannot open Hunk because Pi's working directory no longer exists: ${cwd}. Start Pi from an existing checkout or repo worktree first.`,
+			"error",
+		);
+		return;
+	}
+
 	ctx.ui.setStatus(STATUS_KEY, "opening Hunk diff…");
 
 	const launch = launchHunk(cwd, parsed.mode, parsed.hunkArgs);
@@ -751,6 +817,14 @@ async function handleDiffCommand(
 	}
 
 	const cwd = ctx.cwd;
+	if (!directoryExists(cwd)) {
+		ctx.ui.notify(
+			`Cannot open Hunk because Pi's working directory no longer exists: ${cwd}. Start Pi from an existing checkout or repo worktree first.`,
+			"error",
+		);
+		return;
+	}
+
 	if (commandName !== DIFF_COMMAND_NAME) {
 		try {
 			const { range, baseDescription } = await resolvePullRequestDiffRange(cwd);

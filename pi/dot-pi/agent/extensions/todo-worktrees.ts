@@ -455,6 +455,17 @@ export default function todoWorktreesExtension(pi: ExtensionAPI) {
 				const message = error instanceof Error ? error.message : String(error);
 				if (ctx.hasUI) ctx.ui.notify(message, "error");
 				else console.error(message);
+
+				const failurePrompt = [
+					"/finish-worktree failed with this error:",
+					"",
+					message,
+					"",
+					"Please explain the problem and ask me whether you should do anything about it.",
+					"Do not start fixing it autonomously; pause for my confirmation first.",
+				].join("\n");
+				if (ctx.isIdle()) pi.sendUserMessage(failurePrompt);
+				else pi.sendUserMessage(failurePrompt, { deliverAs: "followUp" });
 			}
 		},
 	});

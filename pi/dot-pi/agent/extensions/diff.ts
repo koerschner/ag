@@ -1,5 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
@@ -8,6 +9,7 @@ const execFileAsync = promisify(execFile);
 
 const DIFF_COMMAND_NAME = "diff";
 const DIFF_PR_COMMAND_NAME = "diff-pr";
+const REVIEW_IN_HUNK_COMMAND_NAME = "review-in-hunk";
 const STATUS_KEY = "hunk-diff";
 const SESSION_REGISTER_TIMEOUT_MS = 20_000;
 const POLL_INTERVAL_MS = 500;
@@ -197,8 +199,10 @@ function parseArgs(rawArgs: string): ParsedArgs {
 	return { mode, hunkArgs: ["diff", ...hunkArgs], showHelp };
 }
 
-function usage(commandName: typeof DIFF_COMMAND_NAME | typeof DIFF_PR_COMMAND_NAME): string {
-	const isPullRequestDiff = commandName === DIFF_PR_COMMAND_NAME;
+type DiffCommandName = typeof DIFF_COMMAND_NAME | typeof DIFF_PR_COMMAND_NAME;
+
+function usage(commandName: DiffCommandName): string {
+	const isPullRequestDiff = commandName !== DIFF_COMMAND_NAME;
 	return [
 		`Usage: /${commandName} [--window|--pane|--session] [hunk diff args...]`,
 		"",
@@ -211,9 +215,9 @@ function usage(commandName: typeof DIFF_COMMAND_NAME | typeof DIFF_PR_COMMAND_NA
 		"it opens a separate named tmux session and prints the attach command.",
 		"",
 		"Examples:",
-		isPullRequestDiff ? "  /diff-pr" : "  /diff",
-		isPullRequestDiff ? "  /diff-pr --pane -- src/ui" : "  /diff --pane --staged",
-		isPullRequestDiff ? "  /diff-pr -- -- README.md" : "  /diff main...feature -- src/ui",
+		isPullRequestDiff ? `  /${commandName}` : "  /diff",
+		isPullRequestDiff ? `  /${commandName} --pane -- src/ui` : "  /diff --pane --staged",
+		isPullRequestDiff ? `  /${commandName} -- -- README.md` : "  /diff main...feature -- src/ui",
 		"",
 		"In Hunk: press `c` to create a note, `Ctrl-S` to save it, then `q` to quit.",
 	].join("\n");
@@ -463,9 +467,199 @@ function buildAgentPrompt(notes: ReviewNote[]): string {
 	].join("\n");
 }
 
+function getPathspecFromHunkArgs(hunkArgs: string[]): string[] {
+	const separatorIndex = hunkArgs.indexOf("--");
+	return separatorIndex === -1 ? [] : hunkArgs.slice(separatorIndex + 1);
+}
+
+function getLastAssistantText(ctx: ExtensionContext): string | undefined {
+	const branch = ctx.sessionManager.getBranch();
+	for (let index = branch.length - 1; index >= 0; index--) {
+		const entry = branch[index];
+		if (entry.type !== "message") continue;
+		const message = entry.message;
+		if (!("role" in message) || message.role !== "assistant") continue;
+		return message.content
+			.filter((content): content is { type: "text"; text: string } => content.type === "text")
+			.map((content) => content.text)
+			.join("\n")
+			.trim();
+	}
+	return undefined;
+}
+
+async function listChangedFiles(cwd: string): Promise<string[]> {
+	const tracked = await run("git", ["diff", "--name-only", "HEAD", "--"], { cwd, timeout: 10_000 }).catch(() => "");
+	const untracked = await run("git", ["ls-files", "--others", "--exclude-standard"], { cwd, timeout: 10_000 }).catch(() => "");
+	return Array.from(new Set([...tracked.split(/\r?\n/), ...untracked.split(/\r?\n/)].map((file) => file.trim()).filter(Boolean)));
+}
+
+function extractDiscussedFiles(text: string, changedFiles: string[]): string[] {
+	const normalizedText = text.replace(/\\\//g, "/");
+	return changedFiles.filter((file) => {
+		const escaped = file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		return new RegExp(`(^|[^A-Za-z0-9_./-])${escaped}($|[^A-Za-z0-9_./-])`).test(normalizedText);
+	});
+}
+
+function trimContext(text: string): string {
+	return text.length <= 8_000 ? text : `${text.slice(0, 8_000)}\n\n…truncated…`;
+}
+
+function summarizeContext(text: string): string {
+	const firstMeaningfulLine = text
+		.split(/\r?\n/)
+		.map((line) => line.trim())
+		.find((line) => line.length > 0);
+	return (firstMeaningfulLine ?? "Pi conversation context").slice(0, 160);
+}
+
+function writeReviewAgentContext(cwd: string, files: string[], assistantText: string): string {
+	const contextPath = path.join(os.tmpdir(), `pi-review-in-hunk-${process.pid}-${Date.now().toString(36)}.json`);
+	const summary = summarizeContext(assistantText);
+	const rationale = trimContext(assistantText);
+	const context = {
+		version: 1,
+		summary: "Context from the last Pi assistant message.",
+		files: files.map((file) => ({
+			path: file,
+			summary: "Discussed in the last Pi assistant message.",
+			annotations: [
+				{
+					summary,
+					rationale,
+					author: "Pi",
+					source: "last-assistant-message",
+					createdAt: new Date().toISOString(),
+				},
+			],
+		})),
+	};
+	fs.writeFileSync(contextPath, JSON.stringify(context, null, 2));
+	return contextPath;
+}
+
+async function handleReviewInHunkCommand(pi: ExtensionAPI, args: string, ctx: ExtensionContext): Promise<void> {
+	if (!ctx.hasUI) {
+		ctx.ui.notify("/review-in-hunk requires interactive Pi mode", "error");
+		return;
+	}
+
+	if (!ctx.isIdle()) {
+		ctx.ui.notify("Wait for the current response to finish before opening /review-in-hunk", "warning");
+		return;
+	}
+
+	let parsed: ParsedArgs;
+	try {
+		parsed = parseArgs(args);
+	} catch (error) {
+		ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+		return;
+	}
+
+	if (parsed.showHelp) {
+		ctx.ui.notify(
+			[
+				"Usage: /review-in-hunk [--window|--pane|--session] [-- pathspec...]",
+				"",
+				"Opens Hunk on changed files mentioned by the last assistant message,",
+				"with that assistant message attached as Hunk agent notes.",
+			].join("\n"),
+			"info",
+		);
+		return;
+	}
+
+	if (!commandExists("tmux")) {
+		ctx.ui.notify("/review-in-hunk uses tmux to run Hunk without corrupting Pi's TUI, but `tmux` was not found.", "error");
+		return;
+	}
+
+	const assistantText = getLastAssistantText(ctx);
+	if (!assistantText) {
+		ctx.ui.notify("No assistant message found to attach as Hunk context.", "error");
+		return;
+	}
+
+	const changedFiles = await listChangedFiles(ctx.cwd);
+	if (changedFiles.length === 0) {
+		ctx.ui.notify("No changed files found for Hunk to review.", "info");
+		return;
+	}
+
+	const explicitPathspec = getPathspecFromHunkArgs(parsed.hunkArgs);
+	const discussedFiles = explicitPathspec.length > 0 ? explicitPathspec : extractDiscussedFiles(assistantText, changedFiles);
+	const filesToReview = discussedFiles.length > 0 ? discussedFiles : changedFiles;
+	const contextPath = writeReviewAgentContext(ctx.cwd, filesToReview, assistantText);
+	parsed.hunkArgs = ["diff", "--agent-context", contextPath, "--agent-notes", "--", ...filesToReview];
+
+	ctx.ui.notify(
+		`Opening ${filesToReview.length} file${filesToReview.length === 1 ? "" : "s"} in Hunk with Pi conversation context.`,
+		"info",
+	);
+	await handleLaunchedHunk(pi, ctx, parsed);
+}
+
+async function handleLaunchedHunk(pi: ExtensionAPI, ctx: ExtensionContext, parsed: ParsedArgs): Promise<void> {
+	const cwd = ctx.cwd;
+	ctx.ui.setStatus(STATUS_KEY, "opening Hunk diff…");
+
+	const launch = launchHunk(cwd, parsed.mode, parsed.hunkArgs);
+
+	if (launch.attachCommand) {
+		ctx.ui.notify(`Hunk opened in tmux session. Attach with: ${launch.attachCommand}`, "info");
+	}
+
+	void (async () => {
+		try {
+			const hunkSession = await waitForHunkSession(launch, cwd);
+			if (!hunkSession) {
+				ctx.ui.setStatus(STATUS_KEY, undefined);
+				ctx.ui.notify(
+					"Hunk opened, but its live session API did not register. Saved notes cannot be ingested from this run.",
+					"warning",
+				);
+				return;
+			}
+
+			ctx.ui.setStatus(STATUS_KEY, "Hunk open — 0 saved notes");
+			const notes = await collectUserNotes(hunkSession.sessionId, launch, (currentNotes) => {
+				ctx.ui.setStatus(STATUS_KEY, `Hunk open — ${currentNotes.length} saved note${currentNotes.length === 1 ? "" : "s"}`);
+			});
+
+			ctx.ui.setStatus(STATUS_KEY, undefined);
+
+			if (notes.length === 0) {
+				ctx.ui.notify("Hunk closed with no saved user notes; nothing was sent to the agent.", "info");
+				return;
+			}
+
+			(pi as unknown as { appendEntry?: (customType: string, data?: unknown) => void }).appendEntry?.("hunk-diff-review", {
+				cwd,
+				hunkArgs: parsed.hunkArgs,
+				notes,
+				completedAt: new Date().toISOString(),
+			});
+
+			const prompt = buildAgentPrompt(notes);
+			ctx.ui.notify(`Sending ${notes.length} Hunk note${notes.length === 1 ? "" : "s"} to the agent…`, "info");
+			if (ctx.isIdle()) {
+				pi.sendUserMessage(prompt);
+			} else {
+				pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+			}
+		} catch (error) {
+			ctx.ui.notify(`Failed while monitoring Hunk notes: ${error instanceof Error ? error.message : String(error)}`, "error");
+		} finally {
+			ctx.ui.setStatus(STATUS_KEY, undefined);
+		}
+	})();
+}
+
 async function handleDiffCommand(
 	pi: ExtensionAPI,
-	commandName: typeof DIFF_COMMAND_NAME | typeof DIFF_PR_COMMAND_NAME,
+	commandName: DiffCommandName,
 	args: string,
 	ctx: ExtensionContext,
 ): Promise<void> {
@@ -498,7 +692,7 @@ async function handleDiffCommand(
 	}
 
 	const cwd = ctx.cwd;
-	if (commandName === DIFF_PR_COMMAND_NAME) {
+	if (commandName !== DIFF_COMMAND_NAME) {
 		try {
 			const { range, baseDescription } = await resolvePullRequestDiffRange(cwd);
 			parsed.hunkArgs.splice(1, 0, range);
@@ -572,5 +766,10 @@ export default function hunkDiffExtension(pi: ExtensionAPI) {
 	pi.registerCommand(DIFF_PR_COMMAND_NAME, {
 		description: "Open Hunk for the whole current PR/branch diff and ingest saved inline notes",
 		handler: (args, ctx) => handleDiffCommand(pi, DIFF_PR_COMMAND_NAME, args, ctx),
+	});
+
+	pi.registerCommand(REVIEW_IN_HUNK_COMMAND_NAME, {
+		description: "Open Hunk on files discussed in the last assistant message, with that context attached as agent notes",
+		handler: (args, ctx) => handleReviewInHunkCommand(pi, args, ctx),
 	});
 }

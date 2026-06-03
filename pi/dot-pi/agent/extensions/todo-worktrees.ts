@@ -176,6 +176,11 @@ async function git(cwd: string, args: string[]): Promise<string> {
 	return stdout.trim();
 }
 
+function isNoStagedFilesCommitError(error: unknown): boolean {
+	const message = error instanceof Error ? error.message : String(error);
+	return /could not find any staged files|nothing to commit|no changes added to commit/i.test(message);
+}
+
 async function tmux(args: string[]): Promise<string> {
 	const { stdout } = await execFile("tmux", args);
 	return stdout.trim();
@@ -303,8 +308,24 @@ async function finishTodoWorktree(ctx: ExtensionContext): Promise<string[]> {
 		);
 	}
 
-	await git(metadata.sourceRepo, ["commit", "-m", `Finish ${formatTodoId(metadata.todoId)}: ${metadata.todoTitle}`]);
-	lines.push(`Squash-merged ${metadata.worktreeBranch} into ${metadata.targetBranch}.`);
+	const stagedMergeChanges = await git(metadata.sourceRepo, ["diff", "--cached", "--name-status"]);
+	if (stagedMergeChanges.trim()) {
+		try {
+			await git(metadata.sourceRepo, [
+				"commit",
+				"-m",
+				metadata.todoTitle,
+				"-m",
+				`Finished ${formatTodoId(metadata.todoId)} from managed todo worktree ${metadata.worktreeBranch}.`,
+			]);
+			lines.push(`Squash-merged ${metadata.worktreeBranch} into ${metadata.targetBranch}.`);
+		} catch (error) {
+			if (!isNoStagedFilesCommitError(error)) throw error;
+			lines.push("No staged changes remained after squash merge; continuing without a finish commit.");
+		}
+	} else {
+		lines.push("Squash merge produced no staged changes; continuing without a finish commit.");
+	}
 
 	lines.push(await closeTodoIfExists(metadata.todosDir, metadata.todoId));
 

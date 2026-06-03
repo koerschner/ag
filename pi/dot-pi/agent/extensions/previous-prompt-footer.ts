@@ -29,7 +29,7 @@ function formatTokens(count: number): string {
 }
 
 function formatDuration(ms: number): string {
-	const totalSeconds = Math.max(0, Math.round(ms / 1000));
+	const totalSeconds = Math.max(0, Math.floor(ms / 1000));
 	const hours = Math.floor(totalSeconds / 3600);
 	const minutes = Math.floor((totalSeconds % 3600) / 60);
 	const seconds = totalSeconds % 60;
@@ -80,7 +80,9 @@ function getCompletedThreadRunDurationMs(ctx: ExtensionContext): number {
 		const candidate = entry as { type?: string; customType?: string; data?: { ms?: unknown } };
 		if (candidate.type !== "custom" || candidate.customType !== RUN_DURATION_CUSTOM_TYPE) continue;
 		const ms = candidate.data?.ms;
-		if (typeof ms === "number" && Number.isFinite(ms) && ms > 0) total += ms;
+		if (typeof ms === "number" && Number.isFinite(ms) && ms > 0) {
+			total += Math.floor(ms / 1000) * 1000;
+		}
 	}
 	return total;
 }
@@ -452,7 +454,7 @@ export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 		const state = getPreviewState(ctx);
 		if (state.runStartedAt !== null) {
 			const endedAt = Date.now();
-			state.lastRunMs = endedAt - state.runStartedAt;
+			state.lastRunMs = Math.floor((endedAt - state.runStartedAt) / 1000) * 1000;
 			(pi as unknown as { appendEntry?: (customType: string, data?: unknown) => void }).appendEntry?.(
 				RUN_DURATION_CUSTOM_TYPE,
 				{

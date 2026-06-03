@@ -2,11 +2,12 @@ import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 const execFileAsync = promisify(execFile);
 
-const COMMAND_NAME = "diff";
+const DIFF_COMMAND_NAME = "diff";
+const DIFF_PR_COMMAND_NAME = "diff-pr";
 const STATUS_KEY = "hunk-diff";
 const SESSION_REGISTER_TIMEOUT_MS = 20_000;
 const POLL_INTERVAL_MS = 500;
@@ -196,23 +197,92 @@ function parseArgs(rawArgs: string): ParsedArgs {
 	return { mode, hunkArgs: ["diff", ...hunkArgs], showHelp };
 }
 
-function usage(): string {
+function usage(commandName: typeof DIFF_COMMAND_NAME | typeof DIFF_PR_COMMAND_NAME): string {
+	const isPullRequestDiff = commandName === DIFF_PR_COMMAND_NAME;
 	return [
-		"Usage: /diff [--window|--pane|--session] [hunk diff args...]",
+		`Usage: /${commandName} [--window|--pane|--session] [hunk diff args...]`,
 		"",
-		"Opens `hunk diff` for the current worktree, watches for saved human notes,",
+		isPullRequestDiff
+			? "Opens `hunk diff <base>...HEAD` for the current branch/PR, watches for saved human notes,"
+			: "Opens `hunk diff` for the current worktree, watches for saved human notes,",
 		"and sends those notes back to Pi after Hunk quits.",
 		"",
 		"Inside tmux, the default is --window (fullscreen tmux window). Outside tmux,",
 		"it opens a separate named tmux session and prints the attach command.",
 		"",
 		"Examples:",
-		"  /diff",
-		"  /diff --pane --staged",
-		"  /diff main...feature -- src/ui",
+		isPullRequestDiff ? "  /diff-pr" : "  /diff",
+		isPullRequestDiff ? "  /diff-pr --pane -- src/ui" : "  /diff --pane --staged",
+		isPullRequestDiff ? "  /diff-pr -- -- README.md" : "  /diff main...feature -- src/ui",
 		"",
 		"In Hunk: press `c` to create a note, `Ctrl-S` to save it, then `q` to quit.",
 	].join("\n");
+}
+
+async function gitRefExists(cwd: string, ref: string): Promise<boolean> {
+	try {
+		await run("git", ["rev-parse", "--verify", "--quiet", ref], { cwd, timeout: 5_000 });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+async function getGitHubPrBaseRef(cwd: string): Promise<string | undefined> {
+	if (!commandExists("gh")) return undefined;
+	try {
+		const baseRefName = await run("gh", ["pr", "view", "--json", "baseRefName", "--jq", ".baseRefName"], {
+			cwd,
+			timeout: 10_000,
+		});
+		return baseRefName || undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+async function getDefaultRemoteBaseRef(cwd: string): Promise<string | undefined> {
+	try {
+		const originHead = await run("git", ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], {
+			cwd,
+			timeout: 5_000,
+		});
+		if (originHead) return originHead;
+	} catch {
+		// Fall through to common branch names.
+	}
+
+	for (const candidate of ["origin/main", "origin/master", "main", "master"]) {
+		if (await gitRefExists(cwd, candidate)) return candidate;
+	}
+
+	return undefined;
+}
+
+async function resolvePullRequestDiffRange(cwd: string): Promise<{ range: string; baseDescription: string }> {
+	try {
+		await run("git", ["rev-parse", "--is-inside-work-tree"], { cwd, timeout: 5_000 });
+	} catch {
+		throw new Error("/diff-pr must be run inside a git worktree.");
+	}
+
+	const prBaseRefName = await getGitHubPrBaseRef(cwd);
+	if (prBaseRefName) {
+		const remoteRef = `origin/${prBaseRefName}`;
+		if (await gitRefExists(cwd, remoteRef)) {
+			return { range: `${remoteRef}...HEAD`, baseDescription: `GitHub PR base ${remoteRef}` };
+		}
+		if (await gitRefExists(cwd, prBaseRefName)) {
+			return { range: `${prBaseRefName}...HEAD`, baseDescription: `GitHub PR base ${prBaseRefName}` };
+		}
+		return { range: `${remoteRef}...HEAD`, baseDescription: `GitHub PR base ${remoteRef}` };
+	}
+
+	const defaultBase = await getDefaultRemoteBaseRef(cwd);
+	if (!defaultBase) {
+		throw new Error("Could not determine a PR base branch. Install/auth `gh` or configure origin/HEAD.");
+	}
+	return { range: `${defaultBase}...HEAD`, baseDescription: `default base ${defaultBase}` };
 }
 
 function sanitizeSessionNamePart(input: string): string {
@@ -393,91 +463,114 @@ function buildAgentPrompt(notes: ReviewNote[]): string {
 	].join("\n");
 }
 
+async function handleDiffCommand(
+	pi: ExtensionAPI,
+	commandName: typeof DIFF_COMMAND_NAME | typeof DIFF_PR_COMMAND_NAME,
+	args: string,
+	ctx: ExtensionContext,
+): Promise<void> {
+	if (!ctx.hasUI) {
+		ctx.ui.notify(`/${commandName} requires interactive Pi mode`, "error");
+		return;
+	}
+
+	if (!ctx.isIdle()) {
+		ctx.ui.notify(`Wait for the current response to finish before opening /${commandName}`, "warning");
+		return;
+	}
+
+	let parsed: ParsedArgs;
+	try {
+		parsed = parseArgs(args);
+	} catch (error) {
+		ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+		return;
+	}
+
+	if (parsed.showHelp) {
+		ctx.ui.notify(usage(commandName), "info");
+		return;
+	}
+
+	if (!commandExists("tmux")) {
+		ctx.ui.notify(`/${commandName} uses tmux to run Hunk without corrupting Pi's TUI, but \`tmux\` was not found.`, "error");
+		return;
+	}
+
+	const cwd = ctx.cwd;
+	if (commandName === DIFF_PR_COMMAND_NAME) {
+		try {
+			const { range, baseDescription } = await resolvePullRequestDiffRange(cwd);
+			parsed.hunkArgs.splice(1, 0, range);
+			ctx.ui.notify(`Opening PR diff against ${baseDescription}: ${range}`, "info");
+		} catch (error) {
+			ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+			return;
+		}
+	}
+
+	ctx.ui.setStatus(STATUS_KEY, "opening Hunk diff…");
+
+	const launch = launchHunk(cwd, parsed.mode, parsed.hunkArgs);
+
+	if (launch.attachCommand) {
+		ctx.ui.notify(`Hunk opened in tmux session. Attach with: ${launch.attachCommand}`, "info");
+	}
+
+	void (async () => {
+		try {
+			const hunkSession = await waitForHunkSession(launch, cwd);
+			if (!hunkSession) {
+				ctx.ui.setStatus(STATUS_KEY, undefined);
+				ctx.ui.notify(
+					"Hunk opened, but its live session API did not register. Saved notes cannot be ingested from this run.",
+					"warning",
+				);
+				return;
+			}
+
+			ctx.ui.setStatus(STATUS_KEY, "Hunk open — 0 saved notes");
+			const notes = await collectUserNotes(hunkSession.sessionId, launch, (currentNotes) => {
+				ctx.ui.setStatus(STATUS_KEY, `Hunk open — ${currentNotes.length} saved note${currentNotes.length === 1 ? "" : "s"}`);
+			});
+
+			ctx.ui.setStatus(STATUS_KEY, undefined);
+
+			if (notes.length === 0) {
+				ctx.ui.notify("Hunk closed with no saved user notes; nothing was sent to the agent.", "info");
+				return;
+			}
+
+			(pi as unknown as { appendEntry?: (customType: string, data?: unknown) => void }).appendEntry?.("hunk-diff-review", {
+				cwd,
+				hunkArgs: parsed.hunkArgs,
+				notes,
+				completedAt: new Date().toISOString(),
+			});
+
+			const prompt = buildAgentPrompt(notes);
+			ctx.ui.notify(`Sending ${notes.length} Hunk note${notes.length === 1 ? "" : "s"} to the agent…`, "info");
+			if (ctx.isIdle()) {
+				pi.sendUserMessage(prompt);
+			} else {
+				pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+			}
+		} catch (error) {
+			ctx.ui.notify(`Failed while monitoring Hunk notes: ${error instanceof Error ? error.message : String(error)}`, "error");
+		} finally {
+			ctx.ui.setStatus(STATUS_KEY, undefined);
+		}
+	})();
+}
+
 export default function hunkDiffExtension(pi: ExtensionAPI) {
-	pi.registerCommand(COMMAND_NAME, {
+	pi.registerCommand(DIFF_COMMAND_NAME, {
 		description: "Open Hunk for the current worktree and ingest saved inline notes",
-		handler: async (args, ctx) => {
-			if (!ctx.hasUI) {
-				ctx.ui.notify("/diff requires interactive Pi mode", "error");
-				return;
-			}
+		handler: (args, ctx) => handleDiffCommand(pi, DIFF_COMMAND_NAME, args, ctx),
+	});
 
-			if (!ctx.isIdle()) {
-				ctx.ui.notify("Wait for the current response to finish before opening /diff", "warning");
-				return;
-			}
-
-			let parsed: ParsedArgs;
-			try {
-				parsed = parseArgs(args);
-			} catch (error) {
-				ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
-				return;
-			}
-
-			if (parsed.showHelp) {
-				ctx.ui.notify(usage(), "info");
-				return;
-			}
-
-			if (!commandExists("tmux")) {
-				ctx.ui.notify("/diff uses tmux to run Hunk without corrupting Pi's TUI, but `tmux` was not found.", "error");
-				return;
-			}
-
-			const cwd = ctx.cwd;
-			ctx.ui.setStatus(STATUS_KEY, "opening Hunk diff…");
-
-			const launch = launchHunk(cwd, parsed.mode, parsed.hunkArgs);
-
-			if (launch.attachCommand) {
-				ctx.ui.notify(`Hunk opened in tmux session. Attach with: ${launch.attachCommand}`, "info");
-			}
-
-			void (async () => {
-				try {
-					const hunkSession = await waitForHunkSession(launch, cwd);
-					if (!hunkSession) {
-						ctx.ui.setStatus(STATUS_KEY, undefined);
-						ctx.ui.notify(
-							"Hunk opened, but its live session API did not register. Saved notes cannot be ingested from this run.",
-							"warning",
-						);
-						return;
-					}
-
-					ctx.ui.setStatus(STATUS_KEY, "Hunk open — 0 saved notes");
-					const notes = await collectUserNotes(hunkSession.sessionId, launch, (currentNotes) => {
-						ctx.ui.setStatus(STATUS_KEY, `Hunk open — ${currentNotes.length} saved note${currentNotes.length === 1 ? "" : "s"}`);
-					});
-
-					ctx.ui.setStatus(STATUS_KEY, undefined);
-
-					if (notes.length === 0) {
-						ctx.ui.notify("Hunk closed with no saved user notes; nothing was sent to the agent.", "info");
-						return;
-					}
-
-					(pi as unknown as { appendEntry?: (customType: string, data?: unknown) => void }).appendEntry?.("hunk-diff-review", {
-						cwd,
-						hunkArgs: parsed.hunkArgs,
-						notes,
-						completedAt: new Date().toISOString(),
-					});
-
-					const prompt = buildAgentPrompt(notes);
-					ctx.ui.notify(`Sending ${notes.length} Hunk note${notes.length === 1 ? "" : "s"} to the agent…`, "info");
-					if (ctx.isIdle()) {
-						pi.sendUserMessage(prompt);
-					} else {
-						pi.sendUserMessage(prompt, { deliverAs: "followUp" });
-					}
-				} catch (error) {
-					ctx.ui.notify(`Failed while monitoring Hunk notes: ${error instanceof Error ? error.message : String(error)}`, "error");
-				} finally {
-					ctx.ui.setStatus(STATUS_KEY, undefined);
-				}
-			})();
-		},
+	pi.registerCommand(DIFF_PR_COMMAND_NAME, {
+		description: "Open Hunk for the whole current PR/branch diff and ingest saved inline notes",
+		handler: (args, ctx) => handleDiffCommand(pi, DIFF_PR_COMMAND_NAME, args, ctx),
 	});
 }

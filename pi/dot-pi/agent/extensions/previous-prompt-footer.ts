@@ -74,7 +74,7 @@ function getDisplayPrompt(_ctx: ExtensionContext, state: SessionPreviewState): s
 	return state.aiSummary;
 }
 
-function getThreadRunDurationMs(ctx: ExtensionContext, state: SessionPreviewState): number {
+function getCompletedThreadRunDurationMs(ctx: ExtensionContext): number {
 	let total = 0;
 	for (const entry of ctx.sessionManager.getBranch()) {
 		const candidate = entry as { type?: string; customType?: string; data?: { ms?: unknown } };
@@ -82,17 +82,13 @@ function getThreadRunDurationMs(ctx: ExtensionContext, state: SessionPreviewStat
 		const ms = candidate.data?.ms;
 		if (typeof ms === "number" && Number.isFinite(ms) && ms > 0) total += ms;
 	}
-
-	if (state.runStartedAt !== null) {
-		total += Date.now() - state.runStartedAt;
-	}
-
 	return total;
 }
 
 export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 	const previewStateBySession = new Map<string, SessionPreviewState>();
 	const footerRenderersBySession = new Map<string, Set<() => void>>();
+	const runRenderIntervalsBySession = new Map<string, ReturnType<typeof setInterval>>();
 
 	const getPreviewState = (ctx: ExtensionContext): SessionPreviewState => {
 		const key = getSessionKey(ctx);
@@ -230,7 +226,27 @@ export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 		for (const render of getRendererSet(ctx)) render();
 	};
 
+	const stopRunRenderInterval = (ctx: ExtensionContext) => {
+		const key = getSessionKey(ctx);
+		const interval = runRenderIntervalsBySession.get(key);
+		if (!interval) return;
+		clearInterval(interval);
+		runRenderIntervalsBySession.delete(key);
+	};
+
+	const startRunRenderInterval = (ctx: ExtensionContext) => {
+		const key = getSessionKey(ctx);
+		if (runRenderIntervalsBySession.has(key)) return;
+		runRenderIntervalsBySession.set(
+			key,
+			setInterval(() => {
+				requestFooterRender(ctx);
+			}, 1000),
+		);
+	};
+
 	const resetSessionState = (ctx: ExtensionContext) => {
+		stopRunRenderInterval(ctx);
 		resetPreviewState(ctx);
 		footerRenderersBySession.delete(getSessionKey(ctx));
 	};
@@ -295,9 +311,13 @@ export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 					}
 
 					const currentState = getPreviewState(ctx);
-					const threadRunMs = getThreadRunDurationMs(ctx, currentState);
-					if (currentState.lastRunMs !== null) {
-						statsParts.push(`⏱ ${formatDuration(currentState.lastRunMs)} Σ${formatDuration(threadRunMs)}`);
+					const completedThreadRunMs = getCompletedThreadRunDurationMs(ctx);
+					const now = Date.now();
+					const activeRunMs = currentState.runStartedAt !== null ? now - currentState.runStartedAt : null;
+					const currentRunMs = activeRunMs ?? currentState.lastRunMs;
+					const threadRunMs = completedThreadRunMs + (activeRunMs ?? 0);
+					if (currentRunMs !== null) {
+						statsParts.push(`⏱ ${formatDuration(currentRunMs)} Σ${formatDuration(threadRunMs)}`);
 					} else if (threadRunMs > 0) {
 						statsParts.push(`Σ${formatDuration(threadRunMs)}`);
 					}
@@ -420,11 +440,15 @@ export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 	});
 
 	pi.on("agent_start", (_event, ctx) => {
-		getPreviewState(ctx).runStartedAt = Date.now();
+		const state = getPreviewState(ctx);
+		state.runStartedAt = Date.now();
+		state.lastRunMs = null;
+		startRunRenderInterval(ctx);
 		requestFooterRender(ctx);
 	});
 
 	pi.on("agent_end", (_event, ctx) => {
+		stopRunRenderInterval(ctx);
 		const state = getPreviewState(ctx);
 		if (state.runStartedAt !== null) {
 			const endedAt = Date.now();

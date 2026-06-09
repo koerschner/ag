@@ -20,7 +20,6 @@ interface ParsedArgs {
 	mode: LaunchMode;
 	hunkArgs: string[];
 	showHelp: boolean;
-	includeUntracked: boolean;
 }
 
 interface TmuxLaunch {
@@ -170,7 +169,6 @@ function parseArgs(rawArgs: string): ParsedArgs {
 	const tokens = tokenizeArgs(rawArgs.trim());
 	let mode: LaunchMode = process.env.TMUX ? "window" : "session";
 	let showHelp = false;
-	let includeUntracked = false;
 	const hunkArgs: string[] = [];
 	let passThrough = false;
 
@@ -191,9 +189,6 @@ function parseArgs(rawArgs: string): ParsedArgs {
 			case "-h":
 				showHelp = true;
 				break;
-			case "--include-untracked":
-				includeUntracked = true;
-				break;
 			case "--window":
 			case "--fullscreen":
 				mode = process.env.TMUX ? "window" : "session";
@@ -210,13 +205,7 @@ function parseArgs(rawArgs: string): ParsedArgs {
 		}
 	}
 
-	return { mode, hunkArgs: ["diff", ...hunkArgs], showHelp, includeUntracked };
-}
-
-function applyDiffDefaults(parsed: ParsedArgs): void {
-	if (parsed.includeUntracked) return;
-	if (parsed.hunkArgs.includes("--exclude-untracked")) return;
-	parsed.hunkArgs.splice(1, 0, "--exclude-untracked");
+	return { mode, hunkArgs: ["diff", ...hunkArgs], showHelp };
 }
 
 type DiffCommandName = typeof DIFF_COMMAND_NAME | typeof DIFF_PR_COMMAND_NAME;
@@ -234,13 +223,10 @@ function usage(commandName: DiffCommandName): string {
 		"Inside tmux, the default is --window (fullscreen tmux window). Outside tmux,",
 		"it opens a separate named tmux session and prints the attach command.",
 		"",
-		"By default, untracked files are excluded so large generated directories do not make Hunk appear blank while diffing.",
-		"Use --include-untracked if you really want Hunk to include every untracked file.",
-		"",
 		"Examples:",
 		isPullRequestDiff ? `  /${commandName}` : "  /diff",
 		isPullRequestDiff ? `  /${commandName} --pane -- src/ui` : "  /diff --pane --staged",
-		isPullRequestDiff ? `  /${commandName} -- -- README.md` : "  /diff --include-untracked -- README.md",
+		isPullRequestDiff ? `  /${commandName} -- -- README.md` : "  /diff main...feature -- src/ui",
 		"",
 		"In Hunk: press `c` to create a note, `Ctrl-S` to save it, then `q` to quit.",
 	].join("\n");
@@ -824,8 +810,6 @@ async function handleDiffCommand(
 		ctx.ui.notify(usage(commandName), "info");
 		return;
 	}
-
-	applyDiffDefaults(parsed);
 
 	if (!commandExists("tmux")) {
 		ctx.ui.notify(`/${commandName} uses tmux to run Hunk without corrupting Pi's TUI, but \`tmux\` was not found.`, "error");

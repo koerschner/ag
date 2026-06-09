@@ -1,7 +1,7 @@
 {
-  "lastChangelogVersion": "0.78.0",
-  "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.5",
+  "lastChangelogVersion": "0.79.0",
+  "defaultProvider": "openrouter",
+  "defaultModel": "anthropic/claude-fable-5",
   "defaultThinkingLevel": "medium",
   "hideThinkingBlock": false,
   "packages": [

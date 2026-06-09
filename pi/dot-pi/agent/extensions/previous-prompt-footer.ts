@@ -1,10 +1,16 @@
-import { basename } from "path";
+import { execFile as execFileCb } from "node:child_process";
+import fs from "node:fs/promises";
+import { promisify } from "node:util";
+import { basename, join } from "path";
 
 import { complete } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 
 const RUN_DURATION_CUSTOM_TYPE = "previous-prompt-footer-run-duration";
+const LOC_STATS_REFRESH_MS = 2000;
+
+const execFile = promisify(execFileCb);
 
 type SessionPreviewState = {
 	submittedPrompt: string;
@@ -14,6 +20,12 @@ type SessionPreviewState = {
 	summaryInFlight: boolean;
 	runStartedAt: number | null;
 	lastRunMs: number | null;
+};
+
+type LocStatsState = {
+	text: string;
+	updatedAt: number;
+	inFlight: boolean;
 };
 
 function sanitizeSingleLine(text: string): string {
@@ -87,10 +99,65 @@ function getCompletedThreadRunDurationMs(ctx: ExtensionContext): number {
 	return total;
 }
 
+function parseNumstat(stdout: string): { added: number; deleted: number } {
+	let added = 0;
+	let deleted = 0;
+	for (const line of stdout.split("\n")) {
+		const [addedText, deletedText] = line.split("\t");
+		if (!addedText || !deletedText) continue;
+		if (addedText !== "-") added += Number.parseInt(addedText, 10) || 0;
+		if (deletedText !== "-") deleted += Number.parseInt(deletedText, 10) || 0;
+	}
+	return { added, deleted };
+}
+
+function formatLocStats(added: number, deleted: number): string {
+	return `LOC +${formatTokens(added)}/-${formatTokens(deleted)}`;
+}
+
+function countLines(buffer: Buffer): number {
+	if (buffer.length === 0) return 0;
+	let lines = 0;
+	for (const byte of buffer) {
+		if (byte === 10) lines += 1;
+	}
+	return buffer[buffer.length - 1] === 10 ? lines : lines + 1;
+}
+
+async function countUntrackedAddedLines(cwd: string): Promise<number> {
+	const { stdout } = await execFile("git", ["ls-files", "--others", "--exclude-standard", "-z"], { cwd, encoding: "buffer" });
+	const files = stdout
+		.toString("utf8")
+		.split("\0")
+		.filter(Boolean);
+
+	let added = 0;
+	await Promise.all(
+		files.map(async (file) => {
+			try {
+				added += countLines(await fs.readFile(join(cwd, file)));
+			} catch {
+				// Ignore unreadable untracked files in the footer indicator.
+			}
+		}),
+	);
+	return added;
+}
+
+async function calculateLocStats(cwd: string): Promise<{ added: number; deleted: number }> {
+	const [{ stdout }, untrackedAdded] = await Promise.all([
+		execFile("git", ["diff", "--numstat", "HEAD", "--"], { cwd }),
+		countUntrackedAddedLines(cwd),
+	]);
+	const tracked = parseNumstat(String(stdout));
+	return { added: tracked.added + untrackedAdded, deleted: tracked.deleted };
+}
+
 export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 	const previewStateBySession = new Map<string, SessionPreviewState>();
 	const footerRenderersBySession = new Map<string, Set<() => void>>();
 	const runRenderIntervalsBySession = new Map<string, ReturnType<typeof setInterval>>();
+	const locStatsByCwd = new Map<string, LocStatsState>();
 
 	const getPreviewState = (ctx: ExtensionContext): SessionPreviewState => {
 		const key = getSessionKey(ctx);
@@ -228,6 +295,34 @@ export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 		for (const render of getRendererSet(ctx)) render();
 	};
 
+	const refreshLocStats = (ctx: ExtensionContext) => {
+		const key = ctx.cwd;
+		let state = locStatsByCwd.get(key);
+		if (!state) {
+			state = { text: "LOC +0/-0", updatedAt: 0, inFlight: false };
+			locStatsByCwd.set(key, state);
+		}
+
+		const now = Date.now();
+		if (state.inFlight || now - state.updatedAt < LOC_STATS_REFRESH_MS) return state.text;
+
+		state.inFlight = true;
+		calculateLocStats(ctx.cwd)
+			.then(({ added, deleted }) => {
+				state.text = formatLocStats(added, deleted);
+			})
+			.catch(() => {
+				state.text = "";
+			})
+			.finally(() => {
+				state.updatedAt = Date.now();
+				state.inFlight = false;
+				requestFooterRender(ctx);
+			});
+
+		return state.text;
+	};
+
 	const stopRunRenderInterval = (ctx: ExtensionContext) => {
 		const key = getSessionKey(ctx);
 		const interval = runRenderIntervalsBySession.get(key);
@@ -325,6 +420,9 @@ export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 					}
 
 					statsParts.push(contextText);
+
+					const locStats = refreshLocStats(ctx);
+					if (locStats) statsParts.push(locStats);
 
 					let statsLeft = statsParts.join(" ");
 					let statsLeftWidth = visibleWidth(statsLeft);

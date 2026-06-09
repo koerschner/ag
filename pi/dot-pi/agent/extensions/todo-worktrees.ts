@@ -176,6 +176,20 @@ async function git(cwd: string, args: string[]): Promise<string> {
 	return stdout.trim();
 }
 
+async function gitResult(cwd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+	try {
+		const { stdout, stderr } = await execFile("git", args, { cwd });
+		return { code: 0, stdout: stdout.trim(), stderr: stderr.trim() };
+	} catch (error) {
+		const nodeError = error as NodeJS.ErrnoException & { stdout?: string; stderr?: string };
+		return {
+			code: typeof nodeError.code === "number" ? nodeError.code : 1,
+			stdout: (nodeError.stdout ?? "").trim(),
+			stderr: (nodeError.stderr ?? nodeError.message ?? String(error)).trim(),
+		};
+	}
+}
+
 function isNoStagedFilesCommitError(error: unknown): boolean {
 	const message = error instanceof Error ? error.message : String(error);
 	return /could not find any staged files|nothing to commit|no changes added to commit/i.test(message);
@@ -206,6 +220,46 @@ async function readWorktreeMetadata(cwd: string): Promise<WorktreeTodoMetadata> 
 		const message = error instanceof Error ? error.message : String(error);
 		throw new Error(`Could not read todo worktree metadata at ${metadataPath}: ${message}`);
 	}
+}
+
+async function isWorktreeBranchAlreadyIntegrated(sourceRepo: string, worktreeBranch: string): Promise<boolean> {
+	const ancestor = await gitResult(sourceRepo, ["merge-base", "--is-ancestor", worktreeBranch, "HEAD"]);
+	if (ancestor.code === 0) return true;
+
+	const cherry = await gitResult(sourceRepo, ["cherry", "HEAD", worktreeBranch]);
+	if (cherry.code === 0) {
+		const lines = cherry.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+		if (lines.length === 0 || lines.every((line) => line.startsWith("-"))) return true;
+	}
+
+	const log = await gitResult(sourceRepo, ["log", "--format=%B", "-n", "100", "HEAD"]);
+	return log.code === 0 && log.stdout.includes(`managed todo worktree ${worktreeBranch}`);
+}
+
+function hasUnmergedStatus(status: string): boolean {
+	return status.split(/\r?\n/).some((line) => /^(DD|AU|UD|UA|DU|AA|UU) /.test(line));
+}
+
+async function resetDuplicateMergeStateIfIntegrated(sourceRepo: string, worktreeBranch: string): Promise<boolean> {
+	if (!(await isWorktreeBranchAlreadyIntegrated(sourceRepo, worktreeBranch))) return false;
+
+	await gitResult(sourceRepo, ["reset", "--merge"]);
+	return true;
+}
+
+async function confirmAlreadyMergedCleanup(ctx: ExtensionContext, status: string): Promise<boolean> {
+	if (!hasUnmergedStatus(status)) return false;
+
+	return ctx.ui.confirm(
+		"Clear duplicate merge conflict?",
+		[
+			"The target repo has unmerged files from a failed squash merge.",
+			"If this todo branch was already manually merged/committed, Pi can reset this duplicate failed merge state and finish by closing the todo and deleting the worktree.",
+			"Choose No if these are real unresolved conflicts that still need manual resolution.",
+			"",
+			status,
+		].join("\n"),
+	);
 }
 
 async function closeTodoIfExists(todosDir: string, todoId: string): Promise<string> {
@@ -293,19 +347,40 @@ async function finishTodoWorktree(ctx: ExtensionContext): Promise<string[]> {
 
 	const sourceStatus = await git(metadata.sourceRepo, ["status", "--porcelain"]);
 	if (sourceStatus.trim()) {
-		throw new Error(`Target repo has uncommitted changes; clean it before merging:\n${sourceStatus}`);
+		if (await resetDuplicateMergeStateIfIntegrated(metadata.sourceRepo, metadata.worktreeBranch)) {
+			lines.push("Cleared a duplicate failed merge state for an already-integrated worktree branch.");
+		} else if (await confirmAlreadyMergedCleanup(ctx, sourceStatus)) {
+			await gitResult(metadata.sourceRepo, ["reset", "--merge"]);
+			lines.push("Cleared a duplicate failed merge state after confirmation that the branch was already merged.");
+		} else {
+			throw new Error(`Target repo has uncommitted changes; clean it before merging:\n${sourceStatus}`);
+		}
 	}
 
 	await git(metadata.sourceRepo, ["checkout", metadata.targetBranch]);
 	lines.push(`Checked out ${metadata.targetBranch} in ${metadata.sourceRepo}.`);
 
-	try {
-		await git(metadata.sourceRepo, ["merge", "--squash", metadata.worktreeBranch]);
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		throw new Error(
-			`Squash merge failed, likely due to conflicts. Resolve in ${metadata.sourceRepo}, then commit or abort the merge.\n\n${message}`,
-		);
+	if (await isWorktreeBranchAlreadyIntegrated(metadata.sourceRepo, metadata.worktreeBranch)) {
+		lines.push(`${metadata.worktreeBranch} is already integrated in ${metadata.targetBranch}; skipping squash merge.`);
+	} else {
+		try {
+			await git(metadata.sourceRepo, ["merge", "--squash", metadata.worktreeBranch]);
+		} catch (error) {
+			if (await resetDuplicateMergeStateIfIntegrated(metadata.sourceRepo, metadata.worktreeBranch)) {
+				lines.push("Squash merge conflicted, but the worktree branch was already integrated; cleared duplicate merge state.");
+			} else {
+				const conflictStatus = await git(metadata.sourceRepo, ["status", "--porcelain"]);
+				if (await confirmAlreadyMergedCleanup(ctx, conflictStatus)) {
+					await gitResult(metadata.sourceRepo, ["reset", "--merge"]);
+					lines.push("Squash merge conflicted, but you confirmed the branch was already merged; cleared duplicate merge state.");
+				} else {
+					const message = error instanceof Error ? error.message : String(error);
+					throw new Error(
+						`Squash merge failed, likely due to conflicts. Resolve in ${metadata.sourceRepo}, then commit or abort the merge.\n\n${message}`,
+					);
+				}
+			}
+		}
 	}
 
 	const stagedMergeChanges = await git(metadata.sourceRepo, ["diff", "--cached", "--name-status"]);

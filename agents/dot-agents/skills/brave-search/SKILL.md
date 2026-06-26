@@ -1,11 +1,13 @@
 ---
 name: brave-search
-description: Web search and content extraction via Brave Search API. Use for searching documentation, facts, or any web content. Lightweight, no browser required.
+description: Bash-script based web search and content extraction via Brave Search API. Use for searching documentation, facts, or any web content. IMPORTANT: there is no functions.brave-search tool; first read this skill, then run search.js/content.js with bash.
 ---
 
 # Brave Search
 
 Web search and content extraction using the official Brave Search API. No browser required.
+
+**Important for agents:** this skill is not exposed as a Pi tool named `functions.brave-search`. Do not call `functions.brave-search` or `brave-search` via `multi_tool_use`; that tool does not exist. Use the `bash` tool to run the scripts in this directory (`search.js` and `content.js`).
 
 ## Setup
 

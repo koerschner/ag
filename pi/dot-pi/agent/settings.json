@@ -1,7 +1,7 @@
 {
-  "lastChangelogVersion": "0.79.1",
-  "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.5",
+  "lastChangelogVersion": "0.79.8",
+  "defaultProvider": "openrouter",
+  "defaultModel": "openai/gpt-5.5",
   "defaultThinkingLevel": "medium",
   "hideThinkingBlock": false,
   "packages": [
@@ -9,5 +9,10 @@
   ],
   "skills": [
     "~/.agents/skills"
-  ]
+  ],
+  "enabledModels": [
+    "openai-codex/gpt-5.5",
+    "anthropic/claude-fable-5"
+  ],
+  "theme": "dark"
 }

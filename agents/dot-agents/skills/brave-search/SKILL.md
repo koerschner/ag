@@ -1,6 +1,6 @@
 ---
 name: brave-search
-description: Bash-script based web search and content extraction via Brave Search API. Use for searching documentation, facts, or any web content. IMPORTANT: there is no functions.brave-search tool; first read this skill, then run search.js/content.js with bash.
+description: "Bash-script based web search and content extraction via Brave Search API. Use for searching documentation, facts, or any web content. IMPORTANT: there is no functions.brave-search tool; first read this skill, then run search.js/content.js with bash."
 ---
 
 # Brave Search

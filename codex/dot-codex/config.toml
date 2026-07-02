@@ -1,78 +1,71 @@
-model = "gpt-5.4"
-model_reasoning_effort = "high"
-tool_output_token_limit = 25000
-model_auto_compact_token_limit = 233000
+model = "gpt-5.5"
+model_reasoning_effort = "xhigh"
+
+notify = ["/Users/nathan/.codex/computer-use/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient", "turn-ended"]
+
+[marketplaces.openai-bundled]
+last_updated = "2026-06-28T18:55:09Z"
+source_type = "local"
+source = "/Users/nathan/.codex/.tmp/bundled-marketplaces/openai-bundled"
+
+[marketplaces.openai-primary-runtime]
+last_updated = "2026-07-01T10:09:00Z"
+source_type = "local"
+source = "/Users/nathan/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
+
+[plugins."documents@openai-primary-runtime"]
+enabled = true
+
+[plugins."spreadsheets@openai-primary-runtime"]
+enabled = true
+
+[plugins."presentations@openai-primary-runtime"]
+enabled = true
+
+[plugins."browser@openai-bundled"]
+enabled = true
+
+[plugins."record-and-replay@openai-bundled"]
+enabled = true
+
+[plugins."pdf@openai-primary-runtime"]
+enabled = true
+
+[plugins."template-creator@openai-primary-runtime"]
+enabled = true
+
+[projects."/Users/nathan/Documents/Codex/2026-05-18/i-m-debugging-something-can-you"]
+trust_level = "trusted"
+
+[projects."/Users/nathan/Documents/Codex/2026-06-23/re"]
+trust_level = "trusted"
+
+[projects."/Users/nathan/Documents/Codex/2026-06-23/r"]
+trust_level = "trusted"
+
+[desktop]
+ambient-suggestions-enabled = false
+appearanceTheme = "dark"
+conversationDetailMode = "STEPS_COMMANDS"
 
 [features]
-ghost_commit = false
-unified_exec = true
-apply_patch_freeform = true
-web_search_request = true
-skills = true
-shell_snapshot = true
+js_repl = false
 
-[projects."/Users/natkoersch/otto1"]
-trust_level = "trusted"
+[mcp_servers.node_repl]
+args = []
+command = "/Applications/Codex.app/Contents/Resources/cua_node/bin/node_repl"
+startup_timeout_sec = 120
 
-[projects."/Users/natkoersch/ichingapp"]
-trust_level = "trusted"
-
-[projects."/Users/natkoersch/otto3"]
-trust_level = "trusted"
-
-[projects."/Users/natkoersch"]
-trust_level = "untrusted"
-
-[projects."/Users/natkoersch/dotfiles"]
-trust_level = "trusted"
-
-[projects."/Users/natkoersch/collabboard"]
-trust_level = "trusted"
-
-[projects."/Users/natkoersch/trailheadprepapp"]
-trust_level = "trusted"
-
-[projects."/Users/natkoersch/agentforge/ghostfolio"]
-trust_level = "trusted"
-
-[projects."/Users/steipete/Projects"]
-trust_level = "trusted"
-
-[projects."/Users/natkoersch/agentforge"]
-trust_level = "trusted"
-
-[projects."/Users/natkoersch/agentforge/local-logs"]
-trust_level = "trusted"
-
-[projects."/Users/natkoersch/agentforge/ghostfolio-evals-public-dataset"]
-trust_level = "trusted"
-
-[projects."/Users/natkoersch/legacylens/emacs"]
-trust_level = "trusted"
-
-[projects."/Users/natkoersch/legacylens"]
-trust_level = "trusted"
-
-[projects."/Users/natkoersch/nerdy"]
-trust_level = "trusted"
-
-[projects."/Users/natkoersch/gauntlet-capstone/better-clawd/better-clawd-mcp"]
-trust_level = "trusted"
-
-[projects."/Users/natkoersch/gauntlet-capstone/deterministic-replay"]
-trust_level = "trusted"
-
-[projects."/Users/natkoersch/gauntlet-capstone/deterministic-record-replay"]
-trust_level = "trusted"
-
-[sandbox_workspace_write]
-network_access = true
-
-[mcp_servers]
-
-[mcp_servers.computer-use-domdomegg]
-command = "npx"
-args = ["-y", "computer-use-mcp"]
-
-[notice.model_migrations]
-"gpt-5.3-codex" = "gpt-5.4"
+[mcp_servers.node_repl.env]
+NODE_REPL_NATIVE_PIPE_CONNECT_TIMEOUT_MS = "1000"
+NODE_REPL_NODE_MODULE_DIRS = "/Applications/Codex.app/Contents/Resources/cua_node/lib/node_modules"
+NODE_REPL_NODE_PATH = "/Applications/Codex.app/Contents/Resources/cua_node/bin/node"
+NODE_REPL_TRUSTED_CODE_PATHS = "/Users/nathan/.codex"
+CODEX_HOME = "/Users/nathan/.codex"
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "5ee3754ef68f803b9cebf40e30f94ea22aaf446de1a0a24b109180fa2ae0bd3e"
+BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
+NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = "Control the in-app browser in conjunction with the Browser Plugin."
+NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = "Control the Chrome browser in conjunction with the Chrome Plugin. Prefer this method of controlling Chrome over alternatives (such as Computer Use) unless the user explicitly mentions an alternative."
+BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
+BROWSER_USE_CODEX_APP_VERSION = "26.616.71553"
+CODEX_CLI_PATH = "/Applications/Codex.app/Contents/Resources/codex"

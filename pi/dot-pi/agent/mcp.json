@@ -9,13 +9,13 @@
       "transport": "stdio",
       "command": "npx",
       "args": ["-y", "mcp-remote", "https://mcp.linear.app/mcp"],
-      "lifecycle": "lazy"
+      "lifecycle": "eager"
     },
     "honeycomb": {
       "transport": "stdio",
       "command": "npx",
       "args": ["-y", "mcp-remote", "https://mcp.honeycomb.io/mcp"],
-      "lifecycle": "lazy"
+      "lifecycle": "eager"
     }
   }
 }

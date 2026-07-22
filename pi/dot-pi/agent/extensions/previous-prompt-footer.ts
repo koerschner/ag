@@ -13,9 +13,6 @@ const LOC_STATS_REFRESH_MS = 2000;
 const execFile = promisify(execFileCb);
 
 type SessionPreviewState = {
-	submittedPrompt: string;
-	startedPrompt: string;
-	observedUserPrompt: string;
 	aiSummary: string;
 	summaryInFlight: boolean;
 	runStartedAt: number | null;
@@ -80,10 +77,6 @@ function getLatestUserPromptFromBranch(ctx: ExtensionContext): string {
 
 function getSessionKey(ctx: ExtensionContext): string {
 	return ctx.sessionManager.getSessionFile() ?? `ephemeral:${ctx.cwd}`;
-}
-
-function getDisplayPrompt(_ctx: ExtensionContext, state: SessionPreviewState): string {
-	return state.aiSummary;
 }
 
 function getCompletedThreadRunDurationMs(ctx: ExtensionContext): number {
@@ -163,7 +156,12 @@ export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 		const key = getSessionKey(ctx);
 		let state = previewStateBySession.get(key);
 		if (!state) {
-			state = { submittedPrompt: "", startedPrompt: "", observedUserPrompt: "", aiSummary: "", summaryInFlight: false, runStartedAt: null, lastRunMs: null };
+			state = {
+				aiSummary: "",
+				summaryInFlight: false,
+				runStartedAt: null,
+				lastRunMs: null,
+			};
 			previewStateBySession.set(key, state);
 		}
 		return state;
@@ -171,9 +169,6 @@ export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 
 	const resetPreviewState = (ctx: ExtensionContext) => {
 		previewStateBySession.set(getSessionKey(ctx), {
-			submittedPrompt: "",
-			startedPrompt: "",
-			observedUserPrompt: "",
 			aiSummary: "",
 			summaryInFlight: false,
 			runStartedAt: null,
@@ -449,7 +444,7 @@ export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 					const sessionName = ctx.sessionManager.getSessionName();
 					const locationText = `${dirName}${branch ? ` (${branch})` : ""}${sessionName ? ` • ${sessionName}` : ""}`;
 
-					const aiSummary = currentState.aiSummary || getDisplayPrompt(ctx, currentState);
+					const aiSummary = currentState.aiSummary;
 
 					let topLine = theme.fg("dim", locationText);
 					if (aiSummary) {
@@ -500,42 +495,26 @@ export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 		applyFooter(ctx);
 	});
 
-	pi.on("input", (event, ctx) => {
-		const text = sanitizeSingleLine(event.text);
-		if (text) getPreviewState(ctx).submittedPrompt = text;
+	pi.on("input", (_event, ctx) => {
 		applyFooter(ctx);
 		requestFooterRender(ctx);
 		return { action: "continue" } as const;
 	});
 
-	pi.on("before_agent_start", (event, ctx) => {
-		const text = sanitizeSingleLine(event.prompt);
-		const state = getPreviewState(ctx);
-		state.startedPrompt = text;
-		if (text) state.submittedPrompt = text;
+	pi.on("before_agent_start", (_event, ctx) => {
 		applyFooter(ctx);
 		requestFooterRender(ctx);
 	});
 
 	pi.on("message_start", (event, ctx) => {
 		if (event.message.role !== "user") return;
-		const text = sanitizeSingleLine(contentToText(event.message.content));
-		if (!text) return;
-		const state = getPreviewState(ctx);
-		state.observedUserPrompt = text;
-		state.startedPrompt = text;
-		state.submittedPrompt = text;
+		if (!sanitizeSingleLine(contentToText(event.message.content))) return;
 		requestFooterRender(ctx);
 	});
 
 	pi.on("message_end", (event, ctx) => {
 		if (event.message.role !== "user") return;
-		const text = sanitizeSingleLine(contentToText(event.message.content));
-		if (!text) return;
-		const state = getPreviewState(ctx);
-		state.observedUserPrompt = text;
-		state.startedPrompt = text;
-		state.submittedPrompt = text;
+		if (!sanitizeSingleLine(contentToText(event.message.content))) return;
 		requestFooterRender(ctx);
 	});
 

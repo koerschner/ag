@@ -1,9 +1,9 @@
 {
-  "lastChangelogVersion": "0.80.2",
+  "lastChangelogVersion": "0.80.5",
   "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.5",
+  "defaultModel": "gpt-5.6-sol",
   "defaultThinkingLevel": "medium",
-  "hideThinkingBlock": false,
+  "hideThinkingBlock": true,
   "packages": [
     "npm:pi-mcp-extension"
   ],
@@ -11,8 +11,8 @@
     "~/.agents/skills"
   ],
   "enabledModels": [
-    "openai-codex/gpt-5.5",
-    "anthropic/claude-fable-5"
+    "anthropic/claude-fable-5",
+    "openai-codex/gpt-5.6-sol"
   ],
   "theme": "dark"
 }

@@ -21,6 +21,27 @@ case "$COLOR" in
     *)        C_ACCENT="$C_GRAY" ;;  # gray: all same color
 esac
 
+render_context_bar() {
+    local pct=$1
+    local bar=""
+    local bar_start progress
+    local i
+
+    for ((i=0; i<10; i++)); do
+        bar_start=$((i * 10))
+        progress=$((pct - bar_start))
+        if [[ $progress -ge 8 ]]; then
+            bar+="${C_ACCENT}█${C_RESET}"
+        elif [[ $progress -ge 3 ]]; then
+            bar+="${C_ACCENT}▄${C_RESET}"
+        else
+            bar+="${C_BAR_EMPTY}░${C_RESET}"
+        fi
+    done
+
+    printf '%s' "$bar"
+}
+
 input=$(cat)
 
 # Extract model, directory, and cwd
@@ -118,7 +139,6 @@ if [[ -n "$transcript_path" && -f "$transcript_path" ]]; then
     # 20k baseline: includes system prompt (~3k), tools (~15k), memory (~300),
     # plus ~2k for git status, env block, XML framing, and other dynamic context
     baseline=20000
-    bar_width=10
 
     if [[ "$context_length" -gt 0 ]]; then
         pct=$((context_length * 100 / max_context))
@@ -131,40 +151,15 @@ if [[ -n "$transcript_path" && -f "$transcript_path" ]]; then
 
     [[ $pct -gt 100 ]] && pct=100
 
-    bar=""
-    for ((i=0; i<bar_width; i++)); do
-        bar_start=$((i * 10))
-        progress=$((pct - bar_start))
-        if [[ $progress -ge 8 ]]; then
-            bar+="${C_ACCENT}█${C_RESET}"
-        elif [[ $progress -ge 3 ]]; then
-            bar+="${C_ACCENT}▄${C_RESET}"
-        else
-            bar+="${C_BAR_EMPTY}░${C_RESET}"
-        fi
-    done
-
+    bar=$(render_context_bar "$pct")
     ctx="${bar} ${C_GRAY}${pct_prefix}${pct}% of ${max_k}k tokens"
 else
     # Transcript not available yet - show baseline estimate
     baseline=20000
-    bar_width=10
     pct=$((baseline * 100 / max_context))
     [[ $pct -gt 100 ]] && pct=100
 
-    bar=""
-    for ((i=0; i<bar_width; i++)); do
-        bar_start=$((i * 10))
-        progress=$((pct - bar_start))
-        if [[ $progress -ge 8 ]]; then
-            bar+="${C_ACCENT}█${C_RESET}"
-        elif [[ $progress -ge 3 ]]; then
-            bar+="${C_ACCENT}▄${C_RESET}"
-        else
-            bar+="${C_BAR_EMPTY}░${C_RESET}"
-        fi
-    done
-
+    bar=$(render_context_bar "$pct")
     ctx="${bar} ${C_GRAY}~${pct}% of ${max_k}k tokens"
 fi
 

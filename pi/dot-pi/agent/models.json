@@ -38,6 +38,9 @@
           ],
           "contextWindow": 200000,
           "maxTokens": 64000,
+          "compat": {
+            "forceAdaptiveThinking": true
+          },
           "cost": {
             "input": 10,
             "output": 50,

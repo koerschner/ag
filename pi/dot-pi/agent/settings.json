@@ -1,6 +1,6 @@
 {
   "lastChangelogVersion": "0.80.5",
-  "defaultProvider": "openai-codex",
+  "defaultProvider": "truefoundry-openai",
   "defaultModel": "gpt-5.6-sol",
   "defaultThinkingLevel": "medium",
   "hideThinkingBlock": true,
@@ -11,8 +11,8 @@
     "~/.agents/skills"
   ],
   "enabledModels": [
-    "anthropic/claude-fable-5",
-    "openai-codex/gpt-5.6-sol"
+    "truefoundry-openai/gpt-5.6-sol",
+    "truefoundry/claude-fable-5"
   ],
   "theme": "dark"
 }

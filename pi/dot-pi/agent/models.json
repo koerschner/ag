@@ -26,9 +26,35 @@
     },
     "truefoundry": {
       "baseUrl": "https://tfy.promptlens.trilogy.com",
-      "apiKey": "$ANTHROPIC_AUTH_TOKEN",
+      "apiKey": "$TFY_TOKEN",
       "api": "anthropic-messages",
       "models": [
+        {
+          "id": "claude-fable-5-1",
+          "reasoning": true,
+          "input": [
+            "text",
+            "image"
+          ],
+          "contextWindow": 1000000,
+          "maxTokens": 128000,
+          "compat": {
+            "supportsMidConvoEffort": true,
+            "forceAdaptiveThinking": true,
+            "supportsStrictTools": true
+          },
+          "thinkingLevelMap": {
+            "off": null,
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "cost": {
+            "input": 10,
+            "output": 50,
+            "cacheRead": 0.25,
+            "cacheWrite": 12.5
+          }
+        },
         {
           "id": "claude-fable-5",
           "reasoning": true,
@@ -122,7 +148,7 @@
     },
     "truefoundry-openai": {
       "baseUrl": "https://tfy.promptlens.trilogy.com",
-      "apiKey": "$ANTHROPIC_AUTH_TOKEN",
+      "apiKey": "$TFY_TOKEN",
       "api": "openai-responses",
       "models": [
         {
@@ -288,7 +314,7 @@
     },
     "truefoundry-chat": {
       "baseUrl": "https://tfy.promptlens.trilogy.com",
-      "apiKey": "$ANTHROPIC_AUTH_TOKEN",
+      "apiKey": "$TFY_TOKEN",
       "api": "openai-completions",
       "models": [
         {

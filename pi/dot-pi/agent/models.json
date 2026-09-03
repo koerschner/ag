@@ -69,16 +69,6 @@
           "maxTokens": 64000
         },
         {
-          "id": "claude-haiku-4-5",
-          "reasoning": true,
-          "input": [
-            "text",
-            "image"
-          ],
-          "contextWindow": 200000,
-          "maxTokens": 64000
-        },
-        {
           "id": "claude-opus-4-8",
           "reasoning": true,
           "input": [

@@ -67,11 +67,11 @@ Example output:
   ]
 }`;
 
-const CODEX_MODEL_ID = "gpt-5.1-codex-mini";
-const HAIKU_MODEL_ID = "claude-haiku-4-5";
+const EXTRACTION_PROVIDER = "truefoundry-openai";
+const EXTRACTION_MODEL_ID = "gpt-4.1-nano";
 
 /**
- * Prefer Codex mini for extraction when available, otherwise fallback to haiku or the current model.
+ * Prefer the lightweight TrueFoundry model for extraction, otherwise use the current model.
  */
 async function selectExtractionModel(
 	currentModel: Model<Api>,
@@ -80,25 +80,11 @@ async function selectExtractionModel(
 		getApiKey: (model: Model<Api>) => Promise<string | undefined>;
 	},
 ): Promise<Model<Api>> {
-	const codexModel = modelRegistry.find("openai-codex", CODEX_MODEL_ID);
-	if (codexModel) {
-		const apiKey = await modelRegistry.getApiKey(codexModel);
-		if (apiKey) {
-			return codexModel;
-		}
-	}
+	const extractionModel = modelRegistry.find(EXTRACTION_PROVIDER, EXTRACTION_MODEL_ID);
+	if (!extractionModel) return currentModel;
 
-	const haikuModel = modelRegistry.find("anthropic", HAIKU_MODEL_ID);
-	if (!haikuModel) {
-		return currentModel;
-	}
-
-	const apiKey = await modelRegistry.getApiKey(haikuModel);
-	if (!apiKey) {
-		return currentModel;
-	}
-
-	return haikuModel;
+	const apiKey = await modelRegistry.getApiKey(extractionModel);
+	return apiKey ? extractionModel : currentModel;
 }
 
 /**
@@ -443,7 +429,7 @@ export default function (pi: ExtensionAPI) {
 				return;
 			}
 
-			// Select the best model for extraction (prefer Codex mini, then haiku)
+			// Prefer a lightweight TrueFoundry model for extraction
 			const extractionModel = await selectExtractionModel(ctx.model, ctx.modelRegistry);
 
 			// Run extraction with loader UI

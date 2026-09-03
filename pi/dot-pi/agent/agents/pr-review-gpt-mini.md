@@ -1,7 +1,7 @@
 ---
 name: pr-review-gpt-mini
 description: Fast independent PR/code-review subagent using GPT mini. Finds high-signal bugs for quick review.
-model: openai-codex/gpt-5.4-mini:low
+model: truefoundry-openai/gpt-5.4-mini:low
 tools: read,bash,grep,find,ls
 ---
 

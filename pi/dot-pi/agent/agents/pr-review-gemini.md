@@ -1,7 +1,7 @@
 ---
 name: pr-review-gemini
 description: Independent PR/code-review subagent using Gemini Pro with extra-high thinking. Finds validated bugs and ranks severity for rigorous pre-merge review.
-model: openrouter/google/gemini-3.1-pro-preview:xhigh
+model: truefoundry-chat/gemini-group/gemini-3.1-pro:xhigh
 tools: read,bash,grep,find,ls
 ---
 

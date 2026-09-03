@@ -5,7 +5,7 @@ description: "Run a Pi-based structured code review as a closeout check on local
 
 # Auto Review
 
-Run a structured code review using **Pi**. Do not use Codex, Claude Code, `codex review`, Claude harnesses, the old bundled `autoreview` helper, or nested reviewer panels that invoke non-Pi CLIs. Pi may use any configured model/provider that is appropriate for the task.
+Run a structured code review using **Pi**. Do not use Codex, Claude Code, `codex review`, Claude harnesses, the old bundled `autoreview` helper, or nested reviewer panels that invoke non-Pi CLIs. Use only models routed through a `truefoundry`, `truefoundry-openai`, or `truefoundry-chat` provider. Never use a Haiku model for autoreview.
 
 Use when:
 
@@ -77,14 +77,13 @@ pi --no-session --tools read,bash -p "Review commit ${commit}. Use read-only ins
 
 ## Model Choice
 
-Pi is the review harness. You may choose any configured Pi model/provider with `--model` when useful, for example:
+Pi is the review harness. Use a TrueFoundry-routed model explicitly. The default autoreview model is:
 
 ```bash
-pi --model sonnet:high --no-session --tools read,bash -p "Review the local uncommitted diff..."
-pi --model openai/gpt-5.1 --thinking high --no-session --tools read,bash -p "Review the branch diff..."
+pi --model truefoundry-openai/gpt-5.6-sol --thinking low --no-session --tools read,bash -p "Review the local uncommitted diff..."
 ```
 
-Do not switch to non-Pi CLIs. If a chosen Pi model fails due to capacity, retry Pi with the same model a few times. If unavailable, use another Pi model and report the fallback.
+For a fallback, use `truefoundry-chat/cost-optimizer/smart-code` or the current non-Haiku TrueFoundry model. Do not use Haiku or switch to non-Pi CLIs. If a chosen Pi model fails due to capacity, retry it a few times; if unavailable, use another non-Haiku TrueFoundry model and report the fallback.
 
 ## Parallel Closeout
 

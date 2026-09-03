@@ -1,7 +1,7 @@
 ---
 name: pr-review-gpt55-xhigh
 description: Independent PR/code-review subagent using GPT-5.5 with extra-high reasoning. Finds validated bugs and ranks severity for rigorous pre-merge review.
-model: openai-codex/gpt-5.5:xhigh
+model: truefoundry-openai/gpt-5.5:xhigh
 tools: read,bash,grep,find,ls
 ---
 

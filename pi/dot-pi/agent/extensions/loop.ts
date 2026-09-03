@@ -32,7 +32,8 @@ const LOOP_PRESETS = [
 
 const LOOP_STATE_ENTRY = "loop-state";
 
-const HAIKU_MODEL_ID = "claude-haiku-4-5";
+const SUMMARY_PROVIDER = "truefoundry-openai";
+const SUMMARY_MODEL_ID = "gpt-4.1-nano";
 
 const SUMMARY_SYSTEM_PROMPT = `You summarize loop breakout conditions for a status widget.
 Return a concise phrase (max 6 words) that says when the loop should stop.
@@ -90,14 +91,10 @@ async function selectSummaryModel(
 ): Promise<{ model: Model<Api>; apiKey: string } | null> {
 	if (!ctx.model) return null;
 
-	if (ctx.model.provider === "anthropic") {
-		const haikuModel = ctx.modelRegistry.find("anthropic", HAIKU_MODEL_ID);
-		if (haikuModel) {
-			const apiKey = await ctx.modelRegistry.getApiKey(haikuModel);
-			if (apiKey) {
-				return { model: haikuModel, apiKey };
-			}
-		}
+	const summaryModel = ctx.modelRegistry.find(SUMMARY_PROVIDER, SUMMARY_MODEL_ID);
+	if (summaryModel) {
+		const apiKey = await ctx.modelRegistry.getApiKey(summaryModel);
+		if (apiKey) return { model: summaryModel, apiKey };
 	}
 
 	const apiKey = await ctx.modelRegistry.getApiKey(ctx.model);

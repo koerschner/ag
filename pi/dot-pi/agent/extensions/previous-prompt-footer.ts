@@ -201,36 +201,14 @@ export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 
 		const candidates = [
 			{
-				provider: "openai",
+				provider: "truefoundry-openai",
 				id: "gpt-4.1-nano",
 				getOptions: async () => {
-					const model = ctx.modelRegistry.find("openai", "gpt-4.1-nano");
+					const model = ctx.modelRegistry.find("truefoundry-openai", "gpt-4.1-nano");
 					if (!model) return null;
 					const apiKey = await ctx.modelRegistry.getApiKey(model);
 					if (!apiKey) return null;
 					return { model, options: { apiKey, maxTokens: 40, temperature: 0.2 } };
-				},
-			},
-			{
-				provider: "anthropic",
-				id: "claude-haiku-4-5",
-				getOptions: async () => {
-					const model = ctx.modelRegistry.find("anthropic", "claude-haiku-4-5");
-					if (!model) return null;
-					const apiKey = await ctx.modelRegistry.getApiKey(model);
-					if (!apiKey) return null;
-					return { model, options: { apiKey, maxTokens: 40, temperature: 0.2 } };
-				},
-			},
-			{
-				provider: "openai-codex",
-				id: "gpt-5.1-codex-mini",
-				getOptions: async () => {
-					const model = ctx.modelRegistry.find("openai-codex", "gpt-5.1-codex-mini");
-					if (!model) return null;
-					const apiKey = await ctx.modelRegistry.getApiKey(model);
-					if (!apiKey) return null;
-					return { model, options: { apiKey, maxTokens: 40 } };
 				},
 			},
 		] as const;

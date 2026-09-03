@@ -63,9 +63,9 @@ Quick review should not crawl the entire repo unless a targeted question clearly
 
 Spawn these quick reviewers in parallel in a single `subagent` batch. Give each reviewer targeted questions and focused context; do not blindly pass the whole review packet unless the diff is tiny:
 
-1. `pr-review-claude-haiku` — Claude Haiku, low thinking
-2. `pr-review-gpt-mini` — GPT mini, low thinking
-3. `pr-review-gemini-flash` — Gemini Flash, low thinking
+1. `pr-review-sol` — GPT-5.6 Sol via TrueFoundry, low thinking
+2. `pr-review-gpt-mini` — GPT mini via TrueFoundry, low thinking
+3. `pr-review-gemini-flash` — Gemini Flash via TrueFoundry, low thinking
 
 Use `agentScope: "user"` unless the user explicitly wants project-local agents too.
 
@@ -75,7 +75,7 @@ Example tool shape:
 {
   "agentScope": "user",
   "tasks": [
-    { "agent": "pr-review-claude-haiku", "task": "<targeted review questions and focused context for Claude>", "cwd": "<repo root>" },
+    { "agent": "pr-review-sol", "task": "<targeted review questions and focused context for Sol>", "cwd": "<repo root>" },
     { "agent": "pr-review-gpt-mini", "task": "<targeted review questions and focused context for GPT mini>", "cwd": "<repo root>" },
     { "agent": "pr-review-gemini-flash", "task": "<targeted review questions and focused context for Gemini Flash>", "cwd": "<repo root>" }
   ]
@@ -118,7 +118,7 @@ Return concise Markdown in chat only. Never write the report to a file or create
 
 ## Summary
 - Scope reviewed: ...
-- Reviewers: Claude Haiku, GPT mini, Gemini Flash (note failures if any)
+- Reviewers: GPT-5.6 Sol, GPT mini, Gemini Flash (all through TrueFoundry; note failures if any)
 - Overall recommendation: approve / fix issues below / consider deep-review
 
 ## Findings

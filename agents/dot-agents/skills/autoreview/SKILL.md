@@ -80,7 +80,7 @@ pi --no-session --tools read,bash -p "Review commit ${commit}. Use read-only ins
 Pi is the review harness. Use a TrueFoundry-routed model explicitly. The default autoreview model is:
 
 ```bash
-pi --model truefoundry-openai/gpt-5.6-sol --thinking low --no-session --tools read,bash -p "Review the local uncommitted diff..."
+pi --model truefoundry-openai/gpt-6-astra --thinking low --no-session --tools read,bash -p "Review the local uncommitted diff..."
 ```
 
 For a fallback, use `truefoundry-chat/cost-optimizer/smart-code` or the current non-Haiku TrueFoundry model. Do not use Haiku or switch to non-Pi CLIs. If a chosen Pi model fails due to capacity, retry it a few times; if unavailable, use another non-Haiku TrueFoundry model and report the fallback.

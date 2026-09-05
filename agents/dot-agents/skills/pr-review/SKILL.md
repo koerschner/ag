@@ -1,6 +1,6 @@
 ---
 name: deep-review
-description: "Deep, rigorous multi-model code review for PRs, branches, diffs, commits, or pre-merge checks. Use this when the user explicitly asks for a deep review, thorough review, rigorous review, pre-merge check, PR review, branch review, or wants maximum confidence. Do not use for quick/casual reviews; use quick-review instead. Treat AI output as a first draft: run independent Pi subagents on Claude Opus, GPT-5.5 extra-high reasoning, and Gemini; validate and synthesize severity-ranked findings before fixes."
+description: "Deep, rigorous multi-model code review for PRs, branches, diffs, commits, or pre-merge checks. Use this when the user explicitly asks for a deep review, thorough review, rigorous review, pre-merge check, PR review, branch review, or wants maximum confidence. Do not use for quick/casual reviews; use quick-review instead. Treat AI output as a first draft: run independent Pi subagents on Claude Opus, GPT extra-high reasoning, and Gemini; validate and synthesize severity-ranked findings before fixes."
 ---
 
 # Deep Review
@@ -74,7 +74,7 @@ Pay special attention to spec fidelity: whether the diff actually implements the
 Spawn these three reviewers in parallel in a single `subagent` batch:
 
 1. `pr-review-claude-opus` — Claude Opus 4.8, extra-high thinking
-2. `pr-review-gpt55-xhigh` — GPT-5.5, extra-high reasoning
+2. `pr-review-gpt-xhigh` — GPT flagship, extra-high reasoning
 3. `pr-review-gemini` — Gemini Pro, extra-high thinking
 
 Use `agentScope: "user"` unless the user explicitly wants project-local agents too.
@@ -86,7 +86,7 @@ Example tool shape:
   "agentScope": "user",
   "tasks": [
     { "agent": "pr-review-claude-opus", "task": "<full review objective and scope context>", "cwd": "<repo root>" },
-    { "agent": "pr-review-gpt55-xhigh", "task": "<full review objective and scope context>", "cwd": "<repo root>" },
+    { "agent": "pr-review-gpt-xhigh", "task": "<full review objective and scope context>", "cwd": "<repo root>" },
     { "agent": "pr-review-gemini", "task": "<full review objective and scope context>", "cwd": "<repo root>" }
   ]
 }
@@ -216,7 +216,7 @@ Use this structure:
 ### Claude Opus reviewer
 - Brief attributed summary.
 
-### GPT-5.5 reviewer
+### GPT reviewer
 - Brief attributed summary.
 
 ### Gemini reviewer
@@ -227,7 +227,7 @@ Use this structure:
 Findings flagged by at least two reviewers, especially when they cite the same root cause.
 
 ### [critical|high|medium|low] Title
-- **Reviewers:** Claude Opus, GPT-5.5, Gemini as applicable
+- **Reviewers:** Claude Opus, GPT, Gemini as applicable
 - **Evidence:** file/line/diff reference
 - **Why it matters:** ...
 - **Validation:** confirmed / partially confirmed / needs human context
@@ -247,7 +247,7 @@ Findings where reviewers conflict or one reviewer’s concern appears weaker.
 Findings raised by only one reviewer but still credible.
 
 ### [severity] Title
-- **Reviewer:** Claude Opus, GPT-5.5, or Gemini
+- **Reviewer:** Claude Opus, GPT, or Gemini
 - **Evidence:** ...
 - **Why it matters:** ...
 - **Validation:** ...

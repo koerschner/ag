@@ -3,7 +3,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const skillPath = path.join(os.homedir(), ".pi", "agent", "skills", "simplify", "SKILL.md");
+const skillPath = path.join(os.homedir(), ".agents", "skills", "simplify", "SKILL.md");
 
 function stripFrontmatter(markdown: string): string {
 	if (!markdown.startsWith("---\n")) return markdown.trim();

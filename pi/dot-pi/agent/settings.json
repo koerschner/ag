@@ -12,7 +12,7 @@
   ],
   "enabledModels": [
     "truefoundry-openai/gpt-6-astra",
-    "anthropic/claude-fable-5-1"
+    "truefoundry/claude-fable-5-1"
   ],
   "theme": "dark"
 }

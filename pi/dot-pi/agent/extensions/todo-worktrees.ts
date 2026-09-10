@@ -531,7 +531,7 @@ async function startTodoWorktrees(ctx: ExtensionContext, args: string): Promise<
 			"First claim the todo with the todo tool, then inspect the todo details, implement exactly this todo. When implementation and checks are done, stop and report what changed, what checks ran, and anything needing review. Do not run /finish-worktree, merge, close the todo, or delete the worktree unless the user explicitly asks you to do so after review.",
 			`Todo body:\n${todo.body.trim() || "(no details)"}`,
 		].join("\n\n");
-		const command = `PI_TODO_PATH=${shellQuote(todosDir)} pi --name ${shellQuote(`${displayId} ${title}`)} ${shellQuote(prompt)}`;
+		const command = `PI_TODO_PATH=${shellQuote(todosDir)} pi --model truefoundry/claude-fable-5 --name ${shellQuote(`${displayId} ${title}`)} ${shellQuote(prompt)}`;
 		await tmux(["send-keys", "-t", paneTarget, command, "C-m"]);
 	}
 

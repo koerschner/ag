@@ -1,7 +1,7 @@
 {
   "lastChangelogVersion": "0.84.4",
-  "defaultProvider": "truefoundry-openai",
-  "defaultModel": "gpt-6-astra",
+  "defaultProvider": "truefoundry",
+  "defaultModel": "claude-fable-5-1",
   "defaultThinkingLevel": "medium",
   "hideThinkingBlock": false,
   "packages": [

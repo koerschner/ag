@@ -7,14 +7,27 @@
   "mcpServers": {
     "linear": {
       "transport": "stdio",
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://mcp.linear.app/mcp"],
+      "command": "bunx",
+      "args": ["--bun", "mcp-remote@0.8.3", "https://mcp.linear.app/mcp"],
+      "lifecycle": "eager"
+    },
+    "arcade_school": {
+      "transport": "stdio",
+      "command": "/Users/nathan/.bun/bin/bunx",
+      "args": [
+        "--bun",
+        "mcp-remote@0.8.3",
+        "https://api.texassportsacademy.com/mcp",
+        "--transport", "http-only",
+        "--header-file", "/Users/nathan/.config/mcp/arcade-school.headers",
+        "--silent"
+      ],
       "lifecycle": "eager"
     },
     "honeycomb": {
       "transport": "stdio",
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://mcp.honeycomb.io/mcp"],
+      "command": "bunx",
+      "args": ["--bun", "mcp-remote@0.8.3", "https://mcp.honeycomb.io/mcp"],
       "lifecycle": "eager"
     }
   }

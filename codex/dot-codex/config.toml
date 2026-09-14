@@ -1,21 +1,27 @@
-model = "gpt-5.6-sol"
+# TrueFoundry gateway setup (based on colleague's bundle). Model slugs must match
+# model-catalogs/truefoundry-codex.json; TFY's /models endpoint isn't in Codex's
+# catalog format, so the local catalog is what makes the picker/tools work.
+# Profiles: codex --profile astra|sol|terra|luna|grok
+# Note: catalog's gpt-6-astra minimal_client_version was lowered 0.153.0 -> 0.144.0
+# so it shows in the picker on the bundled codex 0.147.x (works fine in practice).
+model_provider = "tfy"
+model = "gpt-6-astra"
 model_reasoning_effort = "high"
+model_catalog_json = "/Users/nathan/.codex/model-catalogs/truefoundry-codex.json"
 
 notify = ["/Users/nathan/.codex/computer-use/Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient", "turn-ended"]
 
 [model_providers.tfy]
 name = "TrueFoundry"
 base_url = "https://tfy.promptlens.trilogy.com"
-env_key = "TFY_TOKEN"
+env_key = "TFY_API_KEY"
 wire_api = "responses"
 
 [marketplaces.openai-bundled]
-last_updated = "2026-08-12T14:31:07Z"
 source_type = "local"
 source = "/Users/nathan/.codex/.tmp/bundled-marketplaces/openai-bundled"
 
 [marketplaces.openai-primary-runtime]
-last_updated = "2026-08-14T18:28:32Z"
 source_type = "local"
 source = "/Users/nathan/.cache/codex-runtimes/codex-primary-runtime/plugins/openai-primary-runtime"
 
@@ -43,6 +49,18 @@ enabled = true
 [plugins."browser@openai-bundled"]
 enabled = true
 
+[plugins."codex-app-tools@openai-bundled"]
+enabled = true
+
+[plugins."unified-computer-use@openai-bundled"]
+enabled = true
+
+[plugins."computer-use@openai-bundled"]
+enabled = true
+
+[plugins."chrome@openai-bundled"]
+enabled = true
+
 [projects."/Users/nathan/Documents/Codex/2026-05-18/i-m-debugging-something-can-you"]
 trust_level = "trusted"
 
@@ -64,12 +82,37 @@ trust_level = "trusted"
 [projects."/Users/nathan"]
 trust_level = "trusted"
 
+[projects."/Users/nathan/Documents/Codex/2026-09-07/realtime-voice-chat"]
+trust_level = "trusted"
+
+[projects."/Users/nathan/Documents/Codex/2026-09-08/fix"]
+trust_level = "trusted"
+
+[projects."/Users/nathan/Documents/Codex/2026-09-08/new-chat"]
+trust_level = "trusted"
+
+[projects."/Users/nathan/Documents/Codex/2026-09-09/new-chat"]
+trust_level = "trusted"
+
+[projects."/Users/nathan/Documents/Codex/2026-09-09/new-chat-2"]
+trust_level = "trusted"
+
+[projects."/Users/nathan/Documents/Codex/2026-09-09/can"]
+trust_level = "trusted"
+
+[projects."/Users/nathan/Documents/Codex/2026-09-09/in"]
+trust_level = "trusted"
+
+[projects."/Users/nathan/Documents/Codex/2026-09-12/i-want-to-discuss-and-then"]
+trust_level = "trusted"
+
 [desktop]
 ambient-suggestions-enabled = false
 appearanceTheme = "dark"
 conversationDetailMode = "STEPS_COMMANDS"
 followUpQueueMode = "queue"
 dock-icon-preference = "app-default"
+realtimeVoiceScreenContextEnabled = true
 
 [features]
 js_repl = false
@@ -85,17 +128,31 @@ NODE_REPL_NODE_MODULE_DIRS = "/Applications/ChatGPT.app/Contents/Resources/cua_n
 NODE_REPL_NODE_PATH = "/Applications/ChatGPT.app/Contents/Resources/cua_node/bin/node"
 NODE_REPL_TRUSTED_CODE_PATHS = "/Users/nathan/.codex:/Applications/ChatGPT.app/Contents/Resources/cua_node/lib/node_modules"
 CODEX_HOME = "/Users/nathan/.codex"
-NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "323bc3e687e17d7e377238d9f4c69111c4d0e6219103b6316d8c52082489533b"
 BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
-NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = "Control the in-app browser in conjunction with the Browser Plugin."
-NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = "Control the Chrome browser in conjunction with the Chrome Plugin. Prefer this method of controlling Chrome over alternatives (such as Computer Use) unless the user explicitly mentions an alternative."
-NODE_REPL_INSTRUCTIONS_USE_CASE_COMPUTER_USE = "Control desktop apps on macOS through Computer Use."
+BROWSER_USE_TINYSKY_ENABLED = "1"
+NODE_REPL_INSTRUCTIONS_USE_CASE_BROWSER = ""
+NODE_REPL_INSTRUCTIONS_USE_CASE_CHROME = ""
+NODE_REPL_INSTRUCTIONS_USE_CASE_COMPUTER_USE = ""
 BROWSER_USE_CODEX_APP_BUILD_FLAVOR = "prod"
-BROWSER_USE_CODEX_APP_VERSION = "26.803.41515"
+BROWSER_USE_CODEX_APP_VERSION = "26.903.71938"
+NODE_REPL_TRUSTED_SERVICES = '{"browser":"/Users/nathan/.codex/plugins/cache/openai-bundled/browser/26.903.71938/scripts/browser-service.mjs","sky":"@oai/sky/service"}'
+SKY_CUA_SERVICE_PATH = "/Users/nathan/.codex/computer-use/Codex Computer Use.app"
 CODEX_CLI_PATH = "/Applications/ChatGPT.app/Contents/Resources/codex"
 
 [mcp_servers.linear]
 url = "https://mcp.linear.app/mcp"
+
+[mcp_servers.arcade_school]
+command = "/Users/nathan/.bun/bin/bunx"
+args = [
+  "--bun",
+  "mcp-remote@0.8.3",
+  "https://api.texassportsacademy.com/mcp",
+  "--transport", "http-only",
+  "--header-file", "/Users/nathan/.config/mcp/arcade-school.headers",
+  "--silent",
+]
+startup_timeout_sec = 60
 
 [mcp_servers.computer-use]
 command = "./Codex Computer Use.app/Contents/SharedSupport/SkyComputerUseClient.app/Contents/MacOS/SkyComputerUseClient"
@@ -107,6 +164,4 @@ enabled = false
 "gpt-5.6-sol" = 4
 
 [shell_environment_policy.set]
-BROWSER_USE_AVAILABLE_BACKENDS = "chrome,iab"
-NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "323bc3e687e17d7e377238d9f4c69111c4d0e6219103b6316d8c52082489533b"
-NODE_REPL_TRUSTED_CODE_PATHS = "/Users/nathan/.codex:/Applications/ChatGPT.app/Contents/Resources/cua_node/lib/node_modules"
+NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = "8e86beb821b9afc846211798e0113bd4b9e79312dfcd135eb447bdb154f64071"

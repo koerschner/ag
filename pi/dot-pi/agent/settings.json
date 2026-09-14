@@ -3,7 +3,7 @@
   "defaultProvider": "truefoundry-openai",
   "defaultModel": "gpt-6-astra",
   "defaultThinkingLevel": "medium",
-  "hideThinkingBlock": true,
+  "hideThinkingBlock": false,
   "packages": [
     "npm:pi-mcp-extension"
   ],

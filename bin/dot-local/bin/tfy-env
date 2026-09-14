@@ -1,0 +1,17 @@
+#!/bin/zsh
+# Publish the TrueFoundry key to GUI apps (ChatGPT desktop / Codex app).
+#
+# Dock-launched apps don't source ~/.zshenv.local, so read the token there and
+# set it in the launchd user environment. Run at login by the
+# com.nathan.tfy-env LaunchAgent, or manually after changing the token.
+# Apps already running must be restarted to pick up changes.
+
+[[ -f ~/.zshenv.local ]] && source ~/.zshenv.local
+
+if [[ -z ${TFY_TOKEN:-} ]]; then
+  echo "tfy-env: TFY_TOKEN not defined in ~/.zshenv.local; nothing to do" >&2
+  exit 0
+fi
+
+launchctl setenv TFY_API_KEY "$TFY_TOKEN"
+launchctl setenv TFY_TOKEN "$TFY_TOKEN"

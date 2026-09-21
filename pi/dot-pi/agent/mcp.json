@@ -8,7 +8,11 @@
     "linear": {
       "transport": "stdio",
       "command": "bunx",
-      "args": ["--bun", "mcp-remote@0.8.3", "https://mcp.linear.app/mcp"],
+      "args": [
+        "--bun",
+        "mcp-remote@0.8.3",
+        "https://mcp.linear.app/mcp"
+      ],
       "lifecycle": "eager"
     },
     "arcade_school": {
@@ -18,8 +22,10 @@
         "--bun",
         "mcp-remote@0.8.3",
         "https://api.texassportsacademy.com/mcp",
-        "--transport", "http-only",
-        "--header-file", "/Users/nathan/.config/mcp/arcade-school.headers",
+        "--transport",
+        "http-only",
+        "--header-file",
+        "/Users/nathan/.config/mcp/arcade-school.headers",
         "--silent"
       ],
       "lifecycle": "eager"
@@ -27,7 +33,22 @@
     "honeycomb": {
       "transport": "stdio",
       "command": "bunx",
-      "args": ["--bun", "mcp-remote@0.8.3", "https://mcp.honeycomb.io/mcp"],
+      "args": [
+        "--bun",
+        "mcp-remote@0.8.3",
+        "https://mcp.honeycomb.io/mcp"
+      ],
+      "lifecycle": "eager"
+    },
+    "slack": {
+      "transport": "streamable-http",
+      "url": "https://mcp.slack.com/mcp",
+      "auth": {
+        "type": "oauth",
+        "clientId": "8722850230503.12095494058659",
+        "redirectUrl": "http://localhost:19876/callback",
+        "scope": "search:read.public search:read.private search:read.mpim search:read.im search:read.users search:read.files channels:history groups:history im:history mpim:history channels:read groups:read im:read mpim:read users:read users:read.email files:read chat:write"
+      },
       "lifecycle": "eager"
     }
   }

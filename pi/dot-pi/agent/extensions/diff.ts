@@ -1,9 +1,10 @@
-import { execFile, execFileSync } from "node:child_process";
+import { type ChildProcess, execFile, execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { Component } from "@mariozechner/pi-tui";
 
 const execFileAsync = promisify(execFile);
 
@@ -14,7 +15,9 @@ const STATUS_KEY = "hunk-diff";
 const SESSION_REGISTER_TIMEOUT_MS = 20_000;
 const POLL_INTERVAL_MS = 500;
 
-type LaunchMode = "window" | "pane" | "session";
+type LaunchMode = "window" | "pane" | "session" | "ghostty" | "inline";
+
+const GHOSTTY_LAUNCH_MARKER = "PI_HUNK_LAUNCH_ID";
 
 interface ParsedArgs {
 	mode: LaunchMode;
@@ -27,6 +30,9 @@ interface TmuxLaunch {
 	paneId?: string;
 	sessionName?: string;
 	attachCommand?: string;
+	launchId?: string;
+	knownSessionIds?: Set<string>;
+	child?: ChildProcess;
 }
 
 interface HunkSessionLocation {
@@ -116,6 +122,21 @@ function buildHunkShellCommand(hunkCommand: string, args: string[]): string {
 	return `${pathPrefix}exec ${[hunkCommand, ...args].map(shellQuote).join(" ")}`;
 }
 
+function ghosttyBinaryPath(): string | undefined {
+	if (process.platform !== "darwin") return undefined;
+	return ["/Applications/Ghostty.app", path.join(os.homedir(), "Applications/Ghostty.app")]
+		.map((app) => path.join(app, "Contents/MacOS/ghostty"))
+		.find(commandExists);
+}
+
+function ghosttyAvailable(): boolean {
+	return ghosttyBinaryPath() !== undefined;
+}
+
+function defaultLaunchMode(): LaunchMode {
+	return process.env.TMUX ? "window" : "inline";
+}
+
 function tokenizeArgs(input: string): string[] {
 	const tokens: string[] = [];
 	let current = "";
@@ -167,7 +188,7 @@ function tokenizeArgs(input: string): string[] {
 
 function parseArgs(rawArgs: string): ParsedArgs {
 	const tokens = tokenizeArgs(rawArgs.trim());
-	let mode: LaunchMode = process.env.TMUX ? "window" : "session";
+	let mode: LaunchMode = defaultLaunchMode();
 	let showHelp = false;
 	const hunkArgs: string[] = [];
 	let passThrough = false;
@@ -191,14 +212,21 @@ function parseArgs(rawArgs: string): ParsedArgs {
 				break;
 			case "--window":
 			case "--fullscreen":
-				mode = process.env.TMUX ? "window" : "session";
+				mode = process.env.TMUX ? "window" : defaultLaunchMode();
 				break;
 			case "--pane":
 			case "--split":
-				mode = process.env.TMUX ? "pane" : "session";
+				mode = process.env.TMUX ? "pane" : defaultLaunchMode();
 				break;
 			case "--session":
 				mode = "session";
+				break;
+			case "--ghostty":
+				mode = "ghostty";
+				break;
+			case "--inline":
+			case "--here":
+				mode = "inline";
 				break;
 			default:
 				hunkArgs.push(token);
@@ -213,7 +241,7 @@ type DiffCommandName = typeof DIFF_COMMAND_NAME | typeof DIFF_PR_COMMAND_NAME;
 function usage(commandName: DiffCommandName): string {
 	const isPullRequestDiff = commandName !== DIFF_COMMAND_NAME;
 	return [
-		`Usage: /${commandName} [--window|--pane|--session] [hunk diff args...]`,
+		`Usage: /${commandName} [--inline|--window|--pane|--session|--ghostty] [hunk diff args...]`,
 		"",
 		isPullRequestDiff
 			? "Opens `hunk diff <base>...HEAD` for the current branch/PR, watches for saved human notes,"
@@ -221,7 +249,8 @@ function usage(commandName: DiffCommandName): string {
 		"and sends those notes back to Pi after Hunk quits.",
 		"",
 		"Inside tmux, the default is --window (fullscreen tmux window). Outside tmux,",
-		"it opens a separate named tmux session and prints the attach command.",
+		"the default is --inline: Pi's TUI is suspended and Hunk runs in this terminal",
+		"until you quit it. --ghostty pops a new Ghostty window; --session uses tmux.",
 		"",
 		"Examples:",
 		isPullRequestDiff ? `  /${commandName}` : "  /diff",
@@ -230,6 +259,67 @@ function usage(commandName: DiffCommandName): string {
 		"",
 		"In Hunk: press `c` to create a note, `Ctrl-S` to save it, then `q` to quit.",
 	].join("\n");
+}
+
+async function gitTopLevel(cwd: string): Promise<string | undefined> {
+	if (!directoryExists(cwd)) return undefined;
+	try {
+		return normalizePath(await run("git", ["rev-parse", "--show-toplevel"], { cwd, timeout: 5_000 }));
+	} catch {
+		return undefined;
+	}
+}
+
+function expandHome(input: string): string {
+	return input === "~" || input.startsWith("~/") ? path.join(os.homedir(), input.slice(1)) : input;
+}
+
+/** Filesystem paths mentioned in a tool call's arguments (file paths, `cd`/`git -C` targets, cwd). */
+function pathsFromToolCall(name: string, args: Record<string, unknown>, baseCwd: string): string[] {
+	const found: string[] = [];
+	for (const key of ["path", "cwd", "file", "filePath"]) {
+		const value = args[key];
+		if (typeof value === "string" && value) found.push(path.resolve(baseCwd, expandHome(value)));
+	}
+	const command = args.command;
+	if (name === "bash" && typeof command === "string") {
+		for (const match of command.matchAll(/(?:\bcd|git\s+-C)\s+(?:"([^"]+)"|'([^']+)'|([^\s;&|)]+))/g)) {
+			const target = match[1] ?? match[2] ?? match[3];
+			if (target) found.push(path.resolve(baseCwd, expandHome(target)));
+		}
+	}
+	return found;
+}
+
+/**
+ * Pick the repo to diff. Uses Pi's cwd if it is inside a git worktree; otherwise walks the
+ * session backwards and picks the git toplevel of the most recently touched path.
+ */
+async function resolveRepoCwd(ctx: ExtensionContext): Promise<{ cwd: string; inferred: boolean } | undefined> {
+	const direct = await gitTopLevel(ctx.cwd);
+	if (direct) return { cwd: ctx.cwd, inferred: false };
+
+	const branch = ctx.sessionManager.getBranch();
+	const checked = new Set<string>();
+	for (let index = branch.length - 1; index >= 0; index--) {
+		const entry = branch[index];
+		if (entry.type !== "message") continue;
+		const message = entry.message;
+		if (!("role" in message) || message.role !== "assistant" || !Array.isArray(message.content)) continue;
+		for (let contentIndex = message.content.length - 1; contentIndex >= 0; contentIndex--) {
+			const content = message.content[contentIndex];
+			if (content.type !== "toolCall") continue;
+			for (const candidate of pathsFromToolCall(content.name, content.arguments ?? {}, ctx.cwd)) {
+				let directory = candidate;
+				if (!directoryExists(directory)) directory = path.dirname(directory);
+				if (checked.has(directory)) continue;
+				checked.add(directory);
+				const top = await gitTopLevel(directory);
+				if (top) return { cwd: top, inferred: true };
+			}
+		}
+	}
+	return undefined;
 }
 
 async function gitRefExists(cwd: string, ref: string): Promise<boolean> {
@@ -332,6 +422,21 @@ function launchHunk(cwd: string, mode: LaunchMode, hunkArgs: string[]): TmuxLaun
 	const printPaneArgs = ["-P", "-F", "#{pane_id}"];
 	const tmuxEnvironmentArgs = process.env.PATH ? ["-e", `PATH=${process.env.PATH}`] : [];
 
+	if (mode === "ghostty") {
+		const launchId = `${process.pid}-${Date.now().toString(36)}`;
+		const envArgs = [`${GHOSTTY_LAUNCH_MARKER}=${launchId}`, ...(process.env.PATH ? [`PATH=${process.env.PATH}`] : [])];
+		// Launch the binary directly rather than via `open -na Ghostty.app`: when launched by
+		// LaunchServices with `-e`, Ghostty shows an "Allow Ghostty to execute …?" dialog.
+		const child = spawn(
+			ghosttyBinaryPath() ?? "ghostty",
+			[`--working-directory=${cwd}`, "-e", "env", ...envArgs, hunkCommand, ...hunkArgs],
+			{ detached: true, stdio: "ignore" },
+		);
+		child.on("error", () => {});
+		child.unref();
+		return { mode, launchId };
+	}
+
 	if (mode === "window") {
 		const paneId = createTmuxPane([
 			"new-window",
@@ -382,6 +487,45 @@ function launchHunk(cwd: string, mode: LaunchMode, hunkArgs: string[]): TmuxLaun
 	};
 }
 
+/**
+ * Run Hunk in the current terminal: suspend Pi's TUI (like Ctrl+G's external editor),
+ * hand stdio to Hunk, and resume Pi when Hunk exits. Resolves once the TUI is back.
+ */
+async function runHunkInline(
+	ctx: ExtensionContext,
+	cwd: string,
+	hunkArgs: string[],
+	onLaunched: (launch: TmuxLaunch) => void,
+): Promise<void> {
+	const hunkCommand = resolveExecutablePath("hunk") ?? "hunk";
+	const knownSessionIds = new Set((await listHunkSessions().catch(() => [])).map((session) => session.sessionId));
+
+	await ctx.ui.custom<void>((tui, _theme, _keybindings, done) => {
+		tui.stop();
+		process.stdout.write("\x1b[2J\x1b[H");
+		const child = spawn(hunkCommand, hunkArgs, { cwd, stdio: "inherit" });
+		onLaunched({ mode: "inline", knownSessionIds, child });
+		let finished = false;
+		const finish = () => {
+			if (finished) return;
+			finished = true;
+			tui.start();
+			tui.requestRender(true);
+			done();
+		};
+		child.on("error", finish);
+		child.on("close", finish);
+		return { render: () => [], handleInput: () => {}, invalidate: () => {} } as unknown as Component;
+	});
+}
+
+async function startHunk(cwd: string, parsed: ParsedArgs): Promise<TmuxLaunch> {
+	const knownSessionIds = new Set((await listHunkSessions().catch(() => [])).map((session) => session.sessionId));
+	const launch = launchHunk(cwd, parsed.mode, parsed.hunkArgs);
+	launch.knownSessionIds = knownSessionIds;
+	return launch;
+}
+
 async function tmuxPaneExists(paneId: string): Promise<boolean> {
 	try {
 		const output = await run("tmux", ["list-panes", "-a", "-F", "#{pane_id}"], { timeout: 3_000 });
@@ -389,6 +533,22 @@ async function tmuxPaneExists(paneId: string): Promise<boolean> {
 	} catch {
 		return false;
 	}
+}
+
+async function ghosttyLaunchAlive(launchId: string): Promise<boolean> {
+	try {
+		await run("pgrep", ["-f", `${GHOSTTY_LAUNCH_MARKER}=${launchId}`], { timeout: 3_000 });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+async function launchAlive(launch: TmuxLaunch): Promise<boolean> {
+	if (launch.child) return launch.child.exitCode === null && launch.child.signalCode === null;
+	if (launch.launchId) return ghosttyLaunchAlive(launch.launchId);
+	if (launch.paneId) return tmuxPaneExists(launch.paneId);
+	return true;
 }
 
 async function listHunkSessions(): Promise<HunkSession[]> {
@@ -417,10 +577,12 @@ async function waitForHunkSession(launch: TmuxLaunch, cwd: string): Promise<Hunk
 		const byPane = launch.paneId ? sessions.find((session) => sessionMatchesPane(session, launch.paneId)) : undefined;
 		if (byPane) return byPane;
 
-		const byCwd = sessions.filter((session) => sessionMatchesCwd(session, cwd));
+		const byCwd = sessions
+			.filter((session) => !launch.knownSessionIds?.has(session.sessionId))
+			.filter((session) => sessionMatchesCwd(session, cwd));
 		if (byCwd.length === 1) return byCwd[0];
 
-		if (launch.paneId && !(await tmuxPaneExists(launch.paneId))) return undefined;
+		if (!(await launchAlive(launch))) return undefined;
 		await sleep(250);
 	}
 	return undefined;
@@ -462,7 +624,7 @@ async function collectUserNotes(sessionId: string, launch: TmuxLaunch, onUpdate:
 				onUpdate(latestNotes);
 			}
 		} catch {
-			if (launch.paneId && !(await tmuxPaneExists(launch.paneId))) break;
+			if (!(await launchAlive(launch))) break;
 		}
 
 		await sleep(POLL_INTERVAL_MS);
@@ -654,7 +816,7 @@ async function handleReviewInHunkCommand(pi: ExtensionAPI, args: string, ctx: Ex
 	if (parsed.showHelp) {
 		ctx.ui.notify(
 			[
-				"Usage: /review-in-hunk [--window|--pane|--session] [-- pathspec...]",
+				"Usage: /review-in-hunk [--inline|--window|--pane|--session|--ghostty] [-- pathspec...]",
 				"",
 				"Opens Hunk on changed files mentioned by the last assistant message,",
 				"with that assistant message attached as Hunk agent notes.",
@@ -664,7 +826,7 @@ async function handleReviewInHunkCommand(pi: ExtensionAPI, args: string, ctx: Ex
 		return;
 	}
 
-	if (!commandExists("tmux")) {
+	if (parsed.mode !== "ghostty" && parsed.mode !== "inline" && !commandExists("tmux")) {
 		ctx.ui.notify("/review-in-hunk uses tmux to run Hunk without corrupting Pi's TUI, but `tmux` was not found.", "error");
 		return;
 	}
@@ -675,28 +837,39 @@ async function handleReviewInHunkCommand(pi: ExtensionAPI, args: string, ctx: Ex
 		return;
 	}
 
+	const repo = await resolveRepoCwd(ctx);
+	if (!repo) {
+		ctx.ui.notify(
+			`Pi's working directory (${ctx.cwd}) is not a git worktree and no repo could be inferred from this session's tool calls.`,
+			"error",
+		);
+		return;
+	}
+	const cwd = repo.cwd;
+	if (repo.inferred) ctx.ui.notify(`Using repo inferred from session: ${cwd}`, "info");
+
 	const explicitPathspec = getPathspecFromHunkArgs(parsed.hunkArgs);
-	const changedFiles = await listChangedFiles(ctx.cwd);
+	const changedFiles = await listChangedFiles(cwd);
 	const discussedChangedFiles = explicitPathspec.length > 0 ? explicitPathspec : extractDiscussedFiles(assistantText, changedFiles);
 
 	if (changedFiles.length > 0) {
 		const filesToReview = discussedChangedFiles.length > 0 ? discussedChangedFiles : changedFiles;
-		const contextPath = writeReviewAgentContext(ctx.cwd, filesToReview, assistantText, false);
+		const contextPath = writeReviewAgentContext(cwd, filesToReview, assistantText, false);
 		parsed.hunkArgs = ["diff", "--agent-context", contextPath, "--agent-notes", "--", ...filesToReview];
 
 		ctx.ui.notify(
 			`Opening ${filesToReview.length} changed file${filesToReview.length === 1 ? "" : "s"} in Hunk with Pi conversation context.`,
 			"info",
 		);
-		await handleLaunchedHunk(pi, ctx, parsed);
+		await openHunk(pi, ctx, cwd, parsed);
 		return;
 	}
 
-	const trackedFiles = await listTrackedFiles(ctx.cwd);
+	const trackedFiles = await listTrackedFiles(cwd);
 	const discussedTrackedFiles = explicitPathspec.length > 0 ? explicitPathspec : extractDiscussedFiles(assistantText, trackedFiles);
 	const filesToReview = discussedTrackedFiles.filter((file) => {
 		try {
-			return fs.statSync(path.join(ctx.cwd, file)).isFile();
+			return fs.statSync(path.join(cwd, file)).isFile();
 		} catch {
 			return false;
 		}
@@ -707,35 +880,18 @@ async function handleReviewInHunkCommand(pi: ExtensionAPI, args: string, ctx: Ex
 		return;
 	}
 
-	const patchPath = writeFullFilePatch(ctx.cwd, filesToReview);
-	const contextPath = writeReviewAgentContext(ctx.cwd, filesToReview, assistantText, true);
+	const patchPath = writeFullFilePatch(cwd, filesToReview);
+	const contextPath = writeReviewAgentContext(cwd, filesToReview, assistantText, true);
 	parsed.hunkArgs = ["patch", patchPath, "--agent-context", contextPath, "--agent-notes"];
 
 	ctx.ui.notify(
 		`No changes found; opening ${filesToReview.length} full file${filesToReview.length === 1 ? "" : "s"} as a synthetic Hunk patch with Pi context.`,
 		"info",
 	);
-	await handleLaunchedHunk(pi, ctx, parsed);
+	await openHunk(pi, ctx, cwd, parsed);
 }
 
-async function handleLaunchedHunk(pi: ExtensionAPI, ctx: ExtensionContext, parsed: ParsedArgs): Promise<void> {
-	const cwd = ctx.cwd;
-	if (!directoryExists(cwd)) {
-		ctx.ui.notify(
-			`Cannot open Hunk because Pi's working directory no longer exists: ${cwd}. Start Pi from an existing checkout or repo worktree first.`,
-			"error",
-		);
-		return;
-	}
-
-	ctx.ui.setStatus(STATUS_KEY, "opening Hunk diff…");
-
-	const launch = launchHunk(cwd, parsed.mode, parsed.hunkArgs);
-
-	if (launch.attachCommand) {
-		ctx.ui.notify(`Hunk opened in tmux session. Attach with: ${launch.attachCommand}`, "info");
-	}
-
+function monitorHunk(pi: ExtensionAPI, ctx: ExtensionContext, cwd: string, parsed: ParsedArgs, launch: TmuxLaunch): void {
 	void (async () => {
 		try {
 			const hunkSession = await waitForHunkSession(launch, cwd);
@@ -780,6 +936,23 @@ async function handleLaunchedHunk(pi: ExtensionAPI, ctx: ExtensionContext, parse
 			ctx.ui.setStatus(STATUS_KEY, undefined);
 		}
 	})();
+}
+
+async function openHunk(pi: ExtensionAPI, ctx: ExtensionContext, cwd: string, parsed: ParsedArgs): Promise<void> {
+	ctx.ui.setStatus(STATUS_KEY, "opening Hunk diff…");
+
+	if (parsed.mode === "inline") {
+		await runHunkInline(ctx, cwd, parsed.hunkArgs, (launch) => monitorHunk(pi, ctx, cwd, parsed, launch));
+		return;
+	}
+
+	const launch = await startHunk(cwd, parsed);
+	if (launch.attachCommand) {
+		ctx.ui.notify(`Hunk opened in tmux session. Attach with: ${launch.attachCommand}`, "info");
+	} else if (launch.mode === "ghostty") {
+		ctx.ui.notify("Hunk opened in a new Ghostty window.", "info");
+	}
+	monitorHunk(pi, ctx, cwd, parsed, launch);
 }
 
 async function handleDiffCommand(
@@ -811,19 +984,21 @@ async function handleDiffCommand(
 		return;
 	}
 
-	if (!commandExists("tmux")) {
+	if (parsed.mode !== "ghostty" && parsed.mode !== "inline" && !commandExists("tmux")) {
 		ctx.ui.notify(`/${commandName} uses tmux to run Hunk without corrupting Pi's TUI, but \`tmux\` was not found.`, "error");
 		return;
 	}
 
-	const cwd = ctx.cwd;
-	if (!directoryExists(cwd)) {
+	const repo = await resolveRepoCwd(ctx);
+	if (!repo) {
 		ctx.ui.notify(
-			`Cannot open Hunk because Pi's working directory no longer exists: ${cwd}. Start Pi from an existing checkout or repo worktree first.`,
+			`Pi's working directory (${ctx.cwd}) is not a git worktree and no repo could be inferred from this session's tool calls.`,
 			"error",
 		);
 		return;
 	}
+	const cwd = repo.cwd;
+	if (repo.inferred) ctx.ui.notify(`Using repo inferred from session: ${cwd}`, "info");
 
 	if (commandName !== DIFF_COMMAND_NAME) {
 		try {
@@ -836,58 +1011,7 @@ async function handleDiffCommand(
 		}
 	}
 
-	ctx.ui.setStatus(STATUS_KEY, "opening Hunk diff…");
-
-	const launch = launchHunk(cwd, parsed.mode, parsed.hunkArgs);
-
-	if (launch.attachCommand) {
-		ctx.ui.notify(`Hunk opened in tmux session. Attach with: ${launch.attachCommand}`, "info");
-	}
-
-	void (async () => {
-		try {
-			const hunkSession = await waitForHunkSession(launch, cwd);
-			if (!hunkSession) {
-				ctx.ui.setStatus(STATUS_KEY, undefined);
-				ctx.ui.notify(
-					"Hunk opened, but its live session API did not register. Saved notes cannot be ingested from this run.",
-					"warning",
-				);
-				return;
-			}
-
-			ctx.ui.setStatus(STATUS_KEY, "Hunk open — 0 saved notes");
-			const notes = await collectUserNotes(hunkSession.sessionId, launch, (currentNotes) => {
-				ctx.ui.setStatus(STATUS_KEY, `Hunk open — ${currentNotes.length} saved note${currentNotes.length === 1 ? "" : "s"}`);
-			});
-
-			ctx.ui.setStatus(STATUS_KEY, undefined);
-
-			if (notes.length === 0) {
-				ctx.ui.notify("Hunk closed with no saved user notes; nothing was sent to the agent.", "info");
-				return;
-			}
-
-			(pi as unknown as { appendEntry?: (customType: string, data?: unknown) => void }).appendEntry?.("hunk-diff-review", {
-				cwd,
-				hunkArgs: parsed.hunkArgs,
-				notes,
-				completedAt: new Date().toISOString(),
-			});
-
-			const prompt = buildAgentPrompt(notes);
-			ctx.ui.notify(`Sending ${notes.length} Hunk note${notes.length === 1 ? "" : "s"} to the agent…`, "info");
-			if (ctx.isIdle()) {
-				pi.sendUserMessage(prompt);
-			} else {
-				pi.sendUserMessage(prompt, { deliverAs: "followUp" });
-			}
-		} catch (error) {
-			ctx.ui.notify(`Failed while monitoring Hunk notes: ${error instanceof Error ? error.message : String(error)}`, "error");
-		} finally {
-			ctx.ui.setStatus(STATUS_KEY, undefined);
-		}
-	})();
+	await openHunk(pi, ctx, cwd, parsed);
 }
 
 export default function hunkDiffExtension(pi: ExtensionAPI) {

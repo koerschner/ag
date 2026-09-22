@@ -101,7 +101,7 @@ herdr pane wait-output <pane-id> --match "ready" --timeout 120000
 herdr pane read <pane-id> --source recent-unwrapped --lines 120
 ```
 
-`wait-output` matches output that already exists too; omit `--timeout` for indefinite.
+`wait-output` matches output that already exists too — including the echoed command line itself. So `pane run <id> 'cmd; echo DONE'` + `--match DONE` returns immediately. Use a sentinel that only appears on completion and anchor it: `pane run <id> 'cmd; echo PROBE_DONE'` then `wait-output <id> --regex '^PROBE_DONE$'`. Omit `--timeout` for indefinite.
 
 For dev processes (apps, servers, watchers):
 - Never create a new session or workspace unless explicitly asked. Work inside the current workspace.

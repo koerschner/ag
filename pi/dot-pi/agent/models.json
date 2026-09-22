@@ -30,6 +30,32 @@
       "api": "anthropic-messages",
       "models": [
         {
+          "id": "anthropic-primary/claude-opus-5-5",
+          "reasoning": true,
+          "input": [
+            "text",
+            "image"
+          ],
+          "contextWindow": 1000000,
+          "maxTokens": 128000,
+          "compat": {
+            "supportsMidConvoEffort": true,
+            "forceAdaptiveThinking": true,
+            "supportsStrictTools": true
+          },
+          "thinkingLevelMap": {
+            "off": null,
+            "xhigh": "xhigh",
+            "max": "max"
+          },
+          "cost": {
+            "input": 10,
+            "output": 50,
+            "cacheRead": 0.25,
+            "cacheWrite": 12.5
+          }
+        },
+        {
           "id": "claude-fable-5-1",
           "reasoning": true,
           "input": [

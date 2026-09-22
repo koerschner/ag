@@ -1,19 +1,19 @@
 {
   "lastChangelogVersion": "0.85.1",
   "defaultProvider": "truefoundry",
-  "defaultModel": "claude-fable-5-1",
+  "defaultModel": "anthropic-primary/claude-opus-5-5",
   "defaultThinkingLevel": "medium",
-  "hideThinkingBlock": false,
+  "hideThinkingBlock": true,
   "packages": [
     "npm:pi-mcp-extension"
   ],
   "skills": [
     "~/.agents/skills",
-    "~/arcade/.agents/skills"
+    "~/arcade.school/.agents/skills"
   ],
   "enabledModels": [
-    "truefoundry-openai/gpt-6-astra",
-    "truefoundry/claude-fable-5-1"
+    "truefoundry/anthropic-primary/claude-opus-5-5",
+    "truefoundry-openai/gpt-6-astra"
   ],
   "theme": "dark"
 }

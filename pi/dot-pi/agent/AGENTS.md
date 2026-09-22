@@ -21,11 +21,13 @@ The arcade repo ships its own skills in `.agents/skills/`. Always use them for t
 
 - `arcade-create-issue` — any Linear ticket (bug, feature, task). Always create the ticket first for new work.
 - `arcade-consume-issue` — reading an issue and getting its Linear-generated branch name (use that branch name for the worktree).
-- `arcade-create-pull-request` — opening PRs (requires the user's Slop Continuum rating).
+- `arcade-create-pull-request` — opening PRs. The Slop Continuum rating is a title suffix (not a label): Nathan's standing rating for automated PRs is **`(SC-10)`** — use it without asking unless he gives a different rating. Keep the whole title under 70 characters and omit conventional-commit prefixes (`docs:`, `feat:`).
 - `arcade-resolve-pr-feedback`, `arcade-hotfix`, `arcade-create-release`, `arcade-check-*` — for their respective tasks.
 - `arcade-ship` — the SC-10 autopilot (issue → worktree → plan with bone pre-check → build → simplify → PR → CI/bot loop → bones check → merge to dev). In Pi, start it with `/ship <ARC-123 | spec> [SC-N]` (extension `ship.ts`): the harness re-prompts between turns and only accepts `ship_done` once `gh` confirms the PR merged without the `bones` label. Any bone move (`bun run bones check`, manifest `docs/architecture/bones.yml`) is a halt, never an override — see `docs/architecture/bones.md` in the repo.
 
 Read the skill's `SKILL.md` before acting; follow its confirmation steps.
+
+Linear: use https://linear.app/arcade-school (workspace ID `e83faa52-1dff-4ec0-a905-38e6edfdaa9c`; Arcade team ID `38e3b708-4846-43b4-97d3-b7b0005cf2f6`, key `ARC`). The old Arcade team in the Playcademy workspace was retired on 2026-09-21 — never use Playcademy for Arcade work. ARC issue numbers were preserved.
 
 ## Herdr (terminal multiplexer)
 
@@ -148,10 +150,20 @@ When the user refers to something that would live within a repo ("the skill in t
 Applies to ANYTHING another human may read that you author: PR/issue comments and review replies, PR descriptions, commit messages that others read, Slack/Discord/email messages, Linear comments, etc.
 
 - You are a **third party** in the conversation, speaking in **your own voice** — never as Nathan and never implying Nathan wrote it.
-- Every such message MUST **open with an attribution line** naming the model, before any content — never a sign-off at the end. Format: `Claude ($PI_MODEL), assisting Nathan:` on its own first line, then the message. Use the actual `PI_MODEL` value at runtime.
+- Every such message MUST **open with an attribution line** naming the assistant and its actual model, before any content — never a sign-off at the end. Format: `<Assistant> (<model>), assisting Nathan:` on its own first line, then the message (e.g. `Claude (anthropic-primary/claude-opus-5-5), assisting Nathan:`, `Codex (GPT-6), assisting Nathan:`). Use the model identity available in the current session (in Pi, `$PI_MODEL`); never invent one.
 - Keep messages **as short and thin as possible**. No preamble, no pleasantries, no restating context the reader already has. One or two sentences is the target. Do not annoy people.
 - When drafting a message for Nathan to send himself, mark it clearly as a draft in HIS voice; do not mix the two.
+- Use Discord for messages to Nathan's team unless he explicitly says otherwise.
+- Donald Geddes is **Hbauer** on Discord (username `hbauer`; Linear `handlebauer`). For the Arcade Linear migration, coordinate with Donald only — not Benjamin Hitov or Eli (not on Nathan's team).
+
+## Python
+
+Always use `uv` (venvs, dependencies, Python versions): `uv init`, `uv add`, `uv run`. Never install packages globally or use raw pip/venv.
 
 ## Scope discipline
 
 Never add or suggest "nice to have" features, extras, or follow-up improvements beyond what was asked. Do exactly the requested task and stop. Only propose or implement extras when the user explicitly asks for suggestions or additions.
+
+## This file
+
+This is the single global agent instructions file, `~/dotfiles/pi/dot-pi/agent/AGENTS.md`. Pi (`~/.pi/agent/AGENTS.md`), Claude Code (`~/.claude/CLAUDE.md`) and Codex (`~/.codex/AGENTS.md`) all symlink to it. Edit it here, never through a copy.

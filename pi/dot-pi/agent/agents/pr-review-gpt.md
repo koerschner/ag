@@ -1,7 +1,7 @@
 ---
 name: pr-review-gpt
 description: Fast independent PR/code-review subagent using the current GPT flagship (TrueFoundry). Finds high-signal bugs for quick review.
-model: truefoundry-openai/gpt-6-astra:low
+model: truefoundry/anthropic-primary/claude-opus-5-5:low
 tools: read,bash,grep,find,ls
 ---
 

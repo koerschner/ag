@@ -1,7 +1,7 @@
 ---
 name: pr-review-gpt-xhigh
 description: Independent PR/code-review subagent using the current GPT flagship with extra-high reasoning. Finds validated bugs and ranks severity for rigorous pre-merge review.
-model: truefoundry-openai/gpt-6-astra:xhigh
+model: truefoundry/anthropic-primary/claude-opus-5-5:xhigh
 tools: read,bash,grep,find,ls
 ---
 

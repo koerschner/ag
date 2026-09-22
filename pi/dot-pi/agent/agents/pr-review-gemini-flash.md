@@ -1,7 +1,7 @@
 ---
 name: pr-review-gemini-flash
 description: Fast independent PR/code-review subagent using Gemini Flash. Finds high-signal bugs for quick review.
-model: truefoundry-chat/gemini-group/gemini-2.5-flash:low
+model: truefoundry/anthropic-primary/claude-opus-5-5:low
 tools: read,bash,grep,find,ls
 ---
 

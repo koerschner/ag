@@ -1,18 +1,21 @@
 ## Working directory
 
-You are usually started in `~` (the home directory), not inside a project. Assume that unless the cwd says otherwise. Project checkouts live directly under `~` (e.g. `~/arcade`), and worktrees sit beside them as siblings (e.g. `~/arcade-<topic>`). Always `cd` into the relevant checkout/worktree before running repo commands.
+You are usually started in `~` (the home directory), not inside a project. Assume that unless the cwd says otherwise. Project checkouts live directly under `~` (e.g. `~/arcade.school`), and worktrees sit beside them as siblings (e.g. `~/arcade-<topic>`). Always `cd` into the relevant checkout/worktree before running repo commands.
 
 ## Worktrees
 
-Always do new work in a git worktree so multiple things can be worked on at once. Never create or switch branches in the main checkout (e.g. `~/arcade`); leave it on its current branch.
+Always do new work in a git worktree so multiple things can be worked on at once. Never create or switch branches in the main checkout (e.g. `~/arcade.school`); leave it on its current branch.
 
-- Create one worktree per task, as a sibling of the main checkout, named `~/<repo>-<short-topic>`, based on the repo's integration branch (check `gh repo view --json defaultBranchRef` — for arcade it is `dev`, not `main`; `main` is production):
-  `git -C ~/<repo> fetch origin && git -C ~/<repo> worktree add ~/<repo>-<short-topic> -b <branch> origin/<default-branch>`
-- Do all edits, installs, checks, commits, and pushes from inside that worktree.
-- Before starting, check `git worktree list` — reuse an existing worktree if one already exists for the branch.
+- Create one worktree per task, as a sibling of the main checkout, named `~/<repo>-<short-topic>` (for arcade that is `~/arcade-<short-topic>`), based on the repo's integration branch (check `gh repo view --json defaultBranchRef` — for arcade it is `dev`, not `main`; `main` is production).
+- Inside Herdr (the normal case), create it with Herdr so it also appears as a grouped workspace in the sidebar:
+  `git -C ~/<repo> fetch origin && herdr worktree create --cwd ~/<repo> --branch <branch> --base origin/<default-branch> --path ~/<repo>-<short-topic> --no-focus`
+  Outside Herdr, fall back to `git -C ~/<repo> worktree add ~/<repo>-<short-topic> -b <branch> origin/<default-branch>`.
+- Do all edits, installs, checks, commits, and pushes from inside that worktree (`cd` there; the worktree workspace's pane is for the user, keep working in your own pane).
+- Before starting, check `git worktree list` — reuse an existing worktree if one already exists for the branch. If it exists but isn't open in Herdr, `herdr worktree open --cwd ~/<repo> --path <worktree> --no-focus`.
+- To know whether the cwd is a worktree: `git rev-parse --show-toplevel` differs from `dirname "$(git rev-parse --path-format=absolute --git-common-dir)"`.
 - Tell the user the worktree path you're working in.
 
-## Arcade (arcade.school, `~/arcade`)
+## Arcade (arcade.school, `~/arcade.school`)
 
 The arcade repo ships its own skills in `.agents/skills/`. Always use them for the corresponding task instead of ad-hoc commands — they encode the team's Linear/GitHub conventions:
 
@@ -23,26 +26,28 @@ The arcade repo ships its own skills in `.agents/skills/`. Always use them for t
 
 Read the skill's `SKILL.md` before acting; follow its confirmation steps.
 
-## tmux
+## Herdr (terminal multiplexer)
 
-Always assume you are running inside tmux, in an existing session and window. Use `$TMUX_PANE` / `tmux display-message` to discover the current session, window, and pane when needed.
+Assume you are running inside Herdr, in an existing pane of an existing workspace. Confirm with `test "$HERDR_ENV" = 1`; your location is `$HERDR_WORKSPACE_ID` / `$HERDR_TAB_ID` / `$HERDR_PANE_ID`. Herdr is not tmux: `$TMUX` is unset and tmux commands do not apply. Never run bare `herdr` (it launches the TUI; nested launches are blocked) and never run `herdr server stop`. `herdr --help` and `herdr <group>` (e.g. `herdr pane`) print the current CLI; commands return JSON — read IDs from `.result`.
 
-Spatial language refers to this tmux layout:
-- "here" means the current pane — the one the agent was started in, including its scrollback/output from before the agent started (inspect with `tmux capture-pane -p -t <pane> -S -<lines>`).
-- "above", "below", "left", "right" mean the neighboring pane in that direction within the current window (e.g. `tmux select-pane -t '{up-of}'` or target via `tmux display-message -t '{up-of}' ...`).
-- "window" means a new window in the current session, not a new session.
+Spatial language refers to the Herdr layout:
+- "here" means the current pane (`herdr pane current --current`; read its output with `herdr pane read "$HERDR_PANE_ID" --source recent-unwrapped --lines <n>`).
+- "above", "below", "left", "right" mean the neighboring pane in that direction in the current tab (`herdr pane neighbor --current --direction up|down|left|right`).
+- "tab" means a new tab in the current workspace (`herdr tab create --label <name> --cwd <dir> --no-focus`), not a new workspace or session.
+- "workspace" means a Herdr workspace (one per repo/worktree), not a session.
 
 When running development processes (apps, dev servers, watchers):
-- Never create a new tmux session unless explicitly asked. Work inside the current session.
-- Start each task in a new window in the current session, with a descriptive window name.
-- If a task involves multiple related processes/services, group them as panes within that one new window rather than spreading them across windows.
-- Tell the user which window (and panes) things are running in, e.g. `tmux select-window -t <session>:<window-name>`.
+- Never create a new session or workspace unless explicitly asked. Work inside the current workspace.
+- Start each task in a new tab in the current workspace with a descriptive label, or split beside yourself for something short-lived: `herdr pane split --current --direction right|down --cwd "$PWD" --no-focus`, then `herdr pane run <pane-id> "<cmd>"`, `herdr pane wait-output <pane-id> --match <text> --timeout <ms>`, `herdr pane read <pane-id> --source recent-unwrapped --lines <n>`.
+- If a task involves multiple related processes/services, group them as panes within that one new tab rather than spreading them across tabs.
+- Use `--no-focus` so the user's focus stays put. Only close panes/tabs you created.
+- Tell the user which tab and panes things are running in (label and IDs).
 
 Never create a git commit without consulting the user first and receiving explicit approval.
 
 ## Default repo
 
-When the user refers to something that would live within a repo ("the skill in the repo", "our AGENTS.md", "the dashboard", a PR, a migration, etc.) without naming one, assume the arcade.school monorepo at `~/arcade` (`playcademy-arcade`).
+When the user refers to something that would live within a repo ("the skill in the repo", "our AGENTS.md", "the dashboard", a PR, a migration, etc.) without naming one, assume the arcade.school monorepo at `~/arcade.school` (`playcademy-arcade`).
 
 ## Communicating with other people on Nathan's behalf
 

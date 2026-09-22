@@ -8,7 +8,8 @@
     "npm:pi-mcp-extension"
   ],
   "skills": [
-    "~/.agents/skills"
+    "~/.agents/skills",
+    "~/arcade/.agents/skills"
   ],
   "enabledModels": [
     "truefoundry-openai/gpt-6-astra",

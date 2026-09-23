@@ -1,0 +1,12 @@
+onboarding = false
+
+[ui]
+# Hammerspoon matches this prefix to forward Cmd-T/W/D shortcuts into herdr.
+window_title = "herdr: {workspace}"
+
+[ui.toast]
+delivery = "terminal"
+
+[theme]
+name = "gruvbox"
+auto_switch = false

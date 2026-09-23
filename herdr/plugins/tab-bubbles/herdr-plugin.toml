@@ -1,0 +1,34 @@
+id = "nathan.tab-bubbles"
+name = "Tab bubbles"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "Append a ● to a tab's label for each agent that finished or needs input while you weren't looking at that tab. Visiting the tab clears them."
+platforms = ["macos", "linux"]
+
+[[events]]
+on = "pane.agent_status_changed"
+command = ["python3", "bubbles.py"]
+
+[[events]]
+on = "tab.focused"
+command = ["python3", "bubbles.py"]
+
+[[events]]
+on = "pane.focused"
+command = ["python3", "bubbles.py"]
+
+[[events]]
+on = "workspace.focused"
+command = ["python3", "bubbles.py"]
+
+[[events]]
+on = "tab.renamed"
+command = ["python3", "bubbles.py"]
+
+[[events]]
+on = "pane.closed"
+command = ["python3", "bubbles.py"]
+
+[[events]]
+on = "tab.closed"
+command = ["python3", "bubbles.py"]

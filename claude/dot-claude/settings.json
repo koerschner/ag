@@ -4,5 +4,6 @@
   },
   "model": "claude-fable-5-1[1m]",
   "skipDangerousModePermissionPrompt": true,
-  "theme": "auto"
+  "theme": "auto",
+  "hooks": {"SessionStart":[{"matcher":"^(startup|resume|clear|compact|fork)$","hooks":[{"type":"command","command":"bash '/Users/nathan/.claude/hooks/herdr-agent-state.sh' session","timeout":10}]}]}
 }

@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""Open a new Herdr tab in the focused workspace and start a fresh pi session in it.
+
+The tab inherits the cwd of the focused pane. Hammerspoon binds Cmd+T to this
+(see ~/.hammerspoon/init.lua). Stdlib only on purpose.
+"""
+
+import json
+import os
+import subprocess
+
+HERDR = os.path.expanduser("~/.local/bin/herdr")
+
+
+def herdr(*args):
+    out = subprocess.run([HERDR, *args], check=True, capture_output=True, text=True).stdout
+    return json.loads(out)["result"]
+
+
+ws = next(w for w in herdr("workspace", "list")["workspaces"] if w["focused"])
+panes = herdr("pane", "list", "--workspace", ws["workspace_id"])["panes"]
+active = [p for p in panes if p["tab_id"] == ws["active_tab_id"]]
+src = next((p for p in active if p["focused"]), active[0] if active else None)
+cwd = (src or {}).get("foreground_cwd") or (src or {}).get("cwd") or os.path.expanduser("~")
+
+tab = herdr("tab", "create", "--workspace", ws["workspace_id"], "--cwd", cwd, "--focus")
+herdr("pane", "run", tab["root_pane"]["pane_id"], "pi")

@@ -7,12 +7,19 @@
   "mcpServers": {
     "linear": {
       "transport": "stdio",
-      "command": "bunx",
+      "command": "npx",
       "args": [
-        "--bun",
-        "mcp-remote@0.8.3",
-        "https://mcp.linear.app/mcp"
+        "-y",
+        "mcp-remote@0.14.3",
+        "https://mcp.linear.app/mcp",
+        "--transport",
+        "http-only",
+        "--static-oauth-client-metadata",
+        "@/Users/nathan/.local/share/arcade-linear-return/mcp-destination/client-metadata.json"
       ],
+      "env": {
+        "MCP_REMOTE_CONFIG_DIR": "/Users/nathan/.local/share/arcade-linear-return/mcp-destination"
+      },
       "lifecycle": "eager"
     },
     "arcade_school": {

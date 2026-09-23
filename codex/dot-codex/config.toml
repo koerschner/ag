@@ -176,7 +176,12 @@ SKY_CUA_SERVICE_PATH = "/Users/nathan/.codex/computer-use/Codex Computer Use.app
 CODEX_CLI_PATH = "/Applications/ChatGPT.app/Contents/Resources/codex"
 
 [mcp_servers.linear]
-url = "https://mcp.linear.app/mcp"
+command = "npx"
+args = ["-y", "mcp-remote@0.14.3", "https://mcp.linear.app/mcp", "--transport", "http-only", "--static-oauth-client-metadata", "@/Users/nathan/.local/share/arcade-linear-return/mcp-destination/client-metadata.json"]
+startup_timeout_sec = 60
+
+[mcp_servers.linear.env]
+MCP_REMOTE_CONFIG_DIR = "/Users/nathan/.local/share/arcade-linear-return/mcp-destination"
 
 [mcp_servers.arcade_school]
 command = "/Users/nathan/.bun/bin/bunx"

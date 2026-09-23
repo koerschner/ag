@@ -13,6 +13,8 @@
  * - Re-prompts on every agent_end while a run is active (capped at MAX_TURNS).
  * - ship_done(pr) ends the run only once `gh` says the PR is MERGED.
  * - ship_halt(reason) ends the run when the agent is truly blocked.
+ * - Tracks `read`s of the repo's arcade skills and blocks `gh pr create`,
+ *   `gh pr merge` and ship_done until the required ones were read this run.
  * - State persists in the session and is re-injected into the system prompt.
  */
 
@@ -28,13 +30,48 @@ const SKILL_PATH = path.join(os.homedir(), ".agents", "skills", "ship", "SKILL.m
 const REPO = path.join(os.homedir(), "arcade.school");
 const MAX_TURNS = 80;
 
+/** Arcade skills that must be read before a gated action. */
+const REQUIRED_BEFORE = {
+	prCreate: ["arcade-consume-issue", "arcade-create-pull-request"],
+	merge: ["arcade-consume-issue", "arcade-create-pull-request", "arcade-check-freshness", "arcade-resolve-pr-feedback"],
+};
+
 type ShipState = {
 	active: boolean;
 	argument?: string;
 	startedAt?: number;
 	turns?: number;
+	skillsRead?: string[];
 	outcome?: string;
 };
+
+/** `…/.agents/skills/<name>/SKILL.md` → `<name>` for arcade skills. */
+function arcadeSkillName(p: string): string | undefined {
+	const m = p.match(/\.agents\/skills\/([^/]+)\/SKILL\.md$/);
+	if (!m) return undefined;
+	const name = m[1];
+	return name.startsWith("arcade-") || name === "frontend-design" || name === "compress-problem" ? name : undefined;
+}
+
+function missing(state: ShipState, required: string[]): string[] {
+	const read = new Set(state.skillsRead ?? []);
+	return required.filter((n) => !read.has(n));
+}
+
+function missingReason(names: string[], action: string): string {
+	const paths = names.map((n) => `${REPO}/.agents/skills/${n}/SKILL.md`).join(", ");
+	return `/ship: read the arcade skill(s) first with the read tool, then follow them: ${paths}. Blocked: ${action}.`;
+}
+
+async function arcadeSkillIndex(): Promise<string> {
+	const dir = path.join(REPO, ".agents", "skills");
+	try {
+		const names = (await fs.readdir(dir)).filter((n) => !n.startsWith(".")).sort();
+		return names.map((n) => `- ${n}: ${path.join(dir, n, "SKILL.md")}`).join("\n");
+	} catch {
+		return `(could not list ${dir})`;
+	}
+}
 
 function stripFrontmatter(markdown: string): string {
 	if (!markdown.startsWith("---\n")) return markdown.trim();
@@ -42,11 +79,17 @@ function stripFrontmatter(markdown: string): string {
 	return end === -1 ? markdown.trim() : markdown.slice(end + "\n---\n".length).trim();
 }
 
-function kickoffPrompt(skill: string, argument: string): string {
+function kickoffPrompt(skill: string, argument: string, index: string): string {
 	return [
 		`<skill name="ship" location="${SKILL_PATH}">`,
 		skill,
 		`</skill>`,
+		``,
+		`# Arcade skills available`,
+		``,
+		index,
+		``,
+		`Read each one with the \`read\` tool at its step (see the ship skill's table). Required reads are enforced: \`gh pr create\` needs ${REQUIRED_BEFORE.prCreate.join(" + ")}; \`gh pr merge\` and ship_done also need ${REQUIRED_BEFORE.merge.slice(2).join(" + ")}.`,
 		``,
 		`# /ship kickoff`,
 		``,
@@ -103,6 +146,8 @@ export default function shipExtension(pi: ExtensionAPI): void {
 		}),
 		async execute(_id, params, _signal, _update, ctx) {
 			if (!state.active) return { content: [{ type: "text", text: "No active /ship run." }], details: {} };
+			const need = missing(state, REQUIRED_BEFORE.merge);
+			if (need.length) return { content: [{ type: "text", text: missingReason(need, "ship_done") + " Run stays active." }], details: { need } };
 			const r = await pi.exec("gh", ["pr", "view", String(params.pr), "--json", "state,url"], { cwd: REPO, timeout: 60_000 });
 			if (r.code !== 0) {
 				return { content: [{ type: "text", text: `Could not verify PR #${params.pr}: ${r.stderr.trim()}. Run stays active.` }], details: {} };
@@ -159,10 +204,31 @@ export default function shipExtension(pi: ExtensionAPI): void {
 				ctx.ui.notify(`ship skill not found at ${SKILL_PATH}`, "error");
 				return;
 			}
-			persist({ active: true, argument, startedAt: Date.now(), turns: 0 }, ctx);
+			persist({ active: true, argument, startedAt: Date.now(), turns: 0, skillsRead: [] }, ctx);
 			ctx.ui.notify("/ship autopilot active", "info");
-			pi.sendUserMessage(kickoffPrompt(skill, argument));
+			pi.sendUserMessage(kickoffPrompt(skill, argument, await arcadeSkillIndex()));
 		},
+	});
+
+	pi.on("tool_call", async (event, ctx) => {
+		if (!state.active) return;
+		const input = event.input as { path?: string; command?: string };
+		if (event.toolName === "read" && typeof input.path === "string") {
+			const name = arcadeSkillName(input.path.replace(/^~(?=\/)/, os.homedir()));
+			if (name && !(state.skillsRead ?? []).includes(name)) {
+				persist({ ...state, skillsRead: [...(state.skillsRead ?? []), name] }, ctx);
+			}
+			return;
+		}
+		if (event.toolName === "bash" && typeof input.command === "string") {
+			const cmd = input.command;
+			const gate = /\bgh\s+pr\s+merge\b/.test(cmd)
+				? { need: missing(state, REQUIRED_BEFORE.merge), action: "gh pr merge" }
+				: /\bgh\s+pr\s+create\b/.test(cmd)
+					? { need: missing(state, REQUIRED_BEFORE.prCreate), action: "gh pr create" }
+					: undefined;
+			if (gate?.need.length) return { block: true, reason: missingReason(gate.need, gate.action) };
+		}
 	});
 
 	pi.on("agent_end", async (event, ctx) => {
@@ -192,6 +258,7 @@ export default function shipExtension(pi: ExtensionAPI): void {
 			`<ship_context>`,
 			`A /ship autopilot run is active for: ${state.argument} (turn ${state.turns ?? 0}/${MAX_TURNS}).`,
 			`Run every step without asking; poll CI/bots inside a turn instead of ending it; end with ship_done (verified merge) or ship_halt (truly blocked).`,
+			`Arcade skills read this run: ${(state.skillsRead ?? []).join(", ") || "none"}. Read the arcade skill for each step from ${REPO}/.agents/skills/<name>/SKILL.md before doing it.`,
 			`If the skill text was compacted away, re-read ${SKILL_PATH}.`,
 			`</ship_context>`,
 		].join("\n");

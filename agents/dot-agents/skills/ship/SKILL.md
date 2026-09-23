@@ -11,6 +11,27 @@ Take one piece of arcade work from kickoff to merged on `dev` without stopping. 
 
 Stop early only when you genuinely cannot proceed (see [Blocked](#blocked)).
 
+## Arcade skills
+
+Each step runs through the repo's own skills in `~/arcade.school/.agents/skills/<name>/SKILL.md` (or the same path in your worktree). **Read each one with the `read` tool before its step** and follow its conventions. Don't work from memory. The `/ship` harness checks those reads and blocks `gh pr create`, `gh pr merge` and `ship_done` until the required ones have happened.
+
+| Step | Skill | When |
+| --- | --- | --- |
+| 1 | `arcade-create-issue` | spec given (required then) |
+| 1 | `arcade-consume-issue` | always (required) |
+| 2 | `arcade-instrument` | server-side code added or changed |
+| 2 | `frontend-design` | new or redesigned UI |
+| 2 | `arcade-local-api`, `arcade-local-debug` | verifying API routes or server behavior locally |
+| 3 | `arcade-check-freshness` | always |
+| 3 | `arcade-audit-svelte` | `.svelte` / `.svelte.ts` touched |
+| 3 | `arcade-check-ui` | UI components touched |
+| 3 | `arcade-check-types` | new or moved types |
+| 3 | `arcade-check-booleans` | new boolean flags or state |
+| 4 | `arcade-create-pull-request` | always (required) |
+| 5 | `arcade-resolve-pr-feedback` | always (required) |
+
+Run the audit skills on your own diff and fix what they find; don't produce a report for anyone.
+
 ## Kickoff
 
 Parse the argument:
@@ -35,12 +56,13 @@ State in one line what you're shipping and where, then go.
 - Read enough to know exactly which files change. Smallest diff that closes the issue; reuse the domain's existing patterns; nothing extra.
 - Open questions (naming, defaults, edge cases): pick what fits the surrounding code and note it for the PR's "Judgment calls" section. Don't ask.
 - Add or extend tests where the domain already has them.
+- Server code: apply `arcade-instrument`. New UI: `frontend-design`.
 - Run the local gate (`bun run check`, the relevant `vitest` project), then commit in coherent steps. Never `--no-verify`.
 - If the pre-push hook fails only because Docker isn't running (Stripe seam tests), push with `SKIP_TESTS=true git push`; CI runs the full suite.
 
 ## 3. Simplify
 
-Apply the `simplify` skill to what you touched, keep behavior identical, re-run the gate, commit.
+Apply the `simplify` skill to what you touched, then the step-3 arcade audits that apply (always `arcade-check-freshness`). Fix findings, keep behavior identical, re-run the gate, commit.
 
 ## 4. Pull request
 

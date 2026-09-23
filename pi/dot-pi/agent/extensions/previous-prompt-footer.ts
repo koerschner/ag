@@ -414,8 +414,12 @@ export default function previousPromptFooterExtension(pi: ExtensionAPI) {
 
 					const availableForRight = Math.max(0, width - statsLeftWidth - 2);
 					const rightRendered = availableForRight > 0 ? truncateToWidth(rightSide, availableForRight, "") : "";
-					const padding = " ".repeat(Math.max(1, width - statsLeftWidth - visibleWidth(rightRendered)));
-					const statsLine = theme.fg("dim", statsLeft) + theme.fg("dim", `${padding}${rightRendered}`);
+					const padding = " ".repeat(Math.max(0, width - statsLeftWidth - visibleWidth(rightRendered)));
+					const statsLine = truncateToWidth(
+						theme.fg("dim", statsLeft) + theme.fg("dim", `${padding}${rightRendered}`),
+						width,
+						"",
+					);
 
 					const dirName = basename(ctx.cwd) || ctx.cwd;
 					const branch = footerData.getGitBranch();

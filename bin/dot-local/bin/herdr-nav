@@ -4,6 +4,7 @@
   herdr-nav daemon    watch Herdr focus events and serve back/forward requests
   herdr-nav back      focus the previous pane in history
   herdr-nav forward   focus the next pane in history
+  herdr-nav last-space  focus the most recently used other workspace (tmux switch-client -l)
   herdr-nav status    print the history (for debugging)
 
 The daemon subscribes to Herdr's socket API (pane/tab/workspace focus events),
@@ -99,6 +100,21 @@ class History:
         herdr_request("pane.focus", {"pane_id": pane_id})
         return pane_id
 
+    def last_space(self):
+        # Newest history entry in a different workspace; focusing it records a
+        # normal new entry, so repeated presses toggle between two spaces.
+        snap = snapshot()
+        ws_of = {p["pane_id"]: p["workspace_id"] for p in snap["panes"]}
+        current = ws_of.get(snap.get("focused_pane_id"))
+        with self.lock:
+            entries = self.entries[: self.index + 1]
+        for pid in reversed(entries):
+            ws = ws_of.get(pid)
+            if ws and ws != current:
+                herdr_request("workspace.focus", {"workspace_id": ws})
+                return ws
+        return None
+
     def dump(self):
         with self.lock:
             return {"index": self.index, "entries": list(self.entries)}
@@ -147,6 +163,8 @@ def serve(history):
                 if cmd in ("back", "forward"):
                     moved = history.step(-1 if cmd == "back" else 1)
                     reply = {"ok": True, "pane_id": moved}
+                elif cmd == "last-space":
+                    reply = {"ok": True, "workspace_id": history.last_space()}
                 elif cmd == "status":
                     reply = {"ok": True, **history.dump()}
                 else:
@@ -176,7 +194,7 @@ def main():
         history = History()
         threading.Thread(target=watch_focus, args=(history,), daemon=True).start()
         serve(history)
-    elif cmd in ("back", "forward", "status"):
+    elif cmd in ("back", "forward", "last-space", "status"):
         client(cmd)
     else:
         sys.exit(__doc__)

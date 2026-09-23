@@ -11,15 +11,13 @@ export default function (pi: ExtensionAPI) {
 		name: "chatgpt_cua",
 		label: "ChatGPT Computer Use",
 		description:
-			"Delegate a computer-use task (see the screen, click, type, operate any native Mac app or browser) to ChatGPT/Codex's native computer-use agent. Give a complete, self-contained task; returns its final report. Slow (tens of seconds to minutes). Prefer APIs/CLIs when they exist.",
+			"Delegate a computer-use task (see the screen, click, type, operate any native Mac app or browser) to ChatGPT/Codex's native computer-use agent (always gpt-6-astra). Give a complete, self-contained task; returns its final report. Slow (tens of seconds to minutes). Prefer APIs/CLIs when they exist.",
 		parameters: Type.Object({
 			task: Type.String({ description: "Self-contained task for the computer-use agent" }),
-			model: Type.Optional(Type.String({ description: "OpenAI model (default gpt-5.5)" })),
 		}),
 		async execute(_id, params, signal, onUpdate) {
-			const env = { ...process.env, ...(params.model ? { CHATGPT_CUA_MODEL: params.model } : {}) };
 			return await new Promise((resolve) => {
-				const child = spawn(bin, [params.task], { env, signal });
+				const child = spawn(bin, [params.task], { signal });
 				let stdout = "";
 				let log = "";
 				child.stdout.on("data", (d) => (stdout += d));

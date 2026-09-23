@@ -4,13 +4,10 @@
 #
 #   chatgpt-cua "open Linear and tell me the top issue in my inbox"
 #   echo "task" | chatgpt-cua
-#   CHATGPT_CUA_MODEL=gpt-5.5 chatgpt-cua "..."
 #
-# Must use the native openai provider (ChatGPT login); the TFY gateway can't
-# mint the Codex auth token the CUA service requires.
+# Always runs gpt-6-astra via the TFY gateway (the default Codex provider).
 set -euo pipefail
 
-model=${CHATGPT_CUA_MODEL:-gpt-5.5}
 effort=${CHATGPT_CUA_EFFORT:-medium}
 out=$(mktemp -t chatgpt-cua)
 trap 'rm -f "$out"' EXIT
@@ -26,9 +23,9 @@ cd "${CHATGPT_CUA_CWD:-$HOME}"
 codex exec \
   --skip-git-repo-check \
   --dangerously-bypass-approvals-and-sandbox \
-  -c model_provider=openai \
+  -c model_provider=tfy \
   -c model_reasoning_effort="$effort" \
-  -m "$model" \
+  -m gpt-6-astra \
   --output-last-message "$out" \
   "$prompt" </dev/null >&2
 

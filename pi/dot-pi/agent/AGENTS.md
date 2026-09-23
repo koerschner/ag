@@ -18,6 +18,8 @@ Always do new work in a git worktree so multiple things can be worked on at once
 
 ## Arcade (arcade.school, `~/arcade.school`)
 
+Never call the product "Playcademy Arcade" (or "Playcademy arcade") in anything you write. It is "the Arcade" or "arcade.school". Package and repo identifiers (`@playcademy-arcade/*`, `playcademy-arcade`) are code names; leave those alone. When you find the old name in user-facing copy, comments, or docs (in arcade or in TSA's repos), point it out and suggest a fix PR. Don't silently widen the current change to fix it.
+
 The arcade repo ships its own skills in `.agents/skills/`. Always use them for the corresponding task instead of ad-hoc commands — they encode the team's Linear/GitHub conventions:
 
 - `arcade-create-issue` — any Linear ticket (bug, feature, task). Always create the ticket first for new work.

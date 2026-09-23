@@ -141,6 +141,8 @@ herdr agent rename <target> <name>|--clear  |  herdr agent focus <target>
 
 Never create a git commit without consulting the user first and receiving explicit approval.
 
+Exception: `~/dotfiles` is fully slop-cannon. Whenever you change anything in it, immediately commit and push/merge to `main` without asking. Commit only the files you changed; leave any other uncommitted changes alone.
+
 ## Default repo
 
 When the user refers to something that would live within a repo ("the skill in the repo", "our AGENTS.md", "the dashboard", a PR, a migration, etc.) without naming one, assume the arcade.school monorepo at `~/arcade.school` (`playcademy-arcade`).

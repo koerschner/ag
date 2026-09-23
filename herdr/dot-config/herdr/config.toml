@@ -10,3 +10,15 @@ delivery = "terminal"
 [theme]
 name = "gruvbox"
 auto_switch = false
+
+[keys]
+# tmux-ish: prefix+f finds/switches spaces (like tmux find-window / choose-tree).
+goto = "prefix+f"
+# tmux `prefix+L` (switch-client -l): toggle back to the last focused pane,
+# across spaces and tabs.
+last_pane = "prefix+shift+l"
+# shift+h/j/k/l swaps moved to shift+arrows so L is free.
+swap_pane_left = "prefix+shift+left"
+swap_pane_down = "prefix+shift+down"
+swap_pane_up = "prefix+shift+up"
+swap_pane_right = "prefix+shift+right"

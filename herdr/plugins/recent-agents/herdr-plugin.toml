@@ -1,0 +1,9 @@
+id = "nathan.recent-agents"
+name = "Recent agents first"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "Sort the sidebar Agents list by most recent state change (just-finished agents bubble to the top)."
+platforms = ["macos", "linux"]
+
+[[startup]]
+command = ["sh", "-c", "printf '%s\\n' '{\"id\":\"recent\",\"method\":\"agent.view.set\",\"params\":{\"source\":\"plugin:nathan.recent-agents\",\"label\":\"recent\",\"sort\":[{\"field\":\"state_change_seq\",\"order\":\"desc\"}]}}' | nc -U -w 2 \"$HERDR_SOCKET_PATH\""]

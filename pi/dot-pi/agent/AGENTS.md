@@ -22,9 +22,8 @@ The arcade repo ships its own skills in `.agents/skills/`. Always use them for t
 
 - `arcade-create-issue` — any Linear ticket (bug, feature, task). Always create the ticket first for new work.
 - `arcade-consume-issue` — reading an issue and getting its Linear-generated branch name (use that branch name for the worktree).
-- `arcade-create-pull-request` — opening PRs. The Slop Continuum rating is a title suffix (not a label): If the PR came out of back-and-forth with Nathan, ask him for the rating. If the work was autonomous/one-shot (e.g. `/ship`), use **`(SC-10)`** without asking. A rating he states explicitly always wins. Keep the whole title under 70 characters and omit conventional-commit prefixes (`docs:`, `feat:`).
+- `arcade-create-pull-request` — opening PRs. The Slop Continuum rating is a title suffix (not a label): If the PR came out of back-and-forth with Nathan, ask him for the rating. If the work was autonomous/one-shot, use **`(SC-10)`** without asking. A rating he states explicitly always wins. Keep the whole title under 70 characters and omit conventional-commit prefixes (`docs:`, `feat:`).
 - `arcade-resolve-pr-feedback`, `arcade-hotfix`, `arcade-create-release`, `arcade-check-*` — for their respective tasks.
-- `arcade-ship` — the SC-10 autopilot (issue → worktree → plan with bone pre-check → build → simplify → PR → CI/bot loop → bones check → merge to dev). In Pi, start it with `/ship <ARC-123 | spec> [SC-N]` (extension `ship.ts`): the harness re-prompts between turns and only accepts `ship_done` once `gh` confirms the PR merged without the `bones` label. Any bone move (`bun run bones check`, manifest `docs/architecture/bones.yml`) is a halt, never an override — see `docs/architecture/bones.md` in the repo.
 
 Read the skill's `SKILL.md` before acting; follow its confirmation steps.
 

@@ -57,6 +57,21 @@
         "scope": "search:read.public search:read.private search:read.mpim search:read.im search:read.users search:read.files channels:history groups:history im:history mpim:history channels:read groups:read im:read mpim:read users:read users:read.email files:read chat:write"
       },
       "lifecycle": "eager"
+    },
+    "tsa_courses": {
+      "transport": "stdio",
+      "command": "/Users/nathan/.bun/bin/bunx",
+      "args": [
+        "--bun",
+        "mcp-remote@0.8.3",
+        "https://api.texassportsacademy.com/api/courses-mcp",
+        "--transport",
+        "http-only",
+        "--header-file",
+        "/Users/nathan/.config/mcp/tsa-courses.headers",
+        "--silent"
+      ],
+      "lifecycle": "eager"
     }
   }
 }

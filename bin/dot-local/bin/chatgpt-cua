@@ -1,0 +1,35 @@
+#!/usr/bin/env zsh
+# chatgpt-cua — hand a computer-use task to ChatGPT/Codex's native CUA ("Sky",
+# installed by ChatGPT.app at ~/.codex/computer-use) and print the final answer.
+#
+#   chatgpt-cua "open Linear and tell me the top issue in my inbox"
+#   echo "task" | chatgpt-cua
+#   CHATGPT_CUA_MODEL=gpt-5.5 chatgpt-cua "..."
+#
+# Must use the native openai provider (ChatGPT login); the TFY gateway can't
+# mint the Codex auth token the CUA service requires.
+set -euo pipefail
+
+model=${CHATGPT_CUA_MODEL:-gpt-5.5}
+effort=${CHATGPT_CUA_EFFORT:-medium}
+out=$(mktemp -t chatgpt-cua)
+trap 'rm -f "$out"' EXIT
+
+task=${*:-$(cat)}
+[[ -n $task ]] || { echo "usage: chatgpt-cua <task>" >&2; exit 2; }
+
+prompt="You are a computer-use agent operating Nathan's Mac. Use your computer-use tools (cua_repl) to do this task, then reply with a concise final report of what you did and what you observed.
+
+Task: $task"
+
+cd "${CHATGPT_CUA_CWD:-$HOME}"
+codex exec \
+  --skip-git-repo-check \
+  --dangerously-bypass-approvals-and-sandbox \
+  -c model_provider=openai \
+  -c model_reasoning_effort="$effort" \
+  -m "$model" \
+  --output-last-message "$out" \
+  "$prompt" </dev/null >&2
+
+cat "$out"

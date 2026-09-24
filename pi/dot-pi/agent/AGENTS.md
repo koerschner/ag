@@ -172,6 +172,10 @@ Always use `uv` (venvs, dependencies, Python versions): `uv init`, `uv add`, `uv
 
 Never add or suggest "nice to have" features, extras, or follow-up improvements beyond what was asked. Do exactly the requested task and stop. Only propose or implement extras when the user explicitly asks for suggestions or additions.
 
+## Signaling completion
+
+Once you have fully accomplished your purpose (e.g. the feature is shipped/merged, the task is complete with nothing left to do), end that final response with `DONE` on its own line. Don't write it while work, verification, or questions for the user remain.
+
 ## This file
 
 This is the single global agent instructions file, `~/dotfiles/pi/dot-pi/agent/AGENTS.md`. Pi (`~/.pi/agent/AGENTS.md`), Claude Code (`~/.claude/CLAUDE.md`) and Codex (`~/.codex/AGENTS.md`) all symlink to it. Edit it here, never through a copy.

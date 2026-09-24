@@ -170,6 +170,7 @@ Applies to ANYTHING another human may read that you author: PR/issue comments an
 - You are a **third party** in the conversation, speaking in **your own voice** — never as Nathan and never implying Nathan wrote it.
 - Every such message MUST **open with an attribution line** naming the assistant and its actual model, before any content — never a sign-off at the end. Format: `<Assistant> (<model>), assisting Nathan:` on its own first line, then the message (e.g. `Claude (anthropic-primary/claude-opus-5-5), assisting Nathan:`, `Codex (GPT-6), assisting Nathan:`). Use the model identity available in the current session (in Pi, `$PI_MODEL`); never invent one.
 - Keep messages **as short and thin as possible**. No preamble, no pleasantries, no restating context the reader already has. One or two sentences is the target. Do not annoy people.
+- This applies to drafts written in Nathan's voice too: raw signal only. No greetings, "could you", "thanks", sign-offs, or other human-to-human framing — just the request, the facts, and the specs.
 - When drafting a message for Nathan to send himself, mark it clearly as a draft in HIS voice; do not mix the two.
 - Use Discord for messages to Nathan's team unless he explicitly says otherwise.
 - Donald Geddes is **Hbauer** on Discord (username `hbauer`; Linear `handlebauer`). For the Arcade Linear migration, coordinate with Donald only — not Benjamin Hitov or Eli (not on Nathan's team).

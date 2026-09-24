@@ -55,6 +55,7 @@ Spatial language refers to the Herdr layout:
 - "above/below/left/right" = the neighboring pane in that direction in the current tab (`herdr pane neighbor --current --direction up|down|left|right`).
 - "tab" = a new tab in the current workspace, not a new workspace or session.
 - "workspace" = a Herdr workspace (one per repo/worktree), not a session.
+- "space" = the current Herdr workspace (`$HERDR_WORKSPACE_ID`), e.g. "all my agents in this space" = every agent in this workspace's tabs (excluding yourself).
 
 ### Seeing what's in motion (tmux `capture-pane` equivalent)
 

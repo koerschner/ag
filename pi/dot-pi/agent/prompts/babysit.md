@@ -29,7 +29,7 @@ Repeat the following until the exit condition is met. Track the current HEAD SHA
 ### 2a. Gather CI status
 
 - `gh pr checks <pr> --json name,state,bucket,link` and/or `gh run list --commit <sha>`; `gh run view <id> --log-failed` for failures.
-- Wait for pending checks with `gh pr checks --watch` or `gh run watch`. Do not stop because things are pending.
+- Wait for pending checks by polling every ~30–60s with short bounded calls (each ≤ ~2 min, e.g. `timeout 90 gh run watch <id> --exit-status`), never one long watch. Act on a failure as soon as it appears. Do not stop because things are pending.
 
 ### 2b. Gather bot review findings
 

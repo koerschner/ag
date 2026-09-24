@@ -186,6 +186,10 @@ Always use `uv` (venvs, dependencies, Python versions): `uv init`, `uv add`, `uv
 
 Never add or suggest "nice to have" features, extras, or follow-up improvements beyond what was asked. Do exactly the requested task and stop. Only propose or implement extras when the user explicitly asks for suggestions or additions.
 
+## Waiting on long-running things (CI, deploys, builds)
+
+Never block on one long wait (`gh run watch`, `gh pr checks --watch`, `sleep`, `wait-output`) with a big timeout. Poll in short bounded checks instead: a non-blocking status query (`gh run view <id> --json status,conclusion,jobs`, `gh pr checks <pr> --json name,state,bucket`) every ~30–60s, each tool call capped at ~2 minutes (e.g. `timeout 90 gh run watch <id> --exit-status`, then re-check). Act the moment a job fails (read `--log-failed` and fix it immediately, don't wait for the rest of the run) or everything succeeds.
+
 ## Signaling completion
 
 Once you have fully accomplished your purpose (e.g. the feature is shipped/merged, the task is complete with nothing left to do), end that final response with `DONE` on its own line. Don't write it while work, verification, or questions for the user remain.

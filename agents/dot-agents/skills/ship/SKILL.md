@@ -77,7 +77,7 @@ Follow `arcade-create-pull-request` for the title and body (Summary, How to Test
 
 Loop on the latest pushed HEAD. Ignore anything tied to older SHAs.
 
-1. `gh pr checks <pr> --watch`. On failure, run `gh run view <id> --log-failed` and fix it. One rerun (`gh run rerun --failed`) for a clearly unrelated flake.
+1. Poll `gh pr checks <pr> --json name,state,bucket,link` every ~30–60s in short bounded calls (see AGENTS.md "Waiting on long-running things"); never one long `--watch`. The moment any check fails, run `gh run view <id> --log-failed` and fix it. One rerun (`gh run rerun --failed`) for a clearly unrelated flake.
 2. After CI, give the review bots (Cursor Bugbot, Greptile, Qodo, cubic, Copilot) up to ~10 minutes, polling each minute.
 3. Triage their findings with `arcade-resolve-pr-feedback` (its query and dedup rules), with no plan stop:
     - **Fix** real bugs and reasonable improvements (the default). Reply "Fixed in <sha>." and resolve the thread.

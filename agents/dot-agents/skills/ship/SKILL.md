@@ -98,7 +98,7 @@ If the only blocker is a required review, retry with `--admin`. Ignore a local "
 ## 7. Cleanup and report
 
 - Confirm it's merged, and that Linear closed the issue (set it to Done yourself if not).
-- Remove the worktree and local branch. If the remote branch survived and `git push --delete` trips the pre-push hook, run `gh api -X DELETE repos/superbuilders/arcade.school/git/refs/heads/<branch>`. Close the worktree's Herdr workspace if you created it.
+- Remove the worktree and local branch. If the remote branch survived and `git push --delete` trips the pre-push hook, run `gh api -X DELETE repos/superbuilders/arcade.school/git/refs/heads/<branch>`. Close any Herdr workspace open on the worktree.
 - Call `ship_done({ pr, summary })`. The summary covers the PR URL, merged SHA, net LOC (`git diff --shortstat` of the merge), CI/bot rounds, what was fixed or declined, judgment calls, and anything worth eyeballing on staging.
 
 The `dev → main` release isn't part of this.

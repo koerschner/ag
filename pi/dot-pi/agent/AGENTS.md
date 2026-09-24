@@ -7,15 +7,13 @@ You are usually started in `~` (the home directory), not inside a project. Assum
 Always do new work in a git worktree so multiple things can be worked on at once. Never create or switch branches in the main checkout (e.g. `~/arcade.school`); leave it on its current branch.
 
 - Create one worktree per task, as a sibling of the main checkout, named `~/<repo>-<short-topic>` (for arcade that is `~/arcade-<short-topic>`), based on the repo's integration branch (check `gh repo view --json defaultBranchRef` — for arcade it is `dev`, not `main`; `main` is production).
-- Inside Herdr (the normal case), create it with Herdr so it also appears as a grouped workspace in the sidebar:
-  `git -C ~/<repo> fetch origin && herdr worktree create --cwd ~/<repo> --branch <branch> --base origin/<default-branch> --path ~/<repo>-<short-topic> --no-focus`
-  Outside Herdr, fall back to `git -C ~/<repo> worktree add ~/<repo>-<short-topic> -b <branch> origin/<default-branch>`.
-- Do all edits, installs, checks, commits, and pushes from inside that worktree (`cd` there; the worktree workspace's pane is for the user, keep working in your own pane).
-- Before starting, check `git worktree list` — reuse an existing worktree if one already exists for the branch. If it exists but isn't open in Herdr, `herdr worktree open --cwd ~/<repo> --path <worktree> --no-focus`.
+- Create it with plain git: `git -C ~/<repo> fetch origin && git -C ~/<repo> worktree add ~/<repo>-<short-topic> -b <branch> origin/<default-branch>`. Never create or open a Herdr workspace for a worktree (`herdr worktree create/open`) — Nathan organizes Herdr by topic workspaces, and worktree workspaces are empty duplicates. Only open one if he explicitly asks.
+- Do all edits, installs, checks, commits, and pushes from inside that worktree (`cd` there from your own pane).
+- Before starting, check `git worktree list` — reuse an existing worktree if one already exists for the branch.
 - To know whether the cwd is a worktree: `git rev-parse --show-toplevel` differs from `dirname "$(git rev-parse --path-format=absolute --git-common-dir)"`.
 - Tell the user the worktree path you're working in.
 - When presenting finished work to Nathan (e.g. before opening a PR, or a final report), always state the diff size as LOC `+N / -M` (from `git diff --shortstat <base>...HEAD`), on its own line at the very bottom of the message (just above `DONE`, if present).
-- Once the work is merged, clean up: remove the worktree (`git -C ~/<repo> worktree remove ~/<repo>-<short-topic>`), delete the local branch (`git -C ~/<repo> branch -D <branch>`), and delete the remote branch (`git -C ~/<repo> push origin --delete <branch>`, unless GitHub already deleted it on merge). Don't leave merged worktrees or branches lying around.
+- Once the work is merged, clean up: close any Herdr workspace open on it (`herdr workspace list` → `.worktree.checkout_path`), remove the worktree (`git -C ~/<repo> worktree remove ~/<repo>-<short-topic>`), delete the local branch (`git -C ~/<repo> branch -D <branch>`), and delete the remote branch (`git -C ~/<repo> push origin --delete <branch>`, unless GitHub already deleted it on merge). Don't leave merged worktrees or branches lying around.
 
 ## Arcade (arcade.school, `~/arcade.school`)
 
@@ -45,7 +43,7 @@ Hard rules:
 
 ### Mental model
 
-- **Workspace** (`w3`) → **tab** (`w3:t8`) → **pane** (`w3:p4`). One workspace per repo/worktree. IDs are stable and never reused; a pane moved to another workspace gets a new ID (`.result.move_result.pane.pane_id`).
+- **Workspace** (`w3`) → **tab** (`w3:t8`) → **pane** (`w3:p4`). Workspaces are organized by topic (Economy, Social, …), not per worktree. IDs are stable and never reused; a pane moved to another workspace gets a new ID (`.result.move_result.pane.pane_id`).
 - **Pane commands** control raw terminals (shells, servers, tests). **Agent commands** control a recognized coding agent occupying a pane, with lifecycle states `idle` / `working` / `blocked` / `done` / `unknown`. `idle` and `done` both mean ready for input; `blocked` = approval/question dialog showing; `unknown` = present but unclassified (does not mean finished).
 - Agent targets are a unique live agent name (`[a-z][a-z0-9_-]{0,31}`) or the pane ID hosting it — never a terminal ID or a bare kind like `pi`.
 - Prefer `--current` to target your own pane. Never rely on the UI-focused pane; it may belong to the user or another client.
@@ -54,7 +52,7 @@ Spatial language refers to the Herdr layout:
 - "here" = the current pane (`herdr pane current --current`).
 - "above/below/left/right" = the neighboring pane in that direction in the current tab (`herdr pane neighbor --current --direction up|down|left|right`).
 - "tab" = a new tab in the current workspace, not a new workspace or session.
-- "workspace" = a Herdr workspace (one per repo/worktree), not a session.
+- "workspace" = a Herdr workspace (a topic area), not a session.
 - "space" = the current Herdr workspace (`$HERDR_WORKSPACE_ID`), e.g. "all my agents in this space" = every agent in this workspace's tabs (excluding yourself).
 
 ### Seeing what's in motion (tmux `capture-pane` equivalent)
@@ -88,9 +86,7 @@ Reading is safe anywhere. Only send input (`pane send-text`, `pane send-keys`, `
 herdr pane split --current --direction right|down --cwd "$PWD" [--ratio 0.5] --no-focus   # → .result.pane.pane_id
 herdr tab create --workspace "$HERDR_WORKSPACE_ID" --label <name> --cwd <dir> --no-focus   # → .result.tab, .result.root_pane
 herdr workspace create --cwd <dir> --label <name> --no-focus                                # → .result.workspace/.tab/.root_pane (only when asked)
-herdr worktree create --cwd ~/<repo> --branch <b> --base origin/<default> --path ~/<repo>-<topic> --no-focus
-herdr worktree open   --cwd ~/<repo> (--path <p> | --branch <b>) --no-focus
-herdr worktree list   --cwd ~/<repo>
+herdr worktree open   --cwd ~/<repo> (--path <p> | --branch <b>) --no-focus   # only when Nathan asks
 herdr pane rename <pane-id> <name>   |  herdr tab rename <tab-id> <name>  |  herdr workspace rename <ws> <name>
 herdr pane zoom / resize / swap / move / focus / close    (see --help)
 herdr pane close <pane-id>  |  herdr tab close <tab-id>   # only things you created

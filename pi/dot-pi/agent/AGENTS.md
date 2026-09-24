@@ -14,7 +14,7 @@ Always do new work in a git worktree so multiple things can be worked on at once
 - Before starting, check `git worktree list` — reuse an existing worktree if one already exists for the branch. If it exists but isn't open in Herdr, `herdr worktree open --cwd ~/<repo> --path <worktree> --no-focus`.
 - To know whether the cwd is a worktree: `git rev-parse --show-toplevel` differs from `dirname "$(git rev-parse --path-format=absolute --git-common-dir)"`.
 - Tell the user the worktree path you're working in.
-- When presenting finished work for review (e.g. before opening a PR), always state the diff size as LOC `+N / -M` (from `git diff --shortstat <base>...HEAD`).
+- When presenting finished work to Nathan (e.g. before opening a PR, or a final report), always state the diff size as LOC `+N / -M` (from `git diff --shortstat <base>...HEAD`), on its own line at the very bottom of the message (just above `DONE`, if present).
 - Once the work is merged, clean up: remove the worktree (`git -C ~/<repo> worktree remove ~/<repo>-<short-topic>`), delete the local branch (`git -C ~/<repo> branch -D <branch>`), and delete the remote branch (`git -C ~/<repo> push origin --delete <branch>`, unless GitHub already deleted it on merge). Don't leave merged worktrees or branches lying around.
 
 ## Arcade (arcade.school, `~/arcade.school`)

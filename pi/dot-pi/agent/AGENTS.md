@@ -2,6 +2,16 @@
 
 You are usually started in `~` (the home directory), not inside a project. Assume that unless the cwd says otherwise. Project checkouts live directly under `~` (e.g. `~/arcade.school`), and worktrees sit beside them as siblings (e.g. `~/arcade-<topic>`). Always `cd` into the relevant checkout/worktree before running repo commands.
 
+## ag development Mac
+
+- **ag** (Always Generating, formerly Seen/Scene) is Nathan's primary development Mac. Keep its system, Tailscale, Herdr, Jump Desktop, and Moshi connection names as lowercase `ag`.
+- From Nathan's client Mac, run `ag` in a fresh terminal to attach to ag's existing Herdr session, or `ssh ag` for a shell. SSH uses `natkoersch@100.107.192.32` over Nathan's personal Tailscale account (`nathankoerschner@gmail.com`); its MagicDNS name is `ag.tail44736d.ts.net`.
+- In Jump Desktop or iPhone Moshi, select **ag**. Keep Tailscale connected. Agents continue on ag when a client disconnects.
+- ag's home is `/Users/natkoersch`; the client Mac's home is `/Users/nathan`. Confirm which host commands target. Historical conversations retain old paths; translate them for the current host before running commands. Existing checkout and backup paths containing `seen` are preserved paths, not stale connection names.
+- The legacy Herdr session on the client Mac is retired and archived. Do not restore or recreate its old agents unless Nathan asks. Bare `herdr` attaches locally on whichever computer runs it; the client's `ag` shortcut attaches remotely.
+- ag hosts the agent processes and repositories; model inference goes through TrueFoundry. Keep that routing when configuring agents there.
+- `chatgpt-cua` is the dotfiles helper for desktop computer use through Codex and TrueFoundry. When run on ag, it must control ag's desktop. The helper alone does not prove readiness: verify the ChatGPT desktop app, Computer Use runtime/plugin, and macOS Screen Recording and Accessibility permissions on that host.
+
 ## Worktrees
 
 Always do new work in a git worktree so multiple things can be worked on at once. Never create or switch branches in the main checkout (e.g. `~/arcade.school`); leave it on its current branch.

@@ -1,0 +1,93 @@
+#!/usr/bin/env -S uv run --quiet --script
+"""Run 1Password CLI with the arcade.school-only Keychain credential."""
+import os
+import plistlib
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+from pathlib import Path
+
+KEYCHAIN_COMMAND = [
+    "/usr/bin/security", "find-generic-password", "-a", "natkoersch",
+    "-s", "ag 1Password service account", "-w",
+]
+
+
+def read_token():
+    result = subprocess.run(KEYCHAIN_COMMAND, capture_output=True, timeout=10)
+    if result.returncode == 0:
+        return result.stdout.strip()
+
+    # SSH has a separate macOS security session. A one-shot job in the logged-in
+    # user's GUI session can read the same Keychain item. The credential travels
+    # through a private FIFO into memory; no token file or persistent agent exists.
+    target = f"gui/{os.getuid()}"
+    label = "com.nathan.op-ag-keychain." + uuid.uuid4().hex
+    with tempfile.TemporaryDirectory(prefix="op-ag-") as directory:
+        folder = Path(directory)
+        pipe = folder / "token.pipe"
+        os.mkfifo(pipe, 0o600)
+        descriptor = os.open(pipe, os.O_RDONLY | os.O_NONBLOCK)
+        job = folder / "job.plist"
+        job.write_bytes(plistlib.dumps({
+            "Label": label, "ProgramArguments": KEYCHAIN_COMMAND,
+            "RunAtLoad": True, "StandardOutPath": str(pipe),
+            "StandardErrorPath": "/dev/null",
+        }))
+        try:
+            result = subprocess.run(
+                ["/bin/launchctl", "bootstrap", target, str(job)],
+                capture_output=True, timeout=10,
+            )
+            if result.returncode != 0:
+                raise RuntimeError("the logged-in macOS session is unavailable")
+            data = b""
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                try:
+                    data += os.read(descriptor, 65536)
+                except BlockingIOError:
+                    pass
+                if b"\n" in data:
+                    return data.strip()
+                if len(data) > 65536:
+                    break
+                time.sleep(0.05)
+            raise RuntimeError("unlock the login Keychain or provision the token")
+        finally:
+            # Bootstrap can time out after registering the job, so always clean up.
+            try:
+                cleanup = subprocess.run(
+                    ["/bin/launchctl", "bootout", f"{target}/{label}"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    timeout=10,
+                )
+                if cleanup.returncode != 0:
+                    check = subprocess.run(
+                        ["/bin/launchctl", "print", f"{target}/{label}"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        timeout=5,
+                    )
+                    if check.returncode == 0:
+                        raise RuntimeError("could not unload the temporary Keychain job")
+            finally:
+                os.close(descriptor)
+
+
+os.umask(0o077)
+try:
+    token = read_token().decode("ascii")
+    if not token:
+        raise RuntimeError("the service token is empty")
+except (RuntimeError, OSError, subprocess.TimeoutExpired, UnicodeError) as error:
+    print(f"op-ag: {error}", file=sys.stderr)
+    sys.exit(1)
+
+# Inherited Connect credentials must not select a broader identity.
+environment = os.environ.copy()
+environment.pop("OP_CONNECT_HOST", None)
+environment.pop("OP_CONNECT_TOKEN", None)
+environment["OP_SERVICE_ACCOUNT_TOKEN"] = token
+os.execvpe("op", ["op", *sys.argv[1:]], environment)

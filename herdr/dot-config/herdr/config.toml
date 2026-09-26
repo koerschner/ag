@@ -2,7 +2,9 @@ onboarding = false
 
 [ui]
 # Hammerspoon matches this prefix to forward Cmd-T/W/D shortcuts into herdr.
-window_title = "herdr: {workspace}"
+# {hostname} renders on the server, so Hammerspoon can run Cmd+T/[/] helper
+# scripts on that host over SSH when attached remotely (`ag`).
+window_title = "herdr@{hostname}: {workspace}"
 
 [ui.toast]
 delivery = "terminal"

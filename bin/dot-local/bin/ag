@@ -1,0 +1,5 @@
+#!/bin/sh
+# Open the persistent Herdr session on ag through its SSH alias.
+# Server keybindings: herdr never sends local custom-command bindings
+# (prefix+f, prefix+L) over --remote, so use ag's own config instead.
+exec "$HOME/.local/bin/herdr" --remote ag --remote-keybindings server "$@"

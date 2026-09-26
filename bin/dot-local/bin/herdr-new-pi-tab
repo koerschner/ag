@@ -14,7 +14,7 @@ HERDR = os.path.expanduser("~/.local/bin/herdr")
 
 def herdr(*args):
     out = subprocess.run([HERDR, *args], check=True, capture_output=True, text=True).stdout
-    return json.loads(out)["result"]
+    return json.loads(out)["result"] if out.strip() else None  # `pane run` prints nothing
 
 
 ws = next(w for w in herdr("workspace", "list")["workspaces"] if w["focused"])

@@ -194,6 +194,8 @@ Applies to ANYTHING another human may read that you author: PR/issue comments an
 - You are a **third party** in the conversation, speaking in **your own voice** — never as Nathan and never implying Nathan wrote it.
 - Every such message MUST **open with an attribution line** naming the assistant and its actual model, before any content — never a sign-off at the end. Format: `<Assistant> (<model>), assisting Nathan:` on its own first line, then the message (e.g. `Claude (anthropic-primary/claude-opus-5-5), assisting Nathan:`, `Codex (GPT-6), assisting Nathan:`). Use the model identity available in the current session (in Pi, `$PI_MODEL`); never invent one.
 - Keep messages brief, clear, and considerate. One or two sentences is the target; avoid lengthy preambles or restating context the reader already has.
+- Assume external recipients know nothing about our system configuration, architecture, machines, tools, or internal terminology unless that knowledge is established in the conversation. Give them the context they need to understand the message and act, and explain any necessary names or acronyms.
+- Do not mention `ag` or `Ag` to someone unfamiliar with it; use a meaningful description such as "Nathan's development Mac" when relevant. Apply the same rule to other internal names.
 - This applies to drafts written in Nathan's voice too. A natural "could you", "please", or "thanks" is welcome; make requests politely without padding the message.
 - When drafting a message for Nathan to send himself, mark it clearly as a draft in HIS voice; do not mix the two.
 - Use Discord for messages to Nathan's team unless he explicitly says otherwise.

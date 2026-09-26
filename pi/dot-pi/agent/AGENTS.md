@@ -175,6 +175,13 @@ Applies to ANYTHING another human may read that you author: PR/issue comments an
 - Use Discord for messages to Nathan's team unless he explicitly says otherwise.
 - Donald Geddes is **Hbauer** on Discord (username `hbauer`; Linear `handlebauer`). For the Arcade Linear migration, coordinate with Donald only — not Benjamin Hitov or Eli (not on Nathan's team).
 
+## "Meat harness"
+
+When Nathan says to **"meat harness"** something, the fix lives in someone else's system and they run their own coding agent. Nathan (or you) sends that person a short note plus a copy-paste prompt for them to hand to their agent. The human is the harness that carries the prompt to their agent. Deliver:
+
+1. A one- or two-line ask to the person (the request only, per the messaging rules above).
+2. A fenced, self-contained prompt for their agent. It should cover the goal, the current behavior and why it's a problem, the exact desired output (with a concrete example), the constraints, and how to verify. Assume their agent has zero context on our side. Don't guess at their code paths or file names.
+
 ## Python
 
 Always use `uv` (venvs, dependencies, Python versions): `uv init`, `uv add`, `uv run`. Never install packages globally or use raw pip/venv.

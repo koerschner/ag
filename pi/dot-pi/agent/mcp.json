@@ -7,33 +7,19 @@
   "mcpServers": {
     "linear": {
       "transport": "stdio",
-      "command": "npx",
+      "command": "sh",
       "args": [
-        "-y",
-        "mcp-remote@0.14.3",
-        "https://mcp.linear.app/mcp",
-        "--transport",
-        "http-only",
-        "--static-oauth-client-metadata",
-        "@/Users/nathan/.local/share/arcade-linear-return/mcp-destination/client-metadata.json"
+        "-c",
+        "export MCP_REMOTE_CONFIG_DIR=\"$HOME/.local/share/arcade-linear-return/mcp-destination\"; exec npx -y mcp-remote@0.14.3 https://mcp.linear.app/mcp --transport http-only --static-oauth-client-metadata \"@$HOME/.local/share/arcade-linear-return/mcp-destination/client-metadata.json\""
       ],
-      "env": {
-        "MCP_REMOTE_CONFIG_DIR": "/Users/nathan/.local/share/arcade-linear-return/mcp-destination"
-      },
       "lifecycle": "eager"
     },
     "arcade_school": {
       "transport": "stdio",
-      "command": "/Users/nathan/.bun/bin/bunx",
+      "command": "sh",
       "args": [
-        "--bun",
-        "mcp-remote@0.8.3",
-        "https://api.texassportsacademy.com/mcp",
-        "--transport",
-        "http-only",
-        "--header-file",
-        "/Users/nathan/.config/mcp/arcade-school.headers",
-        "--silent"
+        "-c",
+        "exec \"$HOME/.bun/bin/bunx\" --bun mcp-remote@0.8.3 https://api.texassportsacademy.com/mcp --transport http-only --header-file \"$HOME/.config/mcp/arcade-school.headers\" --silent"
       ],
       "lifecycle": "eager"
     },
@@ -60,16 +46,10 @@
     },
     "tsa_courses": {
       "transport": "stdio",
-      "command": "/Users/nathan/.bun/bin/bunx",
+      "command": "sh",
       "args": [
-        "--bun",
-        "mcp-remote@0.8.3",
-        "https://api.texassportsacademy.com/api/courses-mcp",
-        "--transport",
-        "http-only",
-        "--header-file",
-        "/Users/nathan/.config/mcp/tsa-courses.headers",
-        "--silent"
+        "-c",
+        "exec \"$HOME/.bun/bin/bunx\" --bun mcp-remote@0.8.3 https://api.texassportsacademy.com/api/courses-mcp --transport http-only --header-file \"$HOME/.config/mcp/tsa-courses.headers\" --silent"
       ],
       "lifecycle": "eager"
     }

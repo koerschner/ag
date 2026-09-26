@@ -2,9 +2,7 @@ onboarding = false
 
 [ui]
 # Hammerspoon matches this prefix to forward Cmd-T/W/D shortcuts into herdr.
-# {hostname} renders on the server, so Hammerspoon can run Cmd+T/[/] helper
-# scripts on that host over SSH when attached remotely (`ag`).
-window_title = "herdr@{hostname}: {workspace}"
+window_title = "herdr: {workspace}"
 
 [ui.toast]
 delivery = "terminal"
@@ -35,3 +33,23 @@ key = "prefix+shift+l"
 type = "shell"
 command = "$HOME/.local/bin/herdr-nav last-space"
 description = "last space"
+
+# Cmd+T / Cmd+[ / Cmd+] in Hammerspoon send these chords, so the helper
+# scripts run on whichever host owns the session (also through `ag`).
+[[keys.command]]
+key = "prefix+t"
+type = "shell"
+command = "/usr/bin/python3 $HOME/.local/bin/herdr-new-pi-tab"
+description = "new tab with pi"
+
+[[keys.command]]
+key = "prefix+alt+left"
+type = "shell"
+command = "/usr/bin/python3 $HOME/.local/bin/herdr-nav back"
+description = "focus history back"
+
+[[keys.command]]
+key = "prefix+alt+right"
+type = "shell"
+command = "/usr/bin/python3 $HOME/.local/bin/herdr-nav forward"
+description = "focus history forward"

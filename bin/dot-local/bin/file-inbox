@@ -10,15 +10,19 @@
 //                    file paths; to=new → the ag inbox (ag-inbox) opens a new session; empty → just save.
 //   POST /upload?name=<optional>   raw file bytes → saved (curl-friendly)
 //   GET  /           browser form (same as /send)
+//   GET  /r/<slot>/<path>   review pages published by `show` (~/review/<slot>), for the phone.
+//                    HTML gets a phone viewport and a Comment button injected.
+//   POST /r/<slot>/comment   JSON {text, section} → prompt the pi session that ran `show`
+//                    (found by its session file, so it survives pane moves), else a new Inbox session.
 //   GET  /focus?tab=<tab id>   focus that Herdr tab in the attached session, then close the
 //                    browser tab. Agents print these as clickable links (`herdr-link`).
 //
 // Listens only on ag's Tailscale IP (tailnet-only, like ag-inbox). Run by com.nathan.file-inbox.
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, extname } from "node:path";
+import { basename, extname, resolve } from "node:path";
 
 const PORT = 7374;
 const HOME = homedir();
@@ -27,6 +31,7 @@ const HERDR = `${HOME}/.local/bin/herdr`;
 const AG_INBOX = (host: string) => `http://${host}:7373/prompt`;
 const HOST = Bun.spawnSync(["/usr/local/bin/tailscale", "ip", "-4"]).stdout.toString().trim();
 if (!HOST) throw new Error("no Tailscale IP yet");
+const REVIEW = `${HOME}/review`;
 mkdirSync(DIR, { recursive: true });
 
 const log = (data: Record<string, unknown>) => console.log(JSON.stringify({ ts: new Date().toISOString(), ...data }));
@@ -86,6 +91,83 @@ async function deliver(to: string, text: string, paths: string[]): Promise<strin
 	return `sent to ${to}`;
 }
 
+// --- Review pages (published by `show`) ---
+
+// Added to every served HTML page: phone viewport, zero-specificity image fit, and a Comment button
+// that sends the note (plus the heading nearest the top of the screen) back to the session.
+const WIDGET = `<style>:where(img){max-width:100%;height:auto}
+#agc-w{position:fixed;left:0;top:0;width:100%;height:100%;z-index:2147483647;pointer-events:none;transform-origin:0 0}#agc-w>*{pointer-events:auto}
+#agc-btn{position:absolute;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));z-index:2147483647;font:600 15px system-ui;background:#111;color:#fff;border:0;border-radius:24px;padding:12px 18px;box-shadow:0 2px 10px #0005}
+#agc{position:absolute;left:0;right:0;bottom:0;background:#fff;color:#111;font:15px system-ui;padding:14px 14px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -2px 12px #0004;border-radius:14px 14px 0 0;display:none}
+#agc textarea{width:100%;box-sizing:border-box;font:16px system-ui;min-height:110px;padding:8px;border:1px solid #ccc;border-radius:8px}
+#agc .row{display:flex;gap:8px;justify-content:flex-end;margin-top:8px} #agc button{font:600 15px system-ui;padding:9px 16px;border-radius:8px;border:0}
+#agc-sec{font-size:12px;color:#666;margin:0 0 6px}</style>
+<div id=agc-w><button id=agc-btn>Comment</button><div id=agc><p id=agc-sec></p><textarea id=agc-t placeholder="Comment for the agent"></textarea>
+<div class=row><button id=agc-x style="background:#eee">Cancel</button><button id=agc-s style="background:#111;color:#fff">Send</button></div></div></div>
+<script>(()=>{const $=i=>document.getElementById(i),box=$("agc"),btn=$("agc-btn"),w=$("agc-w");let sec="";
+// Pin to the visible area: wide pages make the layout viewport wider than the screen, and pinch zoom scales it.
+const v=window.visualViewport,place=()=>{if(!v)return;const k=v.scale;Object.assign(w.style,{width:v.width*k+"px",height:v.height*k+"px",transform:"translate("+v.offsetLeft+"px,"+v.offsetTop+"px) scale("+1/k+")"})};
+if(v){v.addEventListener("resize",place);v.addEventListener("scroll",place);place()}
+const section=()=>{let s="";for(const h of document.querySelectorAll("h1,h2,h3,h4")){if(h.closest("#agc"))continue;if(h.getBoundingClientRect().top<innerHeight*0.4)s=h.textContent.trim();else break}return s.slice(0,200)};
+btn.onclick=()=>{sec=section();$("agc-sec").textContent=sec?"About: "+sec:"";box.style.display="block";btn.style.display="none";$("agc-t").focus()};
+const close=()=>{box.style.display="none";btn.style.display=""};$("agc-x").onclick=close;
+$("agc-s").onclick=async()=>{const text=$("agc-t").value.trim();if(!text)return;$("agc-s").disabled=true;
+try{const r=await fetch("comment",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text,section:sec,page:location.pathname})});
+const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);$("agc-t").value="";close();btn.textContent="Sent ✓";setTimeout(()=>btn.textContent="Comment",2500)}
+catch(e){alert("Not sent: "+e.message)}finally{$("agc-s").disabled=false}}})()</script>`;
+
+const VIEWPORT = `<meta name=viewport content="width=device-width,initial-scale=1">`;
+
+function injectReview(html: string): string {
+	if (!/<meta[^>]+name=["']?viewport/i.test(html)) {
+		html = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => m + VIEWPORT) : VIEWPORT + html;
+	}
+	return /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, WIDGET + "</body>") : html + WIDGET;
+}
+
+function reviewFile(slot: string, rel: string): string | null {
+	if (!/^[\w.-]+$/.test(slot) || slot.startsWith(".")) return null;
+	const root = `${REVIEW}/${slot}`;
+	const path = resolve(root, rel || "index.html");
+	if (!path.startsWith(root + "/") || basename(path).startsWith(".")) return null;
+	try {
+		return statSync(path).isDirectory() ? (existsSync(`${path}/index.html`) ? `${path}/index.html` : null) : path;
+	} catch { return null; }
+}
+
+function serveReview(slot: string, rel: string): Response {
+	const path = reviewFile(slot, rel);
+	if (!path) return new Response("not found\n", { status: 404 });
+	if (/\.html?$/i.test(path)) {
+		return new Response(injectReview(readFileSync(path, "utf8")), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+	}
+	return new Response(Bun.file(path));
+}
+
+// meta.json (written by `show`): {session, pane, source, url}. Prefer the live agent running the
+// same pi session file: pane IDs change when a pane moves (e.g. auto-filed out of Inbox).
+async function reviewComment(slot: string, body: any): Promise<string> {
+	const text = String(body?.text ?? "").trim();
+	if (!text) throw new Error("empty comment");
+	if (!/^[\w.-]+$/.test(slot)) throw new Error("bad page");
+	let meta: any = {};
+	try { meta = JSON.parse(readFileSync(`${REVIEW}/${slot}/.meta.json`, "utf8")); } catch {}
+	const section = String(body?.section ?? "").trim();
+	const page = meta.url || String(body?.page ?? slot);
+	const msg = `Comment from Nathan's phone on the review page ${meta.source ?? slot} (${page})${section ? `, section "${section}"` : ""}:\n\n${text}`;
+	const agents = herdr("agent", "list").agents as any[];
+	const agent = (meta.session && agents.find((a) => a.agent_session?.value === meta.session)) ||
+		(meta.pane && !meta.session && agents.find((a) => a.pane_id === meta.pane));
+	if (agent) {
+		herdr("agent", "prompt", agent.pane_id, msg);
+		const tab = herdr("tab", "get", agent.tab_id).tab?.label ?? agent.tab_id;
+		return `sent to ${tab}`;
+	}
+	const res = await fetch(AG_INBOX(HOST), { method: "POST", body: `${msg}\n\n(The session that published this page is gone. The page's files are in ~/review/${slot}/ on ag.)` });
+	if (!res.ok) throw new Error(`ag-inbox ${res.status}`);
+	return "sent to a new Inbox session";
+}
+
 const FORM = `<!doctype html><meta name=viewport content="width=device-width">
 <form method=post action=/send enctype=multipart/form-data>
 <p><input type=file name=f multiple accept="image/*,video/*,application/pdf">
@@ -100,6 +182,19 @@ Bun.serve({
 		const url = new URL(req.url);
 		try {
 			if (req.method === "GET" && url.pathname === "/sessions") return Response.json(sessions());
+			const review = url.pathname.match(/^\/r\/([^/]+)(?:\/(.*))?$/);
+			if (review) {
+				const [, slot, rel = ""] = review.map((x) => x && decodeURIComponent(x));
+				if (req.method === "POST" && rel === "comment") {
+					const result = await reviewComment(slot, await req.json());
+					log({ comment: slot, result });
+					return Response.json({ result });
+				}
+				if (req.method === "GET") {
+					if (review[2] === undefined) return Response.redirect(`/r/${review[1]}/`, 302);
+					return serveReview(slot, rel);
+				}
+			}
 			if (req.method === "GET" && url.pathname === "/focus") {
 				const tab = url.searchParams.get("tab") ?? "";
 				if (!/^[A-Za-z0-9]+:[A-Za-z0-9]+$/.test(tab)) return new Response("bad tab id\n", { status: 400 });
@@ -134,6 +229,7 @@ Bun.serve({
 			return new Response("not found\n", { status: 404 });
 		} catch (e) {
 			log({ error: String(e), path: url.pathname });
+			if (url.pathname.endsWith("/comment")) return Response.json({ error: String(e) }, { status: 500 });
 			return new Response(`error: ${e}\n`, { status: 500 });
 		}
 	},

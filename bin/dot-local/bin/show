@@ -6,6 +6,11 @@
 #   show site/                  copy the folder, open site/index.html
 #   show http://ag:8080         open a URL in the client's default browser
 #   show -a "Google Chrome" x   open with a specific app
+#
+# On the host (where file-inbox runs), HTML pages, folders, and Markdown (rendered with pandoc)
+# are also published to ~/review/<name>/ and served to the phone over Tailscale at
+# http://<host>:7374/r/<name>/; `show` prints that link. The served page has a Comment button
+# that sends Nathan's note back to the pi session that ran `show`.
 set -euo pipefail
 client=${SHOW_CLIENT:-nathan-dev-client}
 app=()
@@ -19,7 +24,38 @@ html_assets() {
 		grep -vE '^([a-z]+:|/|#)' | while read -r rel; do [[ -f $dir/$rel ]] && print -r -- $rel; done; true
 }
 
+# Publish for the phone (host only). Prints the phone link.
+phone_publish() {
+	local t=$1 slot page= dest
+	case $t in
+		*://*) return 0 ;;
+		*.htm(l|)|*.md|*.markdown) [[ -f $t ]] || return 0 ;;
+		*) [[ -d $t ]] || return 0 ;;
+	esac
+	launchctl print gui/$UID/com.nathan.file-inbox >/dev/null 2>&1 || return 0
+	if [[ -d $t ]]; then
+		slot=${t:A:t}; dest=~/review/$slot
+		mkdir -p $dest && rsync -a --delete "${t%/}/" "$dest/"
+	else
+		slot=${t:t:r}; [[ $slot == index ]] && slot=${t:A:h:t}
+		dest=~/review/$slot; rm -rf $dest; mkdir -p $dest
+		if [[ $t == *.htm(l|) ]]; then
+			(cd ${t:h} && assets=(${(f)"$(html_assets ${t:t})"}) && rsync -aR -- ${t:t} $assets "$dest/")
+			[[ ${t:t} == index.html ]] || page=${t:t}
+		else
+			pandoc -s --embed-resources -f gfm --resource-path=${t:A:h} \
+				--metadata pagetitle=${t:t} -V mainfont=system-ui,-apple-system,sans-serif -o $dest/index.html $t
+		fi
+	fi
+	local host=${SHOW_PHONE_HOST:-$(/usr/local/bin/tailscale ip -4 2>/dev/null || tailscale ip -4)}
+	local url="http://$host:7374/r/$slot/$page"
+	jq -n --arg session "${PI_SESSION_FILE:-}" --arg pane "${HERDR_PANE_ID:-}" --arg source ${t:A} --arg url $url \
+		'{session: $session, pane: $pane, source: $source, url: $url}' > $dest/.meta.json
+	print -r -- "phone: $url"
+}
+
 for t in "$@"; do
+	phone_publish $t
 	if [[ $t == *://* ]]; then
 		ssh "$client" open $app ${(q)t}
 	elif [[ -d $t ]]; then

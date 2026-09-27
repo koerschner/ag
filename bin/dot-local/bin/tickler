@@ -1,0 +1,174 @@
+#!/usr/bin/env bun
+// tickler: a GTD tickler for Herdr. Deferred tasks come back at their time as a new pi tab.
+//
+//   tickler add --at <ISO time> --task <text> [--title t] [--session f] [--cwd d] [--workspace label] [--mode fork|fresh]
+//   tickler list [--all]
+//   tickler cancel <id>
+//   tickler fire            # run by the com.nathan.tickler LaunchAgent every minute
+//
+// Agents normally drive this through the `tickler` pi tool (pi extension tickler.ts), so Nathan just
+// says "do X on Friday at 9" in plain text. Items: ~/.local/state/tickler/<id>.json. Log: log.jsonl beside them.
+// Firing: opens a tab named "⏰ <title>" in the item's workspace (else "Inbox"), starts pi (forked from the
+// deferring session when there is one, so it has the full context) and sends the task. Never steals focus.
+
+import { execFileSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { randomBytes } from "node:crypto";
+
+const HOME = homedir();
+const DIR = `${HOME}/.local/state/tickler`;
+const HERDR = `${HOME}/.local/bin/herdr`;
+const FALLBACK_WORKSPACE = "Inbox";
+mkdirSync(DIR, { recursive: true });
+
+type Item = {
+	id: string;
+	title: string;
+	task: string;
+	due: string; // ISO with offset
+	session?: string;
+	cwd: string;
+	workspace?: string;
+	mode: "fork" | "fresh";
+	status: "waiting" | "fired" | "failed" | "cancelled";
+	created_at: string;
+	fired_at?: string;
+	error?: string;
+};
+
+const path = (id: string) => `${DIR}/${id}.json`;
+const save = (i: Item) => writeFileSync(path(i.id), JSON.stringify(i, null, 2) + "\n");
+const load = (): Item[] =>
+	readdirSync(DIR)
+		.filter((f) => f.endsWith(".json"))
+		.map((f) => JSON.parse(readFileSync(`${DIR}/${f}`, "utf8")))
+		.sort((a, b) => a.due.localeCompare(b.due));
+const log = (id: string, step: string, data: object = {}) =>
+	appendFileSync(`${DIR}/log.jsonl`, JSON.stringify({ ts: new Date().toISOString(), id, step, ...data }) + "\n");
+const local = (iso: string) =>
+	new Date(iso).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+
+function herdr(...args: string[]): any {
+	const out = execFileSync(HERDR, args, { encoding: "utf8", timeout: 90_000 });
+	return out.trim() ? JSON.parse(out).result : null;
+}
+
+function flags(argv: string[]): Record<string, string> {
+	const f: Record<string, string> = {};
+	for (let i = 0; i < argv.length; i++) if (argv[i].startsWith("--")) f[argv[i].slice(2)] = argv[i + 1]?.startsWith("--") || argv[i + 1] === undefined ? "true" : argv[++i];
+	return f;
+}
+
+function add(f: Record<string, string>) {
+	if (!f.at || !f.task) throw new Error("add needs --at <ISO time> and --task <text>");
+	const due = new Date(f.at);
+	if (isNaN(+due)) throw new Error(`unparseable --at: ${f.at}`);
+	const session = f.session && existsSync(f.session) ? f.session : undefined;
+	const item: Item = {
+		id: randomBytes(4).toString("hex"),
+		title: (f.title ?? f.task).slice(0, 40),
+		task: f.task,
+		due: due.toISOString(),
+		session,
+		cwd: f.cwd ?? HOME,
+		workspace: f.workspace,
+		mode: f.mode === "fresh" || !session ? "fresh" : "fork",
+		status: "waiting",
+		created_at: new Date().toISOString(),
+	};
+	save(item);
+	log(item.id, "added", { due: item.due });
+	const late = +due < Date.now() ? " (already past: fires within a minute)" : "";
+	console.log(`Scheduled ${item.id} "${item.title}" for ${local(item.due)}${late}, in workspace ${item.workspace ?? FALLBACK_WORKSPACE}, mode ${item.mode}.`);
+}
+
+function list(all: boolean) {
+	const items = load().filter((i) => all || i.status === "waiting");
+	if (!items.length) return console.log("No tickler items.");
+	for (const i of items) console.log(`${i.id}  ${local(i.due)}  [${i.status}]  ${i.workspace ?? FALLBACK_WORKSPACE} · ${i.title}`);
+}
+
+function cancel(id: string) {
+	const i = load().find((x) => x.id === id);
+	if (!i) throw new Error(`no item ${id}`);
+	save({ ...i, status: "cancelled" });
+	log(id, "cancelled");
+	console.log(`Cancelled ${id} "${i.title}".`);
+}
+
+// The item's workspace by label, else the Inbox workspace, else null (caller creates Inbox).
+function workspaceFor(label?: string): string | null {
+	const spaces = herdr("workspace", "list").workspaces as { workspace_id: string; label: string }[];
+	const find = (l: string) => spaces.find((w) => w.label.toLowerCase() === l.toLowerCase());
+	return ((label && find(label)) || find(FALLBACK_WORKSPACE))?.workspace_id ?? null;
+}
+
+function prompt(i: Item): string {
+	const when = local(i.created_at);
+	const late = Date.now() - +new Date(i.due) > 15 * 60_000 ? ` It fired late (due ${local(i.due)}; the Mac was probably asleep).` : "";
+	const context = i.mode === "fork" ? " This session is a fork of the conversation where it was deferred, so you have that context." : "";
+	return `⏰ Tickler item ${i.id}, deferred on ${when} for now.${late}${context}
+
+Task: ${i.task}
+
+Do it now. If it's a reminder or needs Nathan's decision, check what changed since it was deferred (PRs, commits, Slack, Linear as relevant) and give him a 3-line status and the next step. If he asks to push it back, reschedule it with the tickler tool.`;
+}
+
+function fireOne(i: Item) {
+	const ws = workspaceFor(i.workspace);
+	const label = `⏰ ${i.title}`.slice(0, 40);
+	const cwd = existsSync(i.cwd) ? i.cwd : HOME;
+	let pane: string;
+	if (ws) pane = herdr("tab", "create", "--workspace", ws, "--cwd", cwd, "--label", label, "--no-focus").root_pane.pane_id;
+	else {
+		const w = herdr("workspace", "create", "--cwd", cwd, "--label", FALLBACK_WORKSPACE, "--no-focus");
+		herdr("tab", "rename", w.tab.tab_id, label);
+		pane = w.root_pane.pane_id;
+	}
+	const agent = `tickler-${i.id}`;
+	const extra = i.mode === "fork" && i.session && existsSync(i.session) ? ["--", "--fork", i.session] : [];
+	// A brand-new pane's shell may still be initializing (agent_pane_busy); retry for ~20s.
+	for (let tries = 0; ; tries++) {
+		try {
+			herdr("agent", "start", agent, "--kind", "pi", "--pane", pane, "--timeout", "60000", ...extra);
+			break;
+		} catch (e) {
+			if (tries >= 10 || !String(e).includes("agent_pane_busy")) throw e;
+			Bun.sleepSync(2000);
+		}
+	}
+	herdr("agent", "prompt", agent, prompt(i));
+	try {
+		herdr("notification", "show", `⏰ ${i.title}`, "--body", `Tickler fired in ${i.workspace ?? FALLBACK_WORKSPACE}`, "--sound", "request");
+	} catch {}
+	log(i.id, "fired", { pane, agent });
+}
+
+function fire() {
+	for (const i of load().filter((x) => x.status === "waiting" && +new Date(x.due) <= Date.now())) {
+		// Mark first so a crash mid-launch can't fire the same item twice.
+		save({ ...i, status: "fired", fired_at: new Date().toISOString() });
+		try {
+			fireOne(i);
+		} catch (e) {
+			save({ ...i, status: "failed", fired_at: new Date().toISOString(), error: String(e) });
+			log(i.id, "failed", { error: String(e) });
+		}
+	}
+}
+
+const [cmd, ...rest] = process.argv.slice(2);
+try {
+	if (cmd === "add") add(flags(rest));
+	else if (cmd === "list") list(rest.includes("--all"));
+	else if (cmd === "cancel") cancel(rest[0]);
+	else if (cmd === "fire") fire();
+	else {
+		console.error("usage: tickler add|list|cancel|fire (see header)");
+		process.exit(2);
+	}
+} catch (e) {
+	console.error(String(e instanceof Error ? e.message : e));
+	process.exit(1);
+}

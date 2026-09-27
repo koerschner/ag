@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nathan.tickler</string>
+  <!-- Tickler: every minute, fire due deferred tasks as new pi tabs in Herdr. Host only (ag), where Herdr and pi sessions live. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>[[ $(scutil --get LocalHostName) == ag ]] || exit 0; exec "$HOME/.local/bin/tickler" fire</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>60</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/tickler.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/tickler.log</string>
+</dict>
+</plist>

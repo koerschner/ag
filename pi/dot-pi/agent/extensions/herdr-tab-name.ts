@@ -78,8 +78,15 @@ export default function (pi: ExtensionAPI) {
 	let pinned = false;
 
 	pi.on("before_agent_start", (event, ctx) => {
-		const tab = process.env.HERDR_TAB_ID;
-		if (pinned || process.env.HERDR_ENV !== "1" || !tab || !event.prompt.trim()) return;
+		const pane = process.env.HERDR_PANE_ID;
+		if (pinned || process.env.HERDR_ENV !== "1" || !pane || !event.prompt.trim()) return;
+		// Resolve the tab live: HERDR_TAB_ID goes stale if the pane moves (e.g. auto-filed out of Inbox).
+		let tab: string;
+		try {
+			tab = herdr(["pane", "get", pane]).pane.tab_id;
+		} catch {
+			return;
+		}
 
 		const prompts = [
 			...ctx.sessionManager

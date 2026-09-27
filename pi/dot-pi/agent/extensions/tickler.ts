@@ -10,9 +10,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 const BIN = `${homedir()}/.local/bin/tickler`;
 
 function herdrWorkspaceLabel(): string | undefined {
-	const ws = process.env.HERDR_WORKSPACE_ID;
-	if (!ws) return undefined;
+	const pane = process.env.HERDR_PANE_ID;
+	if (!pane) return undefined;
 	try {
+		// Resolve live: HERDR_WORKSPACE_ID goes stale if the pane moves (e.g. auto-filed out of Inbox).
+		const ws = JSON.parse(execFileSync("herdr", ["pane", "get", pane], { encoding: "utf8", timeout: 3000 })).result.pane.workspace_id;
 		const r = JSON.parse(execFileSync("herdr", ["workspace", "get", ws], { encoding: "utf8", timeout: 3000 })).result;
 		return (r.workspace ?? r).label;
 	} catch {

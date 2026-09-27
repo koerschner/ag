@@ -1,0 +1,142 @@
+#!/usr/bin/env bun
+// prompt-inbox: a send-only inbox for pi sessions on ag.
+//
+// POST free text to http://<ag tailscale ip>:7373/prompt (or use the test page at /).
+// Pipeline, one function per step, one JSON log line per step (~/.local/state/prompt-inbox/log.jsonl):
+//   receive → label (cheap model names the tab) → launch (new tab in the Inbox workspace, start pi, send text)
+// Optional form field `id` (the phone's queue file name): a repeat id within 24h is acknowledged but not relaunched,
+// so the iOS offline queue can safely resend an item whose first response was lost.
+// Listens only on ag's Tailscale IP. Never focuses anything, so attached Herdr clients aren't disturbed.
+// Run by the com.nathan.prompt-inbox LaunchAgent.
+
+import { execFileSync } from "node:child_process";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+
+const PORT = 7373;
+const HOME = homedir();
+const HERDR = `${HOME}/.local/bin/herdr`;
+const LOG_DIR = `${HOME}/.local/state/prompt-inbox`;
+const INBOX = "Inbox";
+const MODEL = "gemini-group/gemini-3.5-flash-lite";
+const TFY_URL = "https://tfy.promptlens.trilogy.com/chat/completions";
+
+mkdirSync(LOG_DIR, { recursive: true });
+
+function log(id: string, step: string, data: Record<string, unknown> = {}) {
+	const line = JSON.stringify({ ts: new Date().toISOString(), id, step, ...data });
+	appendFileSync(`${LOG_DIR}/log.jsonl`, line + "\n");
+	console.log(line);
+}
+
+function herdr(...args: string[]): any {
+	const out = execFileSync(HERDR, args, { encoding: "utf8", timeout: 60_000 });
+	return out.trim() ? JSON.parse(out).result : null;
+}
+
+// launchd doesn't source zsh files; read the token the same way tfy-env does.
+function tfyToken(): string {
+	if (process.env.TFY_TOKEN) return process.env.TFY_TOKEN;
+	const m = readFileSync(`${HOME}/.zshenv.local`, "utf8").match(/TFY_TOKEN=["']?([^"'\s]+)/);
+	if (!m) throw new Error("TFY_TOKEN not found in ~/.zshenv.local");
+	return m[1];
+}
+
+// Step 2: name the tab. Every capture lands in the Inbox workspace (GTD inbox);
+// Nathan files it into a topic workspace himself.
+async function tabLabel(text: string): Promise<string> {
+	const prompt = `Name this task in 1-3 words, Title Case. Reply with only the name.\n\nTask:\n${text.slice(0, 4000)}`;
+	const res = await fetch(TFY_URL, {
+		method: "POST",
+		headers: { authorization: `Bearer ${tfyToken()}`, "content-type": "application/json" },
+		body: JSON.stringify({ model: MODEL, messages: [{ role: "user", content: prompt }] }),
+		signal: AbortSignal.timeout(20_000),
+	});
+	if (!res.ok) throw new Error(`model ${res.status}: ${await res.text()}`);
+	const name = String((await res.json()).choices[0].message.content).replace(/["'`*\n]/g, " ").trim();
+	return name.slice(0, 40) || "Inbox Task";
+}
+
+// Step 3: new tab in Inbox (created if missing, no focus), start pi in it, send the text.
+function launch(id: string, text: string, label: string) {
+	const inbox = herdr("workspace", "list").workspaces.find((w: any) => w.label.toLowerCase() === INBOX.toLowerCase());
+	let pane: string;
+	if (inbox) {
+		pane = herdr("tab", "create", "--workspace", inbox.workspace_id, "--cwd", HOME, "--label", label, "--no-focus").root_pane.pane_id;
+	} else {
+		const w = herdr("workspace", "create", "--cwd", HOME, "--label", INBOX, "--no-focus");
+		pane = w.root_pane.pane_id;
+		herdr("tab", "rename", w.tab.tab_id, label);
+	}
+	log(id, "tab", { pane, label });
+
+	const agent = `inbox-${id}`;
+	herdr("agent", "start", agent, "--kind", "pi", "--pane", pane, "--timeout", "60000");
+	log(id, "pi_started", { agent });
+
+	herdr("agent", "prompt", agent, text);
+	log(id, "sent");
+}
+
+async function handle(id: string, text: string) {
+	try {
+		// One retry: the model gateway returns the occasional transient 502.
+		const label = await tabLabel(text).catch(() => tabLabel(text)).catch((e) => {
+			log(id, "label_failed", { error: String(e) });
+			return "Inbox Task";
+		});
+		launch(id, text, label);
+	} catch (e) {
+		log(id, "failed", { error: String(e) });
+	}
+}
+
+const PAGE = `<!doctype html><meta name=viewport content="width=device-width,initial-scale=1">
+<title>prompt inbox</title>
+<style>body{font:16px system-ui;max-width:640px;margin:2rem auto;padding:0 1rem}textarea{width:100%;height:40vh;font:inherit}button{font:inherit;padding:.5rem 1.5rem;margin-top:.5rem}</style>
+<form method=post action=/prompt><textarea name=text autofocus placeholder="prompt…"></textarea><br><button>Send</button></form>`;
+
+const host = execFileSync("/usr/local/bin/tailscale", ["ip", "-4"], { encoding: "utf8" }).trim().split("\n")[0];
+
+// Client ids accepted in the last day (rebuilt from the log so restarts don't forget them).
+// Expiring matters: iOS may send the capture text itself as the id, and a repeat capture days later must go through.
+const DEDUP_MS = 24 * 3600_000;
+const seen = new Map<string, number>();
+try {
+	for (const l of readFileSync(`${LOG_DIR}/log.jsonl`, "utf8").split("\n")) {
+		if (l.includes('"received"') && l.includes('"clientId"')) {
+			const e = JSON.parse(l);
+			if (e.clientId) seen.set(e.clientId, Date.parse(e.ts));
+		}
+	}
+} catch {}
+
+Bun.serve({
+	hostname: host,
+	port: PORT,
+	async fetch(req) {
+		const url = new URL(req.url);
+		if (req.method === "GET" && url.pathname === "/") return new Response(PAGE, { headers: { "content-type": "text/html" } });
+		if (req.method !== "POST" || url.pathname !== "/prompt") return new Response("not found", { status: 404 });
+
+		const type = req.headers.get("content-type") ?? "";
+		// The test page posts a form field named "text"; anything else (curl -d, Shortcuts) is the raw body.
+		const body = await req.text();
+		const form = type.includes("form") ? new URLSearchParams(body) : null;
+		const text = (form ? form.get("text") ?? "" : body).trim();
+		const clientId = form?.get("id")?.trim() || null;
+		if (!text) return new Response("empty", { status: 400 });
+
+		if (clientId && Date.now() - (seen.get(clientId) ?? 0) < DEDUP_MS) {
+			log("dup", "duplicate", { clientId });
+			return new Response(null, { status: 202 });
+		}
+		if (clientId) seen.set(clientId, Date.now());
+		const id = crypto.randomUUID().slice(0, 8);
+		log(id, "received", { chars: text.length, text, clientId });
+		void handle(id, text);
+		// Send-only: no result. The form just lands back on a blank page.
+		return type.includes("form") ? new Response(null, { status: 303, headers: { location: "/" } }) : new Response(null, { status: 202 });
+	},
+});
+console.log(`prompt-inbox listening on http://${host}:${PORT}`);

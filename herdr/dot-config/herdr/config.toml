@@ -17,6 +17,11 @@ swap_pane_left = "prefix+shift+left"
 swap_pane_down = "prefix+shift+down"
 swap_pane_up = "prefix+shift+up"
 swap_pane_right = "prefix+shift+right"
+# Direct Cmd bindings for terminals that forward Cmd, e.g. Moshi on iPhone/iPad
+# (the Mac gets the same keys via Hammerspoon's prefix chords). Moshi keeps
+# Cmd+N/W/O/K/V/1-9 for itself, so those can't reach herdr there.
+split_vertical = ["prefix+v", "cmd+d"]
+split_horizontal = ["prefix+minus", "cmd+shift+d"]
 
 # tmux-ish find-window: prefix+f opens a fuzzy space search; type, Enter.
 [[keys.command]]
@@ -38,19 +43,19 @@ description = "last space"
 # Ghostty turns those into esc+b/f before herdr sees them), so the helper
 # scripts run on whichever host owns the session (also through `ag`).
 [[keys.command]]
-key = "prefix+t"
+key = ["prefix+t", "cmd+t"]
 type = "shell"
 command = "/usr/bin/python3 $HOME/.local/bin/herdr-new-pi-tab"
 description = "new tab with pi"
 
 [[keys.command]]
-key = "prefix+["
+key = ["prefix+[", "cmd+["]
 type = "shell"
 command = "/usr/bin/python3 $HOME/.local/bin/herdr-nav back"
 description = "focus history back"
 
 [[keys.command]]
-key = "prefix+]"
+key = ["prefix+]", "cmd+]"]
 type = "shell"
 command = "/usr/bin/python3 $HOME/.local/bin/herdr-nav forward"
 description = "focus history forward"

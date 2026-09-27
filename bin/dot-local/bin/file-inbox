@@ -10,6 +10,8 @@
 //                    file paths; to=new → prompt-inbox routes it to a new tab; empty → just save.
 //   POST /upload?name=<optional>   raw file bytes → saved (curl-friendly)
 //   GET  /           browser form (same as /send)
+//   GET  /focus?tab=<tab id>   focus that Herdr tab in the attached session, then close the
+//                    browser tab. Agents print these as clickable links (`herdr-link`).
 //
 // Listens only on ag's Tailscale IP (tailnet-only, like prompt-inbox). Run by com.nathan.file-inbox.
 
@@ -98,6 +100,15 @@ Bun.serve({
 		const url = new URL(req.url);
 		try {
 			if (req.method === "GET" && url.pathname === "/sessions") return Response.json(sessions());
+			if (req.method === "GET" && url.pathname === "/focus") {
+				const tab = url.searchParams.get("tab") ?? "";
+				if (!/^[A-Za-z0-9]+:[A-Za-z0-9]+$/.test(tab)) return new Response("bad tab id\n", { status: 400 });
+				herdr("tab", "focus", tab);
+				log({ focus: tab });
+				const label = Bun.escapeHTML(herdr("tab", "get", tab).tab?.label ?? tab);
+				return new Response(`<!doctype html><title>${label}</title><body style="font:14px system-ui;background:#111;color:#aaa">Switched Herdr to <b>${label}</b>. <script>location.href="hammerspoon://herdr-return"</script>`,
+					{ headers: { "content-type": "text/html" } });
+			}
 			if (req.method === "GET" && url.pathname === "/") {
 				const opts = Object.entries(sessions()).map(([l, v]) => `<option value="${v}">${Bun.escapeHTML(l)}</option>`).join("");
 				return new Response(FORM.replace("OPTIONS", opts), { headers: { "content-type": "text/html" } });

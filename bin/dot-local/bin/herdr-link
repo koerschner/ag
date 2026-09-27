@@ -1,0 +1,32 @@
+#!/usr/bin/env zsh
+# herdr-link — print clickable links (Cmd+click in Ghostty) that jump to Herdr tabs.
+#
+#   herdr-link wN:tX            one link
+#   herdr-link wN:tX w8:tP      several
+#   herdr-link --grep capture   every tab whose label matches (case-insensitive)
+#
+# Output: "<Workspace> › <Tab>  http://<host>:7374/focus?tab=<id>"
+# Cmd+click in Ghostty. Opening it tells file-inbox on the host to `herdr tab focus` that tab;
+# Hammerspoon on the client intercepts these URLs so no browser window flashes.
+# (Herdr strips OSC 8 and Ghostty only auto-links http(s)/ssh/etc., hence plain http URLs.)
+set -euo pipefail
+host=${HERDR_LINK_HOST:-$(scutil --get LocalHostName)}
+herdr api snapshot | python3 -c "$(cat <<'PY'
+
+import json, sys, re
+host, args = sys.argv[1], sys.argv[2:]
+snap = json.load(sys.stdin)["result"]["snapshot"]
+ws = {w["workspace_id"]: w["label"] for w in snap["workspaces"]}
+tabs = {t["tab_id"]: t for t in snap["tabs"]}
+if args[:1] == ["--grep"]:
+    pat = re.compile(" ".join(args[1:]), re.I)
+    ids = [i for i, t in tabs.items() if pat.search(t.get("label", ""))]
+else:
+    ids = args
+for i in ids:
+    t = tabs.get(i)
+    if not t:
+        print(f"{i}: no such tab", file=sys.stderr); continue
+    print(f"{ws.get(t['workspace_id'], t['workspace_id'])} › {t.get('label') or i}  http://{host}:7374/focus?tab={i}")
+PY
+)" "$host" "$@"

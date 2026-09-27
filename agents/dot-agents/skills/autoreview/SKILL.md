@@ -1,15 +1,15 @@
 ---
 name: autoreview
-description: "Run a Pi-based structured code review as a closeout check on local, branch, PR, or commit changes before commit or ship."
+description: "The one code-review skill: a single Pi review on Claude Opus 5.5 of local, branch, PR, or commit changes. Use for any review request (quick, deep, PR, pre-merge, sanity check) and as a closeout before commit or ship."
 ---
 
 # Auto Review
 
-Run a structured code review using **Pi**. Do not use Codex, Claude Code, `codex review`, Claude harnesses, the old bundled `autoreview` helper, or nested reviewer panels that invoke non-Pi CLIs. Use only models routed through a `truefoundry`, `truefoundry-openai`, or `truefoundry-chat` provider. Never use a Haiku model for autoreview.
+Run a structured code review using **Pi**. Do not use Codex, Claude Code, `codex review`, Claude harnesses, the old bundled `autoreview` helper, or nested reviewer panels that invoke non-Pi CLIs. Use one reviewer (Claude Opus 5.5 via TrueFoundry); no multi-model panels.
 
 Use when:
 
-- user asks for autoreview / second-model review / code review closeout
+- user asks for any review: quick, deep, PR, pre-merge, sanity check, autoreview, closeout
 - after non-trivial code edits, before final/commit/ship
 - reviewing a local branch or PR branch after fixes
 
@@ -77,13 +77,13 @@ pi --no-session --tools read,bash -p "Review commit ${commit}. Use read-only ins
 
 ## Model Choice
 
-Pi is the review harness. Use a TrueFoundry-routed model explicitly. The default autoreview model is:
+Always pass the model explicitly:
 
 ```bash
-pi --model truefoundry-openai/gpt-6-astra --thinking low --no-session --tools read,bash -p "Review the local uncommitted diff..."
+pi --model truefoundry/anthropic-primary/claude-opus-5-5 --thinking high --no-session --tools read,bash -p "Review the local uncommitted diff..."
 ```
 
-For a fallback, use `truefoundry-chat/cost-optimizer/smart-code` or the current non-Haiku TrueFoundry model. Do not use Haiku or switch to non-Pi CLIs. If a chosen Pi model fails due to capacity, retry it a few times; if unavailable, use another non-Haiku TrueFoundry model and report the fallback.
+Use `--thinking xhigh` when the user asks for a deep/thorough review or the change is risky (migrations, auth, payments, data loss). If the model fails on capacity, retry a few times and report it.
 
 ## Parallel Closeout
 

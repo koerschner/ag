@@ -1,7 +1,7 @@
 # iOS Shortcut: Capture to ag (Action Button, offline queue)
 
 Press the iPhone Action Button, type a prompt, and it lands in Herdr's **Inbox**
-workspace as a new pi session via `prompt-inbox` (port 7373, Tailscale only). This is
+workspace as a new pi session via the ag inbox (`ag-inbox`, port 7373, Tailscale only). This is
 the GTD inbox capture point.
 
 Every capture is first saved to a queue folder on the phone, then the queue is flushed.

@@ -17,7 +17,7 @@ local DIR = os.getenv("HOME") .. "/Library/Caches/ag-inbox"
 local W, H, THUMB_W = 560, 330, 480
 hs.fs.mkdir(DIR)
 
-local state = {} -- one capture: prevWin, app, window, img, path, annotated, watcher
+local state = {} -- one capture: prevApp, app, window, img, path, annotated, watcher
 local view
 
 local HTML = [[
@@ -122,7 +122,7 @@ end
 
 local function focusForm()
 	view:show()
-	view:hswindow():focus()
+	hs.focus() -- activate Hammerspoon (~2 ms; hswindow():focus() takes ~300 ms)
 	js("prompt.focus()")
 end
 
@@ -130,11 +130,11 @@ local function close()
 	if state.watcher then
 		state.watcher:stop()
 	end
-	local prev = state.prevWin
+	local prev = state.prevApp
 	state = {}
 	view:hide()
 	if prev then
-		prev:focus()
+		prev:activate() -- back to where you were (its key window comes forward)
 	end
 end
 
@@ -154,8 +154,7 @@ local function send(text)
 		end
 	end
 	table.insert(args, URL)
-	close()
-	-- The form is gone already; the upload (~0.4 MB) finishes in the background.
+	-- The upload (~0.4 MB) finishes in the background after the form is gone.
 	hs.task
 		.new("/usr/bin/curl", function(code, out, err)
 			local status = tonumber(out) or 0
@@ -169,6 +168,7 @@ local function send(text)
 			end
 		end, args)
 		:start()
+	close()
 end
 
 -- Open the screenshot in CleanShot's editor. Its Cmd+S overwrites the file in place;
@@ -215,17 +215,13 @@ local function build()
 	end)
 	view = hs.webview.new({ x = 0, y = 0, w = W, h = H }, {}, controller)
 	view:windowTitle("ag inbox")
-	view:windowStyle({ "titled", "closable", "utility" })
+	view:windowStyle({ "titled", "utility" }) -- no close button: Cancel/Esc reset the capture
 	view:allowTextEntry(true)
 	view:deleteOnClose(false)
 	view:closeOnEscape(false)
 	view:shadow(true)
-	view:windowCallback(function(action)
-		if action == "closing" then -- red close button: treat as cancel
-			hs.timer.doAfter(0, close)
-		end
-	end)
 	view:html(HTML)
+	M.view = view -- for debugging from `hs -c`
 end
 
 function M.open()
@@ -236,9 +232,11 @@ function M.open()
 	local screen = (win and win:screen()) or hs.screen.mainScreen()
 	local snap = screen:snapshot() -- nil without Screen Recording permission
 	local f = screen:fullFrame()
+	local front = hs.application.frontmostApplication()
 	state = {
-		prevWin = win,
-		app = win and win:application() and win:application():name() or "",
+		prevApp = front,
+		-- Ghostty windows aren't visible to hs.window (win is nil); the app name still is.
+		app = front and front:name() or "",
 		window = win and win:title() or "",
 		img = snap and snap:copy():size({ w = f.w, h = f.h }),
 	}

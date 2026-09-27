@@ -23,7 +23,7 @@ flowchart TD
 
 Server behaviour for `POST /send`:
 - `to` empty ("Just save"): files saved to `ag:~/inbox/phone/`.
-- `to=new`: forwarded to prompt-inbox, which opens a new Herdr tab running pi.
+- `to=new`: forwarded to the ag inbox (`ag-inbox`), which opens a new Herdr tab running pi.
 - `to=<pane id>`: `herdr agent prompt <pane> "<text> + file paths"`; pi reads the image paths.
 
 ## Build steps (Shortcuts app)

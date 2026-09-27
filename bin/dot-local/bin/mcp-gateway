@@ -5,7 +5,8 @@
 # 96 sessions used ~9.5 GB on ag). Each server here runs once behind its own
 # mcp-proxy (stdio -> streamable HTTP on 127.0.0.1:<port>/mcp), and pi/dot-pi/agent/mcp.json
 # points at those URLs. One proxy per server so a failing server can't take the others
-# down; each is restarted independently if it exits. Run by com.nathan.mcp-gateway (KeepAlive).
+# down; each is restarted independently if it exits. --stateless so open Pi sessions keep
+# working across gateway restarts (no MCP session IDs to go stale). Run by com.nathan.mcp-gateway (KeepAlive).
 #
 #   mcp-gateway            run all servers (foreground; the LaunchAgent does this)
 #   mcp-gateway status     show which ports answer
@@ -41,7 +42,7 @@ run() {  # restart loop for one server, with backoff so a broken credential does
   while true; do
     local start=$SECONDS
     echo "$(date '+%F %T') starting $name on :${PORT[$name]}" >>$LOGDIR/$name.log
-    $PROXY --port ${PORT[$name]} --pass-environment -- sh -c ${CMD[$name]} >>$LOGDIR/$name.log 2>&1
+    $PROXY --port ${PORT[$name]} --stateless --pass-environment -- sh -c ${CMD[$name]} >>$LOGDIR/$name.log 2>&1
     (( SECONDS - start > 60 )) && delay=2 || delay=$(( delay < 60 ? delay * 2 : 60 ))
     echo "$(date '+%F %T') $name exited; restarting in ${delay}s" >>$LOGDIR/$name.log
     sleep $delay

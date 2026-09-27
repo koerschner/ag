@@ -2,6 +2,7 @@
 // tickler: a GTD tickler for Herdr. Deferred tasks come back at their time as a new pi tab.
 //
 //   tickler add --at <ISO time> --task <text> [--title t] [--session f] [--cwd d] [--workspace label] [--mode fork|fresh]
+//   tickler add --when online --task <text> ...   # fire the next time Nathan comes online at the client (`presence`)
 //   tickler list [--all]
 //   tickler cancel <id>
 //   tickler fire            # run by the com.nathan.tickler LaunchAgent every minute
@@ -10,9 +11,12 @@
 // says "do X on Friday at 9" in plain text. Items: ~/.local/state/tickler/<id>.json. Log: log.jsonl beside them.
 // Firing: opens a tab named "⏰ <title>" in the item's workspace (else "Inbox"), starts pi (forked from the
 // deferring session when there is one, so it has the full context) and sends the task. Never steals focus.
+// Presence items (--when online) open as "🟢 <title>" on Nathan's next arrival at the client after they were
+// queued (an arrival that started after created_at), per ~/.local/state/presence/state.json. `presence poll`
+// runs `tickler fire` the moment he arrives; the every-minute run is the backstop.
 
 import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
 
@@ -20,13 +24,16 @@ const HOME = homedir();
 const DIR = `${HOME}/.local/state/tickler`;
 const HERDR = `${HOME}/.local/bin/herdr`;
 const FALLBACK_WORKSPACE = "Inbox";
+const PRESENCE = `${HOME}/.local/state/presence/state.json`;
+const PRESENCE_STALE_MS = 5 * 60_000;
 mkdirSync(DIR, { recursive: true });
 
 type Item = {
 	id: string;
 	title: string;
 	task: string;
-	due: string; // ISO with offset
+	due?: string; // ISO; absent for presence items
+	when?: "online"; // presence trigger: next time Nathan comes online at the client
 	session?: string;
 	cwd: string;
 	workspace?: string;
@@ -43,9 +50,10 @@ const load = (): Item[] =>
 	readdirSync(DIR)
 		.filter((f) => f.endsWith(".json"))
 		.map((f) => JSON.parse(readFileSync(`${DIR}/${f}`, "utf8")))
-		.sort((a, b) => a.due.localeCompare(b.due));
+		.sort((a, b) => (a.due ?? "~").localeCompare(b.due ?? "~") || a.created_at.localeCompare(b.created_at));
 const log = (id: string, step: string, data: object = {}) =>
 	appendFileSync(`${DIR}/log.jsonl`, JSON.stringify({ ts: new Date().toISOString(), id, step, ...data }) + "\n");
+const whenText = (i: Item) => (i.when === "online" ? "when Nathan is next online" : local(i.due!));
 const local = (iso: string) =>
 	new Date(iso).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
 
@@ -61,15 +69,18 @@ function flags(argv: string[]): Record<string, string> {
 }
 
 function add(f: Record<string, string>) {
-	if (!f.at || !f.task) throw new Error("add needs --at <ISO time> and --task <text>");
-	const due = new Date(f.at);
-	if (isNaN(+due)) throw new Error(`unparseable --at: ${f.at}`);
+	const online = f.when === "online";
+	if (f.when && !online) throw new Error(`unknown --when: ${f.when} (only "online")`);
+	if (!f.task || !!f.at === online) throw new Error("add needs --task and exactly one of --at <ISO time> or --when online");
+	const due = online ? undefined : new Date(f.at);
+	if (due && isNaN(+due)) throw new Error(`unparseable --at: ${f.at}`);
 	const session = f.session && existsSync(f.session) ? f.session : undefined;
 	const item: Item = {
 		id: randomBytes(4).toString("hex"),
 		title: (f.title ?? f.task).slice(0, 40),
 		task: f.task,
-		due: due.toISOString(),
+		due: due?.toISOString(),
+		when: online ? "online" : undefined,
 		session,
 		cwd: f.cwd ?? HOME,
 		workspace: f.workspace,
@@ -78,15 +89,17 @@ function add(f: Record<string, string>) {
 		created_at: new Date().toISOString(),
 	};
 	save(item);
-	log(item.id, "added", { due: item.due });
-	const late = +due < Date.now() ? " (already past: fires within a minute)" : "";
-	console.log(`Scheduled ${item.id} "${item.title}" for ${local(item.due)}${late}, in workspace ${item.workspace ?? FALLBACK_WORKSPACE}, mode ${item.mode}.`);
+	log(item.id, "added", { due: item.due, when: item.when });
+	const late = due && +due < Date.now() ? " (already past: fires within a minute)" : "";
+	const p = online ? ` ${presenceLine()} It fires on his next arrival after now.` : "";
+	console.log(`Scheduled ${item.id} "${item.title}" for ${whenText(item)}${late}, in workspace ${item.workspace ?? FALLBACK_WORKSPACE}, mode ${item.mode}.${p}`);
 }
 
 function list(all: boolean) {
 	const items = load().filter((i) => all || i.status === "waiting");
+	if (items.some((i) => i.when === "online")) console.log(presenceLine());
 	if (!items.length) return console.log("No tickler items.");
-	for (const i of items) console.log(`${i.id}  ${local(i.due)}  [${i.status}]  ${i.workspace ?? FALLBACK_WORKSPACE} · ${i.title}`);
+	for (const i of items) console.log(`${i.id}  ${whenText(i)}  [${i.status}]  ${i.workspace ?? FALLBACK_WORKSPACE} · ${i.title}`);
 }
 
 function cancel(id: string) {
@@ -104,9 +117,38 @@ function workspaceFor(label?: string): string | null {
 	return ((label && find(label)) || find(FALLBACK_WORKSPACE))?.workspace_id ?? null;
 }
 
+type Presence = { client: string; state: string; online_since?: string; last_poll?: string };
+function presence(): Presence | null {
+	try {
+		const p: Presence = JSON.parse(readFileSync(PRESENCE, "utf8"));
+		return p.last_poll && Date.now() - +new Date(p.last_poll) < PRESENCE_STALE_MS ? p : null;
+	} catch {
+		return null;
+	}
+}
+function presenceLine(): string {
+	const p = presence();
+	if (!p) return "Presence: unknown (com.nathan.presence isn't reporting).";
+	return p.state === "online" ? `Presence: Nathan is online at ${p.client} now.` : `Presence: Nathan is ${p.state} at ${p.client}.`;
+}
+
+// Time items: due has passed. Presence items: Nathan is online in an arrival that began after the item was queued.
+function isDue(i: Item, p: Presence | null): boolean {
+	if (i.when === "online") return p?.state === "online" && !!p.online_since && p.online_since > i.created_at;
+	return +new Date(i.due!) <= Date.now();
+}
+
 function prompt(i: Item): string {
 	const when = local(i.created_at);
-	const late = Date.now() - +new Date(i.due) > 15 * 60_000 ? ` It fired late (due ${local(i.due)}; the Mac was probably asleep).` : "";
+	if (i.when === "online") {
+		const context = i.mode === "fork" ? " This session is a fork of the conversation where it was queued, so you have that context." : "";
+		return `🟢 Presence item ${i.id}, queued on ${when} for "the next time Nathan is online at the client". He just came online.${context}
+
+Task: ${i.task}
+
+Do it now; he's at his Mac, so questions and physical tests he needs to do are fine. Check what changed since it was queued first (PRs, commits, files) when that matters. If he asks to push it back, requeue it with the tickler tool.`;
+	}
+	const late = Date.now() - +new Date(i.due!) > 15 * 60_000 ? ` It fired late (due ${local(i.due)}; the Mac was probably asleep).` : "";
 	const context = i.mode === "fork" ? " This session is a fork of the conversation where it was deferred, so you have that context." : "";
 	return `⏰ Tickler item ${i.id}, deferred on ${when} for now.${late}${context}
 
@@ -117,7 +159,8 @@ Do it now. If it's a reminder or needs Nathan's decision, check what changed sin
 
 function fireOne(i: Item) {
 	const ws = workspaceFor(i.workspace);
-	const label = `⏰ ${i.title}`.slice(0, 40);
+	const icon = i.when === "online" ? "🟢" : "⏰";
+	const label = `${icon} ${i.title}`.slice(0, 40);
 	const cwd = existsSync(i.cwd) ? i.cwd : HOME;
 	let pane: string;
 	if (ws) pane = herdr("tab", "create", "--workspace", ws, "--cwd", cwd, "--label", label, "--no-focus").root_pane.pane_id;
@@ -140,13 +183,32 @@ function fireOne(i: Item) {
 	}
 	herdr("agent", "prompt", agent, prompt(i));
 	try {
-		herdr("notification", "show", `⏰ ${i.title}`, "--body", `Tickler fired in ${i.workspace ?? FALLBACK_WORKSPACE}`, "--sound", "request");
+		const why = i.when === "online" ? "Welcome back: queued for when you're online" : "Tickler fired";
+		herdr("notification", "show", label, "--body", `${why}, in ${i.workspace ?? FALLBACK_WORKSPACE}`, "--sound", "request");
 	} catch {}
 	log(i.id, "fired", { pane, agent });
 }
 
 function fire() {
-	for (const i of load().filter((x) => x.status === "waiting" && +new Date(x.due) <= Date.now())) {
+	// One firer at a time: `presence poll` and the every-minute LaunchAgent can overlap.
+	const lock = `${DIR}/.fire.lock`;
+	try {
+		mkdirSync(lock);
+	} catch {
+		if (Date.now() - statSync(lock).mtimeMs < 10 * 60_000) return;
+		rmSync(lock, { recursive: true, force: true });
+		mkdirSync(lock);
+	}
+	try {
+		fireDue();
+	} finally {
+		rmSync(lock, { recursive: true, force: true });
+	}
+}
+
+function fireDue() {
+	const p = presence();
+	for (const i of load().filter((x) => x.status === "waiting" && isDue(x, p))) {
 		// Mark first so a crash mid-launch can't fire the same item twice.
 		save({ ...i, status: "fired", fired_at: new Date().toISOString() });
 		try {

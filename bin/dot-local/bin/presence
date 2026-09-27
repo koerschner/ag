@@ -1,0 +1,147 @@
+#!/usr/bin/env bun
+// presence: is Nathan actually at the client Mac right now? The central "Nathan is online" signal on ag.
+//
+//   presence            # one-line status (same as `presence status`)
+//   presence status [--json]
+//   presence poll       # run by the com.nathan.presence LaunchAgent every 30s, host (ag) only
+//
+// How: ag polls the client over SSH (ControlMaster, ~0.2s): HID idle time (any real keyboard/mouse/trackpad
+// input), screen lock, and the console user. Polling from ag keeps all state and logic in one place and
+// needs nothing running on the client; a sleeping or offline client simply stops answering.
+// Debounce, so brief wakes don't count:
+//   online   the client has had input within the last minute, unlocked, for ≥ 90s straight
+//   offline  locked, asleep/unreachable for 3 polls in a row (~90s), or no input for 15 min
+//   held     while a client-cua job is driving the client (its synthetic input isn't Nathan), nothing changes
+// On every offline→online arrival it runs `tickler fire`, which launches tickler items queued with
+// `--when online` ("resume this next time I'm on the client"). Each item fires once.
+// State: ~/.local/state/presence/state.json. Transitions: log.jsonl beside it. Client: $PRESENCE_CLIENT
+// (default nathan-dev-client, the client in machines/README.md).
+
+import { execFileSync, spawnSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+
+const HOME = homedir();
+const DIR = `${HOME}/.local/state/presence`;
+const STATE = `${DIR}/state.json`;
+const CLIENT = process.env.PRESENCE_CLIENT ?? "nathan-dev-client";
+const ACTIVE_IDLE_S = 60; // input within this long = active right now
+const ARRIVE_S = 90; // active this long straight = online
+const AWAY_IDLE_S = 15 * 60; // no input this long = offline
+const UNREACHABLE_POLLS = 3; // consecutive failed polls = offline
+const STALE_S = 5 * 60; // state older than this is "unknown" (poller not running)
+mkdirSync(DIR, { recursive: true });
+
+export type State = {
+	client: string;
+	state: "online" | "offline" | "unknown";
+	since?: string; // when the current state began
+	online_since?: string; // start of the current/last online period
+	last_seen?: string; // last poll with fresh input
+	active_since?: string; // start of the current active streak (arrival debounce)
+	last_poll?: string;
+	idle_s?: number;
+	locked?: boolean;
+	reachable?: boolean;
+	fails: number;
+	held?: string; // why transitions are paused this poll
+};
+
+const load = (): State => (existsSync(STATE) ? JSON.parse(readFileSync(STATE, "utf8")) : { client: CLIENT, state: "unknown", fails: 0 });
+const log = (step: string, data: object = {}) =>
+	appendFileSync(`${DIR}/log.jsonl`, JSON.stringify({ ts: new Date().toISOString(), client: CLIENT, step, ...data }) + "\n");
+const ago = (iso?: string) => {
+	if (!iso) return "never";
+	const s = Math.round((Date.now() - +new Date(iso)) / 1000);
+	return s < 90 ? `${s}s ago` : s < 5400 ? `${Math.round(s / 60)}m ago` : `${(s / 3600).toFixed(1)}h ago`;
+};
+const local = (iso?: string) =>
+	iso ? new Date(iso).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" }) : "?";
+
+// One SSH round trip: idle ns, locked, console user, running client-cua jobs.
+const PROBE = `ioreg -c IOHIDSystem -d 4 | awk '/HIDIdleTime/ {print $NF; exit}'
+ioreg -n Root -d1 | grep -q '"IOConsoleLocked" = Yes' && echo locked || echo unlocked
+stat -f %Su /dev/console
+launchctl list | grep -c client-cua- || true`;
+
+type Sample = { idle_s: number; locked: boolean; user: string; cua: number } | null;
+function sample(): Sample {
+	const r = spawnSync("ssh", ["-o", "ConnectTimeout=5", "-o", "BatchMode=yes", CLIENT, PROBE], { encoding: "utf8", timeout: 15_000 });
+	const [idle, lock, user, cua] = (r.stdout ?? "").trim().split("\n");
+	if (r.status !== 0 || !idle || isNaN(Number(idle))) return null;
+	return { idle_s: Math.round(Number(idle) / 1e9), locked: lock === "locked", user, cua: Number(cua) || 0 };
+}
+
+function poll() {
+	const s = load();
+	const now = new Date().toISOString();
+	const x = sample();
+	const next: State = { ...s, client: CLIENT, last_poll: now, held: undefined };
+	const become = (state: "online" | "offline", why: string) => {
+		if (next.state === state) return;
+		next.state = state;
+		next.since = now;
+		if (state === "online") next.online_since = now;
+		log(state, { why, idle_s: next.idle_s });
+	};
+
+	if (!x) {
+		next.reachable = false;
+		next.fails = s.fails + 1;
+		next.active_since = undefined;
+		if (next.fails >= UNREACHABLE_POLLS) become("offline", "unreachable (asleep or off Tailscale)");
+	} else {
+		Object.assign(next, { reachable: true, fails: 0, idle_s: x.idle_s, locked: x.locked });
+		const expectedUser = (x.user ?? "") !== "root" && x.user !== "loginwindow";
+		if (x.cua > 0) {
+			next.held = "client-cua job running (synthetic input)";
+			next.active_since = undefined; // CUA input must not count toward an arrival
+		}
+		else if (x.locked || !expectedUser) {
+			next.active_since = undefined;
+			become("offline", x.locked ? "screen locked" : `console user ${x.user}`);
+		} else if (x.idle_s < ACTIVE_IDLE_S) {
+			next.last_seen = new Date(Date.now() - x.idle_s * 1000).toISOString();
+			next.active_since ??= next.last_seen;
+			if (Date.now() - +new Date(next.active_since) >= ARRIVE_S * 1000) become("online", "active ≥ 90s");
+		} else {
+			next.active_since = undefined;
+			// Online stays online through short idle stretches (reading); anything else settles to offline.
+			if (x.idle_s >= AWAY_IDLE_S || next.state !== "online") become("offline", `idle ${Math.round(x.idle_s / 60)}m`);
+		}
+	}
+	writeFileSync(STATE, JSON.stringify(next, null, 2) + "\n");
+	if (s.state !== "online" && next.state === "online") {
+		// Arrival: launch items queued for "next time Nathan is online". tickler fire also runs every minute on its own.
+		try {
+			execFileSync(`${HOME}/.local/bin/tickler`, ["fire"], { stdio: "inherit", timeout: 300_000 });
+		} catch (e) {
+			log("tickler_fire_failed", { error: String(e) });
+		}
+	}
+}
+
+// Current state, with "unknown" when the poller hasn't written recently.
+export function current(): State {
+	const s = load();
+	if (!s.last_poll || Date.now() - +new Date(s.last_poll) > STALE_S * 1000) return { ...s, state: "unknown" };
+	return s;
+}
+
+function describe(s: State): string {
+	if (s.state === "online") return `Nathan is online at ${s.client} (since ${local(s.online_since)}, last input ${ago(s.last_seen)}).`;
+	if (s.state === "offline") return `Nathan is offline from ${s.client} (since ${local(s.since)}; last input ${ago(s.last_seen)}).`;
+	const fresh = s.last_poll && Date.now() - +new Date(s.last_poll) <= STALE_S * 1000;
+	if (fresh) return `Nathan's presence at ${s.client} is not determined yet (${s.held ?? `unreachable ${s.fails}×`}).`;
+	return `Nathan's presence at ${s.client} is unknown (last poll ${ago(s.last_poll)}; is com.nathan.presence running on ag?).`;
+}
+
+if (import.meta.main) {
+	const [cmd = "status", ...rest] = process.argv.slice(2);
+	if (cmd === "poll") poll();
+	else if (cmd === "status") console.log(rest.includes("--json") ? JSON.stringify(current(), null, 2) : describe(current()));
+	else {
+		console.error("usage: presence [status [--json] | poll]");
+		process.exit(2);
+	}
+}

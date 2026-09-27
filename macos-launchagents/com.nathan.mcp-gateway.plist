@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nathan.mcp-gateway</string>
+  <!-- One shared copy of each stdio MCP bridge for all Pi sessions (see bin/dot-local/bin/mcp-gateway). All machines. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>exec "$HOME/.local/bin/mcp-gateway"</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/mcp-gateway.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/mcp-gateway.log</string>
+</dict>
+</plist>

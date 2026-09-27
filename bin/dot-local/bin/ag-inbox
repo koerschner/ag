@@ -9,6 +9,9 @@
 // Body: raw text, or a form with `text` and optional fields:
 //   id          the phone's queue file name: a repeat id within 24h is acknowledged but not relaunched,
 //               so the iOS offline queue can safely resend an item whose first response was lost.
+//   audio       voice recording (multipart; iPhone Action Button). Saved to ~/inbox/capture and transcribed
+//               with Whisper (TrueFoundry); the transcript becomes the prompt (any `text` is appended)
+//               The phone's queue sends `text` itself as a file (.txt prompt or .m4a recording); both work.
 //   screenshot  image file (multipart) grabbed at capture time. Saved to ~/inbox/capture; Jev decides
 //               whether the prompt needs it
 //   app, window frontmost app and window title when captured (context for Jev and the agent)
@@ -37,6 +40,10 @@ const PLAYBOOK_DIR = `${HOME}/.config/ag-inbox/playbooks`;
 const INBOX = "Inbox";
 const MODEL = "gemini-group/gemini-3.5-flash-lite";
 const TFY_URL = "https://tfy.promptlens.trilogy.com/chat/completions";
+const STT_URL = "https://tfy.promptlens.trilogy.com/audio/transcriptions";
+const STT_MODELS = ["whisper-1", "openai-esw/whisper-1"]; // second is the fallback route
+// Vocabulary hint so Whisper spells Nathan's usual names right.
+const STT_HINT = "Herdr, ag, pi, Arcade, arcade.school, Jev, TrueFoundry, Linear, Honeycomb, Hammerspoon, dotfiles, Roblox, TSA.";
 const JEV_URL = "https://tfy.promptlens.trilogy.com/proxy-api/jev-account/jev-endpoint/v1/systemone";
 const ATTACH_THRESHOLD = 0.5; // P(prompt needs the screen); tested on ~10 typical captures
 
@@ -119,6 +126,36 @@ ${text.slice(0, 4000)}`;
 
 function withPlaybook(text: string, book: Playbook): string {
 	return `Playbook "${book.name}" (the ag inbox matched this capture to it; if it clearly doesn't fit, ignore it and just handle the capture):\n\n${book.body}\n\n---\n\n${text}`;
+}
+
+// Step 1b: voice capture → text. Tries each Whisper route; throws if all fail.
+async function transcribe(path: string): Promise<string> {
+	let last: unknown;
+	for (const model of STT_MODELS) {
+		try {
+			const body = new FormData();
+			body.set("model", model);
+			body.set("prompt", STT_HINT);
+			body.set("file", Bun.file(path));
+			const res = await fetch(STT_URL, { method: "POST", headers: { authorization: `Bearer ${tfyToken()}` }, body, signal: AbortSignal.timeout(60_000) });
+			if (!res.ok) throw new Error(`stt ${model} ${res.status}: ${await res.text()}`);
+			return String((await res.json()).text ?? "").trim();
+		} catch (e) { last = e; }
+	}
+	throw last;
+}
+
+// Transcript first, then anything typed. If transcription fails the capture isn't lost: the agent gets the file.
+async function voiceText(id: string, text: string, audio: string | null): Promise<string> {
+	if (!audio) return text;
+	try {
+		const said = await transcribe(audio);
+		log(id, "transcribed", { chars: said.length, text: said, audio });
+		return [said || "(The voice recording was silent.)", text].filter(Boolean).join("\n\n");
+	} catch (e) {
+		log(id, "stt_failed", { error: String(e), audio });
+		return [text, `I sent a voice recording but transcription failed. Transcribe it (e.g. Whisper via TrueFoundry) and do what it says:\n${audio}`].filter(Boolean).join("\n\n");
+	}
 }
 
 type Shot = { path: string; app: string; window: string; always: boolean; iphone: boolean };
@@ -208,7 +245,8 @@ function withShare(text: string, share: Share): string {
 	return `${ask}\n\nShared from my iPhone (read the files to view them):\n${lines.join("\n")}`;
 }
 
-async function prepare(id: string, text: string, shot: Shot | null, share: Share | null) {
+async function prepare(id: string, typed: string, shot: Shot | null, share: Share | null, audio: string | null = null) {
+	const text = await voiceText(id, typed, audio);
 	const books = playbooks();
 	const images = share?.files.filter((p) => /\.(png|jpe?g|gif|webp)$/i.test(p)) ?? [];
 	const routeText = share ? withShare(text, share) : text;
@@ -224,9 +262,9 @@ async function prepare(id: string, text: string, shot: Shot | null, share: Share
 	return { label, playbook: playbook?.name ?? null, prompt: playbook ? withPlaybook(prompt, playbook) : prompt };
 }
 
-async function handle(id: string, text: string, shot: Shot | null, share: Share | null) {
+async function handle(id: string, text: string, shot: Shot | null, share: Share | null, audio: string | null) {
 	try {
-		const { label, prompt } = await prepare(id, text, shot, share);
+		const { label, prompt } = await prepare(id, text, shot, share, audio);
 		launch(id, prompt, label);
 	} catch (e) {
 		log(id, "failed", { error: String(e) });
@@ -286,11 +324,16 @@ Bun.serve({
 			const v = form?.get(k);
 			return typeof v === "string" ? v.trim() : "";
 		};
-		const text = form ? field("text") : (await req.text()).trim();
+		// The phone's queue flush sends each queued file as `text` (File): a .txt prompt or a voice recording.
+		const queued = form?.get("text");
+		const queuedAudio = queued instanceof File && (/^audio\//.test(queued.type) || /\.(m4a|caf|aac|wav|mp3)$/i.test(queued.name));
+		const text = !form ? (await req.text()).trim() : queued instanceof File ? (queuedAudio ? "" : (await queued.text()).trim()) : field("text");
 		const clientId = field("id") || null;
 		const sharedFiles = (form?.getAll("file") ?? []).filter((f): f is File => f instanceof File && f.size > 0);
 		const url_ = field("url"), shared = field("shared");
-		if (!text && !sharedFiles.length && !url_ && !shared) return new Response("empty", { status: 400 });
+		const voice = queuedAudio ? queued : form?.get("audio");
+		const hasVoice = voice instanceof File && voice.size > 0;
+		if (!text && !hasVoice && !sharedFiles.length && !url_ && !shared) return new Response("empty", { status: 400 });
 
 		if (clientId && Date.now() - (seen.get(clientId) ?? 0) < DEDUP_MS) {
 			log("dup", "duplicate", { clientId });
@@ -306,14 +349,20 @@ Bun.serve({
 			writeFileSync(path, Buffer.from(await file.arrayBuffer()));
 			shot = { path, app: field("app"), window: field("window"), always: field("attach") === "always", iphone: field("source") === "iphone" };
 		}
+		let audio: string | null = null;
+		if (hasVoice) {
+			const ext = (voice.name.match(/\.(\w+)$/)?.[1] ?? "m4a").toLowerCase();
+			audio = `${CAPTURE_DIR}/${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}-${id}.${ext}`;
+			writeFileSync(audio, Buffer.from(await voice.arrayBuffer()));
+		}
 		let share: Share | null = null;
 		if (sharedFiles.length || url_ || shared) {
 			share = { files: await Promise.all(sharedFiles.map((f, n) => saveShared(id, f, n + 1))), url: url_, shared };
 		}
-		log(id, "received", { chars: text.length, text, clientId, screenshot: shot?.path, share });
+		log(id, "received", { chars: text.length, text, clientId, screenshot: shot?.path, audio, share });
 		// dry=1: route and gate only, return what would be sent, open nothing (for testing).
-		if (field("dry") === "1") return Response.json(await prepare(id, text, shot, share));
-		void handle(id, text, shot, share);
+		if (field("dry") === "1") return Response.json(await prepare(id, text, shot, share, audio));
+		void handle(id, text, shot, share, audio);
 		// Send-only: no result. The form just lands back on a blank page.
 		return type.includes("form") ? new Response(null, { status: 303, headers: { location: "/" } }) : new Response(null, { status: 202 });
 	},

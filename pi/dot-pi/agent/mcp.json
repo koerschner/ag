@@ -6,31 +6,18 @@
   },
   "mcpServers": {
     "linear": {
-      "transport": "stdio",
-      "command": "sh",
-      "args": [
-        "-c",
-        "export MCP_REMOTE_CONFIG_DIR=\"$HOME/.local/share/arcade-linear-return/mcp-destination\"; exec npx -y mcp-remote@0.14.3 https://mcp.linear.app/mcp --transport http-only --static-oauth-client-metadata \"@$HOME/.local/share/arcade-linear-return/mcp-destination/client-metadata.json\""
-      ],
+      "transport": "streamable-http",
+      "url": "http://127.0.0.1:7381/mcp",
       "lifecycle": "eager"
     },
     "arcade_school": {
-      "transport": "stdio",
-      "command": "sh",
-      "args": [
-        "-c",
-        "exec \"$HOME/.bun/bin/bunx\" --bun mcp-remote@0.8.3 https://api.texassportsacademy.com/mcp --transport http-only --header-file \"$HOME/.config/mcp/arcade-school.headers\" --silent"
-      ],
+      "transport": "streamable-http",
+      "url": "http://127.0.0.1:7382/mcp",
       "lifecycle": "eager"
     },
     "honeycomb": {
-      "transport": "stdio",
-      "command": "bunx",
-      "args": [
-        "--bun",
-        "mcp-remote@0.8.3",
-        "https://mcp.honeycomb.io/mcp"
-      ],
+      "transport": "streamable-http",
+      "url": "http://127.0.0.1:7383/mcp",
       "lifecycle": "eager"
     },
     "slack": {
@@ -45,12 +32,8 @@
       "lifecycle": "eager"
     },
     "tsa_courses": {
-      "transport": "stdio",
-      "command": "sh",
-      "args": [
-        "-c",
-        "exec \"$HOME/.bun/bin/bunx\" --bun mcp-remote@0.8.3 https://api.texassportsacademy.com/api/courses-mcp --transport http-only --header-file \"$HOME/.config/mcp/tsa-courses.headers\" --silent"
-      ],
+      "transport": "streamable-http",
+      "url": "http://127.0.0.1:7384/mcp",
       "lifecycle": "eager"
     }
   }

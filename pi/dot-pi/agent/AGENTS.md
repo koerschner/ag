@@ -19,6 +19,24 @@ You are usually started in `~` (the home directory), not inside a project. Assum
 - An apparent MCP auth failure may instead be a broken launcher: Linear's missing `undici` dependency was fixed by moving only the damaged npx cache aside and reinstalling the configured `mcp-remote@0.14.3`; do not erase valid credentials or all npm caches. For OAuth on ag using an already-signed-in client browser, forward the MCP helper's actual localhost callback port from the client to ag with SSH (Honeycomb currently uses `3705`), complete the normal authorization flow, then close the temporary tunnel. Never print tokens or copy an entire browser profile. Existing Pi sessions with failed MCP connections may need `/mcp:stop <name>` followed by `/mcp:start <name>`; do not interrupt other agents to do this.
 - Use `op-ag` for unattended 1Password CLI access on ag (also installed on the client). It loads the **ag 1Password service account** login-Keychain item, account **natkoersch**, only into the CLI process. The service account **ag arcade.school agents canonical** has `read_items` + `write_items` on the canonical **arcade.school** vault **`jjbrfvemdg4y3prkikxur6thbq`** only. This is Liwei’s new vault; all 13 items were migrated from the retired vault `enyn2sokk44c3c2uzvdmg7mrym`. Use the canonical ID in automation. Other vaults and the personal account are excluded. Recovery token: Trilogy → Employee → **ag arcade.school service account**. Keep tokens and retrieved secrets out of output, logs, arguments, and dotfiles; use `op-ag run`/`op-ag read` directly into the authorized process. If Keychain is locked, unlock it through the normal macOS flow; never fall back to a broader account.
 - `chatgpt-cua` is the dotfiles helper for desktop computer use through Codex and TrueFoundry. When run on ag, it must control ag's desktop. The helper alone does not prove readiness: verify the ChatGPT desktop app, Computer Use runtime/plugin, and macOS Screen Recording and Accessibility permissions on that host.
+- To drive the **client** Mac's desktop from ag, use `client-cua "<task>"` (plain `ssh` + codex can't see the client's screen; `client-cua` submits the job into its GUI session).
+
+## Machine setup lives in dotfiles (infrastructure as code)
+
+Every change to the machine setup (ag, the client Mac, the iPhone, any device or service in the stack) must be fully captured in dotfiles (on ag: `~/dotfiles-seen-setup`; on the client: `~/dotfiles`; same repo) in the same task, and committed and pushed. The bar: if any device or part of the system were replaced, it could be rebuilt from zero using only the dotfiles (`bootstrap` + README + the secrets checklist). Concretely:
+
+- Scripts go in `bin/dot-local/bin`, LaunchAgents in `macos-launchagents/`, configs in a stow package (add new packages to `STOW_PACKAGES` in `bootstrap`).
+- Settings that can't be stowed (app preferences, iOS Shortcuts, GUI-only toggles) get documented in the README or a doc in the repo, precise enough to recreate. Examples: the CleanShot export path; iOS Shortcuts in `ios-shortcuts/`, as a mermaid flowchart plus build steps.
+- Secrets are never committed; list any new one in the bootstrap secrets checklist and README.
+- Apply it on every affected machine (`git pull` + stow/bootstrap on the client too) and verify it works there. Don't leave hand edits outside the repo.
+
+## Client ↔ ag bridge (screenshots, viewing, phone)
+
+Nathan sits at the client Mac (and sometimes his iPhone); you run on ag. Details are in the dotfiles README, section "Client ↔ ag bridge".
+
+- **Showing Nathan things is automatic.** Whenever you produce or find something visual for him (image, chart, PDF, HTML page, report, or a running dev server/preview), open it on his screen yourself with `show <file>` or `show http://ag:<port>`, then tell him what you opened. Don't make him ask, run a command, or copy a path. Bind dev servers so the client can reach them (e.g. `--host 0.0.0.0`) and use `http://ag:<port>`. If a flow needs literal `localhost` (OAuth callbacks, secure-context APIs), set up an SSH port forward from the client for that task.
+- **Screenshots from Nathan** usually arrive as pasted image paths under `~/inbox/clipboard/` (Hammerspoon uploads them on Cmd+V), or from the phone under `~/inbox/phone/`. Read those paths directly. If he mentions a screenshot without pasting one, run `shot` (or `shot N`) to pull his newest CleanShot captures into `~/inbox/shots/`.
+- **Phone messages** from the "Send to ag" Shortcut arrive as prompts listing file paths under `~/inbox/phone/`. Read the files before answering.
 
 ## Worktrees
 

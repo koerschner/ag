@@ -13,7 +13,7 @@ set -u
 SWAP_GB=${MEMWATCH_SWAP_GB:-8}
 PROC_GB=${MEMWATCH_PROC_GB:-3}
 CLIENT=${MEMWATCH_CLIENT:-nathan-dev-client}
-MACHINES=(ag nathan-dev-client)   # keep in sync with machines/README.md
+MACHINES=(ag:ag nathan-dev-client:nathans-MacBook-Pro-2)   # ssh-alias:LocalHostName; keep in sync with machines/README.md
 LOG=~/Library/Logs/mem-watch.log
 STATE=~/.local/state/mem-watch; mkdir -p $STATE
 
@@ -58,8 +58,9 @@ check)
 status)
   printf '%-22s %-9s %8s %8s  %s\n' HOST PRESSURE SWAP FREE BIGGEST
   self=$(scutil --get LocalHostName)
-  for m in $MACHINES; do
-    if [[ $m == $self ]]; then line=$(sample)
+  for entry in $MACHINES; do
+    m=${entry%%:*}
+    if [[ ${entry#*:} == $self ]]; then line=$(sample)
     else line=$(ssh -o BatchMode=yes -o ConnectTimeout=5 $m '~/.local/bin/mem-watch sample' 2>/dev/null || echo "$m ? ? ? unreachable")
     fi
     read host pressure swap free topmb topname <<<"$line"

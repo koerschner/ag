@@ -353,16 +353,9 @@ When Nathan says to **"meat harness"** something, the fix lives in someone else'
 
 Always use `uv` (venvs, dependencies, Python versions): `uv init`, `uv add`, `uv run`. Never install packages globally or use raw pip/venv.
 
-## iPhone Mirroring text entry
+## Phone work (iPhone Mirroring)
 
-With `cua_repl`, `typeText`, ordinary `pressKey`, and direct `paste` can fail to reach the mirrored iPhone even when clicks and Mac shortcuts work. Check the phone screenshot before assuming text was entered. Tested fallback for non-secret text:
-
-1. Create a new temporary TextEdit document through `cua_repl`; leave existing documents alone. Put the desired text in its editable field with `setValue` or `typeText`, focus it, then `pressKey("super+a")` and `pressKey("super+c")` to copy on the Mac.
-2. In iPhone Mirroring, click the destination field near its insertion point, then `click([x, y], {mouseButton: "right"})` to open the iOS text-editing menu.
-3. Read the fresh screenshot and click the visible **Paste** item. iOS may update after the initial capture; verify the actual field value in a follow-up screenshot before proceeding. This worked in Spotlight and Moshi's connection form.
-4. Reuse only the temporary document for subsequent values and discard it afterward. Do not stage passwords, tokens, or private keys in TextEdit or another autosaving scratch document.
-
-If Mirroring reports **iPhone in Use**, ask Nathan to leave the physical phone locked; reconnect after it is available. Do not mistake that disconnection for a text-entry failure. Keep requested onboarding pauses so Nathan can read each screen.
+For anything on Nathan's iPhone (install/configure apps, pairing, reading a setting, iOS Shortcuts), drive **iPhone Mirroring on the client Mac** with `client-cua`; don't hand phone steps back to Nathan. Before doing phone work, read `~/dotfiles-seen-setup/docs/iphone-mirroring.md` (client: `~/dotfiles/docs/iphone-mirroring.md`): locked-phone requirement, secret handling, and the tested text-entry workaround.
 
 ## Scope discipline
 

@@ -1,0 +1,16 @@
+#!/usr/bin/env zsh
+# shot — pull the newest screenshot(s) from the client Mac (CleanShot saves to ~/Screenshots there)
+# into ~/inbox/shots on ag, and print the local paths.
+#
+#   shot        newest one
+#   shot 3      newest three
+set -euo pipefail
+n=${1:-1}
+client=${SHOT_CLIENT:-nathan-dev-client}
+dest=$HOME/inbox/shots
+mkdir -p "$dest"
+ssh "$client" "cd ~/Screenshots && ls -t | grep -iE '\.(png|jpe?g|gif|heic|mp4|mov|webp)$' | head -n $n" |
+while IFS= read -r f; do
+	scp -q "${client}:Screenshots/${f// /\\ }" "$dest/$f"
+	print -r -- "$dest/$f"
+done

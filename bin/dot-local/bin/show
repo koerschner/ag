@@ -1,0 +1,21 @@
+#!/usr/bin/env zsh
+# show — open something from ag on the client Mac's screen.
+#
+#   show report.html            copy file to client ~/ag-inbox and open it (default app)
+#   show http://ag:8080         open a URL in the client's default browser
+#   show -a "Google Chrome" x   open with a specific app
+set -euo pipefail
+client=${SHOW_CLIENT:-nathan-dev-client}
+app=()
+[[ ${1:-} == -a ]] && { app=(-a ${(q)2}); shift 2; }
+[[ $# -ge 1 ]] || { echo "usage: show [-a App] <file|dir|url>..." >&2; exit 2; }
+ssh "$client" mkdir -p ag-inbox
+for t in "$@"; do
+	if [[ $t == *://* ]]; then
+		ssh "$client" open $app ${(q)t}
+	else
+		name=${t:t}
+		rsync -a "$t" "${client}:ag-inbox/"
+		ssh "$client" open $app "ag-inbox/${(q)name}"
+	fi
+done

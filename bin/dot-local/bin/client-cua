@@ -1,0 +1,40 @@
+#!/usr/bin/env zsh
+# client-cua — run a computer-use task on the CLIENT Mac's desktop from ag.
+#
+#   client-cua "open CleanShot settings and ..."
+#   echo "task" | client-cua
+#
+# Plain `ssh client codex exec` can't see the screen (no GUI session), so this submits the job
+# into the client's GUI launchd domain with `launchctl submit`, then polls for the result.
+# Submitted jobs are KeepAlive, so the job removes itself when codex finishes.
+# Uses the Codex CLI bundled in ChatGPT.app on the client, via TFY (gpt-6-astra).
+set -euo pipefail
+
+client=${CLIENT_CUA_HOST:-nathan-dev-client}
+effort=${CHATGPT_CUA_EFFORT:-medium}
+task=${*:-$(cat)}
+[[ -n $task ]] || { echo "usage: client-cua <task>" >&2; exit 2; }
+
+id=client-cua-$$-$RANDOM
+dir=/tmp/$id
+prompt="You are a computer-use agent operating Nathan's Mac. Use your computer-use tools (cua_repl) to do this task, then reply with a concise final report of what you did and what you observed.
+
+Task: $task"
+
+ssh "$client" "mkdir -p $dir && cat > $dir/prompt" <<<"$prompt"
+ssh "$client" "cat > $dir/run && chmod +x $dir/run" <<EOF
+#!/bin/zsh
+source ~/.zshenv.local 2>/dev/null; export TFY_API_KEY=\$TFY_TOKEN; cd ~
+/Applications/ChatGPT.app/Contents/Resources/codex exec --skip-git-repo-check \\
+  --dangerously-bypass-approvals-and-sandbox -c model_provider=tfy \\
+  -c model_reasoning_effort=$effort -m gpt-6-astra \\
+  --output-last-message $dir/out "\$(cat $dir/prompt)" </dev/null >$dir/log 2>&1
+echo \$? > $dir/done
+launchctl remove $id  # submit jobs are KeepAlive; stop the rerun
+EOF
+ssh "$client" "launchctl submit -l $id -- $dir/run"
+trap 'ssh "$client" "launchctl remove $id 2>/dev/null; true" >/dev/null' EXIT
+
+echo "client-cua: running on $client (log: ${client}:$dir/log)" >&2
+until ssh "$client" "test -f $dir/done"; do sleep 10; done
+ssh "$client" "cat $dir/out 2>/dev/null || tail -20 $dir/log; exit \$(cat $dir/done)"

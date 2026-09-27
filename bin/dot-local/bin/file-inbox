@@ -1,0 +1,61 @@
+#!/usr/bin/env bun
+// file-inbox: receive files (phone screenshots, photos) on ag over Tailscale.
+//
+//   POST http://ag:7374/upload?name=<optional-filename>   body = raw file bytes
+//   GET  http://ag:7374/                                   browser upload form
+//
+// Files land in ~/inbox/phone/. Listens only on ag's Tailscale IP (tailnet-only, like prompt-inbox).
+// Run by the com.nathan.file-inbox LaunchAgent.
+
+import { mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, extname } from "node:path";
+
+const PORT = 7374;
+const DIR = `${homedir()}/inbox/phone`;
+const HOST = Bun.spawnSync(["/usr/local/bin/tailscale", "ip", "-4"]).stdout.toString().trim();
+if (!HOST) throw new Error("no Tailscale IP yet");
+mkdirSync(DIR, { recursive: true });
+
+const EXT: Record<string, string> = {
+	"image/png": ".png", "image/jpeg": ".jpg", "image/heic": ".heic", "image/gif": ".gif",
+	"image/webp": ".webp", "video/quicktime": ".mov", "video/mp4": ".mp4", "application/pdf": ".pdf",
+};
+
+async function save(bytes: ArrayBuffer, name: string | null, type: string): Promise<string> {
+	const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+	const safe = name ? basename(name).replace(/[^\w.\- ]/g, "_") : "";
+	const ext = safe && extname(safe) ? "" : EXT[type.split(";")[0]] ?? "";
+	const path = `${DIR}/${stamp}${safe ? "-" + safe : ""}${ext}`;
+	await Bun.write(path, bytes);
+	console.log(JSON.stringify({ ts: new Date().toISOString(), saved: path, bytes: bytes.byteLength }));
+	return path;
+}
+
+const FORM = `<!doctype html><meta name=viewport content="width=device-width">
+<form method=post action=/form enctype=multipart/form-data>
+<input type=file name=f multiple accept="image/*,video/*,application/pdf"> <button>Send to ag</button></form>`;
+
+Bun.serve({
+	hostname: HOST,
+	port: PORT,
+	maxRequestBodySize: 512 * 1024 * 1024,
+	async fetch(req) {
+		const url = new URL(req.url);
+		if (req.method === "GET" && url.pathname === "/") return new Response(FORM, { headers: { "content-type": "text/html" } });
+		if (req.method === "POST" && url.pathname === "/upload") {
+			const bytes = await req.arrayBuffer();
+			if (!bytes.byteLength) return new Response("empty body\n", { status: 400 });
+			return new Response((await save(bytes, url.searchParams.get("name"), req.headers.get("content-type") ?? "")) + "\n");
+		}
+		if (req.method === "POST" && url.pathname === "/form") {
+			const paths: string[] = [];
+			for (const f of (await req.formData()).getAll("f")) {
+				if (f instanceof File && f.size) paths.push(await save(await f.arrayBuffer(), f.name, f.type));
+			}
+			return new Response(`Saved ${paths.length} file(s):\n${paths.join("\n")}\n`);
+		}
+		return new Response("not found\n", { status: 404 });
+	},
+});
+console.log(`file-inbox listening on http://${HOST}:${PORT} → ${DIR}`);

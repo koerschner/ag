@@ -30,7 +30,8 @@ Every change to the machine setup (ag, the client Mac, the iPhone, any device or
 - Scripts go in `bin/dot-local/bin`, LaunchAgents in `macos-launchagents/`, configs in a stow package (add new packages to `STOW_PACKAGES` in `bootstrap`).
 - Settings that can't be stowed (app preferences, iOS Shortcuts, GUI-only toggles) get documented in the README or a doc in the repo, precise enough to recreate. Examples: the CleanShot export path; iOS Shortcuts in `ios-shortcuts/`, as a mermaid flowchart plus build steps.
 - Secrets are never committed; list any new one in the bootstrap secrets checklist and README.
-- Apply it on every affected machine (`git pull` + stow/bootstrap on the client too) and verify it works there. Don't leave hand edits outside the repo.
+- Every push to dotfiles ends with syncing **both** Macs; a push isn't finished until both have it. On each machine: `git pull --ff-only` in its dotfiles checkout (ag: `~/dotfiles-seen-setup`; client: `~/dotfiles`, via `ssh nathan-dev-client`), then apply what changed. Restow the touched packages (`stow --dotfiles --no-folding -d <checkout> -t ~ <pkg>`; on the client use `/opt/homebrew/bin/stow`), reload Hammerspoon (`hs -c 'hs.reload()'`), reload or kickstart any changed LaunchAgent, and run `bootstrap` if it changed. Verify it works on each machine. If the client is unreachable, say so in your report so it gets synced later.
+- Don't leave hand edits outside the repo.
 
 ## Client ↔ ag bridge (screenshots, viewing, phone)
 
@@ -184,7 +185,7 @@ Never create a git commit without consulting the user first and receiving explic
 
 Exception: docs-only updates in a repo (unless Nathan says otherwise) — commit, push, and auto-merge them using whatever mechanism the repo provides (e.g. arcade's `bun run sync docs`, which opens a `docs/*` PR that `docs-automerge.yml` squash-merges) without asking.
 
-Exception: `~/dotfiles` is fully slop-cannon. Whenever you change anything in it, immediately commit and push/merge to `main` without asking. Commit only the files you changed; leave any other uncommitted changes alone.
+Exception: dotfiles (`~/dotfiles`, or `~/dotfiles-seen-setup` on ag) is fully slop-cannon. Whenever you change anything in it, immediately commit and push/merge to `main` without asking, then pull and apply on both Macs (see "Machine setup lives in dotfiles"). Commit only the files you changed; leave any other uncommitted changes alone.
 
 Exception: **"Run it"** (see below) grants standing approval to commit, push, open PRs, and merge for that task.
 

@@ -365,6 +365,8 @@ Always use `uv` (venvs, dependencies, Python versions): `uv init`, `uv add`, `uv
 
 For anything on Nathan's iPhone (install/configure apps, pairing, reading a setting, iOS Shortcuts), drive **iPhone Mirroring on the client Mac** with `client-cua`; don't hand phone steps back to Nathan. Before doing phone work, read `~/dotfiles-seen-setup/docs/iphone-mirroring.md` (client: `~/dotfiles/docs/iphone-mirroring.md`): locked-phone requirement, secret handling, and the tested text-entry workaround.
 
+Mirroring only connects while the phone is locked and not in use. On **iPhone in Use**, notify Nathan right away so he locks it, don't just stall: `ssh nathan-dev-client "osascript -e 'display notification \"Please lock your iPhone so I can use iPhone Mirroring\" with title \"ag needs your phone\" sound name \"Glass\"'"` plus `herdr notification show "Lock your iPhone" --sound request`. Then retry every ~30s.
+
 ## Scope discipline
 
 Never add or suggest "nice to have" features, extras, or follow-up improvements beyond what was asked. Do exactly the requested task and stop. Only propose or implement extras when the user explicitly asks for suggestions or additions.

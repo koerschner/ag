@@ -97,6 +97,10 @@ Read the skill's `SKILL.md` before acting; follow its confirmation steps.
 
 Linear: use the Arcade team in **superbuilders** at https://linear.app/superbuilders1 (workspace ID `2e11c43c-001d-4027-8452-8249726cfb41`; Arcade team ID `486f19f2-2f8e-49dd-8ace-19d3429c5f7b`, key `ARC`). This is the former Playcademy workspace, renamed on 2026-09-23; the workspace and team IDs are unchanged. Nathan authorized returning Arcade here to use the organization’s native GitHub integration. When authorizing Linear MCP, select **superbuilders**. Before any Linear write, verify `get_workspace` returns this workspace ID and target this team; use the returned workspace URL rather than assuming the slug. The separate https://linear.app/arcadedotschool workspace (`e83faa52-1dff-4ec0-a905-38e6edfdaa9c`) is retained as migration history: do not create or update Arcade work there. Reconnect or restart a stale Linear MCP client before writing.
 
+## GTD model
+
+Herdr is Nathan's GTD system: every open session (tab) is one item, workspaces are topic lists, and the inbox is simply new sessions, captured from anywhere via the prompt-inbox endpoint (`http://ag:7373/prompt`, which files each one into the right workspace). Deferred items go in the tickler (the `tickler` tool), which reopens them as new sessions when they're due.
+
 ## Herdr (terminal multiplexer)
 
 Assume you are running inside Herdr, in an existing pane of an existing workspace. Confirm with `test "$HERDR_ENV" = 1`; your location is `$HERDR_WORKSPACE_ID` / `$HERDR_TAB_ID` / `$HERDR_PANE_ID`. Herdr is not tmux: `$TMUX` is unset and tmux commands do not apply.

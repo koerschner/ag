@@ -6,6 +6,7 @@
 #   show site/                  copy the folder, open site/index.html
 #   show http://ag:8080         open a URL in the client's default browser
 #   show -a "Google Chrome" x   open with a specific app
+#   show notes.md               Markdown is never opened on the desktop; only the phone link is printed
 #
 # On the host (where file-inbox runs), HTML pages, folders, and Markdown (rendered with pandoc)
 # are also published to ~/review/<name>/ and served to the phone over Tailscale at
@@ -56,6 +57,7 @@ phone_publish() {
 
 for t in "$@"; do
 	phone_publish $t
+	[[ $t == *.md || $t == *.markdown ]] && continue
 	if [[ $t == *://* ]]; then
 		ssh "$client" open $app ${(q)t}
 	elif [[ -d $t ]]; then

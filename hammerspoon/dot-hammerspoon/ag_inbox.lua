@@ -1,5 +1,5 @@
--- ─── ag inbox: quick capture (Cmd+Alt+Space) ────────────────────────────────
--- Press Cmd+Alt+Space anywhere: the current screen is snapshotted (before the form
+-- ─── ag inbox: quick capture (Ctrl+Cmd+Space) ────────────────────────────────
+-- Press Ctrl+Cmd+Space anywhere: the current screen is snapshotted (before the form
 -- appears, so the form isn't in it) and a small prompt form opens instantly. Type,
 -- Enter to send (Shift+Enter = newline), Esc to cancel. Click the screenshot to
 -- annotate it in CleanShot; Cmd+S there saves it back and the form picks it up.
@@ -247,6 +247,6 @@ function M.open()
 end
 
 build()
-M.hotkey = hs.hotkey.bind({ "cmd", "alt" }, "space", M.open)
+M.hotkey = hs.hotkey.bind({ "ctrl", "cmd" }, "space", M.open) -- replaces the Emoji & Symbols shortcut (Fn+E still opens it)
 
 return M

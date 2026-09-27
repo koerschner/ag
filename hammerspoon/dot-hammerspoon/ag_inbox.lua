@@ -7,6 +7,7 @@
 -- Send POSTs the prompt + screenshot to the ag inbox (ag-inbox, http://ag:7373/prompt),
 -- which opens a new pi session in Herdr's Inbox workspace. The ag inbox asks Jev
 -- whether the prompt needs the screenshot; an annotated screenshot is always attached.
+-- If Jev judges it new context for an open session, it goes to that session instead.
 --
 -- Speed: the webview is built once at load and only shown/hidden, so it opens with no
 -- WebKit startup cost. The screenshot is written to disk only on send/annotate.

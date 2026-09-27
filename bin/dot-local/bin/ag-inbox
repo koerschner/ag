@@ -5,7 +5,9 @@
 // the Mac quick capture (Hammerspoon), the iPhone Action Button, file-inbox's "New session".
 // Pipeline, one function per step, one JSON log line per step (~/.local/state/ag-inbox/log.jsonl):
 //   receive → route (cheap multimodal model names the tab and picks a playbook) + screenshot gate (Jev)
-//   → launch (new tab in Inbox, start pi, send)
+//   + follow-on match (Jev: is this new context for an open session?)
+//   → follow (sure: prompt that session, toast) or launch (new tab in Inbox, start pi, send; when the
+//     match is plausible but unsure, the prompt names the likely session so the agent can confirm and forward)
 // Body: raw text, or a form with `text` and optional fields:
 //   id          the phone's queue file name: a repeat id within 24h is acknowledged but not relaunched,
 //               so the iOS offline queue can safely resend an item whose first response was lost.
@@ -46,6 +48,11 @@ const STT_MODELS = ["whisper-1", "openai-esw/whisper-1"]; // second is the fallb
 const STT_HINT = "Herdr, ag, pi, Arcade, arcade.school, Jev, TrueFoundry, Linear, Honeycomb, Hammerspoon, dotfiles, Roblox, TSA.";
 const JEV_URL = "https://tfy.promptlens.trilogy.com/proxy-api/jev-account/jev-endpoint/v1/systemone";
 const ATTACH_THRESHOLD = 0.5; // P(prompt needs the screen); tested on ~10 typical captures
+// Follow-on routing: deliver into an existing session when Jev is sure the capture continues it,
+// hint at it in a new Inbox session when it's plausible. Tested on ~8 captures: clear follow-ups score 0.97-1.0,
+// a vague "any update on that thing?" 0.6 (→ hint), unrelated asks pick "none".
+const FOLLOW = { ongoing: 0.7, match: 0.8 };
+const HINT = { ongoing: 0.5, match: 0.3 };
 
 mkdirSync(LOG_DIR, { recursive: true });
 mkdirSync(CAPTURE_DIR, { recursive: true });
@@ -190,6 +197,87 @@ async function needsScreen(text: string, shot: Shot): Promise<number> {
 	return (await res.json()).answers.screen.noul;
 }
 
+type Session = { tab: string; pane: string; title: string; first: string; latest: string; file: string };
+type Thread = { action: "follow" | "hint" | "new"; ongoing: number; p: number; session: Session | null };
+
+function userPrompts(file: string): string[] {
+	const out: string[] = [];
+	try {
+		for (const l of readFileSync(file, "utf8").split("\n")) {
+			if (!l.includes('"role":"user"')) continue;
+			const e = JSON.parse(l);
+			if (e.type !== "message" || e.message?.role !== "user") continue;
+			const c = e.message.content;
+			out.push(typeof c === "string" ? c : c.filter((x: any) => x.type === "text").map((x: any) => x.text).join(" "));
+		}
+	} catch {}
+	return out;
+}
+
+// Every open pi session (one per tab), described by its workspace › tab title, first and latest prompt.
+function openSessions(): Session[] {
+	const ws = new Map<string, string>(herdr("workspace", "list").workspaces.map((w: any) => [w.workspace_id, w.label]));
+	const tabs = new Map<string, string>();
+	for (const id of ws.keys()) for (const t of herdr("tab", "list", "--workspace", id).tabs) tabs.set(t.tab_id, t.label);
+	const seenTabs = new Set<string>();
+	return herdr("pane", "list").panes.flatMap((p: any) => {
+		const file = p.agent === "pi" ? p.agent_session?.value : null;
+		if (!file || seenTabs.has(p.tab_id)) return [];
+		const prompts = userPrompts(file);
+		if (!prompts.length) return [];
+		seenTabs.add(p.tab_id);
+		const clip = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 200);
+		return [{
+			tab: p.tab_id, pane: p.pane_id, file,
+			title: `${ws.get(p.workspace_id) ?? p.workspace_id} › ${tabs.get(p.tab_id) ?? p.tab_id}`,
+			first: clip(prompts[0]), latest: prompts.length > 1 ? clip(prompts.at(-1)!) : "",
+		}];
+	}).slice(0, 250);
+}
+
+// Step 2c: is this capture more context for something already going? One Jev call, two questions:
+// a noul (does it refer back to ongoing work?) and a choice over the open sessions plus "none".
+async function matchThread(text: string): Promise<Thread> {
+	const sessions = openSessions();
+	if (!sessions.length) return { action: "new", ongoing: 0, p: 0, session: null };
+	const criteria: Record<string, string> = Object.fromEntries(sessions.map((s, i) => [`s${i}`, `${s.title}. First prompt: ${s.first}${s.latest ? ` Latest prompt: ${s.latest}` : ""}`]));
+	criteria.none = "None of these sessions; the message is about something new or unrelated to every listed session.";
+	const res = await fetch(JEV_URL, {
+		method: "POST",
+		headers: { authorization: `Bearer ${tfyToken()}`, "content-type": "application/json" },
+		body: JSON.stringify({
+			model: "jev-latest",
+			state: { new_message: text.slice(0, 8000) },
+			questions: {
+				ongoing: { type: "noul", instructions: "Nathan sent `new_message` to his AI agent inbox. Does it refer back to an ongoing piece of work, conversation, or thread he already has going (e.g. 'the thing I was calling X', 'that issue', new info or updates for earlier work), rather than starting a brand-new request?" },
+				session: { type: "choice", instructions: "Nathan has these open AI agent sessions (title, first prompt, latest prompt). Which session is `new_message` a follow-up to or new context for?", criteria },
+			},
+		}),
+		signal: AbortSignal.timeout(15_000),
+	});
+	if (!res.ok) throw new Error(`jev ${res.status}: ${await res.text()}`);
+	const a = (await res.json()).answers;
+	const ongoing: number = a.ongoing.noul;
+	const choice: string = a.session.choice;
+	const p: number = a.session.probabilities?.[choice] ?? 0;
+	const session = choice === "none" ? null : sessions[Number(choice.slice(1))] ?? null;
+	const action = !session ? "new" : ongoing >= FOLLOW.ongoing && p >= FOLLOW.match ? "follow" : ongoing >= HINT.ongoing && p >= HINT.match ? "hint" : "new";
+	return { action, ongoing, p, session };
+}
+
+function withHint(text: string, s: Session): string {
+	return `${text}\n\n---\nThe ag inbox thinks this may be new context for an existing session, "${s.title}" (tab ${s.tab}, pi session ${s.file}), but wasn't sure enough to add it there. If that looks right, check with me once; if I confirm, send it there with \`herdr agent prompt ${s.pane} "<my message, prefixed with a line saying it was forwarded from the Inbox>"\`, link the tab with \`herdr-link ${s.tab}\`, and this session can be closed. Otherwise just handle it here.`;
+}
+
+// Deliver into the matched session instead of opening a new one. Throws (→ new session) if it can't take input.
+function follow(id: string, text: string, s: Session, p: number) {
+	const agent = herdr("agent", "get", s.pane);
+	if ((agent?.agent_status ?? agent?.agent?.agent_status) === "blocked") throw new Error("session is blocked on a dialog");
+	herdr("agent", "prompt", s.pane, `New context from Nathan, sent via the ag inbox (Jev matched it to this session, p=${p.toFixed(2)}; if it clearly doesn't belong here, say so and suggest where it goes):\n\n${text}`);
+	log(id, "followed", { tab: s.tab, pane: s.pane, title: s.title });
+	try { execFileSync(HERDR, ["notification", "show", `Added to ${s.title}`, "--body", text.slice(0, 120)], { timeout: 10_000 }); } catch {}
+}
+
 function withShot(text: string, shot: Shot): string {
 	const where = shot.iphone ? "iPhone" : [shot.app, shot.window].filter(Boolean).join(" — ");
 	return `${text}\n\nScreenshot of my ${shot.iphone ? "phone " : ""}screen when I wrote this${where ? ` (${where})` : ""}; read it to view:\n${shot.path}`;
@@ -251,20 +339,37 @@ async function prepare(id: string, typed: string, shot: Shot | null, share: Shar
 	const images = share?.files.filter((p) => /\.(png|jpe?g|gif|webp)$/i.test(p)) ?? [];
 	const routeText = share ? withShare(text, share) : text;
 	// One retry: the model gateway returns the occasional transient 502.
-	const [{ label, playbook }, prompt] = await Promise.all([
+	const [{ label, playbook }, prompt, thread] = await Promise.all([
 		route(routeText, images, books).catch(() => route(routeText, images, books)).catch((e) => {
 			log(id, "route_failed", { error: String(e) });
 			return { label: "Inbox Task", playbook: null };
 		}),
 		attachDecision(id, routeText, shot),
+		// On a Jev failure, open a new session as before.
+		matchThread(routeText).catch(() => matchThread(routeText)).catch((e): Thread => {
+			log(id, "thread_failed", { error: String(e) });
+			return { action: "new", ongoing: 0, p: 0, session: null };
+		}),
 	]);
+	// A playbook capture (e.g. a new contact) is its own task, never a follow-on.
+	if (playbook && thread.action !== "new") thread.action = "new";
 	log(id, "routed", { label, playbook: playbook?.name ?? null });
-	return { label, playbook: playbook?.name ?? null, prompt: playbook ? withPlaybook(prompt, playbook) : prompt };
+	log(id, "thread", { action: thread.action, ongoing: thread.ongoing, p: thread.p, tab: thread.session?.tab, title: thread.session?.title });
+	const full = playbook ? withPlaybook(prompt, playbook) : prompt;
+	return {
+		label, playbook: playbook?.name ?? null,
+		thread: { action: thread.action, ongoing: thread.ongoing, p: thread.p, tab: thread.session?.tab ?? null, title: thread.session?.title ?? null },
+		prompt: thread.action === "hint" ? withHint(full, thread.session!) : full,
+		session: thread.session,
+	};
 }
 
 async function handle(id: string, text: string, shot: Shot | null, share: Share | null, audio: string | null) {
 	try {
-		const { label, prompt } = await prepare(id, text, shot, share, audio);
+		const { label, prompt, thread, session } = await prepare(id, text, shot, share, audio);
+		if (thread.action === "follow" && session) {
+			try { return follow(id, prompt, session, thread.p); } catch (e) { log(id, "follow_failed", { error: String(e) }); }
+		}
 		launch(id, prompt, label);
 	} catch (e) {
 		log(id, "failed", { error: String(e) });
@@ -361,7 +466,10 @@ Bun.serve({
 		}
 		log(id, "received", { chars: text.length, text, clientId, screenshot: shot?.path, audio, share });
 		// dry=1: route and gate only, return what would be sent, open nothing (for testing).
-		if (field("dry") === "1") return Response.json(await prepare(id, text, shot, share, audio));
+		if (field("dry") === "1") {
+			const { session: _, ...dry } = await prepare(id, text, shot, share, audio);
+			return Response.json(dry);
+		}
 		void handle(id, text, shot, share, audio);
 		// Send-only: no result. The form just lands back on a blank page.
 		return type.includes("form") ? new Response(null, { status: 303, headers: { location: "/" } }) : new Response(null, { status: 202 });

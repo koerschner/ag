@@ -330,8 +330,16 @@ Applies to ANYTHING another human may read that you author. Always follow the AI
 - Do not mention `ag` or `Ag` to someone unfamiliar with it; use a meaningful description such as "Nathan's development Mac" when relevant. Apply the same rule to other internal names.
 - This applies to drafts written in Nathan's voice too. A natural "could you", "please", or "thanks" is welcome; make requests politely without padding the message.
 - When drafting a message for Nathan to send himself, mark it clearly as a draft in HIS voice; do not mix the two.
+- For Discord (the team's default channel), see the Arcade Discord section below.
+
+## Arcade Discord
+
 - Use Discord for messages to Nathan's team unless he explicitly says otherwise.
-- Donald Geddes is **Hbauer** on Discord (username `hbauer`; Linear `handlebauer`). For the Arcade Linear migration, coordinate with Donald only — not Benjamin Hitov or Eli (not on Nathan's team).
+- Server: **Arcade** (ID `1524527312429912125`).
+- **Brain channels:** each teammate has a personal channel named after them (e.g. `#frank` for Frank Yang). We call these their "brain channels". When Nathan says to send something to someone's brain channel, post in their named channel on the Arcade server, not a DM.
+- Posting: Discord on ag may be logged out. Use `client-cua` to post through the Discord app on Nathan's client Mac, which is logged in as Nathan. Never enter Discord credentials.
+- Donald Geddes is **Hbauer** on Discord (username `hbauer`; Linear `handlebauer`). For the Arcade Linear migration, coordinate with Donald only, not Benjamin Hitov or Eli (not on Nathan's team).
+- Frank Yang is **Frank Y** on Discord (username `flankalanka`; GitHub `FlankaLanka`).
 
 ## "Meat harness"
 

@@ -5,10 +5,11 @@
 #   herdr-link wN:tX w8:tP      several
 #   herdr-link --grep capture   every tab whose label matches (case-insensitive)
 #
-# Output: "<Workspace> › <Tab>  http://<host>:7374/focus?tab=<id>"
-# Cmd+click in Ghostty. Opening it tells file-inbox on the host to `herdr tab focus` that tab;
-# Hammerspoon on the client intercepts these URLs so no browser window flashes.
-# (Herdr strips OSC 8 and Ghostty only auto-links http(s)/ssh/etc., hence plain http URLs.)
+# Output: "<Workspace> › <Tab>  gemini://<host>/focus/<id>"
+# Cmd+click in Ghostty → HerdrLink.app (gemini:// handler, macos-apps/HerdrLink) → Hammerspoon
+# → `herdr tab focus` on <host>. No browser. gemini:// because Herdr strips OSC 8 hyperlinks and
+# Ghostty only auto-links a fixed list of schemes; nothing else here uses gemini://.
+# Fallback without HerdrLink: http://<host>:7374/focus?tab=<id> (via file-inbox, opens a browser).
 set -euo pipefail
 host=${HERDR_LINK_HOST:-$(scutil --get LocalHostName)}
 herdr api snapshot | python3 -c "$(cat <<'PY'
@@ -27,6 +28,6 @@ for i in ids:
     t = tabs.get(i)
     if not t:
         print(f"{i}: no such tab", file=sys.stderr); continue
-    print(f"{ws.get(t['workspace_id'], t['workspace_id'])} › {t.get('label') or i}  http://{host}:7374/focus?tab={i}")
+    print(f"{ws.get(t['workspace_id'], t['workspace_id'])} › {t.get('label') or i}  gemini://{host}/focus/{i}")
 PY
 )" "$host" "$@"

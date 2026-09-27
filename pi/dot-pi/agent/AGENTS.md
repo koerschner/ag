@@ -145,7 +145,7 @@ Nathan sits at a client machine (and sometimes his iPhone); you run on a host (c
 
 - **Showing Nathan things is automatic.** Whenever you produce or find something visual for him (image, chart, PDF, HTML page, report, or a running dev server/preview), open it on his screen yourself with `show <file>` (HTML pages bring their local img/css/js along; `show <dir>` opens its `index.html`) or `show http://ag:<port>`, then tell him what you opened. Don't make him ask, run a command, or copy a path. Bind dev servers so the client can reach them (e.g. `--host 0.0.0.0`) and use `http://ag:<port>`. If a flow needs literal `localhost` (OAuth callbacks, secure-context APIs), set up an SSH port forward from the client for that task.
 - **Screenshots from Nathan** usually arrive as pasted image paths under `~/inbox/clipboard/` (Hammerspoon uploads them on Cmd+V), or from the phone under `~/inbox/phone/`. Read those paths directly. A just-pasted path appears instantly but its upload can take a second or two over a relayed connection; if the file isn't there yet, wait for it (e.g. `for i in $(seq 20); do [ -f "$p" ] && break; sleep 0.5; done`) instead of saying it's missing. If he mentions a screenshot without pasting one, run `shot` (or `shot N`) to pull his newest CleanShot captures into `~/inbox/shots/`.
-- **Link to other sessions.** Whenever you mention another Herdr tab/session (related work, where something is running, a session Nathan should look at), include a clickable link from `herdr-link <tab_id>` or `herdr-link --grep <label regex>`; it prints `Workspace › Tab  http://ag:7374/focus?tab=<id>`. Cmd+click switches his attached Herdr to that tab. Put the URL on its own, unwrapped (no markdown link syntax): Herdr strips OSC 8 hyperlinks, so only bare `http://` URLs are clickable.
+- **Link to other sessions** with `herdr-link` (clickable `gemini://` links that jump his Herdr to a tab); see "Helper sessions and links" under Herdr.
 - **Phone messages** from the "Send to ag" Shortcut arrive as prompts listing file paths under `~/inbox/phone/`. Read the files before answering.
 
 ## Worktrees
@@ -184,6 +184,8 @@ Linear: use the Arcade team in **superbuilders** at https://linear.app/superbuil
 Herdr is Nathan's GTD system: every open session (tab) is one item, workspaces are topic lists, and the inbox is simply new sessions, captured from anywhere via the prompt-inbox endpoint (`http://ag:7373/prompt`, which files each one into the right workspace). Deferred items go in the tickler (the `tickler` tool), which reopens them as new sessions when they're due.
 
 ## Herdr (terminal multiplexer)
+
+<!-- Herdr notes: everything agents need for working inside Herdr. Included into the global agent instructions under "Herdr (terminal multiplexer)"; edit here, then run agent-instructions/build. -->
 
 Assume you are running inside Herdr, in an existing pane of an existing workspace. Confirm with `test "$HERDR_ENV" = 1`; your location is `$HERDR_WORKSPACE_ID` / `$HERDR_TAB_ID` / `$HERDR_PANE_ID`. Herdr is not tmux: `$TMUX` is unset and tmux commands do not apply.
 
@@ -292,6 +294,12 @@ herdr agent rename <target> <name>|--clear  |  herdr agent focus <target>
 - `herdr session ...` — named persistent servers; leave alone unless asked.
 - `herdr api schema` — full socket API schema if a CLI flag is missing.
 
+### Helper sessions and links
+
+- **Use other sessions freely.** You may start extra pi sessions (new tabs in the current workspace, or panes beside you) to parallelize a task: independent investigations, long checks, a second machine's side of a change. Give each a clear self-contained prompt, keep them off files you're editing, read their results back, and close the tabs you created when done. Nathan's standing permission; don't ask first. Never drive sessions you didn't create unless he points you at them.
+- **Link to other sessions.** Whenever you mention another Herdr tab (related work, where something is running, a session Nathan should look at), include a clickable link from `herdr-link <tab_id>` or `herdr-link --grep <label regex>`. It prints `Workspace › Tab  gemini://<host>/focus/<tab_id>`; Cmd+click in Ghostty switches his attached Herdr straight to that tab (via `HerdrLink.app` → Hammerspoon; no browser). Put the URL on its own line, bare (no markdown link syntax): Herdr strips OSC 8 hyperlinks, and Ghostty only auto-links a fixed set of schemes. Fallback if HerdrLink isn't installed on a client: `http://<host>:7374/focus?tab=<id>` (opens a browser first).
+- **Testing clicks.** CUA is blocked from controlling Ghostty, and synthetic Cmd+clicks don't trigger Ghostty's link hover, so a real click can only be verified by Nathan. Verify everything after the click by opening the URL directly on the client (`ssh <client> open '<url>'`) and checking `focused_tab_id` in `herdr api snapshot`; restore his previous focus afterwards.
+
 Never create a git commit without consulting the user first and receiving explicit approval.
 
 Exception: docs-only updates in a repo (unless Nathan says otherwise) — commit, push, and auto-merge them using whatever mechanism the repo provides (e.g. arcade's `bun run sync docs`, which opens a `docs/*` PR that `docs-automerge.yml` squash-merges) without asking.
@@ -381,4 +389,4 @@ Once you have fully accomplished your purpose (e.g. the feature is shipped/merge
 
 This is the single global agent instructions file, `pi/dot-pi/agent/AGENTS.md` in the dotfiles checkout. Pi (`~/.pi/agent/AGENTS.md`), Claude Code (`~/.claude/CLAUDE.md`) and Codex (`~/.codex/AGENTS.md`) all symlink to it.
 
-It is generated. Edit the source in `agent-instructions/` (`AGENTS.template.md` plus included docs such as `attribution.md`), then run `agent-instructions/build`. Never edit the generated file or a copy of it.
+It is generated. Edit the source in `agent-instructions/` (`AGENTS.template.md` plus included docs such as `attribution.md` and `herdr.md`, the Herdr notes), then run `agent-instructions/build`. Never edit the generated file or a copy of it: a rebuild overwrites it (a pre-commit hook in `.githooks/` rejects commits where it's stale).

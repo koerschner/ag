@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Reject commits where the generated AGENTS.md doesn't match agent-instructions/ sources.
+cd "$(git rev-parse --show-toplevel)"
+if ! agent-instructions/build --check 2>/dev/null; then
+  echo "pre-commit: pi/dot-pi/agent/AGENTS.md is out of date with agent-instructions/." >&2
+  echo "  Edit agent-instructions/*.md (not the generated file), run agent-instructions/build, and stage both." >&2
+  exit 1
+fi

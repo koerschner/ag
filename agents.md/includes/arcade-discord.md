@@ -1,0 +1,6 @@
+- Use Discord for messages to Nathan's team unless he explicitly says otherwise.
+- Server: **Arcade** (ID `1524527312429912125`).
+- **Brain channels:** each teammate has a personal channel named after them (e.g. `#frank` for Frank Yang). We call these their "brain channels". When Nathan says to send something to someone's brain channel, post in their named channel on the Arcade server, not a DM.
+- Posting: Discord on ag may be logged out. Use `client-cua` to post through the Discord app on Nathan's client Mac, which is logged in as Nathan. Never enter Discord credentials.
+- Donald Geddes is **Hbauer** on Discord (username `hbauer`; Linear `handlebauer`). For the Arcade Linear migration, coordinate with Donald only, not Benjamin Hitov or Eli (not on Nathan's team).
+- Frank Yang is **Frank Y** on Discord (username `flankalanka`; GitHub `FlankaLanka`).

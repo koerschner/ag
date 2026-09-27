@@ -22,6 +22,8 @@ swap_pane_right = "prefix+shift+right"
 # Cmd+N/W/O/K/V/1-9 for itself, so those can't reach herdr there.
 split_vertical = ["prefix+v", "cmd+d"]
 split_horizontal = ["prefix+minus", "cmd+shift+d"]
+close_pane = ["prefix+x", "cmd+w"]
+switch_tab = ["prefix+1..9", "cmd+1..9"]
 
 # tmux-ish find-window: prefix+f opens a fuzzy space search; type, Enter.
 [[keys.command]]

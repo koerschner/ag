@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+"""Verify Herdr shortcuts on this machine match the canonical spec.
+
+Spec: ~/.config/herdr/shortcuts.json (dotfiles herdr/dot-config/herdr/).
+Checks, per shortcut:
+  - herdr config.toml binds both the direct key (Moshi forwards Cmd) and
+    prefix+<key> (Mac Hammerspoon chord / universal fallback) to the action;
+  - `herdr config check` accepts the config;
+  - Hammerspoon (if running here) loaded exactly the spec's Cmd table;
+  - herdr/SHORTCUTS.md's table is current (--write regenerates it).
+Exit 1 on any drift. Run after editing any of these, and from bootstrap.
+"""
+import json, os, re, subprocess, sys
+
+HOME = os.path.expanduser("~")
+CFG = os.path.join(HOME, ".config/herdr")
+SPEC = os.path.join(CFG, "shortcuts.json")
+TOML = os.path.join(CFG, "config.toml")
+DOC = os.path.normpath(os.path.join(os.path.dirname(os.path.realpath(SPEC)), "..", "..", "SHORTCUTS.md"))
+
+errors = []
+spec = json.load(open(SPEC))["shortcuts"]
+toml = open(TOML).read()
+
+
+def keys_of(raw):
+    return re.findall(r'"([^"]+)"', raw)
+
+
+def bound(binding):
+    """Keys herdr binds to a built-in action or a keys.command running a script."""
+    if binding.startswith("keys.command "):
+        script = binding.split(" ", 1)[1]
+        out = []
+        for block in toml.split("[[keys.command]]")[1:]:
+            m = re.search(r"^key\s*=\s*(.+)$", block, re.M)
+            c = re.search(r'^command\s*=\s*"(.*)"', block, re.M)
+            if m and c and c.group(1).rstrip().endswith(script):
+                out += keys_of(m.group(1))
+        return out
+    m = re.search(rf"^{re.escape(binding)}\s*=\s*(.+)$", toml.split("[[keys.command]]")[0], re.M)
+    return keys_of(m.group(1)) if m else []
+
+
+for sc in spec:
+    have = bound(sc["binding"])
+    for want in (sc["key"], "prefix+" + sc["prefix"]):
+        if want not in have:
+            errors.append(f"config.toml: {sc['action']} ({sc['binding']}) lacks {want!r}; has {have}")
+
+r = subprocess.run(["herdr", "config", "check"], capture_output=True, text=True)
+if "config: ok" not in r.stdout:
+    errors.append("herdr config check: " + (r.stdout + r.stderr).strip())
+
+# Hammerspoon (Mac clients): the running table must equal the spec.
+if subprocess.run(["pgrep", "-x", "Hammerspoon"], capture_output=True).returncode == 0:
+    hs = next((p for p in ("/opt/homebrew/bin/hs", "/usr/local/bin/hs") if os.path.exists(p)), None)
+    if hs:
+        lua = ('local t={} for _,s in ipairs(herdrShortcuts_loaded or {}) do '
+               't[#t+1]=s end print(hs.json.encode(t))')
+        r = subprocess.run([hs, "-c", lua], capture_output=True, text=True, timeout=10)
+        try:
+            live = json.loads(r.stdout.strip() or "null")
+        except ValueError:
+            live = None
+        want = []
+        for sc in spec:
+            *mods, key = sc["key"].split("+")
+            sent = {"minus": "-"}.get(sc["prefix"], sc["prefix"])
+            for k, s in ([(str(i), str(i)) for i in range(1, 10)] if key == "1..9" else [(key, sent)]):
+                want.append({"mods": sorted(mods), "key": k, "send": s})
+        if live is None:
+            errors.append("Hammerspoon: couldn't read herdrShortcuts_loaded (reload: hs -c 'hs.reload()')")
+        elif sorted(json.dumps(x, sort_keys=True) for x in live) != sorted(json.dumps(x, sort_keys=True) for x in want):
+            errors.append("Hammerspoon: loaded table differs from spec (reload: hs -c 'hs.reload()')")
+
+# Generated doc table.
+rows = ["| Shortcut | Action | Mac (Ghostty) | iPhone/iPad (Moshi) | Prefix fallback |", "|---|---|---|---|---|"]
+for sc in spec:
+    pretty = "+".join(p.capitalize() if len(p) > 1 else p.upper() for p in sc["key"].split("+")).replace("1..9", "1–9")
+    moshi = sc.get("moshi", "direct")
+    rows.append(f"| {pretty} | {sc['action']} | Hammerspoon → prefix chord | {moshi} | `Ctrl+B` `{sc['prefix'].replace('minus', '-').replace('1..9', '1–9')}` |")
+table = "\n".join(rows)
+BEGIN, END = "<!-- BEGIN generated: herdr-shortcuts-check --write -->", "<!-- END generated -->"
+doc = open(DOC).read() if os.path.exists(DOC) else ""
+current = doc[doc.find(BEGIN) + len(BEGIN):doc.find(END)].strip() if BEGIN in doc else None
+if "--write" in sys.argv and BEGIN in doc:
+    open(DOC, "w").write(doc[:doc.find(BEGIN) + len(BEGIN)] + "\n" + table + "\n" + doc[doc.find(END):])
+elif current != table:
+    errors.append(f"{DOC}: shortcut table is stale (run herdr-shortcuts-check --write)")
+
+for e in errors:
+    print("✗", e)
+print("herdr shortcuts: ok" if not errors else f"herdr shortcuts: {len(errors)} problem(s)")
+sys.exit(1 if errors else 0)

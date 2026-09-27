@@ -7,8 +7,11 @@ delete it when one is retired. Per-machine snapshots live in `machines/<LocalHos
 
 Roles:
 - **host**: runs the Herdr server, agents, and repos. Agents act from here.
-- **client**: where Nathan sits; attaches to a host's Herdr (`ag` command), runs
-  Hammerspoon, CleanShot, and the client side of the bridge (`shot`, `show`, `client-cua`).
+- **client**: where Nathan sits; runs no Herdr server. Attaches to a host's Herdr
+  (`ag` command, host keybindings), runs Hammerspoon, CleanShot, and the client side
+  of the bridge (`shot`, `show`, `client-cua`). Client shortcuts only translate keys
+  into Herdr chords; anything that executes is a Herdr `keys.command` on the host.
+  Full rules: "Multi-machine setup model: host and client" in `pi/dot-pi/agent/AGENTS.md`.
 
 | SSH alias | LocalHostName | Role | User | Home | Dotfiles checkout | Tailscale IP |
 |---|---|---|---|---|---|---|

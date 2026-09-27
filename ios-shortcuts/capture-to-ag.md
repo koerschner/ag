@@ -1,28 +1,5 @@
 # iOS Shortcut: Capture to ag (Action Button, offline queue)
 
-## Phone setup status (2026-09-27)
-
-Codex (GPT-6), assisting Nathan:
-
-The build steps below describe the intended configuration. Phone setup is partial:
-
-- Created `iCloud Drive/Shortcuts/ag-queue`; verified it was empty.
-- Created **Flush ag Queue** with folder contents, Repeat with Each, the POST Form
-  request, Delete Files, and End Repeat. The `text` variable was explicitly converted
-  to **Text**; `id` uses the file's **Name**. **Delete Files still has an unset Files
-  input**, because the available Mirroring gestures opened the file picker instead
-  of the variable chooser. Do not use this shortcut until that input is Repeat Item.
-- **Capture to ag** currently remains Ask for Input → Get Contents of URL. Removed
-  its **Show Notification** action. Queue-saving actions are not installed yet.
-- Confirmed Wi-Fi supports **Any Network**, **Is Joined**, and **Run Immediately**.
-  Cancelled the automation draft; no new automation is saved and no test was sent.
-- This iOS version exposes **Delete Immediately**, which permanently deletes instead
-  of moving files to Trash/Recently Deleted. Leave it off; it is not equivalent to
-  disabling a confirmation. No **Confirm Before Deleting** switch was shown.
-
-Finish the two shortcuts, save the automation, and perform the phone test before
-considering offline capture configured.
-
 Press the iPhone Action Button, type a prompt, and it lands in Herdr's **Inbox**
 workspace as a new pi session via `prompt-inbox` (port 7373, Tailscale only). This is
 the GTD inbox capture point.
@@ -56,15 +33,16 @@ flowchart TD
    2. **Repeat with Each** item in Contents of Folder:
       - **Get Contents of URL**: `http://100.107.192.32:7373/prompt`; Method **POST**,
         Request Body **Form**; `text` (Text) = **Repeat Item**; `id` (Text) = **Repeat Item › Name**.
-      - **Delete Files**: Repeat Item; **Confirm Before Deleting** off.
+      - **Delete Files**: Repeat Item; **Delete Immediately** off (files go to Recently Deleted;
+        this iOS version shows no confirmation toggle).
 3. Shortcut **Capture to ag**:
    1. **Ask for Input**: Text, prompt "Capture".
    2. **Format Date**: Current Date, Custom `yyyyMMdd-HHmmss-SSS`.
    3. **Set Name**: Provided Input → `<Formatted Date>.txt`.
-   4. **Save File**: Renamed Item → ag-queue; Ask Where to Save off; Overwrite on.
+   4. **Save File**: Renamed Item → Shortcuts folder, subpath `ag-queue/`; Ask Where to Save off; Overwrite on.
    5. **Run Shortcut**: Flush ag Queue.
    No Show Notification action.
-4. Automation → New → **Wi-Fi** → Any Network → **Run Immediately** (Notify When Run off)
+4. Automation → New → **Wi-Fi** → Any Network → **Is Joined** → **Run Immediately**
    → Run Shortcut **Flush ag Queue**.
 5. First run: allow connecting to `100.107.192.32` → **Always Allow**; allow folder access.
 6. Settings → **Action Button** → **Shortcut** → *Capture to ag*.
@@ -72,4 +50,16 @@ flowchart TD
 Offline, the flush step shows iOS's own "could not connect" error; the item is still
 queued. Test without the phone:
 `curl -X POST http://ag:7373/prompt --data-urlencode 'text=hello' -d id=test1` → redirect/`202`;
-repeating it with the same `id` logs `duplicate` and opens nothing.
+repeating it with the same `id` within 24 h logs `duplicate` and opens nothing.
+
+Note: on the verified iOS version the `id` field (Repeat Item › Name) arrived as the capture
+text rather than the file name, so the server's dedup window is 24 hours, not permanent.
+
+## Verified on 2026-09-27
+
+Claude (anthropic-primary/claude-opus-5-5), assisting Nathan:
+
+Built with computer use (Mac Shortcuts app, synced via iCloud; automation and test via
+iPhone Mirroring). Ran **Capture to ag** on the phone: the server received the text
+(request `5e879379`), it opened in the Inbox workspace, and ag-queue was empty afterwards.
+

@@ -34,7 +34,8 @@ type = "shell"
 command = "$HOME/.local/bin/herdr-nav last-space"
 description = "last space"
 
-# Cmd+T / Cmd+[ / Cmd+] in Hammerspoon send these chords, so the helper
+# Cmd+T / Cmd+[ / Cmd+] in Hammerspoon send these chords (not alt+arrows:
+# Ghostty turns those into esc+b/f before herdr sees them), so the helper
 # scripts run on whichever host owns the session (also through `ag`).
 [[keys.command]]
 key = "prefix+t"
@@ -43,13 +44,13 @@ command = "/usr/bin/python3 $HOME/.local/bin/herdr-new-pi-tab"
 description = "new tab with pi"
 
 [[keys.command]]
-key = "prefix+alt+left"
+key = "prefix+["
 type = "shell"
 command = "/usr/bin/python3 $HOME/.local/bin/herdr-nav back"
 description = "focus history back"
 
 [[keys.command]]
-key = "prefix+alt+right"
+key = "prefix+]"
 type = "shell"
 command = "/usr/bin/python3 $HOME/.local/bin/herdr-nav forward"
 description = "focus history forward"

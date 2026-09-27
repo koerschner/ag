@@ -7,13 +7,13 @@
 //                    3 most recently active pi sessions (by session-file mtime).
 //   POST /send       multipart form: f=<file(s)>, text=<optional>, to=<pane id | "new" | "">
 //                    Saves files to ~/inbox/phone. to=pane → prompt that session with text +
-//                    file paths; to=new → prompt-inbox routes it to a new tab; empty → just save.
+//                    file paths; to=new → the ag inbox (ag-inbox) opens a new session; empty → just save.
 //   POST /upload?name=<optional>   raw file bytes → saved (curl-friendly)
 //   GET  /           browser form (same as /send)
 //   GET  /focus?tab=<tab id>   focus that Herdr tab in the attached session, then close the
 //                    browser tab. Agents print these as clickable links (`herdr-link`).
 //
-// Listens only on ag's Tailscale IP (tailnet-only, like prompt-inbox). Run by com.nathan.file-inbox.
+// Listens only on ag's Tailscale IP (tailnet-only, like ag-inbox). Run by com.nathan.file-inbox.
 
 import { execFileSync } from "node:child_process";
 import { mkdirSync, statSync } from "node:fs";
@@ -24,7 +24,7 @@ const PORT = 7374;
 const HOME = homedir();
 const DIR = `${HOME}/inbox/phone`;
 const HERDR = `${HOME}/.local/bin/herdr`;
-const PROMPT_INBOX = (host: string) => `http://${host}:7373/prompt`;
+const AG_INBOX = (host: string) => `http://${host}:7373/prompt`;
 const HOST = Bun.spawnSync(["/usr/local/bin/tailscale", "ip", "-4"]).stdout.toString().trim();
 if (!HOST) throw new Error("no Tailscale IP yet");
 mkdirSync(DIR, { recursive: true });
@@ -78,8 +78,8 @@ async function deliver(to: string, text: string, paths: string[]): Promise<strin
 	if (!to) return "saved";
 	const msg = message(text, paths);
 	if (to === "new") {
-		const res = await fetch(PROMPT_INBOX(HOST), { method: "POST", body: msg });
-		if (!res.ok) throw new Error(`prompt-inbox ${res.status}`);
+		const res = await fetch(AG_INBOX(HOST), { method: "POST", body: msg });
+		if (!res.ok) throw new Error(`ag-inbox ${res.status}`);
 		return "sent to a new session";
 	}
 	herdr("agent", "prompt", to, msg);

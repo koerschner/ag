@@ -1,27 +1,36 @@
 #!/usr/bin/env bun
-// prompt-inbox: a send-only inbox for pi sessions on ag.
+// ag-inbox: the ag inbox, the top-level endpoint that starts a new pi session on ag.
 //
-// POST free text to http://<ag tailscale ip>:7373/prompt (or use the test page at /).
-// Pipeline, one function per step, one JSON log line per step (~/.local/state/prompt-inbox/log.jsonl):
-//   receive → label (cheap model names the tab) → launch (new tab in the Inbox workspace, start pi, send text)
-// Optional form field `id` (the phone's queue file name): a repeat id within 24h is acknowledged but not relaunched,
-// so the iOS offline queue can safely resend an item whose first response was lost.
+// POST a prompt to http://ag:7373/prompt (or use the test page at /). Every capture path uses it:
+// the Mac quick capture (Hammerspoon), the iPhone Action Button, file-inbox's "New session".
+// Pipeline, one function per step, one JSON log line per step (~/.local/state/ag-inbox/log.jsonl):
+//   receive → label (cheap model names the tab) + screenshot gate (Jev) → launch (new tab in Inbox, start pi, send)
+// Body: raw text, or a form with `text` and optional fields:
+//   id          the phone's queue file name: a repeat id within 24h is acknowledged but not relaunched,
+//               so the iOS offline queue can safely resend an item whose first response was lost.
+//   screenshot  image file (multipart). Saved to ~/inbox/capture; Jev decides whether the prompt needs it
+//   app, window frontmost app and window title when captured (context for Jev and the agent)
+//   attach      "always" = skip Jev and attach (e.g. Nathan annotated it)
 // Listens only on ag's Tailscale IP. Never focuses anything, so attached Herdr clients aren't disturbed.
-// Run by the com.nathan.prompt-inbox LaunchAgent.
+// Run by the com.nathan.ag-inbox LaunchAgent.
 
 import { execFileSync } from "node:child_process";
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 
 const PORT = 7373;
 const HOME = homedir();
 const HERDR = `${HOME}/.local/bin/herdr`;
-const LOG_DIR = `${HOME}/.local/state/prompt-inbox`;
+const LOG_DIR = `${HOME}/.local/state/ag-inbox`;
+const CAPTURE_DIR = `${HOME}/inbox/capture`;
 const INBOX = "Inbox";
 const MODEL = "gemini-group/gemini-3.5-flash-lite";
 const TFY_URL = "https://tfy.promptlens.trilogy.com/chat/completions";
+const JEV_URL = "https://tfy.promptlens.trilogy.com/proxy-api/jev-account/jev-endpoint/v1/systemone";
+const ATTACH_THRESHOLD = 0.5; // P(prompt needs the screen); tested on ~10 typical captures
 
 mkdirSync(LOG_DIR, { recursive: true });
+mkdirSync(CAPTURE_DIR, { recursive: true });
 
 function log(id: string, step: string, data: Record<string, unknown> = {}) {
 	const line = JSON.stringify({ ts: new Date().toISOString(), id, step, ...data });
@@ -57,6 +66,40 @@ async function tabLabel(text: string): Promise<string> {
 	return name.slice(0, 40) || "Inbox Task";
 }
 
+type Shot = { path: string; app: string; window: string; always: boolean };
+
+// Step 2b: does the prompt need the screenshot? Jev answers from the text and window context
+// (it can't see images). "why is this failing?" → yes; "renew my passport next month" → no.
+async function needsScreen(text: string, shot: Shot): Promise<number> {
+	const res = await fetch(JEV_URL, {
+		method: "POST",
+		headers: { authorization: `Bearer ${tfyToken()}`, "content-type": "application/json" },
+		body: JSON.stringify({
+			model: "jev-latest",
+			state: { prompt: text.slice(0, 8000), frontmost_app: shot.app, window_title: shot.window },
+			questions: {
+				screen: {
+					type: "noul",
+					instructions:
+						"Nathan typed `prompt` into a quick-capture box that starts a new AI coding-agent session. When he pressed the capture key, `frontmost_app` was focused with the window `window_title`. Would the agent need a screenshot of his screen to understand or do what `prompt` asks?",
+					criteria: {
+						true: "The prompt points at something on screen (this, that, here, this page, this error, this message) or can't be done well without seeing it.",
+						false: "The prompt is self-contained and makes sense without seeing the screen.",
+					},
+				},
+			},
+		}),
+		signal: AbortSignal.timeout(10_000),
+	});
+	if (!res.ok) throw new Error(`jev ${res.status}: ${await res.text()}`);
+	return (await res.json()).answers.screen.noul;
+}
+
+function withShot(text: string, shot: Shot): string {
+	const where = [shot.app, shot.window].filter(Boolean).join(" — ");
+	return `${text}\n\nScreenshot of my screen when I wrote this${where ? ` (${where})` : ""}; read it to view:\n${shot.path}`;
+}
+
 // Step 3: new tab in Inbox (created if missing, no focus), start pi in it, send the text.
 function launch(id: string, text: string, label: string) {
 	const inbox = herdr("workspace", "list").workspaces.find((w: any) => w.label.toLowerCase() === INBOX.toLowerCase());
@@ -78,21 +121,40 @@ function launch(id: string, text: string, label: string) {
 	log(id, "sent");
 }
 
-async function handle(id: string, text: string) {
+async function attachDecision(id: string, text: string, shot: Shot | null): Promise<string> {
+	if (!shot) return text;
+	if (shot.always) {
+		log(id, "screenshot", { attach: true, reason: "always" });
+		return withShot(text, shot);
+	}
+	// On a Jev failure, attach: an unneeded screenshot costs less than a missing one.
+	const p = await needsScreen(text, shot).catch(() => needsScreen(text, shot)).catch((e) => {
+		log(id, "jev_failed", { error: String(e) });
+		return 1;
+	});
+	const attach = p >= ATTACH_THRESHOLD;
+	log(id, "screenshot", { attach, p, path: shot.path });
+	return attach ? withShot(text, shot) : text;
+}
+
+async function handle(id: string, text: string, shot: Shot | null) {
 	try {
 		// One retry: the model gateway returns the occasional transient 502.
-		const label = await tabLabel(text).catch(() => tabLabel(text)).catch((e) => {
-			log(id, "label_failed", { error: String(e) });
-			return "Inbox Task";
-		});
-		launch(id, text, label);
+		const [label, prompt] = await Promise.all([
+			tabLabel(text).catch(() => tabLabel(text)).catch((e) => {
+				log(id, "label_failed", { error: String(e) });
+				return "Inbox Task";
+			}),
+			attachDecision(id, text, shot),
+		]);
+		launch(id, prompt, label);
 	} catch (e) {
 		log(id, "failed", { error: String(e) });
 	}
 }
 
 const PAGE = `<!doctype html><meta name=viewport content="width=device-width,initial-scale=1">
-<title>prompt inbox</title>
+<title>ag inbox</title>
 <style>body{font:16px system-ui;max-width:640px;margin:2rem auto;padding:0 1rem}textarea{width:100%;height:40vh;font:inherit}button{font:inherit;padding:.5rem 1.5rem;margin-top:.5rem}</style>
 <form method=post action=/prompt><textarea name=text autofocus placeholder="prompt…"></textarea><br><button>Send</button></form>`;
 
@@ -113,6 +175,7 @@ try {
 
 Bun.serve({
 	hostname: host,
+	maxRequestBodySize: 64 * 1024 * 1024,
 	port: PORT,
 	async fetch(req) {
 		const url = new URL(req.url);
@@ -120,11 +183,14 @@ Bun.serve({
 		if (req.method !== "POST" || url.pathname !== "/prompt") return new Response("not found", { status: 404 });
 
 		const type = req.headers.get("content-type") ?? "";
-		// The test page posts a form field named "text"; anything else (curl -d, Shortcuts) is the raw body.
-		const body = await req.text();
-		const form = type.includes("form") ? new URLSearchParams(body) : null;
-		const text = (form ? form.get("text") ?? "" : body).trim();
-		const clientId = form?.get("id")?.trim() || null;
+		// Forms (test page, Shortcuts, curl -F) carry a "text" field; anything else (curl -d) is the raw body.
+		const form = type.includes("form") ? await req.formData() : null;
+		const field = (k: string) => {
+			const v = form?.get(k);
+			return typeof v === "string" ? v.trim() : "";
+		};
+		const text = form ? field("text") : (await req.text()).trim();
+		const clientId = field("id") || null;
 		if (!text) return new Response("empty", { status: 400 });
 
 		if (clientId && Date.now() - (seen.get(clientId) ?? 0) < DEDUP_MS) {
@@ -133,10 +199,18 @@ Bun.serve({
 		}
 		if (clientId) seen.set(clientId, Date.now());
 		const id = crypto.randomUUID().slice(0, 8);
-		log(id, "received", { chars: text.length, text, clientId });
-		void handle(id, text);
+		const file = form?.get("screenshot");
+		let shot: Shot | null = null;
+		if (file instanceof File && file.size) {
+			const ext = file.type === "image/jpeg" ? "jpg" : "png";
+			const path = `${CAPTURE_DIR}/${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}-${id}.${ext}`;
+			writeFileSync(path, Buffer.from(await file.arrayBuffer()));
+			shot = { path, app: field("app"), window: field("window"), always: field("attach") === "always" };
+		}
+		log(id, "received", { chars: text.length, text, clientId, screenshot: shot?.path });
+		void handle(id, text, shot);
 		// Send-only: no result. The form just lands back on a blank page.
 		return type.includes("form") ? new Response(null, { status: 303, headers: { location: "/" } }) : new Response(null, { status: 202 });
 	},
 });
-console.log(`prompt-inbox listening on http://${host}:${PORT}`);
+console.log(`ag-inbox listening on http://${host}:${PORT}`);

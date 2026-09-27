@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.nathan.prompt-inbox</string>
-  <!-- Send-only prompt inbox on ag: POST text → new pi tab in Herdr. Only runs on ag. -->
+  <string>com.nathan.ag-inbox</string>
+  <!-- ag inbox: POST a prompt (optionally a screenshot) → new pi tab in Herdr. Only runs on ag. -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string>
     <string>-lc</string>
-    <string>[[ $(scutil --get LocalHostName) == ag ]] || { sleep 3600; exit 0; }; exec "$HOME/.local/bin/prompt-inbox"</string>
+    <string>[[ $(scutil --get LocalHostName) == ag ]] || { sleep 3600; exit 0; }; exec "$HOME/.local/bin/ag-inbox"</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
@@ -19,8 +19,8 @@
   <key>ThrottleInterval</key>
   <integer>15</integer>
   <key>StandardOutPath</key>
-  <string>/tmp/prompt-inbox.log</string>
+  <string>/tmp/ag-inbox.log</string>
   <key>StandardErrorPath</key>
-  <string>/tmp/prompt-inbox.log</string>
+  <string>/tmp/ag-inbox.log</string>
 </dict>
 </plist>

@@ -21,6 +21,7 @@ One set of shortcuts on every device. The source of truth is
 |---|---|---|---|---|
 | Cmd+T | New tab running Pi | Hammerspoon → prefix chord | direct (verified) | `Ctrl+B` `t` |
 | Cmd+W | Close pane | Hammerspoon → prefix chord | Moshi keeps it: `Ctrl+B` `x` | `Ctrl+B` `x` |
+| Cmd+Shift+T | Reopen closed pane | Hammerspoon → prefix chord | direct | `Ctrl+B` `u` |
 | Cmd+D | Split side by side | Hammerspoon → prefix chord | direct | `Ctrl+B` `v` |
 | Cmd+Shift+D | Split stacked | Hammerspoon → prefix chord | direct | `Ctrl+B` `-` |
 | Cmd+[ | Focus history back | Hammerspoon → prefix chord | direct | `Ctrl+B` `[` |

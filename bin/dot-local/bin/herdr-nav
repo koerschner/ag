@@ -5,11 +5,15 @@
   herdr-nav back      focus the previous pane in history
   herdr-nav forward   focus the next pane in history
   herdr-nav last-space  focus the most recently used other workspace (tmux switch-client -l)
+  herdr-nav reopen    reopen the most recently closed pane (Cmd+Shift+T)
   herdr-nav status    print the history (for debugging)
 
 The daemon subscribes to Herdr's socket API (pane/tab/workspace focus events),
 records the focused pane after each change, and listens on a control socket.
 Hammerspoon binds Cmd+[ / Cmd+] to `back` / `forward`.
+It also caches the session layout so a closed pane can be reopened: same spot
+(split beside the neighbour that absorbed it) or a recreated tab, same cwd,
+and pi panes resume their session file. Processes and scrollback don't return.
 Stdlib only on purpose: launchd runs it with the system python3.
 """
 
@@ -24,6 +28,7 @@ HERDR_SOCK = os.path.expanduser(os.environ.get("HERDR_SOCKET", "~/.config/herdr/
 STATE_DIR = os.path.expanduser("~/.local/state/herdr-nav")
 CTL_SOCK = os.path.join(STATE_DIR, "ctl.sock")
 MAX_HISTORY = 200
+MAX_CLOSED = 30
 # Focus events that arrive this soon after our own jump are treated as part of it.
 JUMP_SETTLE_S = 0.4
 
@@ -120,6 +125,197 @@ class History:
             return {"index": self.index, "entries": list(self.entries)}
 
 
+def leaves(node):
+    return [node["pane_id"]] if node["type"] == "pane" else leaves(node["first"]) + leaves(node["second"])
+
+
+def detach(node, pid):
+    """(tree without pid, parent split of pid or None, pid was first child)."""
+    if node["type"] == "pane":
+        return node, None, None
+    for key, other in (("first", "second"), ("second", "first")):
+        child = node[key]
+        if child["type"] == "pane" and child["pane_id"] == pid:
+            return node[other], node, key == "first"
+    for key in ("first", "second"):
+        sub, parent, first = detach(node[key], pid)
+        if parent:
+            return {**node, key: sub}, parent, first
+    return node, None, None
+
+
+def fresh(node, info):
+    """Copy of a layout tree as new panes (cwd only) for layout.apply."""
+    if node["type"] == "pane":
+        return {"type": "pane", "cwd": usable_cwd((info.get(node["pane_id"]) or {}).get("cwd") or node.get("cwd"))}
+    return {**node, "first": fresh(node["first"], info), "second": fresh(node["second"], info)}
+
+
+def usable_cwd(cwd):
+    return cwd if cwd and os.path.isdir(cwd) else os.path.expanduser("~")
+
+
+def pane_info(p):
+    sess = p.get("agent_session") or {}
+    pi = sess.get("value") if p.get("agent") == "pi" and sess.get("kind") == "path" else None
+    return {"cwd": p.get("foreground_cwd") or p.get("cwd"), "pi": pi}
+
+
+class Closed:
+    """Caches each tab's split tree so closed panes and tabs can be reopened."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.trees, self.tabs, self.panes = {}, {}, {}
+        self.stack = []
+        self.remap = {}  # old tab/pane id -> recreated id
+
+    def export(self, tab_id):
+        try:
+            tree = herdr_request("layout.export", {"tab_id": tab_id})["layout"]["root"]
+        except RuntimeError:
+            return
+        with self.lock:
+            self.trees[tab_id] = tree
+
+    def load_tabs(self):
+        snap = snapshot()
+        with self.lock:
+            self.tabs = {t["tab_id"]: t for t in snap["tabs"]}
+            self.panes.update({p["pane_id"]: pane_info(p) for p in snap["panes"]})
+        return snap
+
+    def load_all(self):
+        for t in self.load_tabs()["tabs"]:
+            self.export(t["tab_id"])
+
+    def push(self, entry):
+        self.stack.append(entry)
+        del self.stack[:-MAX_CLOSED]
+
+    def push_tab(self, tab_id):
+        tree = self.trees.pop(tab_id, None)
+        tab = self.tabs.pop(tab_id, {})
+        if tree:
+            self.push({"kind": "tab", "tab_id": tab_id, "workspace_id": tab.get("workspace_id"),
+                       "label": tab.get("label"), "tree": tree,
+                       "info": {pid: self.panes.get(pid) for pid in leaves(tree)}})
+
+    def on_event(self, event, data):
+        if event in ("pane_created", "pane_updated") and data.get("pane"):
+            with self.lock:
+                self.panes[data["pane"]["pane_id"]] = pane_info(data["pane"])
+        elif event == "layout_updated":
+            # Pre-close tree: a pane_closed arrives before its layout_updated.
+            self.export(data["layout"]["tab_id"])
+        elif event in ("tab_created", "tab_renamed"):
+            self.load_tabs()
+        elif event == "pane_closed":
+            pid = data["pane_id"]
+            with self.lock:
+                tab_id = next((t for t, tree in self.trees.items() if pid in leaves(tree)), None)
+                if tab_id is None:
+                    return
+                rest, parent, first = detach(self.trees[tab_id], pid)
+                if not parent:  # last pane: the tab closes with it
+                    self.push_tab(tab_id)
+                    return
+                sibling = leaves(parent["second" if first else "first"])
+                self.push({"kind": "pane", "pane_id": pid, "tab_id": tab_id,
+                           "workspace_id": self.tabs.get(tab_id, {}).get("workspace_id"),
+                           "label": self.tabs.get(tab_id, {}).get("label"),
+                           # Herdr only splits single panes: split the one it touched
+                           # (exact when the sibling was a single pane).
+                           "neighbour": sibling[0] if first else sibling[-1],
+                           "direction": parent["direction"], "ratio": parent["ratio"], "first": first,
+                           **(self.panes.get(pid) or {})})
+                self.trees[tab_id] = rest
+        elif event == "pane_moved":
+            with self.lock:  # its old tab closing is a move, not something to reopen
+                self.trees.pop(data.get("closed_tab_id"), None)
+                self.tabs.pop(data.get("closed_tab_id"), None)
+        elif event == "tab_closed":
+            with self.lock:
+                self.push_tab(data["tab_id"])
+        elif event == "workspace_closed":
+            with self.lock:
+                for tab_id in [t for t, v in self.tabs.items() if v.get("workspace_id") == data["workspace_id"]]:
+                    self.push_tab(tab_id)
+
+    def resolve(self, i):
+        while i in self.remap:
+            i = self.remap[i]
+        return i
+
+    def reopen(self):
+        with self.lock:
+            if not self.stack:
+                return None
+            e = self.stack.pop()
+        snap = snapshot()
+        live_panes = {p["pane_id"]: p for p in snap["panes"]}
+        live_tabs = {t["tab_id"] for t in snap["tabs"]}
+        ws = e["workspace_id"] if e["workspace_id"] in {w["workspace_id"] for w in snap["workspaces"]} \
+            else snap.get("focused_workspace_id")
+        tab = self.resolve(e["tab_id"])
+        if e["kind"] == "pane":
+            nb, cwd = self.resolve(e["neighbour"]), usable_cwd(e.get("cwd"))
+            if nb in live_panes:
+                # ratio is the first slot's share; swap keeps slot sizes, so it holds both ways.
+                new = herdr_request("pane.split", {"target_pane_id": nb, "direction": e["direction"],
+                                                   "ratio": e["ratio"], "cwd": cwd})["pane"]["pane_id"]
+                if e["first"]:
+                    herdr_request("pane.swap", {"source_pane_id": new, "target_pane_id": nb})
+            elif tab in live_tabs:
+                target = next(p for p, v in live_panes.items() if v["tab_id"] == tab)
+                new = herdr_request("pane.split", {"target_pane_id": target, "direction": "right", "cwd": cwd})["pane"]["pane_id"]
+            else:
+                res = herdr_request("tab.create", {"workspace_id": ws, "label": e["label"], "cwd": cwd})
+                new = res["root_pane"]["pane_id"]
+                self.remap[e["tab_id"]] = res["tab"]["tab_id"]
+            self.remap[e["pane_id"]] = new
+            pairs = [(new, e.get("pi"))]
+        else:
+            res = herdr_request("layout.apply", {"workspace_id": ws, "tab_label": e["label"],
+                                                 "root": fresh(e["tree"], e["info"])})["layout"]
+            self.remap[e["tab_id"]] = res["tab_id"]
+            pairs = []
+            for old, new in zip(leaves(e["tree"]), leaves(res["root"])):
+                self.remap[old] = new
+                pairs.append((new, (e["info"].get(old) or {}).get("pi")))
+        for pane, pi in pairs:
+            if pi and os.path.exists(pi):
+                herdr_request("pane.send_input", {"pane_id": pane, "text": "pi --session " + shq(pi), "keys": ["enter"]})
+        herdr_request("pane.focus", {"pane_id": pairs[0][0]})
+        return pairs[0][0]
+
+
+def shq(s):
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+def watch_panes(closed):
+    events = ("pane.created", "pane.updated", "pane.closed", "pane.moved", "layout.updated",
+              "tab.created", "tab.renamed", "tab.closed", "workspace.closed")
+    while True:
+        try:
+            s = socket.socket(socket.AF_UNIX)
+            s.connect(HERDR_SOCK)
+            s.sendall((json.dumps({"id": "nav-panes", "method": "events.subscribe",
+                                   "params": {"subscriptions": [{"type": t} for t in events]}}) + "\n").encode())
+            f = s.makefile()
+            closed.load_all()
+            for line in f:
+                try:
+                    msg = json.loads(line)
+                    if msg.get("event"):
+                        closed.on_event(msg["event"], msg.get("data") or {})
+                except (ValueError, KeyError, RuntimeError):
+                    continue
+        except (OSError, RuntimeError, ValueError, KeyError):
+            pass
+        time.sleep(1)
+
 def watch_focus(history):
     subs = [{"type": t} for t in ("pane.focused", "tab.focused", "workspace.focused")]
     while True:
@@ -148,7 +344,7 @@ def watch_focus(history):
         time.sleep(1)  # Herdr not running / restarted: retry.
 
 
-def serve(history):
+def serve(history, closed):
     os.makedirs(STATE_DIR, exist_ok=True)
     if os.path.exists(CTL_SOCK):
         os.unlink(CTL_SOCK)
@@ -165,8 +361,10 @@ def serve(history):
                     reply = {"ok": True, "pane_id": moved}
                 elif cmd == "last-space":
                     reply = {"ok": True, "workspace_id": history.last_space()}
+                elif cmd == "reopen":
+                    reply = {"ok": True, "pane_id": closed.reopen()}
                 elif cmd == "status":
-                    reply = {"ok": True, **history.dump()}
+                    reply = {"ok": True, **history.dump(), "closed": closed.stack[-5:]}
                 else:
                     reply = {"ok": False, "error": f"unknown command {cmd!r}"}
             except Exception as e:  # keep serving no matter what
@@ -192,9 +390,11 @@ def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "daemon":
         history = History()
+        closed = Closed()
         threading.Thread(target=watch_focus, args=(history,), daemon=True).start()
-        serve(history)
-    elif cmd in ("back", "forward", "last-space", "status"):
+        threading.Thread(target=watch_panes, args=(closed,), daemon=True).start()
+        serve(history, closed)
+    elif cmd in ("back", "forward", "last-space", "reopen", "status"):
         client(cmd)
     else:
         sys.exit(__doc__)

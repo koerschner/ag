@@ -16,6 +16,13 @@
       "moshi": "Moshi keeps it: `Ctrl+B` `x`"
     },
     {
+      "key": "cmd+shift+t",
+      "prefix": "u",
+      "action": "Reopen closed pane",
+      "binding": "keys.command herdr-nav reopen",
+      "moshi": "direct"
+    },
+    {
       "key": "cmd+d",
       "prefix": "v",
       "action": "Split side by side",

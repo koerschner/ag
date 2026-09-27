@@ -50,6 +50,13 @@ type = "shell"
 command = "/usr/bin/python3 $HOME/.local/bin/herdr-new-pi-tab"
 description = "new tab with pi"
 
+# Cmd+Shift+T: reopen the last closed pane (herdr-nav daemon remembers it).
+[[keys.command]]
+key = ["prefix+u", "cmd+shift+t"]
+type = "shell"
+command = "/usr/bin/python3 $HOME/.local/bin/herdr-nav reopen"
+description = "reopen closed pane"
+
 [[keys.command]]
 key = ["prefix+[", "cmd+["]
 type = "shell"

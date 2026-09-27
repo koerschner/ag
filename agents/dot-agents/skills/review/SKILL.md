@@ -1,6 +1,6 @@
 ---
 name: quick-review
-description: "Fast multi-model code review for quick/casual checks of local diffs, staged changes, latest commits, branches, PRs, or specific files. Use this whenever the user asks for a quick review, light review, sanity check, scan for obvious issues, or asks simply to review code without saying deep/thorough/rigorous. Uses faster models in parallel and returns only validated high-signal findings. For exhaustive pre-merge confidence, use deep-review instead."
+description: "Fast multi-model code review for quick/casual checks of local diffs, staged changes, latest commits, branches, PRs, or specific files. Use this whenever the user asks for a quick review, light review, sanity check, scan for obvious issues, or asks simply to review code without saying deep/thorough/rigorous. Uses GPT, Claude, and Gemini flagships at low thinking in parallel and returns only validated high-signal findings. For exhaustive pre-merge confidence, use deep-review instead."
 argument-hint: "[target or extra review instructions]"
 ---
 
@@ -57,15 +57,15 @@ The main agent should be the smart orchestrator. Before spawning quick reviewers
 3. Partition questions by reviewer strength and context size. Prefer small, concrete prompts over a single giant dump.
 4. Include only the relevant diff snippets, nearby code, tests, schemas, or PR text needed for each question.
 
-Quick review should not crawl the entire repo unless a targeted question clearly requires it. The orchestration work matters because smaller models do better when asked specific questions with bounded context.
+Quick review should not crawl the entire repo unless a targeted question clearly requires it. The orchestration work matters because low-thinking reviewers do better when asked specific questions with bounded context.
 
 ## Fast reviewer sub-agents
 
 Spawn these quick reviewers in parallel in a single `subagent` batch. Give each reviewer targeted questions and focused context; do not blindly pass the whole review packet unless the diff is tiny:
 
-1. `pr-review-gpt` — GPT flagship via TrueFoundry, low thinking
-2. `pr-review-gpt-mini` — GPT mini via TrueFoundry, low thinking
-3. `pr-review-gemini-flash` — Gemini Flash via TrueFoundry, low thinking
+1. `pr-review-gpt` — GPT-6 Astra via TrueFoundry, low reasoning
+2. `pr-review-claude` — Claude Opus 5.5 via TrueFoundry, low thinking
+3. `pr-review-gemini-fast` — Gemini 3.1 Pro via TrueFoundry, low thinking
 
 Use `agentScope: "user"` unless the user explicitly wants project-local agents too.
 
@@ -76,8 +76,8 @@ Example tool shape:
   "agentScope": "user",
   "tasks": [
     { "agent": "pr-review-gpt", "task": "<targeted review questions and focused context for GPT>", "cwd": "<repo root>" },
-    { "agent": "pr-review-gpt-mini", "task": "<targeted review questions and focused context for GPT mini>", "cwd": "<repo root>" },
-    { "agent": "pr-review-gemini-flash", "task": "<targeted review questions and focused context for Gemini Flash>", "cwd": "<repo root>" }
+    { "agent": "pr-review-claude", "task": "<targeted review questions and focused context for Claude>", "cwd": "<repo root>" },
+    { "agent": "pr-review-gemini-fast", "task": "<targeted review questions and focused context for Gemini>", "cwd": "<repo root>" }
   ]
 }
 ```
@@ -118,7 +118,7 @@ Return concise Markdown in chat only. Never write the report to a file or create
 
 ## Summary
 - Scope reviewed: ...
-- Reviewers: GPT flagship, GPT mini, Gemini Flash (all through TrueFoundry; note failures if any)
+- Reviewers: GPT-6 Astra, Claude Opus 5.5, Gemini 3.1 Pro (all through TrueFoundry; note failures if any)
 - Overall recommendation: approve / fix issues below / consider deep-review
 
 ## Findings

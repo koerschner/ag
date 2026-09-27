@@ -73,9 +73,9 @@ Pay special attention to spec fidelity: whether the diff actually implements the
 
 Spawn these three reviewers in parallel in a single `subagent` batch:
 
-1. `pr-review-claude-opus` — Claude Opus 4.8, extra-high thinking
-2. `pr-review-gpt-xhigh` — GPT flagship, extra-high reasoning
-3. `pr-review-gemini` — Gemini Pro, extra-high thinking
+1. `pr-review-claude-opus` — Claude Opus 5.5, extra-high thinking
+2. `pr-review-gpt-xhigh` — GPT-6 Astra, extra-high reasoning
+3. `pr-review-gemini` — Gemini 3.1 Pro, extra-high thinking
 
 Use `agentScope: "user"` unless the user explicitly wants project-local agents too.
 

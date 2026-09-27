@@ -1,7 +1,7 @@
 ---
 name: pr-review-gemini
-description: Independent PR/code-review subagent using Gemini Pro with extra-high thinking. Finds validated bugs and ranks severity for rigorous pre-merge review.
-model: truefoundry/anthropic-primary/claude-opus-5-5:xhigh
+description: Independent PR/code-review subagent using Gemini 3.1 Pro (TrueFoundry) with extra-high thinking. Finds validated bugs and ranks severity for rigorous pre-merge review.
+model: truefoundry-chat/gemini-group/gemini-3.1-pro:xhigh
 tools: read,bash,grep,find,ls
 ---
 

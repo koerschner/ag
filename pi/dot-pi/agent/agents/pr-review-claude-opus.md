@@ -1,6 +1,6 @@
 ---
 name: pr-review-claude-opus
-description: Independent PR/code-review subagent using Claude Opus 4.8 with extra-high thinking. Finds validated bugs and ranks severity for rigorous pre-merge review.
+description: Independent PR/code-review subagent using Claude Opus 5.5 (TrueFoundry) with extra-high thinking. Finds validated bugs and ranks severity for rigorous pre-merge review.
 model: truefoundry/anthropic-primary/claude-opus-5-5:xhigh
 tools: read,bash,grep,find,ls
 ---

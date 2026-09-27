@@ -1,5 +1,28 @@
 # iOS Shortcut: Capture to ag (Action Button, offline queue)
 
+## Phone setup status (2026-09-27)
+
+Codex (GPT-6), assisting Nathan:
+
+The build steps below describe the intended configuration. Phone setup is partial:
+
+- Created `iCloud Drive/Shortcuts/ag-queue`; verified it was empty.
+- Created **Flush ag Queue** with folder contents, Repeat with Each, the POST Form
+  request, Delete Files, and End Repeat. The `text` variable was explicitly converted
+  to **Text**; `id` uses the file's **Name**. **Delete Files still has an unset Files
+  input**, because the available Mirroring gestures opened the file picker instead
+  of the variable chooser. Do not use this shortcut until that input is Repeat Item.
+- **Capture to ag** currently remains Ask for Input → Get Contents of URL. Removed
+  its **Show Notification** action. Queue-saving actions are not installed yet.
+- Confirmed Wi-Fi supports **Any Network**, **Is Joined**, and **Run Immediately**.
+  Cancelled the automation draft; no new automation is saved and no test was sent.
+- This iOS version exposes **Delete Immediately**, which permanently deletes instead
+  of moving files to Trash/Recently Deleted. Leave it off; it is not equivalent to
+  disabling a confirmation. No **Confirm Before Deleting** switch was shown.
+
+Finish the two shortcuts, save the automation, and perform the phone test before
+considering offline capture configured.
+
 Press the iPhone Action Button, type a prompt, and it lands in Herdr's **Inbox**
 workspace as a new pi session via `prompt-inbox` (port 7373, Tailscale only). This is
 the GTD inbox capture point.

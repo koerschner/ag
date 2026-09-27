@@ -1,0 +1,23 @@
+#!/bin/sh
+# Install/upgrade moshi-hook (Moshi iPhone terminal's agent bridge) into
+# ~/.local/bin from the vendor CDN, verifying the release checksum.
+# Homebrew's formula refuses to build when the Command Line Tools lag macOS,
+# so we install the same prebuilt binary directly. Usage: moshi-hook-install [vX.Y.Z]
+set -eu
+ver=${1:-v0.4.3}
+case "$(uname -m)" in arm64) arch=arm64 ;; *) arch=x86_64 ;; esac
+tarball="moshi-hook_Darwin_${arch}.tar.gz"
+base="https://cdn.getmoshi.app/hook/$ver"
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+curl -fsSL "$base/$tarball" -o "$tmp/$tarball"
+if curl -fsSL "$base/checksums.txt" -o "$tmp/checksums.txt" 2>/dev/null; then
+  (cd "$tmp" && grep " $tarball\$" checksums.txt | shasum -a 256 -c -)
+else
+  echo "moshi-hook-install: no checksums.txt for $ver; verify manually" >&2; exit 1
+fi
+tar -xzf "$tmp/$tarball" -C "$tmp" moshi-hook
+mkdir -p "$HOME/.local/bin"
+install -m 755 "$tmp/moshi-hook" "$HOME/.local/bin/moshi-hook"
+ln -sf moshi-hook "$HOME/.local/bin/moshi"
+"$HOME/.local/bin/moshi-hook" version
+launchctl kickstart -k "gui/$(id -u)/com.nathan.moshi-hook" 2>/dev/null || true

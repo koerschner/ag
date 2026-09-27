@@ -1,7 +1,9 @@
 #!/usr/bin/env zsh
 # show — open something from ag on the client Mac's screen.
 #
-#   show report.html            copy file to client ~/ag-inbox and open it (default app)
+#   show chart.png              copy to client ~/ag-inbox and open it (default app)
+#   show report.html            also copies the local files it references (img/css/js)
+#   show site/                  copy the folder, open site/index.html
 #   show http://ag:8080         open a URL in the client's default browser
 #   show -a "Google Chrome" x   open with a specific app
 set -euo pipefail
@@ -9,13 +11,32 @@ client=${SHOW_CLIENT:-nathan-dev-client}
 app=()
 [[ ${1:-} == -a ]] && { app=(-a ${(q)2}); shift 2; }
 [[ $# -ge 1 ]] || { echo "usage: show [-a App] <file|dir|url>..." >&2; exit 2; }
-ssh "$client" mkdir -p ag-inbox
+
+# Relative src/href targets in an HTML file that exist next to it.
+html_assets() {
+	local dir=${1:h}
+	grep -oE '(src|href)="[^"#?]+"' $1 2>/dev/null | sed -E 's/^[a-z]+="//; s/"$//' |
+		grep -vE '^([a-z]+:|/|#)' | while read -r rel; do [[ -f $dir/$rel ]] && print -r -- $rel; done; true
+}
+
 for t in "$@"; do
 	if [[ $t == *://* ]]; then
 		ssh "$client" open $app ${(q)t}
+	elif [[ -d $t ]]; then
+		name=${t:A:t}
+		rsync -a --delete "${t%/}/" "${client}:ag-inbox/$name/"
+		target=$name; [[ -f $t/index.html ]] && target=$name/index.html
+		ssh "$client" open $app "ag-inbox/${(q)target}"
 	else
 		name=${t:t}
-		rsync -a "$t" "${client}:ag-inbox/"
-		ssh "$client" open $app "ag-inbox/${(q)name}"
+		if [[ $t == *.htm(l|) ]]; then
+			# Keep relative asset paths working: copy the page and its assets into one folder.
+			slot=${name%.*}
+			(cd ${t:h} && assets=(${(f)"$(html_assets $name)"}) && rsync -aR -- $name $assets "${client}:ag-inbox/$slot/")
+			ssh "$client" open $app "ag-inbox/${(q)slot}/${(q)name}"
+		else
+			rsync -a "$t" "${client}:ag-inbox/"
+			ssh "$client" open $app "ag-inbox/${(q)name}"
+		fi
 	fi
 done

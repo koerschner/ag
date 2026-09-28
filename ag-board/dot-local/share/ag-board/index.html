@@ -206,6 +206,8 @@ dialog .fld{display:flex;flex-direction:column;gap:.2rem;flex:1;font-size:12px;c
 dialog input{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:.3rem .5rem;flex:1}
 dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
 .hint{color:var(--dim);font-size:12px;padding:0 .9rem .6rem}
+/* iOS zooms the page into any focused field under 16px */
+@media (pointer:coarse){input,select,textarea,.cm-editor .cm-content{font-size:16px!important}}
 @media (max-width:700px){header{position:static}body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top);background:var(--bg);z-index:6}#board{flex-direction:column;height:auto;overflow-x:visible}.col{flex:none;width:100%}#q{width:100%;max-width:none;order:9}header .counts{width:100%}}
 </style>
 </head>

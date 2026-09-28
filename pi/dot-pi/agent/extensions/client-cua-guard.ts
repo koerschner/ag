@@ -44,15 +44,18 @@ function stripQuotedData(cmd: string): string {
 	return cmd.replace(/(-c\s+|\bssh\b[^'"\n]*)?('[^']*'|"(?:[^"\\]|\\.)*")/g, (all, exec) => (exec ? all : "''"));
 }
 
-function lastUserPrompt(ctx: any): string {
+// The session's goal: its first prompt (the task) plus the latest one, if different. The latest alone
+// is often a mid-task aside (a coordination note) that hides why the client is needed (e.g. the task
+// is iPhone Mirroring verification), which made Jev block legitimate phone work.
+function sessionGoal(ctx: any): string {
 	const branch = ctx.sessionManager.getBranch?.() ?? [];
-	for (let i = branch.length - 1; i >= 0; i--) {
-		const m = branch[i]?.message;
-		if (branch[i]?.type !== "message" || m?.role !== "user") continue;
-		const c = m.content;
-		return (typeof c === "string" ? c : c.filter((x: any) => x.type === "text").map((x: any) => x.text).join(" ")).slice(0, 2000);
-	}
-	return "";
+	const prompts = branch
+		.filter((e: any) => e?.type === "message" && e.message?.role === "user")
+		.map((e: any) => { const c = e.message.content; return typeof c === "string" ? c : c.filter((x: any) => x.type === "text").map((x: any) => x.text).join(" "); })
+		.filter(Boolean);
+	if (!prompts.length) return "";
+	const first = prompts[0], last = prompts.at(-1);
+	return last === first ? first.slice(0, 2000) : `Task (first prompt): ${first.slice(0, 1400)}\nLatest prompt: ${last.slice(0, 600)}`;
 }
 
 // The agent's own words right before the call (its reasoning for reaching for the client).
@@ -78,7 +81,7 @@ export default function (pi: ExtensionAPI) {
 		if (!kind) return;
 
 		const why = command.match(/CLIENT_CUA_WHY=("([^"]*)"|'([^']*)')/)?.slice(2).find(Boolean) ?? command.match(/--why\s+("([^"]*)"|'([^']*)')/)?.slice(2).find(Boolean) ?? "";
-		const args = ["--kind", kind, "--why", [why, lastAssistantText(ctx)].filter(Boolean).join("\nAgent's message before the call: "), "--goal", lastUserPrompt(ctx), "--session", ctx.sessionManager.getSessionFile() ?? "", "--", command];
+		const args = ["--kind", kind, "--why", [why, lastAssistantText(ctx)].filter(Boolean).join("\nAgent's message before the call: "), "--goal", sessionGoal(ctx), "--session", ctx.sessionManager.getSessionFile() ?? "", "--", command];
 		const { code, stdout, stderr } = await new Promise<{ code: number; stdout: string; stderr: string }>((resolve) =>
 			execFile(GATE, args, { timeout: 60_000, maxBuffer: 1 << 20 }, (err: any, stdout, stderr) => resolve({ code: err ? (typeof err.code === "number" ? err.code : 1) : 0, stdout, stderr })),
 		);

@@ -207,7 +207,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   <input id="q" placeholder="Filter  ( / )" autocomplete="off">
   <button class="btn" id="helpbtn" title="Keyboard shortcuts (?)">?</button>
 </header>
-<div class="hint" id="hint">Shift+click (or long-press) → 🔥 hotpath: pinned on top, throbs and texts you when ready. ▾ details · ⏹ interrupt · click for transcript, live screen and reply · keyboard: j/k to move, e to archive, ? for all shortcuts.</div>
+<div class="hint" id="hint">Shift+click (or long-press) → 🔥 hotpath: pinned on top, siren ring while it isn't working, texts you when it has something new. ▾ details · ⏹ interrupt · click for transcript, live screen and reply · keyboard: j/k to move, e to archive, ? for all shortcuts.</div>
 <main id="board"></main>
 
 <div id="scrim"></div>
@@ -244,7 +244,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
     <div class="row"><div class="ed" id="rted"></div>
       <div class="btns"><button class="btn" id="rsend">Send</button><button class="btn stop" type="button" id="rint" title="Stop what it's doing, then send this instead">⏹ Interrupt &amp; send</button></div>
     </div>
-    <div class="edbar"><button type="button" class="mic" data-mic="rted" title="Voice: click to talk, click again to stop (Alt+V)">🎙 Voice</button><button type="button" class="mic" data-attach="rted" title="Attach files or images (or paste / drop them into the editor)">📎</button><span class="mode" data-mode="rted"></span><span class="sp"></span><label><input type="checkbox" class="vimtoggle"> vim</label><span class="kbd">⌘↩</span><span style="font-size:11.5px;color:var(--dim)">or <span class="kbd">:w</span> sends</span></div>
+    <div class="edbar"><button type="button" class="mic" data-mic="rted" title="Voice: click to talk, click again to stop (Alt+V)">🎙 Voice</button><button type="button" class="mic" data-attach="rted" title="Attach files or images (or paste / drop them into the editor)">📎</button><span class="mode" data-mode="rted"></span><span class="sp"></span><label><input type="checkbox" class="vimtoggle"> vim</label><span class="kbd">⌘↩</span><span style="font-size:11.5px;color:var(--dim)">or <span class="kbd">:w</span> <span class="kbd">:q</span> sends</span></div>
   </form>
 </aside>
 <dialog id="ldlg"><form method="dialog">
@@ -278,7 +278,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
     <tr><td><span class="kbd">/</span></td><td>filter</td></tr>
     <tr><td><span class="kbd">Esc</span></td><td>close panel (in the editor: vim normal mode)</td></tr>
     <tr><td><span class="kbd">Alt</span>+<span class="kbd">V</span></td><td>voice in the focused editor</td></tr>
-    <tr><td><span class="kbd">⌘↩</span> / <span class="kbd">:w</span></td><td>send</td></tr>
+    <tr><td><span class="kbd">⌘↩</span> / <span class="kbd">:w</span> / <span class="kbd">:q</span></td><td>send</td></tr>
   </table>
   <div class="row" style="justify-content:flex-end"><button class="btn">Close</button></div>
 </form></dialog>
@@ -366,7 +366,7 @@ function lastPara(t) {
 }
 const card = (tab) => B.cards.find((c) => c.tab === tab);
 const isOpen = (c) => expandAll ? !expanded.has("-" + c.tab) : expanded.has(c.tab);
-const rank = (c) => (c.hot ? 0 : 4) + (c.throb ? 0 : 1) + (c.needsYou ? 0 : 2);
+const rank = (c) => (c.hot ? 0 : 4) + (c.ping ? 0 : 1) + (c.needsYou ? 0 : 2);
 const sortCards = (a) => a.sort((x, y) => rank(x) - rank(y) || y.statusSince - x.statusSince);
 
 // Live activity line: what a working agent is doing right now, and for how long.
@@ -498,7 +498,7 @@ function tick() {
   document.querySelectorAll(".act.tool").forEach((el) => { const t = +el.querySelector(".since")?.dataset.t; el.classList.toggle("long", t && Date.now() - t > 180000); });
 }
 function onData() {
-  const now = new Set(B.cards.filter((c) => c.throb).map((c) => c.tab));
+  const now = new Set(B.cards.filter((c) => c.ping).map((c) => c.tab));
   if ([...now].some((t) => !throbbing.has(t))) beep();
   throbbing = now;
   render();
@@ -658,11 +658,14 @@ $("#dfocus").onclick = async () => { if (await api("/api/focus", { tab: openTab 
 $("#dunread").onclick = async () => { const t = openTab; closeDrawer(); await api("/api/card", { tab: t, seen: false }); };
 $("#dlist").onchange = (e) => api("/api/card", { tab: openTab, list: e.target.value });
 $("#dkill").onclick = () => openTab && archive(openTab);
+// Optimistic: the editor clears the moment you send; if sending fails, your text comes back.
 async function send(interrupt) {
   const text = rted.value.trim(); if (!text || !openTab) return;
-  const c = card(openTab);
-  if (interrupt) toast("Interrupting…");
-  if (await api("/api/prompt", { tab: openTab, text, interrupt })) { rted.setValue(""); toast(interrupt ? "Interrupted and sent" : c?.status === "working" ? "Queued as steering" : "Sent"); }
+  const tab = openTab, c = card(tab);
+  rted.setValue("");
+  toast(interrupt ? "Interrupting…" : c?.status === "working" ? "Queued as steering" : "Sent");
+  if (!(await api("/api/prompt", { tab, text, interrupt }))) { if (!rted.value.trim()) rted.setValue(text); return; }
+  if (interrupt) toast("Interrupted and sent");
 }
 $("#reply").onsubmit = (e) => { e.preventDefault(); send(false); };
 $("#rint").onclick = () => send(true);
@@ -823,12 +826,11 @@ function openNew() {
 async function startNew() {
   const body = { workspace: $("#nws").value, cwd: $("#ncwd").value.trim() || "~", text: ned.value.trim(), focus: $("#nfocus").checked };
   localStorage.newWs = body.workspace; localStorage.newCwd = body.cwd; localStorage.newFocus = body.focus ? "1" : "0";
-  $("#ngo").disabled = true; toast("Starting pi…");
-  const r = await fetch("/api/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  const j = await r.json().catch(() => ({}));
-  $("#ngo").disabled = false;
-  if (!j.ok) return toast(j.error || "Couldn't start it");
-  ned.setValue(""); $("#ndlg").close(); toast("Session started"); select(j.tab);
+  // Optimistic: close at once; pi takes a few seconds to start. On failure the dialog reopens with your text.
+  ned.setValue(""); $("#ndlg").close(); toast("Starting pi…");
+  const j = await (await fetch("/api/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json().catch(() => ({}));
+  if (!j.ok) { toast(j.error || "Couldn't start it"); ned.setValue(body.text); $("#ndlg").showModal(); return; }
+  toast("Session started"); select(j.tab);
 }
 $("#newbtn").onclick = openNew;
 $("#ngo").onclick = startNew;

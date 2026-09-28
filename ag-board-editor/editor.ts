@@ -4,7 +4,8 @@
 //
 //   const ed = createEditor(parent, { placeholder, vim, onSubmit, onMode, onPasteFiles })
 //   ed.value / ed.setValue(s) / ed.insert(s) / ed.focus() / ed.setVim(bool) / ed.setPlaceholder(s)
-// Submit: ⌘↩ / Ctrl+↩ in any mode, or :w / :wq in vim. Esc in insert mode goes to normal mode (vim) and
+// No soft wrapping: long lines scroll sideways, so j/k and the arrows move by real lines.
+// Submit: ⌘↩ / Ctrl+↩ in any mode, or :w / :q / :wq / :x in vim. Esc in insert mode goes to normal mode (vim) and
 // never bubbles out to close the drawer. Vim starts in NORMAL mode, like nvim; `jk` also leaves insert mode.
 // Browser extensions like Vimium grab Esc before the page and blur the field; a blur with no click/tap behind
 // it is treated as that Esc: the editor takes focus back and goes to NORMAL mode.
@@ -63,6 +64,7 @@ function defineEx() {
 	Vim.defineEx("write", "w", submit);
 	Vim.defineEx("wq", "wq", submit);
 	Vim.defineEx("x", "x", submit);
+	Vim.defineEx("quit", "q", submit); // :q sends too (Nathan's habit)
 }
 
 export function createEditor(parent: HTMLElement, opts: Opts = {}) {
@@ -87,7 +89,6 @@ export function createEditor(parent: HTMLElement, opts: Opts = {}) {
 				keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
 				markdown(),
 				syntaxHighlighting(highlight),
-				EditorView.lineWrapping,
 				phC.of(placeholderExt(opts.placeholder ?? "")),
 				theme,
 				EditorView.domEventHandlers({

@@ -12,8 +12,8 @@
 //   needsYou  = blocked, or ready with an answer newer than seenAt. Seen = opened on the board, replied
 //               from it, jumped to in Herdr, or the tab is focused in Herdr.
 //   resolved  = the latest answer ends with a DONE line (the global "signal completion" convention).
-//   hotpath   = 🔥 top priority (shift+click / long-press). Pinned to the top everywhere; a hotpath card that
-//               needsYou throbs, and becoming so fires the fast lane: ag-text + a Herdr toast.
+//   hotpath   = 🔥 top priority (shift+click / long-press). Pinned to the top everywhere; its siren ring runs
+//               whenever the agent isn't working (throb). Becoming needsYou fires the fast lane: ag-text + a Herdr toast.
 // Media: GET /api/file?path= (image/video files under ~ or /tmp, Range-capable), GET /api/embedded?tab=&line=&idx=
 // (base64 images inside the session, e.g. pasted screenshots and read-tool images).
 // Also: voice (POST /api/transcribe, Whisper via TrueFoundry like ag-inbox), pasted files (POST /api/upload →
@@ -367,7 +367,8 @@ type Card = {
 	list?: string;
 	needsYou: boolean;
 	resolved: boolean;
-	throb: boolean;
+	throb: boolean; // hotpath and not working: the siren ring runs
+	ping: boolean; // hotpath and needs you: fast lane + page beep
 	focused: boolean;
 	model?: string;
 	thinkingLevel?: string;
@@ -449,7 +450,8 @@ async function poll() {
 			list: cs.list,
 			needsYou,
 			resolved,
-			throb: !!cs.hot && needsYou,
+			throb: !!cs.hot && a.agent_status !== "working",
+			ping: !!cs.hot && needsYou,
 			focused,
 			model: s?.model,
 			thinkingLevel: s?.thinkingLevel,
@@ -466,7 +468,7 @@ async function poll() {
 			stats: { cost: Math.round((s?.cost ?? 0) * 100) / 100, ctx: s?.ctx ?? 0, turns: s?.turns ?? 0, tools: s?.toolCount ?? 0 },
 			sessionFile: a.agent_session?.value,
 		};
-		if (card.throb && !cs.wasNeedsYou && now - (cs.pingedAt ?? 0) > FAST_LANE_GAP_MS) {
+		if (card.ping && !cs.wasNeedsYou && now - (cs.pingedAt ?? 0) > FAST_LANE_GAP_MS) {
 			cs.pingedAt = now;
 			fastLane(card);
 		}
@@ -702,7 +704,7 @@ async function handle(req: Request): Promise<Response> {
 				const r = body.interrupt ? await interruptAndSend(card.pane, text) : await herdr("agent", "prompt", card.pane, text);
 				if (r.code !== 0) return fail(r, "prompt");
 				markSeen(tab);
-				await after();
+				void after(); // answer right away; the board refresh follows over SSE
 				return ok();
 			}
 			case "/api/interrupt": {

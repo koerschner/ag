@@ -5,6 +5,8 @@
 //   tickler add --when online --task <text> ...   # fire the next time Nathan comes online at the client (`presence`)
 //   tickler add --when check --check '<sh cmd>' --task <text> [--expires ISO] ...  # fire once the check exits 0
 //   tickler add --when event --task <text> [--expires ISO] ...                     # fire only via `tickler trigger`
+//   tickler add --at <ISO> --waiting-for <person> [--attempt N] [--check '<sh>'] --task <text> ...
+//                            # GTD "waiting for": check whether <person> replied; if not, follow up and requeue with backoff
 //   tickler trigger <id> [--note text]   # the webhook: fire a waiting item now (also POST http://ag:7373/tickler/<id>)
 //   tickler list [--all]
 //   tickler cancel <id>
@@ -22,6 +24,10 @@
 // `tickler trigger` / the webhook fires at once. They resume the deferring session in place when its pane is
 // still open and ready (idle/done); otherwise they open a forked tab like any item. After --expires (default
 // 7 days) they fire anyway, telling the agent the condition never came true.
+// Waiting-for items (--waiting-for) are time items for "I'm waiting on <person>": at --at the agent checks whether they
+// replied (and any --check fires it early, e.g. a DNS change landing). Replied → do the next step. Not yet → a polite
+// follow-up and a requeue with --attempt N+1 on the backoff in waitingPrompt(); a timeline they gave wins over the backoff.
+// Like wake-ups, they resume the deferring session in place when it's open and ready.
 
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -55,6 +61,8 @@ type Item = {
 	expires?: string; // ISO; check/event items fire as expired after this
 	triggered?: boolean; // fired by `tickler trigger` / the webhook
 	note?: string; // from `tickler trigger --note`
+	waiting_for?: string; // GTD "waiting for": the person we're waiting on
+	attempt?: number; // waiting-for: which check-in this is (1 = first)
 	session?: string;
 	cwd: string;
 	workspace?: string;
@@ -76,11 +84,13 @@ const log = (id: string, step: string, data: object = {}) =>
 	appendFileSync(`${DIR}/log.jsonl`, JSON.stringify({ ts: new Date().toISOString(), id, step, ...data }) + "\n");
 const WAKE_DEFAULT_MS = 7 * 24 * 3600_000;
 const isWake = (i: Item) => i.when === "check" || i.when === "event";
+const resumes = (i: Item) => isWake(i) || !!i.waiting_for;
 const whenText = (i: Item) =>
-	i.when === "online" ? "when Nathan is next online"
+	(i.waiting_for ? `waiting for ${i.waiting_for} (check-in #${i.attempt ?? 1}) · ` : "") +
+	(i.when === "online" ? "when Nathan is next online"
 	: i.when === "check" ? `when \`${i.check}\` succeeds (expires ${local(i.expires!)})`
 	: i.when === "event" ? `when triggered (expires ${local(i.expires!)})`
-	: local(i.due!);
+	: local(i.due!) + (i.check ? ` or when \`${i.check}\` succeeds` : ""));
 const local = (iso: string) =>
 	new Date(iso).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
 
@@ -99,6 +109,7 @@ function add(f: Record<string, string>) {
 	const when = f.when as Item["when"];
 	if (when && !["online", "check", "event"].includes(when)) throw new Error(`unknown --when: ${when} (online|check|event)`);
 	if (!f.task || !!f.at === !!when) throw new Error("add needs --task and exactly one of --at <ISO time> or --when online|check|event");
+	if (f["waiting-for"] && when) throw new Error("--waiting-for needs --at (the next check-in time)");
 	if (when === "check" && !f.check) throw new Error("--when check needs --check '<shell command>'");
 	const online = when === "online";
 	const wake = when === "check" || when === "event";
@@ -113,7 +124,9 @@ function add(f: Record<string, string>) {
 		task: f.task,
 		due: due?.toISOString(),
 		when,
-		check: when === "check" ? f.check : undefined,
+		check: when === "check" || (!when && f.check) ? f.check : undefined,
+		waiting_for: f["waiting-for"],
+		attempt: f["waiting-for"] ? Math.max(1, Number(f.attempt) || 1) : undefined,
 		expires: expires?.toISOString(),
 		session,
 		cwd: f.cwd ?? HOME,
@@ -125,7 +138,9 @@ function add(f: Record<string, string>) {
 	save(item);
 	log(item.id, "added", { due: item.due, when: item.when, check: item.check });
 	const late = due && +due < Date.now() ? " (already past: fires within a minute)" : "";
-	const p = online
+	const p = item.waiting_for
+		? " Resumes this session in place if it's still open and ready, else a forked tab."
+		: online
 		? ` ${presenceLine()} It fires on his next arrival after now.`
 		: wake
 			? ` Resumes this session in place if it's still open and ready, else a forked tab. Webhook: curl -X POST http://ag:7373/tickler/${item.id} (or \`tickler trigger ${item.id}\`).`
@@ -184,10 +199,26 @@ function checkPasses(cmd: string): boolean {
 function isDue(i: Item, p: Presence | null): boolean {
 	if (i.when === "online") return p?.state === "online" && !!p.online_since && p.online_since > i.created_at;
 	if (isWake(i)) return +new Date(i.expires!) <= Date.now() || (i.when === "check" && checkPasses(i.check!));
-	return +new Date(i.due!) <= Date.now();
+	return +new Date(i.due!) <= Date.now() || (!!i.check && checkPasses(i.check));
+}
+
+function waitingPrompt(i: Item): string {
+	const n = i.attempt ?? 1;
+	const early = +new Date(i.due!) > Date.now() ? ` It fired early because \`${i.check}\` succeeded, so something probably moved.` : "";
+	return `⏳ Waiting-for ${i.id}: check-in #${n} on ${i.waiting_for} (queued ${local(i.created_at)}).${early}
+
+Task: ${i.task}
+
+1. Find out whether ${i.waiting_for} responded or did the thing: check the channel you asked on and any programmatic signal in the task. Look before assuming.
+2. If they did: do the next step now, and tell Nathan briefly.
+3. If they said when (\"next week\", \"after Friday\"): don't nudge. Requeue with the tickler tool (same waitingFor, attempt ${n}) for the morning after that time.
+4. If not, and there's no timeline: send ONE short, friendly follow-up on the same channel (attribution rules apply; don't re-explain everything, refer back to the earlier message), then requeue with the tickler tool: waitingFor "${i.waiting_for}", attempt ${n + 1}, at ${["", "2 days", "4 days", "a week", ""][n] || "—"} from now, in their afternoon on a weekday. Put the up-to-date state and next step in the task text.
+5. Backoff: check-ins go 1 → +2d → +4d → +1w. If this is check-in #4 or later and still nothing, don't nudge again: tell Nathan it's stalled and ask how he'd like to proceed (text him with \`ag-text\` if he's away).
+Never nudge more than once per check-in, and keep it warm; this is someone doing Nathan a favor.`;
 }
 
 function prompt(i: Item): string {
+	if (i.waiting_for) return waitingPrompt(i);
 	const when = local(i.created_at);
 	if (isWake(i)) {
 		const what = i.when === "check" ? `\`${i.check}\` to succeed` : "a trigger (webhook)";
@@ -232,7 +263,7 @@ function originPane(i: Item): string | null {
 }
 
 function fireOne(i: Item) {
-	const origin = isWake(i) ? originPane(i) : null;
+	const origin = resumes(i) ? originPane(i) : null;
 	if (origin) {
 		injected("tickler", prompt(i), { id: i.id, when: i.when });
 		herdr("agent", "prompt", origin, prompt(i));
@@ -242,7 +273,7 @@ function fireOne(i: Item) {
 		return log(i.id, "fired", { pane: origin, resumed: true });
 	}
 	const ws = workspaceFor(i.workspace);
-	const icon = i.when === "online" ? "🟢" : isWake(i) ? "🔔" : "⏰";
+	const icon = i.waiting_for ? "⏳" : i.when === "online" ? "🟢" : isWake(i) ? "🔔" : "⏰";
 	const label = `${icon} ${i.title}`.slice(0, 40);
 	const cwd = existsSync(i.cwd) ? i.cwd : HOME;
 	let pane: string;

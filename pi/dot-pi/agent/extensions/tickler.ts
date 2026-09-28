@@ -41,6 +41,7 @@ export default function (pi: ExtensionAPI) {
 			"For the tickler tool, resolve the time to an ISO 8601 timestamp with offset using the current local time the tool reports (call tickler with action \"list\" first if you don't know the current date). If he gave no time of day, use 09:00 local. If he gave no date at all, ask once.",
 			"When the work should resume once Nathan is back at his Mac (\"next time I'm on the client\", \"when I'm back at my computer\", \"when I'm online\", or it needs him physically: a phone press, a click, a login), call the tickler tool with action \"schedule\" and when: \"online\" instead of `at`. It fires on his next arrival at the client after now (sustained activity, not a brief wake), once. Run `presence` in bash to see whether he's online right now.",
 			"When you're waiting on something slow that isn't about Nathan (a machine coming back online, CI, a deploy, a long job, someone's reply) and there's nothing else useful to do, don't hold the turn open with long sleeps: schedule a wake-up with the tickler tool, when: \"check\" plus `check` (a cheap shell command that exits 0 once it's ready, e.g. `ssh -o ConnectTimeout=5 nathan-dev-client true`), or when: \"event\" and hand the printed webhook URL to whatever finishes. It runs every minute without a model, then resumes this session in place (or a forked tab if this one closed). Then end your turn saying what you're waiting for.",
+			"When you're waiting on another person (asked someone for something: a reply, an access grant, a code), schedule a GTD \"waiting for\" item: action \"schedule\", `waitingFor` = their name, `at` = the first check-in (default: next business day, their afternoon), and optionally `check` for a programmatic signal that fires it early (e.g. a DNS or API status change). When it fires you get a prompt to check for their reply, do the next step if they answered, or follow up once and requeue with `attempt` + 1 on the backoff it gives. A timeline they state overrides the backoff.",
 			"The tickler task text must be self-contained: what to do and the key facts/decisions so far, written as an instruction to the future agent.",
 			"After scheduling with the tickler tool, confirm in one line with the resolved local date and time.",
 		],
@@ -53,12 +54,14 @@ export default function (pi: ExtensionAPI) {
 						"schedule, instead of `at`: online = next time Nathan comes online at his client Mac; check = once `check` exits 0 (polled every minute, no model); event = only when triggered via the printed webhook",
 				}),
 			),
-			check: Type.Optional(Type.String({ description: "when=check: shell command that exits 0 when the thing is ready (keep it fast; 20s cap)" })),
+			check: Type.Optional(Type.String({ description: "when=check (or with waitingFor, to fire early): shell command that exits 0 when the thing is ready (keep it fast; 20s cap)" })),
 			expires: Type.Optional(Type.String({ description: "when=check|event: ISO time to give up and fire as expired (default 7 days)" })),
 			task: Type.Optional(Type.String({ description: "schedule: self-contained instruction for the future agent" })),
 			title: Type.Optional(Type.String({ description: "schedule: short tab title (≤ 35 chars)" })),
 			workspace: Type.Optional(Type.String({ description: "schedule: Herdr workspace label to open in (default: the current one)" })),
 			mode: Type.Optional(StringEnum(["fork", "fresh"] as const, { description: "schedule: fork this conversation (default) or start a fresh pi" })),
+			waitingFor: Type.Optional(Type.String({ description: "schedule with `at`: GTD waiting-for; the person we're waiting on (enables the check/follow-up/backoff prompt)" })),
+			attempt: Type.Optional(Type.Number({ description: "waitingFor: which check-in this is (1 = first; increment on each requeue)" })),
 			id: Type.Optional(Type.String({ description: "cancel: item id" })),
 		}),
 		async execute(_id, p, _signal, _onUpdate, ctx) {
@@ -70,6 +73,7 @@ export default function (pi: ExtensionAPI) {
 				if (p.when === "check" && !p.check) throw new Error("when: \"check\" needs `check`");
 				const trigger = p.when ? ["--when", p.when] : ["--at", p.at!];
 				if (p.check) trigger.push("--check", p.check);
+				if (p.waitingFor) trigger.push("--waiting-for", p.waitingFor, "--attempt", String(p.attempt ?? 1));
 				if (p.expires) trigger.push("--expires", p.expires);
 				args = ["add", ...trigger, "--task", p.task, "--cwd", ctx.cwd, "--mode", p.mode ?? "fork"];
 				const session = ctx.sessionManager.getSessionFile();

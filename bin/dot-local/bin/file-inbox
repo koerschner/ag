@@ -16,6 +16,10 @@
 //                    (found by its session file, so it survives pane moves), else a new Inbox session.
 //   GET  /focus?tab=<tab id>   focus that Herdr tab in the attached session, then close the
 //                    browser tab. Agents print these as clickable links (`herdr-link`).
+//   GET  /m/<pi session id>   phone deep link: finds the pane now running that pi session (by
+//                    session file, so it survives the Inbox auto-filer moving it) and redirects
+//                    to moshi://herdr?workspace&tab&pane, which resumes Moshi's active card
+//                    there. `session-link` prints these; iMessage won't linkify moshi:// itself.
 //
 // Listens only on ag's Tailscale IP (tailnet-only, like ag-inbox). Run by com.nathan.file-inbox.
 
@@ -194,6 +198,14 @@ Bun.serve({
 					if (review[2] === undefined) return Response.redirect(`/r/${review[1]}/`, 302);
 					return serveReview(slot, rel);
 				}
+			}
+			const m = url.pathname.match(/^\/m\/([0-9a-f-]{8,36})$/);
+			if (req.method === "GET" && m) {
+				const pane = herdr("pane", "list").panes.find((p: any) => String(p.agent_session?.value ?? "").includes(m[1]));
+				log({ moshi: m[1], pane: pane?.pane_id ?? null });
+				if (!pane) return new Response("That session isn't open in Herdr anymore.\n", { status: 404 });
+				const q = new URLSearchParams({ workspace: pane.workspace_id, tab: pane.tab_id, pane: pane.pane_id });
+				return new Response(null, { status: 302, headers: { location: `moshi://herdr?${q}` } });
 			}
 			if (req.method === "GET" && url.pathname === "/focus") {
 				const tab = url.searchParams.get("tab") ?? "";

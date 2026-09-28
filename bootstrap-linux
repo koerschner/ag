@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Bring an Ag Linux machine (Ubuntu 24.04; brain or worker) to parity. Idempotent: safe to re-run.
+# Run as the normal user (sudo without password). Cloud-init runs it on first boot (infra/hetzner).
+#
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/nathankoerschner/dotfiles/main/bootstrap-linux)"
+#
+# The Mac-only parts of `bootstrap` (Homebrew casks, Hammerspoon, LaunchAgents, macOS defaults) don't apply.
+# Secrets are never fetched; the final checklist says what's still missing.
+set -uo pipefail
+
+DOTFILES=${DOTFILES:-$HOME/dotfiles}
+REPO=https://github.com/nathankoerschner/dotfiles.git
+# Stow packages that make sense on Linux (no ghostty/hammerspoon/alfred/ag-board/ag-inbox yet).
+STOW_PACKAGES=(agents bin claude codex git herdr mise nvim pi ssh tmux zsh)
+APT=(git curl jq unzip zsh stow ripgrep fd-find fzf build-essential docker.io ca-certificates gnupg neovim tmux python3 htop)
+backup=$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)
+failed=()
+export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.local/share/mise/shims:$PATH"
+
+step() { printf '\n\033[36m==> %s\033[0m\n' "$*"; }
+warn() { printf '\033[33m  ! %s\033[0m\n' "$*"; failed+=("$*"); }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+step "apt packages"
+sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq &&
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${APT[@]}" >/dev/null || warn "apt install"
+sudo usermod -aG docker "$USER" 2>/dev/null || true
+
+step "GitHub CLI"
+if ! have gh; then
+  sudo install -d -m 0755 /etc/apt/keyrings &&
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli.gpg >/dev/null &&
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" |
+      sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null &&
+    sudo apt-get update -qq && sudo apt-get install -y -qq gh >/dev/null || warn "gh"
+fi
+
+step "1Password CLI"
+if ! have op; then
+  curl -fsSL https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --dearmor --yes -o /etc/apt/keyrings/1password.gpg &&
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/1password.gpg] https://downloads.1password.com/linux/debian/$(dpkg --print-architecture) stable main" |
+      sudo tee /etc/apt/sources.list.d/1password.list >/dev/null &&
+    sudo apt-get update -qq && sudo apt-get install -y -qq 1password-cli >/dev/null || warn "1password-cli"
+fi
+
+step "dotfiles repo -> $DOTFILES"
+[[ -d $DOTFILES/.git ]] || git clone "$REPO" "$DOTFILES" || { echo "clone failed"; exit 1; }
+cd "$DOTFILES" || exit 1
+
+step "oh-my-zsh"
+[[ -d ~/.oh-my-zsh ]] ||
+  RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" ||
+  warn "oh-my-zsh"
+[[ $(getent passwd "$USER" | cut -d: -f7) == */zsh ]] || sudo chsh -s "$(command -v zsh)" "$USER" || warn "chsh zsh"
+
+step "mise + node"
+have mise || curl -fsSL https://mise.run | sh || warn "mise"
+have mise && { mise use -g node@lts >/dev/null && echo "  node $(mise exec -- node --version)"; } || warn "node"
+
+step "Standalone CLIs (vendor installers)"
+[[ -x ~/.bun/bin/bun ]] || curl -fsSL https://bun.sh/install | bash >/dev/null || warn "bun"
+have herdr  || curl -fsSL https://herdr.dev/install.sh | sh             || warn "herdr"
+have claude || curl -fsSL https://claude.ai/install.sh | bash           || warn "claude"
+have codex  || curl -fsSL https://chatgpt.com/codex/install.sh | sh     || warn "codex"
+have pi     || mise exec -- npm install -g --prefix "$HOME/.local" @earendil-works/pi-coding-agent >/dev/null || warn "pi"
+
+step "agent instructions"
+"$DOTFILES/agents.md/build" || warn "agents.md/build"
+git -C "$DOTFILES" config core.hooksPath .githooks
+
+step "stow packages"
+for pkg in "${STOW_PACKAGES[@]}"; do
+  # Move aside any real file that would block a symlink, then stow.
+  stow --dotfiles --no-folding -d "$DOTFILES" -t "$HOME" -n "$pkg" 2>&1 |
+    sed -nE 's/.* over existing target (.+) since .*/\1/p; s/.*existing target is not owned by stow: (.+)$/\1/p' |
+    while read -r rel; do
+      mkdir -p "$backup/$(dirname "$rel")" && mv "$HOME/$rel" "$backup/$rel" && echo "  backed up ~/$rel"
+    done
+  stow --dotfiles --no-folding -d "$DOTFILES" -t "$HOME" "$pkg" && echo "  $pkg" || warn "stow $pkg"
+done
+[[ -d $backup ]] && echo "  pre-existing files moved to $backup"
+
+step "Secrets checklist (move by hand or via op; never commit)"
+check() { [[ -e $1 ]] && echo "  ok   $2" || { echo "  TODO $2"; failed+=("secret: $2"); }; }
+check ~/.config/gh/hosts.yml       "gh auth login (GitHub)"
+check ~/.pi/agent/auth.json        "Pi model auth (TrueFoundry)"
+check ~/.pi/agent/mcp.json         "Pi MCP config"
+check ~/.config/ag/op-work.token   "ag-shared 1Password service-account token (op-work on Linux)"
+
+if ((${#failed[@]})); then
+  printf '\n\033[33m%d item(s) need attention:\033[0m\n' "${#failed[@]}"; printf '  - %s\n' "${failed[@]}"
+else
+  printf '\n\033[32mAll done.\033[0m\n'
+fi

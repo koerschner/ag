@@ -2,7 +2,9 @@
 """Run 1Password CLI with a single-vault service-account Keychain credential.
 
 Invoked as op-ag: arcade.school vault. Invoked as op-shared (a symlink to this
-file): Nathan's machine-shared vault. Each name maps to its own Keychain item.
+file): Nathan's personal machine-shared vault. Invoked as op-work (symlink):
+the ag-shared vault in the Trilogy work account. Each name maps to its own
+Keychain item.
 """
 import os
 import plistlib
@@ -17,6 +19,7 @@ from pathlib import Path
 SERVICES = {
     "op-ag": "ag 1Password service account",
     "op-shared": "ag machine-shared service account",
+    "op-work": "ag-shared 1Password service account",
 }
 NAME = Path(__file__).name
 if NAME not in SERVICES:

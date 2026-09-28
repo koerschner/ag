@@ -32,9 +32,19 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { createHash } from "node:crypto";
 
 const PORT = 7373;
 const HOME = homedir();
+
+// Activity capture: note each prompt this script injects (hash only), so the Pi activity extension can tell it apart from typing.
+const injected = (by: string, text: string, extra: object = {}) => {
+	try {
+		mkdirSync(`${HOME}/.local/state/activity`, { recursive: true });
+		const sha = createHash("sha1").update(text.trim()).digest("hex").slice(0, 12);
+		appendFileSync(`${HOME}/.local/state/activity/injections.jsonl`, JSON.stringify({ ts: new Date().toISOString(), by, sha, ...extra }) + "\n");
+	} catch {}
+};
 const HERDR = `${HOME}/.local/bin/herdr`;
 const LOG_DIR = `${HOME}/.local/state/ag-inbox`;
 const CAPTURE_DIR = `${HOME}/inbox/capture`;
@@ -274,7 +284,9 @@ function withHint(text: string, s: Session): string {
 function follow(id: string, text: string, s: Session, p: number) {
 	const agent = herdr("agent", "get", s.pane);
 	if ((agent?.agent_status ?? agent?.agent?.agent_status) === "blocked") throw new Error("session is blocked on a dialog");
-	herdr("agent", "prompt", s.pane, `New context from Nathan, sent via the ag inbox (Jev matched it to this session, p=${p.toFixed(2)}; if it clearly doesn't belong here, say so and suggest where it goes):\n\n${text}`);
+	const msg = `New context from Nathan, sent via the ag inbox (Jev matched it to this session, p=${p.toFixed(2)}; if it clearly doesn't belong here, say so and suggest where it goes):\n\n${text}`;
+	injected("ag-inbox", msg, { id, action: "follow" });
+	herdr("agent", "prompt", s.pane, msg);
 	log(id, "followed", { tab: s.tab, pane: s.pane, title: s.title });
 	try { execFileSync(HERDR, ["notification", "show", `Added to ${s.title}`, "--body", text.slice(0, 120)], { timeout: 10_000 }); } catch {}
 }
@@ -301,6 +313,7 @@ function launch(id: string, text: string, label: string) {
 	herdr("agent", "start", agent, "--kind", "pi", "--pane", pane, "--timeout", "60000");
 	log(id, "pi_started", { agent });
 
+	injected("ag-inbox", text, { id, action: "new" });
 	herdr("agent", "prompt", agent, text);
 	log(id, "sent");
 }
@@ -418,7 +431,7 @@ Bun.serve({
 	hostname: host,
 	maxRequestBodySize: 64 * 1024 * 1024,
 	port: PORT,
-	async fetch(req) {
+	async fetch(req, server) {
 		const url = new URL(req.url);
 		if (req.method === "GET" && url.pathname === "/") return new Response(PAGE, { headers: { "content-type": "text/html" } });
 		// Tickler wake-up webhook: POST /tickler/<id> (optional body = note) fires that waiting item now.
@@ -473,7 +486,10 @@ Bun.serve({
 		if (sharedFiles.length || url_ || shared) {
 			share = { files: await Promise.all(sharedFiles.map((f, n) => saveShared(id, f, n + 1))), url: url_, shared };
 		}
-		log(id, "received", { chars: text.length, text, clientId, screenshot: shot?.path, audio, share });
+		// Capture metadata for the time review: which device sent it (Tailscale peer), and the Mac's front app/window.
+		const ip = server.requestIP(req)?.address?.replace(/^::ffff:/, "");
+		const from = { ip, device: field("source") || (clientId ? "iphone" : undefined), app: field("app") || undefined, window: field("window") || undefined, ua: req.headers.get("user-agent")?.slice(0, 80) };
+		log(id, "received", { chars: text.length, text, clientId, screenshot: shot?.path, audio, share, from });
 		// dry=1: route and gate only, return what would be sent, open nothing (for testing).
 		if (field("dry") === "1") {
 			const { session: _, ...dry } = await prepare(id, text, shot, share, audio);

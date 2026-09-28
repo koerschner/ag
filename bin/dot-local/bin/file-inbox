@@ -24,12 +24,22 @@
 // Listens only on ag's Tailscale IP (tailnet-only, like ag-inbox). Run by com.nathan.file-inbox.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, extname, resolve } from "node:path";
 
 const PORT = 7374;
 const HOME = homedir();
+
+// Activity capture: note each prompt this script injects (hash only), so the Pi activity extension can tell it apart from typing.
+const injected = (by: string, text: string, extra: object = {}) => {
+	try {
+		mkdirSync(`${HOME}/.local/state/activity`, { recursive: true });
+		const sha = createHash("sha1").update(text.trim()).digest("hex").slice(0, 12);
+		appendFileSync(`${HOME}/.local/state/activity/injections.jsonl`, JSON.stringify({ ts: new Date().toISOString(), by, sha, ...extra }) + "\n");
+	} catch {}
+};
 const DIR = `${HOME}/inbox/phone`;
 const HERDR = `${HOME}/.local/bin/herdr`;
 const AG_INBOX = (host: string) => `http://${host}:7373/prompt`;
@@ -91,6 +101,7 @@ async function deliver(to: string, text: string, paths: string[]): Promise<strin
 		if (!res.ok) throw new Error(`ag-inbox ${res.status}`);
 		return "sent to a new session";
 	}
+	injected("file-inbox", msg, { kind: "file" });
 	herdr("agent", "prompt", to, msg);
 	return `sent to ${to}`;
 }
@@ -163,6 +174,7 @@ async function reviewComment(slot: string, body: any): Promise<string> {
 	const agent = (meta.session && agents.find((a) => a.agent_session?.value === meta.session)) ||
 		(meta.pane && !meta.session && agents.find((a) => a.pane_id === meta.pane));
 	if (agent) {
+		injected("file-inbox", msg, { kind: "review-comment", slot });
 		herdr("agent", "prompt", agent.pane_id, msg);
 		const tab = herdr("tab", "get", agent.tab_id).tab?.label ?? agent.tab_id;
 		return `sent to ${tab}`;

@@ -26,9 +26,18 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 const HOME = homedir();
+
+// Activity capture: note each prompt this script injects (hash only), so the Pi activity extension can tell it apart from typing.
+const injected = (by: string, text: string, extra: object = {}) => {
+	try {
+		mkdirSync(`${HOME}/.local/state/activity`, { recursive: true });
+		const sha = createHash("sha1").update(text.trim()).digest("hex").slice(0, 12);
+		appendFileSync(`${HOME}/.local/state/activity/injections.jsonl`, JSON.stringify({ ts: new Date().toISOString(), by, sha, ...extra }) + "\n");
+	} catch {}
+};
 const DIR = `${HOME}/.local/state/tickler`;
 const HERDR = `${HOME}/.local/bin/herdr`;
 const FALLBACK_WORKSPACE = "Inbox";
@@ -225,6 +234,7 @@ function originPane(i: Item): string | null {
 function fireOne(i: Item) {
 	const origin = isWake(i) ? originPane(i) : null;
 	if (origin) {
+		injected("tickler", prompt(i), { id: i.id, when: i.when });
 		herdr("agent", "prompt", origin, prompt(i));
 		try {
 			herdr("notification", "show", `🔔 ${i.title}`.slice(0, 40), "--body", "Wake-up fired: resumed its session", "--sound", "request");
@@ -254,6 +264,7 @@ function fireOne(i: Item) {
 			Bun.sleepSync(2000);
 		}
 	}
+	injected("tickler", prompt(i), { id: i.id, when: i.when });
 	herdr("agent", "prompt", agent, prompt(i));
 	try {
 		const why = i.when === "online" ? "Welcome back: queued for when you're online" : isWake(i) ? "Wake-up fired (its session was closed or busy)" : "Tickler fired";

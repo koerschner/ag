@@ -58,24 +58,124 @@ const ago = (iso?: string) => {
 const local = (iso?: string) =>
 	iso ? new Date(iso).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" }) : "?";
 
-// One SSH round trip: idle ns, locked, console user, running client-cua jobs.
-const PROBE = `ioreg -c IOHIDSystem -d 4 | awk '/HIDIdleTime/ {print $NF; exit}'
+// ─── Activity capture (for the time review) ────────────────────────────────────
+// Piggybacks on this poll so nothing else wakes up: the same SSH round trip pulls new lines
+// from the client's event-driven Hammerspoon log (activity_log.lua), and one local `ps` notices
+// which device has Herdr attached. Everything lands in ~/.local/state/activity/ as JSONL.
+const ACT = `${HOME}/.local/state/activity`;
+const ACT_STATE = `${ACT}/state.json`;
+mkdirSync(ACT, { recursive: true });
+type HerdrClient = { via: string; ip?: string; device?: string; since: string };
+type ActState = { offset: number; herdr: Record<string, HerdrClient> };
+const actLoad = (): ActState =>
+	existsSync(ACT_STATE) ? { offset: 0, herdr: {}, ...JSON.parse(readFileSync(ACT_STATE, "utf8")) } : { offset: 0, herdr: {} };
+const actLog = (file: string, data: object) =>
+	appendFileSync(`${ACT}/${file}`, JSON.stringify({ ts: new Date().toISOString(), ...data }) + "\n");
+const EVENTS_MARK = "@@EVENTS";
+const EVENTS_CHUNK = 256 * 1024;
+
+// Save complete lines from the client's log; returns the new byte offset.
+function saveClientEvents(offset: number, size: number, chunk: string): number {
+	if (size < offset) offset = 0; // client log was reset
+	const end = chunk.lastIndexOf("\n");
+	if (end < 0) return offset;
+	const lines = chunk.slice(0, end + 1);
+	appendFileSync(`${ACT}/client-${CLIENT}.jsonl`, lines);
+	return offset + Buffer.byteLength(lines);
+}
+
+// Tailscale IP → device name, refreshed only when an unknown IP shows up.
+let tsNames: Record<string, string> | undefined;
+function deviceFor(ip: string): string | undefined {
+	const load = () => {
+		const r = spawnSync("/usr/local/bin/tailscale", ["status", "--json"], { encoding: "utf8", timeout: 5000 });
+		const j = JSON.parse(r.stdout || "{}");
+		tsNames = {};
+		for (const p of [j.Self, ...Object.values(j.Peer ?? {})] as any[])
+			for (const a of p?.TailscaleIPs ?? []) tsNames[a] = p.HostName;
+	};
+	try {
+		if (!tsNames?.[ip]) load();
+	} catch {}
+	return tsNames?.[ip];
+}
+
+// Herdr clients on this host: remote bridges (the client's `ag` command), TUIs inside SSH/mosh (iPhone Moshi),
+// and a local Ghostty TUI. Logs attach/detach transitions only.
+function trackHerdrClients(a: ActState) {
+	const ps = spawnSync("ps", ["-axo", "pid=,ppid=,command="], { encoding: "utf8", timeout: 5000 }).stdout ?? "";
+	const procs = new Map<string, { ppid: string; cmd: string }>();
+	for (const line of ps.split("\n")) {
+		const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
+		if (m) procs.set(m[1], { ppid: m[2], cmd: m[3] });
+	}
+	const isClient = (cmd: string) =>
+		!/^\/usr\/bin\/login /.test(cmd) && (/herdr remote-client-bridge/.test(cmd) || /(^|\/|-)herdr( --remote\b.*)?$/.test(cmd));
+	const now: Record<string, HerdrClient> = {};
+	for (const [pid, p] of procs) {
+		if (!isClient(p.cmd)) continue;
+		if (a.herdr[pid]) {
+			now[pid] = a.herdr[pid];
+			continue;
+		}
+		let via = "unknown", sshd: string | undefined;
+		for (let cur = p.ppid, n = 0; cur && cur !== "1" && n < 12; cur = procs.get(cur)?.ppid ?? "", n++) {
+			const c = procs.get(cur)?.cmd ?? "";
+			if (/^sshd-session: \S+@/.test(c) || /^sshd: \S+@/.test(c)) { via = "ssh"; sshd = cur; break; }
+			if (/mosh-server/.test(c)) { via = "mosh"; break; }
+			if (/ghostty/i.test(c)) { via = "local"; break; }
+		}
+		if (via === "unknown") continue; // mid-startup or exiting; look again next poll
+		const c: HerdrClient = { via, since: new Date().toISOString(), device: via === "local" ? "ag (local)" : undefined };
+		if (sshd) {
+			const l = spawnSync("lsof", ["-nP", "-a", "-p", sshd, "-iTCP", "-sTCP:ESTABLISHED"], { encoding: "utf8", timeout: 5000 }).stdout ?? "";
+			c.ip = l.match(/->([\d.]+):\d+/)?.[1];
+			if (c.ip) c.device = deviceFor(c.ip);
+		}
+		now[pid] = c;
+		actLog("ag.jsonl", { ev: "herdr_attach", pid: Number(pid), kind: /remote-client-bridge/.test(p.cmd) ? "bridge" : "tui", ...c });
+	}
+	for (const [pid, c] of Object.entries(a.herdr))
+		if (!now[pid]) actLog("ag.jsonl", { ev: "herdr_detach", pid: Number(pid), via: c.via, ip: c.ip, device: c.device, attached_since: c.since });
+	a.herdr = now;
+}
+
+// One SSH round trip: idle ns, locked, console user, running client-cua jobs, then new activity-log bytes.
+const probe = (offset: number) => `ioreg -c IOHIDSystem -d 4 | awk '/HIDIdleTime/ {print $NF; exit}'
 ioreg -n Root -d1 | grep -q '"IOConsoleLocked" = Yes' && echo locked || echo unlocked
 stat -f %Su /dev/console
-launchctl list | grep -c client-cua- || true`;
+launchctl list | grep -c client-cua- || true
+f=~/.local/state/activity/events.jsonl; z=$(stat -f %z "$f" 2>/dev/null || echo 0); echo "${EVENTS_MARK} $z"
+o=${offset}; [ "$z" -lt "$o" ] && o=0; [ "$z" -gt "$o" ] && tail -c +$((o+1)) "$f" | head -c ${EVENTS_CHUNK}; true`;
 
-type Sample = { idle_s: number; locked: boolean; user: string; cua: number } | null;
-function sample(): Sample {
-	const r = spawnSync("ssh", ["-o", "ConnectTimeout=5", "-o", "BatchMode=yes", CLIENT, PROBE], { encoding: "utf8", timeout: 15_000 });
-	const [idle, lock, user, cua] = (r.stdout ?? "").trim().split("\n");
+type Sample = { idle_s: number; locked: boolean; user: string; cua: number; events?: { size: number; chunk: string } } | null;
+function sample(offset: number): Sample {
+	const r = spawnSync("ssh", ["-o", "ConnectTimeout=5", "-o", "BatchMode=yes", CLIENT, probe(offset)], { encoding: "utf8", timeout: 15_000 });
+	const out = r.stdout ?? "";
+	const mark = out.indexOf(EVENTS_MARK);
+	const [idle, lock, user, cua] = (mark >= 0 ? out.slice(0, mark) : out).trim().split("\n");
 	if (r.status !== 0 || !idle || isNaN(Number(idle))) return null;
-	return { idle_s: Math.round(Number(idle) / 1e9), locked: lock === "locked", user, cua: Number(cua) || 0 };
+	let events: { size: number; chunk: string } | undefined;
+	if (mark >= 0) {
+		const nl = out.indexOf("\n", mark);
+		const size = Number(out.slice(mark + EVENTS_MARK.length, nl < 0 ? undefined : nl).trim()) || 0;
+		events = { size, chunk: nl < 0 ? "" : out.slice(nl + 1) };
+	}
+	return { idle_s: Math.round(Number(idle) / 1e9), locked: lock === "locked", user, cua: Number(cua) || 0, events };
 }
 
 function poll() {
 	const s = load();
 	const now = new Date().toISOString();
-	const x = sample();
+	const act = actLoad();
+	const x = sample(act.offset);
+	if (x?.events) act.offset = saveClientEvents(act.offset, x.events.size, x.events.chunk);
+	try {
+		trackHerdrClients(act);
+	} catch (e) {
+		log("herdr_clients_failed", { error: String(e) });
+	}
+	writeFileSync(ACT_STATE, JSON.stringify(act, null, 2) + "\n");
 	const next: State = { ...s, client: CLIENT, last_poll: now, held: undefined };
 	const become = (state: "online" | "offline", why: string) => {
 		if (next.state === state) return;

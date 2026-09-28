@@ -22,6 +22,8 @@
 //   file        shared files (repeatable; iPhone share sheet). Always attached, saved to ~/inbox/share
 //   url, shared shared link / shared text. With files or a link, `text` may be empty.
 //   dry         "1" = route and gate only; responds with the label, playbook and prompt, opens nothing
+//   new         "1" (form field or ?new=1) = always open a new session, never a follow-on (e.g. client-cua-gate's
+//               access sessions)
 // Playbooks (~/.config/ag-inbox/playbooks/*.md, stowed from dotfiles, re-read per request): typical
 // kinds of captures (e.g. a name + phone number) with a set workflow. The router picks at most one and
 // its instructions are prepended to the prompt.
@@ -347,7 +349,7 @@ function withShare(text: string, share: Share): string {
 	return `${ask}\n\nShared from my iPhone (read the files to view them):\n${lines.join("\n")}`;
 }
 
-async function prepare(id: string, typed: string, shot: Shot | null, share: Share | null, audio: string | null = null) {
+async function prepare(id: string, typed: string, shot: Shot | null, share: Share | null, audio: string | null = null, fresh = false) {
 	const text = await voiceText(id, typed, audio);
 	const books = playbooks();
 	const images = share?.files.filter((p) => /\.(png|jpe?g|gif|webp)$/i.test(p)) ?? [];
@@ -360,7 +362,7 @@ async function prepare(id: string, typed: string, shot: Shot | null, share: Shar
 		}),
 		attachDecision(id, routeText, shot),
 		// On a Jev failure, open a new session as before.
-		matchThread(routeText).catch(() => matchThread(routeText)).catch((e): Thread => {
+		fresh ? Promise.resolve<Thread>({ action: "new", ongoing: 0, p: 0, session: null }) : matchThread(routeText).catch(() => matchThread(routeText)).catch((e): Thread => {
 			log(id, "thread_failed", { error: String(e) });
 			return { action: "new", ongoing: 0, p: 0, session: null };
 		}),
@@ -378,9 +380,9 @@ async function prepare(id: string, typed: string, shot: Shot | null, share: Shar
 	};
 }
 
-async function handle(id: string, text: string, shot: Shot | null, share: Share | null, audio: string | null) {
+async function handle(id: string, text: string, shot: Shot | null, share: Share | null, audio: string | null, fresh: boolean) {
 	try {
-		const { label, prompt, thread, session } = await prepare(id, text, shot, share, audio);
+		const { label, prompt, thread, session } = await prepare(id, text, shot, share, audio, fresh);
 		if (thread.action === "follow" && session) {
 			try { return follow(id, prompt, session, thread.p); } catch (e) { log(id, "follow_failed", { error: String(e) }); }
 		}
@@ -489,13 +491,14 @@ Bun.serve({
 		// Capture metadata for the time review: which device sent it (Tailscale peer), and the Mac's front app/window.
 		const ip = server.requestIP(req)?.address?.replace(/^::ffff:/, "");
 		const from = { ip, device: field("source") || (clientId ? "iphone" : undefined), app: field("app") || undefined, window: field("window") || undefined, ua: req.headers.get("user-agent")?.slice(0, 80) };
-		log(id, "received", { chars: text.length, text, clientId, screenshot: shot?.path, audio, share, from });
+		const fresh = url.searchParams.get("new") === "1" || field("new") === "1";
+		log(id, "received", { chars: text.length, text, clientId, screenshot: shot?.path, audio, share, from, fresh: fresh || undefined });
 		// dry=1: route and gate only, return what would be sent, open nothing (for testing).
 		if (field("dry") === "1") {
-			const { session: _, ...dry } = await prepare(id, text, shot, share, audio);
+			const { session: _, ...dry } = await prepare(id, text, shot, share, audio, fresh);
 			return Response.json(dry);
 		}
-		void handle(id, text, shot, share, audio);
+		void handle(id, text, shot, share, audio, fresh);
 		// Send-only: no result. The form just lands back on a blank page.
 		return type.includes("form") ? new Response(null, { status: 303, headers: { location: "/" } }) : new Response(null, { status: 202 });
 	},

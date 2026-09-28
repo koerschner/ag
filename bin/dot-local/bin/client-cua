@@ -1,8 +1,14 @@
 #!/usr/bin/env zsh
 # client-cua — run a computer-use task on the CLIENT Mac's desktop from ag.
 #
-#   client-cua "open CleanShot settings and ..."
-#   echo "task" | client-cua
+#   client-cua --why "<why this exists only on the client>" "click Allow on the ... prompt"
+#   echo "task" | CLIENT_CUA_WHY="..." client-cua
+#
+# Gated: driving the client is an antipattern (do the work on ag). Every run is judged by
+# client-cua-gate (Jev) and allowed only when the thing exists solely on the client (a dialog or
+# permission prompt showing there, iPhone Mirroring, a client-only setting). Otherwise it exits 3
+# and spins out an Inbox session to get the missing access onto ag. Pi's client-cua-guard
+# extension runs the same gate first and passes CLIENT_CUA_GATE_TOKEN so it isn't judged twice.
 #
 # Plain `ssh client codex exec` can't see the screen (no GUI session), so this submits the job
 # into the client's GUI launchd domain with `launchctl submit`, then polls for the result.
@@ -12,8 +18,21 @@ set -euo pipefail
 
 client=${CLIENT_CUA_HOST:-nathan-dev-client}
 effort=${CHATGPT_CUA_EFFORT:-medium}
+why=${CLIENT_CUA_WHY:-}
+[[ ${1:-} == --why ]] && { why=${2:-}; shift 2 || true; }
 task=${*:-$(cat)}
-[[ -n $task ]] || { echo "usage: client-cua <task>" >&2; exit 2; }
+[[ -n $task ]] || { echo 'usage: client-cua --why "<why only the client can do this>" <task>' >&2; exit 2; }
+
+gate=${0:A:h}/client-cua-gate
+if [[ -n ${CLIENT_CUA_GATE_TOKEN:-} ]] && $gate --consume "$CLIENT_CUA_GATE_TOKEN"; then
+  :  # already approved by the Pi guard for this call
+else
+  [[ -n $why ]] || { echo 'client-cua: a justification is required: --why "<why this exists only on the client>" (or CLIENT_CUA_WHY). Driving the client desktop is an antipattern; only a dialog/prompt showing there, iPhone Mirroring, or a client-only setting qualifies. Do everything else on ag.' >&2; exit 2; }
+  if ! verdict=$($gate --kind cua --why "$why" --pane "${HERDR_PANE_ID:-}" -- "$task"); then
+    print -r -- "client-cua: $(print -r -- $verdict | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("reason","blocked"))' 2>/dev/null || print -r -- $verdict)" >&2
+    exit 3
+  fi
+fi
 
 id=client-cua-$$-$RANDOM
 dir=/tmp/$id

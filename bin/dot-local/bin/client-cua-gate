@@ -1,0 +1,183 @@
+#!/usr/bin/env bun
+// client-cua-gate: decide whether an agent on ag may drive the CLIENT Mac's desktop.
+//
+// Driving the client (client-cua, or ssh + osascript/Hammerspoon UI automation) is an antipattern:
+// work belongs on ag. It's allowed only when the thing exists solely on the client (a dialog or
+// permission prompt showing there, iPhone Mirroring, a client-only setting). Jev (TypeSafe System
+// One, via TrueFoundry) judges each attempt against that rule. Unjustified, unsure, or Jev
+// unreachable → blocked (fail closed), and a new Inbox session is spun out (ag inbox) to get the
+// missing access onto ag so it never happens again.
+//
+//   client-cua-gate [--kind cua|ssh] [--why TEXT] [--goal TEXT] [--session FILE] [--pane ID] -- <command or task>
+//     prints a JSON verdict; exit 0 = allowed (verdict.token lets client-cua skip re-checking), 3 = blocked
+//   client-cua-gate --consume <token>   exit 0 if the token is a fresh approval (single use)
+//
+// Callers: the Pi extension client-cua-guard.ts (before a bash tool call runs) and client-cua itself
+// (so Codex, Claude Code, and scripts hit the same gate). Log: ~/.local/state/client-cua-gate/log.jsonl
+
+import { createHash, randomUUID } from "node:crypto";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+
+const HOME = homedir();
+const STATE = `${HOME}/.local/state/client-cua-gate`;
+const JEV_URL = "https://tfy.promptlens.trilogy.com/proxy-api/jev-account/jev-endpoint/v1/systemone";
+const INBOX_URL = process.env.CLIENT_CUA_GATE_INBOX ?? "http://ag:7373/prompt?new=1";
+// Block unless Jev is confident the action is client-only. Commands the regex only suspects
+// (ssh + osascript etc.) also have to actually drive the desktop to be judged at all.
+const JUSTIFIED_MIN = 0.7;
+const DRIVES_MIN = 0.5;
+const TOKEN_TTL_MS = 10 * 60_000;
+const SPAWN_DEDUP_MS = 6 * 3600_000; // same blocked task → one access session
+const SESSION_DEDUP_MS = 3600_000; // one access session per blocked agent session per hour
+
+const RULE = `Nathan's rule for AI agents running on his development Mac ("ag"): using computer use on his client Mac (the laptop he sits at, "nathan-dev-client") is an antipattern. Agents must do work on ag through an API, CLI, or MCP tool, or through computer use on ag's own desktop. Driving the client's desktop is allowed only when the thing exists solely on the client: a dialog or permission prompt that is showing on the client's screen, iPhone Mirroring (Nathan's iPhone is only reachable through the client), or a setting or app of the client Mac itself that the task is about. It is never justified because an app, website, or account is already signed in on the client, or because ag's copy is signed out, missing, or lacks permission; the fix then is to get that access onto ag.`;
+
+mkdirSync(`${STATE}/tokens`, { recursive: true });
+const log = (event: string, data: object) =>
+	appendFileSync(`${STATE}/log.jsonl`, JSON.stringify({ ts: new Date().toISOString(), event, ...data }) + "\n");
+
+function tfyToken(): string {
+	if (process.env.TFY_TOKEN) return process.env.TFY_TOKEN;
+	const m = readFileSync(`${HOME}/.zshenv.local`, "utf8").match(/TFY_TOKEN=["']?([^"'\s]+)/);
+	if (!m) throw new Error("TFY_TOKEN not found in ~/.zshenv.local");
+	return m[1];
+}
+
+// Flags take one value; everything else (or all after "--") is the command. Bun eats a leading "--".
+const args = process.argv.slice(2);
+const flags: Record<string, string> = {};
+const rest: string[] = [];
+for (let i = 0; i < args.length; i++) {
+	if (args[i] === "--") { rest.push(...args.slice(i + 1)); break; }
+	if (/^--(kind|why|goal|session|pane|consume)$/.test(args[i])) flags[args[i].slice(2)] = args[++i] ?? "";
+	else rest.push(args[i]);
+}
+const opt = (name: string) => flags[name.slice(2)];
+
+if ("consume" in flags) {
+	const f = `${STATE}/tokens/${flags.consume.replace(/[^\w-]/g, "")}`;
+	const ok = !!flags.consume && existsSync(f) && Date.now() - statSync(f).mtimeMs < TOKEN_TTL_MS;
+	if (existsSync(f)) rmSync(f);
+	process.exit(ok ? 0 : 1);
+}
+
+const command = rest.join(" ").trim() || (await Bun.stdin.text()).trim();
+if (!command) {
+	console.error("usage: client-cua-gate [--kind cua|ssh] [--why TEXT] [--goal TEXT] [--session FILE] [--pane ID] -- <command>");
+	process.exit(2);
+}
+const kind = opt("--kind") ?? "cua";
+const why = opt("--why") ?? "";
+const goal = opt("--goal") ?? "";
+const session = opt("--session") ?? "";
+const pane = opt("--pane") ?? process.env.HERDR_PANE_ID ?? "";
+
+type Answers = { justified: number; drives: number };
+
+async function askJev(): Promise<Answers> {
+	const questions: Record<string, object> = {
+		justified: {
+			type: "noul",
+			instructions: "An AI agent on ag is about to drive the client Mac's desktop with `command`. Under `rule`, and given the agent's stated `justification` and its session's `goal`, is that truly necessary: does what it needs exist only on the client?",
+			criteria: {
+				true: "It exists only on the client: a permission prompt or system dialog showing on the client's screen, iPhone Mirroring or other work on Nathan's phone, or a setting or app of the client Mac itself that the task is about.",
+				false: "It could be done on ag: e.g. sending or reading messages (Slack, Discord, email, texts), using a website, web app, or desktop app, or anything behind an account that could be signed in on ag, even if it is currently only signed in on the client.",
+			},
+		},
+	};
+	if (kind !== "cua") {
+		questions.drives = {
+			type: "noul",
+			instructions: "An AI agent on ag is about to run the shell command `command`, which reaches the client Mac over SSH. Would it operate the client's graphical desktop on Nathan's behalf: clicking, typing, controlling or scripting apps' UI, reading the screen, or submitting a computer-use task?",
+			criteria: {
+				true: "Yes: AppleScript/osascript that controls apps or System Events, Hammerspoon event taps or app/window control, cliclick, or similar UI automation or computer use.",
+				false: "No: it only shows a notification, reloads configuration (e.g. Hammerspoon hs.reload()), copies or reads files, syncs dotfiles, or runs ordinary non-GUI shell commands.",
+			},
+		};
+	}
+	const res = await fetch(JEV_URL, {
+		method: "POST",
+		headers: { authorization: `Bearer ${tfyToken()}`, "content-type": "application/json" },
+		body: JSON.stringify({
+			model: "jev-latest",
+			state: { rule: RULE, command: command.slice(0, 6000), justification: why.slice(0, 2000) || "(none given)", goal: goal.slice(0, 2000) || "(unknown)" },
+			questions,
+		}),
+		signal: AbortSignal.timeout(20_000),
+	});
+	if (!res.ok) throw new Error(`jev ${res.status}: ${(await res.text()).slice(0, 300)}`);
+	const a = (await res.json()).answers;
+	return { justified: a.justified.noul, drives: kind === "cua" ? 1 : a.drives.noul };
+}
+
+function accessPrompt(verdict: string): string {
+	return `Get missing access onto ag (spun out by the client-CUA guard)
+
+An agent on ag tried to drive the client Mac's desktop (nathan-dev-client) instead of doing its work on ag. Nathan's rule: computer use on the client is an antipattern; it's only for things that exist solely on the client (a dialog or permission prompt showing there, iPhone Mirroring, a client-only setting), never "because it's already signed in on the client". The guard (client-cua-gate, judged by Jev) blocked it: ${verdict}
+
+Blocked command:
+\`\`\`
+${command.slice(0, 4000)}
+\`\`\`
+Agent's justification: ${why || "(none given)"}
+Its session goal: ${goal || "(unknown)"}
+Blocked pi session: ${session || "(not a pi session)"}${pane ? `\nBlocked agent's Herdr pane: ${pane}` : ""}
+
+Your job: make sure this never needs the client again, by getting the right access onto ag.
+1. Read the blocked session (if given) and work out exactly what it needed (app, account, API, MCP server, permission) and why ag couldn't do it. First check whether an open session is already getting this access (\`herdr-link --grep <topic>\`); if so, hand it this context with \`herdr agent prompt\` instead of duplicating the work, and close this tab.
+2. Fix what you can safely yourself, preferring programmatic access: an API/CLI/MCP credential (store a scoped key in the canonical vault with op-ag, or op-shared for Nathan's personal services, never printing it), install the tool or app on ag (Brewfile), start the app's sign-in flow on ag with chatgpt-cua, grant ag's permission dialogs.
+3. For a login only Nathan can do, ask him clearly and politely: exactly what to sign in to on ag, and why (message him with ag-text as well as here).
+4. Record the fix in dotfiles (~/dotfiles-seen-setup: Brewfile, README, secrets checklist, docs), commit, push, and sync every machine in machines/README.md.
+5. Once ag has the access, tell the blocked agent${pane ? ` (\`herdr agent prompt ${pane} "..."\`, starting with a line saying it's from the access session)` : ""} so it can finish its task on ag.
+Don't use client-cua or drive the client desktop yourself; the guard blocks that too.`;
+}
+
+// One access session per blocked task (and per blocked agent session) at a time.
+async function spawnAccessSession(verdict: string): Promise<string> {
+	const key = createHash("sha1").update(command.replace(/\s+/g, " ")).digest("hex").slice(0, 16);
+	const sessKey = session ? createHash("sha1").update(session).digest("hex").slice(0, 16) : "";
+	const spawnedFile = `${STATE}/spawned.json`;
+	let spawned: Record<string, number> = {};
+	try { spawned = JSON.parse(readFileSync(spawnedFile, "utf8")); } catch {}
+	const recent = (k: string, ms: number) => !!k && Date.now() - (spawned[k] ?? 0) < ms;
+	if (recent(key, SPAWN_DEDUP_MS) || recent(`s:${sessKey}`, SESSION_DEDUP_MS)) return "already requested (an access session was spun out for this recently; look in the Herdr Inbox)";
+	const res = await fetch(INBOX_URL, {
+		method: "POST",
+		headers: { "content-type": "text/plain" },
+		body: accessPrompt(verdict),
+		signal: AbortSignal.timeout(15_000),
+	});
+	if (!res.ok) throw new Error(`ag inbox ${res.status}`);
+	spawned[key] = Date.now();
+	if (sessKey) spawned[`s:${sessKey}`] = Date.now();
+	writeFileSync(spawnedFile, JSON.stringify(spawned));
+	return "spun out a new Inbox session to get this access onto ag";
+}
+
+let answers: Answers | null = null;
+let error = "";
+try {
+	answers = await askJev();
+} catch (e) {
+	try { answers = await askJev(); } catch (e2) { error = String(e2); }
+}
+
+const allow = !!answers && (answers.drives < DRIVES_MIN || answers.justified >= JUSTIFIED_MIN);
+const scores = answers ? `Jev: client-only p=${answers.justified.toFixed(2)}${kind !== "cua" ? `, drives desktop p=${answers.drives.toFixed(2)}` : ""}` : `Jev unreachable (${error}); failing closed`;
+const out: Record<string, unknown> = { allow, kind, ...answers, error: error || undefined };
+
+if (allow) {
+	const token = randomUUID();
+	writeFileSync(`${STATE}/tokens/${token}`, "");
+	out.token = token;
+	out.reason = `Allowed: ${scores}.`;
+} else {
+	let access: string;
+	try { access = await spawnAccessSession(scores); } catch (e) { access = `couldn't spin out the access session (${e}); tell Nathan`; }
+	out.access = access;
+	out.reason = `Blocked by the client-CUA guard (${scores}). Driving the client Mac's desktop is an antipattern: it's only for things that exist solely on the client (a dialog or permission prompt showing there, iPhone Mirroring, a client-only setting), never because something is already signed in on the client. Do the task on ag instead (API/CLI/MCP, or chatgpt-cua on ag's own desktop). Access: ${access}. If you can't proceed without it, tell Nathan what ag is missing and wait for the access session instead of retrying on the client.`;
+}
+log(allow ? "allowed" : "blocked", { kind, command: command.slice(0, 2000), why, session, pane, answers, error: error || undefined, access: out.access });
+console.log(JSON.stringify(out));
+process.exit(allow ? 0 : 3);

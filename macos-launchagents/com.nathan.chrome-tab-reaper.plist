@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nathan.chrome-tab-reaper</string>
+  <!-- Every 30 min: close Chrome tabs not viewed for 12 h (bin/dot-local/bin/chrome-tab-reaper, via ChromeTabReaper.app). Only runs on ag. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>[[ $(scutil --get LocalHostName) == ag ]] || exit 0; exec "$HOME/.local/bin/chrome-tab-reaper" sweep</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>1800</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/chrome-tab-reaper.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/chrome-tab-reaper.log</string>
+</dict>
+</plist>

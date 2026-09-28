@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Close Chrome tabs on ag that nobody has looked at for a while (agents leave tabs open).
+
+  chrome-tab-reaper sweep     run one sweep now (via ChromeTabReaper.app; LaunchAgent
+                              com.nathan.chrome-tab-reaper runs this every 30 min)
+  chrome-tab-reaper status    tracked tabs and how long since each was last the active tab
+  chrome-tab-reaper log       recently closed tabs (URLs, so you can reopen them)
+
+A tab is closed once it hasn't been the active tab of its window for MAX_HOURS
+(CHROME_TAB_REAPER_HOURS, default 12), counted from when the reaper first saw it. The
+active tab of each window is never closed, nor the last tab of a window. Does nothing
+when Chrome isn't running, and only runs on ag.
+
+Apple Events from Herdr/pi (started over SSH) or plain LaunchAgents hang, so the Apple
+Events go through ~/Applications/ChromeTabReaper.app (macos-apps/ChromeTabReaper), which
+holds the Automation → Google Chrome grant and runs `chrome-tab-reaper _run`.
+Stdlib only: runs with the system python3.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import time
+
+MAX_HOURS = float(os.environ.get("CHROME_TAB_REAPER_HOURS", 12))
+STATE_DIR = os.path.expanduser("~/.local/state/chrome-tab-reaper")
+STATE = os.path.join(STATE_DIR, "tabs.json")
+LOG = os.path.join(STATE_DIR, "log")
+APP = os.path.expanduser("~/Applications/ChromeTabReaper.app")
+US, RS = "\x1f", "\x1e"
+
+LIST_TABS = f'''
+if application "Google Chrome" is not running then return "NOT_RUNNING"
+set out to ""
+tell application "Google Chrome"
+  repeat with w in windows
+    set wid to id of w
+    set aid to id of active tab of w
+    repeat with t in tabs of w
+      set out to out & wid & "{US}" & aid & "{US}" & (id of t) & "{US}" & (URL of t) & "{US}" & (title of t) & "{RS}"
+    end repeat
+  end repeat
+end tell
+return out
+'''
+
+
+def log(msg):
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(LOG, "a") as f:
+        f.write(time.strftime("%F %T ") + msg + "\n")
+
+
+def osa(script):
+    return subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=60, check=True).stdout.strip()
+
+
+def load():
+    try:
+        with open(STATE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def run():
+    out = osa(LIST_TABS)
+    if out == "NOT_RUNNING":
+        return
+    tabs = []
+    for rec in out.split(RS):
+        parts = rec.strip("\n").split(US)
+        if len(parts) >= 5:
+            wid, aid, tid, url = parts[:4]
+            tabs.append({"win": wid, "id": tid, "active": tid == aid, "url": url, "title": US.join(parts[4:])})
+
+    now = time.time()
+    old = load()
+    state = {}
+    for t in tabs:
+        seen = now if t["active"] else old.get(t["id"], {}).get("seen", now)
+        state[t["id"]] = {"seen": seen, "url": t["url"], "title": t["title"], "win": t["win"]}
+
+    per_win = {}
+    for t in tabs:
+        per_win[t["win"]] = per_win.get(t["win"], 0) + 1
+    closed = 0
+    for t in tabs:
+        if t["active"] or per_win[t["win"]] <= 1 or now - state[t["id"]]["seen"] < MAX_HOURS * 3600:
+            continue
+        try:
+            osa(f'tell application "Google Chrome" to close (every tab of window id {t["win"]} whose id is {t["id"]})')
+        except subprocess.SubprocessError as e:
+            log(f"failed to close {t['url']}: {e}")
+            continue
+        per_win[t["win"]] -= 1
+        state.pop(t["id"])
+        closed += 1
+        log(f"closed {t['url']}  ({t['title']})")
+
+    os.makedirs(STATE_DIR, exist_ok=True)
+    with open(STATE, "w") as f:
+        json.dump(state, f, indent=1)
+    log(f"sweep: {len(tabs)} tabs, closed {closed}")
+
+
+def main():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
+    if cmd == "_run":
+        try:
+            run()
+        except Exception as e:  # noqa: BLE001 - log everything; launchd has no one watching
+            log(f"error: {e!r}")
+    elif cmd == "sweep":
+        subprocess.run(["open", "-g", "-j", APP], check=True)
+    elif cmd == "status":
+        now = time.time()
+        rows = sorted(load().values(), key=lambda s: s["seen"])
+        for s in rows:
+            print(f"{(now - s['seen']) / 3600:6.1f}h  {s['url'][:100]}")
+        print(f"{len(rows)} tabs tracked; closing after {MAX_HOURS:g}h unviewed")
+    elif cmd == "log":
+        subprocess.run(["tail", "-40", LOG])
+    else:
+        print(__doc__)
+        sys.exit(2)
+
+
+if __name__ == "__main__":
+    main()

@@ -504,6 +504,7 @@ type Card = {
 };
 let board: { cards: Card[]; lists: List[]; workspaces: { id: string; label: string }[] } = { cards: [], lists: state.lists, workspaces: [] };
 let boardJson = "";
+const cardKey = new Map<string, string>(); // tab id → board state key (pi session id, else tab id)
 const clients = new Set<ReadableStreamDefaultController>();
 const broadcast = () => {
 	const msg = `data: ${boardJson}\n\n`;
@@ -533,15 +534,22 @@ async function poll() {
 	tabLabels = Object.fromEntries(snap.tabs.map((t: any) => [t.tab_id, t.label]));
 	const cards: Card[] = [];
 	const seenTabs = new Set<string>();
+	const keys = new Set<string>(); // state keys still alive this poll
 	const waits = ticklerWaits();
 	for (const a of snap.agents) {
 		if (seenTabs.has(a.tab_id)) continue; // one card per tab (first agent pane)
 		seenTabs.add(a.tab_id);
 		const s = session(a.agent_session?.value);
-		let cs = state.cards[a.tab_id];
+		// Board state is keyed by the pi session id (stable) rather than the tab id, which changes when the Inbox
+		// auto-filer moves a tab; tabs without a session fall back to the tab id. Older tab-keyed entries migrate.
+		const key = sidOf(a.agent_session?.value) ?? a.tab_id;
+		keys.add(key);
+		if (key !== a.tab_id && state.cards[a.tab_id] && !state.cards[key]) ((state.cards[key] = state.cards[a.tab_id]), delete state.cards[a.tab_id], (dirty = true));
+		cardKey.set(a.tab_id, key);
+		let cs = state.cards[key];
 		if (!cs) {
 			// First sight. On the board's very first run, treat existing sessions as already seen (clean slate).
-			cs = state.cards[a.tab_id] = { seenAt: firstRun ? now : 0, status: a.agent_status, statusSince: firstRun ? s?.lastAt || now : now };
+			cs = state.cards[key] = { seenAt: firstRun ? now : 0, status: a.agent_status, statusSince: firstRun ? s?.lastAt || now : now };
 			dirty = true;
 		}
 		if (cs.status !== a.agent_status) {
@@ -619,7 +627,7 @@ async function poll() {
 		cards.push(card);
 	}
 	// Forget cards whose tabs are gone.
-	for (const id of Object.keys(state.cards)) if (!seenTabs.has(id)) (delete state.cards[id], (dirty = true));
+	for (const id of Object.keys(state.cards)) if (!keys.has(id)) (delete state.cards[id], (dirty = true));
 	save();
 	board = { cards, lists: state.lists, workspaces: snap.workspaces.map((w: any) => ({ id: w.workspace_id, label: w.label })) };
 	const json = JSON.stringify(board);
@@ -641,7 +649,7 @@ async function loop() {
 }
 
 const markSeen = (tab: string) => {
-	const cs = state.cards[tab];
+	const cs = state.cards[cardKey.get(tab) ?? tab];
 	if (cs) (cs.seenAt = Date.now()), (dirty = true);
 };
 
@@ -832,7 +840,7 @@ async function handle(req: Request): Promise<Response> {
 		const fail = (r: { err: string }, what: string) => bad(r.err.trim() || `${what} failed`, 409);
 		switch (p) {
 			case "/api/card": {
-				const cs = state.cards[tab];
+				const cs = state.cards[cardKey.get(tab) ?? tab];
 				if (!cs) return bad("no such card", 404);
 				if (typeof body.hot === "boolean") cs.hot = body.hot;
 				if (typeof body.waiting === "boolean") {

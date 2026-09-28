@@ -16,9 +16,33 @@ import { isToolCallEventType, type ExtensionAPI } from "@earendil-works/pi-codin
 
 const GATE = `${homedir()}/.local/bin/client-cua-gate`;
 // client-cua (or CLIENT_CUA_HOST=) in command position, not just mentioned (grep, cat, git diff).
-const CUA = /(?:^|[;&|(\n`]|\$\(|\b(?:then|do|else|exec|env|time|nohup|timeout\s+\S+)\s)\s*(?:\w+=(?:"[^"]*"|'[^']*'|\S*)\s+)*(?:\S*\/)?client-cua(?=\s|$|[;&|)'"`])|\bCLIENT_CUA_HOST=/;
+const CUA = /(?:^|[;&|(\n`'"]|\$\(|\b(?:then|do|else|exec|env|time|nohup|timeout\s+\S+)\s)\s*(?:\w+=(?:"[^"]*"|'[^']*'|\S*)\s+)*(?:\S*\/)?client-cua(?=\s|$|[;&|)'"`])|\bCLIENT_CUA_HOST=/;
 const CLIENT = /\bssh\b[^\n;|&]*?\b(nathan-dev-client|100\.68\.116\.104|nathans-macbook-pro-2)\b/i;
 const UI = /\bosascript\b|System Events|\bcliclick\b|\bhs\b[^\n]*\b(eventtap|keyStroke|application|window|mouse|axuielement)/i;
+
+// Text that is data, not code, must not trip the guard: heredoc bodies fed to non-shell commands
+// (`cat > notes.md <<'EOF'` that mentions `client-cua`) and, for the client-cua check, quoted
+// strings (grep patterns, commit messages). Heredocs/strings handed to a shell or ssh stay in.
+const SHELLISH = /\b(?:ba|z|da)?sh\b|\bssh\b|\beval\b|\bsource\b|\bxargs\b/;
+function stripHeredocs(cmd: string): string {
+	const lines = cmd.split("\n");
+	const out: string[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		out.push(line);
+		const m = line.match(/<<-?\s*(['"]?)(\w+)\1/);
+		if (!m) continue;
+		const before = line.slice(0, m.index).split(/[;&|]/).at(-1) ?? "";
+		let j = i + 1;
+		while (j < lines.length && lines[j].trim() !== m[2]) j++;
+		if (SHELLISH.test(before)) continue; // executed: keep the body for matching
+		i = j - 1; // skip body; the delimiter line is pushed next iteration
+	}
+	return out.join("\n");
+}
+function stripQuotedData(cmd: string): string {
+	return cmd.replace(/(-c\s+|\bssh\b[^'"\n]*)?('[^']*'|"(?:[^"\\]|\\.)*")/g, (all, exec) => (exec ? all : "''"));
+}
 
 function lastUserPrompt(ctx: any): string {
 	const branch = ctx.sessionManager.getBranch?.() ?? [];
@@ -47,9 +71,10 @@ export default function (pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
 		if (!isToolCallEventType("bash", event)) return;
 		const command = event.input.command;
+		const scan = stripHeredocs(command);
 		// A bare `osascript -e 'display notification …'` (the "lock your iPhone" ping) isn't UI control.
 		const notifyOnly = /display notification/.test(command) && !/tell app|System Events|keystroke|click|\bhs\b|cliclick/i.test(command);
-		const kind = CUA.test(command) ? "cua" : CLIENT.test(command) && UI.test(command) && !notifyOnly ? "ssh" : null;
+		const kind = CUA.test(stripQuotedData(scan)) ? "cua" : CLIENT.test(scan) && UI.test(scan) && !notifyOnly ? "ssh" : null;
 		if (!kind) return;
 
 		const why = command.match(/CLIENT_CUA_WHY=("([^"]*)"|'([^']*)')/)?.slice(2).find(Boolean) ?? command.match(/--why\s+("([^"]*)"|'([^']*)')/)?.slice(2).find(Boolean) ?? "";

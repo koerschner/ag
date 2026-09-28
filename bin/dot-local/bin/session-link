@@ -1,10 +1,14 @@
 #!/bin/sh
-# session-link: print a phone link that opens this pi session in Moshi (iPhone).
-# Served by file-inbox (GET /m/<session id>), which finds the session's current Herdr
-# pane at tap time and redirects to moshi://herdr?workspace&tab&pane.
+# session-link: print a link that opens this pi session on the ag board (bin/dot-local/bin/ag-board), for the
+# phone: https://ag.<tailnet>.ts.net:7377/<pi session id> (full name + https so iMessage linkifies it and the
+# phone resolves it without MagicDNS short names). The board shows the live session (transcript, reply), or a
+# hibernated/closed one with Wake / Resume; its "📱 Open in Moshi" button goes on to the terminal via file-inbox
+# (GET /m/<session id> → moshi://herdr?workspace&tab&pane).
 # Usage: session-link [pi session file]   (default: $PI_SESSION_FILE)
 set -eu
 f=${1:-${PI_SESSION_FILE:?not in a pi session; pass a session file}}
 id=$(basename "$f" .jsonl | sed 's/.*_//')
-ip=$(/Applications/Tailscale.app/Contents/MacOS/Tailscale ip -4 2>/dev/null || echo 100.107.192.32)
-echo "http://$ip:7374/m/$id"
+ts=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+[ -x "$ts" ] || ts=/usr/local/bin/tailscale
+dns=$("$ts" status --json 2>/dev/null | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' 2>/dev/null || echo ag.tail44736d.ts.net)
+echo "https://$dns:7377/$id"

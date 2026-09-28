@@ -689,7 +689,7 @@ async function handle(req: Request): Promise<Response> {
 					return bad("no such image", 404);
 				}
 			}
-			if (p === "/api/config") return Response.json({ httpsUrl: HTTPS_URL, home: HOME });
+			if (p === "/api/config") return Response.json({ httpsUrl: HTTPS_URL, home: HOME, fileInbox: `http://${host}:7374` });
 			if (p === "/api/state") return new Response(boardJson, { headers: { "content-type": "application/json" } });
 			if (p === "/api/transcript") {
 				const sid = url.searchParams.get("sid");

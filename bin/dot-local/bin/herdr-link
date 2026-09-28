@@ -1,24 +1,63 @@
 #!/usr/bin/env zsh
-# herdr-link — print clickable links (Cmd+click in Ghostty) that jump to Herdr tabs.
+# herdr-link — print clickable links to agent sessions, via the ag board (bin/dot-local/bin/ag-board).
 #
-#   herdr-link wN:tX            one link
-#   herdr-link wN:tX w8:tP      several
-#   herdr-link --grep capture   every tab whose label matches (case-insensitive)
+#   herdr-link wN:tX              one tab            → "<Workspace> › <Tab>  http://ag:7376/<session id>"
+#   herdr-link wN:tX w8:tP        several
+#   herdr-link --grep capture     every tab whose label matches (case-insensitive)
+#   herdr-link --session [f|id]   a pi session by file or id, even with no tab (default: $PI_SESSION_FILE)
+#   --url                         print only the URL (for HTML hrefs)
+#   --gemini                      old direct link for tabs: gemini://<host>/focus/<tab> (HerdrLink.app →
+#                                 Hammerspoon → `herdr tab focus`, no browser); also the fallback for tabs
+#                                 with no pi session
 #
-# Output: "<Workspace> › <Tab>  gemini://<host>/focus/<id>"
-# Cmd+click in Ghostty → HerdrLink.app (gemini:// handler, macos-apps/HerdrLink) → Hammerspoon
-# → `herdr tab focus` on <host>. No browser. gemini:// because Herdr strips OSC 8 hyperlinks and
-# Ghostty only auto-links a fixed list of schemes; nothing else here uses gemini://.
-# Fallback without HerdrLink: http://<host>:7374/focus?tab=<id> (via file-inbox, opens a browser).
+# Board links use the pi session id (the UUID in the session filename), which is stable: tab ids change when
+# the Inbox auto-filer moves a tab. The board opens that session's card (transcript, reply, Open in Herdr), or,
+# for a hibernated or closed session, its transcript with Wake / Resume. Plain http because Herdr strips OSC 8
+# hyperlinks and Ghostty only auto-links standard schemes; the board redirects itself to https.
 set -euo pipefail
 host=${HERDR_LINK_HOST:-$(scutil --get LocalHostName)}
+board=${HERDR_LINK_BOARD:-http://ag:7376}
+hib=$("$HOME/.local/bin/pi-hibernate" status 2>/dev/null || true)
 herdr api snapshot | python3 -c "$(cat <<'PY'
 
-import json, sys, re
-host, args = sys.argv[1], sys.argv[2:]
+import json, os, re, sys
+host, board, hib, args = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+SID = re.compile(r"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
+url_only = "--url" in args
+gemini = "--gemini" in args
+args = [a for a in args if a not in ("--url", "--gemini")]
 snap = json.load(sys.stdin)["result"]["snapshot"]
 ws = {w["workspace_id"]: w["label"] for w in snap["workspaces"]}
 tabs = {t["tab_id"]: t for t in snap["tabs"]}
+
+def sid_of(path):
+    m = SID.search(os.path.basename(path or ""))
+    return m.group(1) if m else None
+
+def out(label, url):
+    print(url if url_only else f"{label}  {url}")
+
+if args[:1] == ["--session"]:
+    ref = args[1] if len(args) > 1 else os.environ.get("PI_SESSION_FILE", "")
+    sid = sid_of(ref) or (SID.fullmatch(ref) and ref)
+    if not sid:
+        sys.exit("herdr-link: no pi session id in " + repr(ref))
+    tab = next((p["tab_id"] for p in snap["panes"] if sid_of((p.get("agent_session") or {}).get("value")) == sid), None)
+    label = f"{ws.get(tabs[tab]['workspace_id'], '?')} › {tabs[tab].get('label') or tab}" if tab in tabs else "Session"
+    out(label, f"{board}/{sid}")
+    sys.exit(0)
+
+# tab → session id: its live pi session, else a hibernated pane's session (pi-hibernate status: pane tab file)
+by_tab = {}
+for p in snap["panes"]:
+    s = sid_of((p.get("agent_session") or {}).get("value"))
+    if s:
+        by_tab.setdefault(p["tab_id"], s)
+for line in hib.splitlines():
+    f = line.split()
+    if len(f) >= 3 and sid_of(f[2]):
+        by_tab.setdefault(f[1], sid_of(f[2]))
+
 if args[:1] == ["--grep"]:
     pat = re.compile(" ".join(args[1:]), re.I)
     ids = [i for i, t in tabs.items() if pat.search(t.get("label", ""))]
@@ -28,6 +67,8 @@ for i in ids:
     t = tabs.get(i)
     if not t:
         print(f"{i}: no such tab", file=sys.stderr); continue
-    print(f"{ws.get(t['workspace_id'], t['workspace_id'])} › {t.get('label') or i}  gemini://{host}/focus/{i}")
+    label = f"{ws.get(t['workspace_id'], t['workspace_id'])} › {t.get('label') or i}"
+    sid = by_tab.get(i)
+    out(label, f"{board}/{sid}" if sid and not gemini else f"gemini://{host}/focus/{i}")
 PY
-)" "$host" "$@"
+)" "$host" "$board" "$hib" "$@"

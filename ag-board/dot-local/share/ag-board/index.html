@@ -226,6 +226,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
       <button class="btn" id="dhot">🔥 Hotpath</button>
       <button class="btn" id="dfocus">Open in Herdr</button>
       <button class="btn" id="dunread">Mark unread</button>
+      <a class="btn" id="dmoshi" style="display:none;text-decoration:none" title="Open this session's terminal in Moshi (via file-inbox)">📱 Moshi</a>
       <button class="btn" id="dlink" title="Copy a stable link to this session (http://ag:7376/&lt;session id&gt;)">🔗 Link</button>
       <select class="btn" id="dlist"></select>
       <button class="btn" id="dkill" title="Archive: closes the Herdr tab after a few seconds, with Undo (e)">🗄 Archive</button>
@@ -297,9 +298,11 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
 import { createEditor } from "/static/editor.js";
 const $ = (s) => document.querySelector(s);
 // Voice needs a secure context; the https (tailscale serve) URL serves the same board, so hop there.
-if (!window.isSecureContext && location.hostname !== "localhost") {
-  fetch("/api/config").then((r) => r.json()).then((c) => { if (c.httpsUrl?.startsWith("https:")) location.replace(c.httpsUrl + location.pathname + location.hash); }).catch(() => {});
-}
+let agConfig = {};
+fetch("/api/config").then((r) => r.json()).then((c) => {
+  agConfig = c;
+  if (!window.isSecureContext && location.hostname !== "localhost" && c.httpsUrl?.startsWith("https:")) location.replace(c.httpsUrl + location.pathname + location.hash);
+}).catch(() => {});
 let B = { cards: [], lists: [], workspaces: [] };
 let view = localStorage.view || "state";
 let hotOnly = localStorage.hotOnly === "1";
@@ -582,6 +585,9 @@ function openDrawer(tab) {
   $("#drawer").classList.remove("ro");
   const c0 = card(tab);
   history.replaceState(null, "", c0?.sid ? "/" + c0.sid : "#" + tab);
+  // On the phone, a straight hop into the terminal: file-inbox /m/<sid> → moshi://herdr (resumes Moshi's ag card on that pane).
+  const moshi = $("#dmoshi"); moshi.style.display = c0?.sid && matchMedia("(pointer:coarse)").matches ? "" : "none";
+  if (c0?.sid) moshi.href = `${agConfig.fileInbox || ""}/m/${c0.sid}`;
   $("#drawer").classList.add("open"); $("#scrim").classList.add("open"); $("#drawer").setAttribute("aria-hidden", "false");
   if (card(tab)) api("/api/card", { tab, seen: true });
   setTab(card(tab)?.status === "blocked" ? "live" : "tx");

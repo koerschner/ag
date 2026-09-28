@@ -1,0 +1,17 @@
+#!/bin/sh
+# Print "agent" when the focused Herdr pane is a coding agent at its prompt,
+# otherwise "shell" (plain shell, or an editor such as nvim in the foreground).
+# Hammerspoon's Caps Lock (Control-tap) Escape asks this over SSH so Escape
+# never interrupts an agent. Runs on the Herdr host.
+herdr="$HOME/.local/bin/herdr"
+pane=$("$herdr" api snapshot | /usr/bin/jq -r '.result.snapshot as $s
+  | $s.panes[] | select(.pane_id == $s.focused_pane_id)
+  | "\(.pane_id) \(.agent // "")"') || exit 1
+set -- $pane
+[ -n "$1" ] || exit 1
+[ -n "$2" ] || { echo shell; exit 0; }
+fg=$("$herdr" pane process-info --pane "$1" | /usr/bin/jq -r '.result.process_info.foreground_processes[].name') || exit 1
+case " $(echo $fg) " in
+  *" nvim "*|*" vim "*|*" vi "*) echo shell ;;
+  *) echo agent ;;
+esac

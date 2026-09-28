@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// ag-board: a Kanban dashboard over every agent session in Herdr. http://ag:7376/ (Tailscale only).
+// ag-board (AG Dash): a Kanban dashboard over every agent session in Herdr. http://ag:7376/ (Tailscale only).
 //
 // Herdr stays the runtime; this is a view on it plus a little metadata Herdr doesn't keep.
 //   - Polls `herdr api snapshot` (~15 ms) every POLL_MS; each tab hosting an agent is a card.
@@ -36,14 +36,16 @@
 // Control (Pi semantics): a prompt sent while the agent works is queued as steering (delivered after the
 // current step). Interrupt = Esc twice (this Pi setup asks for a second Esc); Pi puts any queued steering
 // back in its editor. Interrupt & send = interrupt, wait until ready, clear the editor (Ctrl+U), then send.
-// API: GET /api/state, /api/transcript?tab=, /api/screen?tab=
+// Telemetry: the page sends one POST /api/click {name, view} per control click (sendBeacon); it's appended to
+// ~/.local/state/ag-board/clicks.jsonl. GET /api/stats?days=N ranks controls by clicks (`ag-dash-stats` prints it).
+// API: GET /api/state, /api/transcript?tab=, /api/screen?tab=, /api/stats?days=
 //      POST /api/card {tab, hot?, list?, seen?}, /api/lists {lists}, /api/prompt {tab, text, interrupt?},
 //           /api/interrupt {tab}, /api/keys {tab, keys[]}, /api/focus {tab}, /api/close {tab}
 // Page: ~/.local/share/ag-board/index.html (stowed from dotfiles ag-board/), re-read on every request.
 // Run by the com.nathan.ag-board LaunchAgent (only on ag). Log: /tmp/ag-board.log.
 
 import { execFileSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname } from "node:path";
 
@@ -55,6 +57,7 @@ const HERDR = `${HOME}/.local/bin/herdr`;
 const AG_TEXT = `${HOME}/.local/bin/ag-text`;
 const STATE_DIR = `${HOME}/.local/state/ag-board`;
 const STATE_FILE = `${STATE_DIR}/state.json`;
+const CLICKS_FILE = `${STATE_DIR}/clicks.jsonl`;
 const PAGE = `${HOME}/.local/share/ag-board/index.html`;
 // Static assets sit next to the page in the dotfiles checkout (the page itself is a symlink into it).
 const STATIC_DIR = dirname(realpathSync(PAGE));
@@ -67,7 +70,7 @@ const FAST_LANE_GAP_MS = 60_000; // at most one fast-lane ping per card per minu
 const READY = new Set(["idle", "done", "blocked"]);
 const WAKE_EVERY_MS = 15 * 60_000;
 const WAKE_MAX = 3;
-const WAKE_PREFIX = "[ag board] Nathan moved this session to Waiting for.";
+const WAKE_PREFIX = "[AG Dash] Nathan moved this session to Waiting for.";
 const WAKE_PROMPT = `${WAKE_PREFIX} Per "Waiting always wakes up" (AGENTS.md → GTD model), schedule your own wake-up with the tickler now, at an interval you choose: a waitingFor item if you're waiting on a person, or when: "check" with a cheap shell check plus expires for a machine or programmatic signal (if it can't be checked programmatically, the woken session checks by computer use). Don't follow up with outside parties without Nathan's OK; draft it for him instead. Then reply in one or two lines: what you're waiting on and when you'll next check. The card stays flagged "no wake-up" on the board until the tickler item exists.`;
 const BIG_LINE = 256 * 1024; // tool results this big (screenshots) are summarised by regex, not parsed
 const KEYS = new Set(["esc", "enter", "up", "down", "left", "right", "tab", "backspace", "ctrl+u", "y", "n", "1", "2", "3"]);
@@ -568,7 +571,7 @@ async function poll() {
 		if (cs.waiting) {
 			// The tickler item takes over from a hand-set wait; new work (a prompt that isn't our wake-up ask) ends it.
 			const lu = s?.lastUser;
-			const newWork = lu && lu.ts > (cs.wakeAskedAt ?? 0) + 2000 && !lu.text.startsWith(WAKE_PREFIX) && cs.wakeAskedAt;
+			const newWork = lu && lu.ts > (cs.wakeAskedAt ?? 0) + 2000 && !/^\[(AG Dash|ag board)\] Nathan moved this session to Waiting for\./.test(lu.text) && cs.wakeAskedAt;
 			if (tick.length || newWork) {
 				delete cs.waiting, delete cs.wakeAskedAt, delete cs.wakeAsks;
 				dirty = true;
@@ -726,6 +729,32 @@ async function interruptAndSend(pane: string, text: string) {
 // ---------- server ----------
 const host = execFileSync("/usr/local/bin/tailscale", ["ip", "-4"], { encoding: "utf8" }).trim().split("\n")[0];
 const ok = () => Response.json({ ok: true });
+
+// Clicks per control (optionally only the last `days` days), most used first, split by view.
+function clickStats(days: number) {
+	const since = days > 0 ? Date.now() - days * 86_400_000 : 0;
+	const by = new Map<string, { name: string; total: number; desktop: number; phone: number; last: number }>();
+	let lines: string[] = [];
+	try {
+		lines = readFileSync(CLICKS_FILE, "utf8").split("\n");
+	} catch {}
+	let total = 0;
+	for (const l of lines) {
+		let e: any;
+		try {
+			e = JSON.parse(l);
+		} catch {
+			continue;
+		}
+		if (!e?.name || e.ts < since) continue;
+		const s = by.get(e.name) ?? { name: e.name, total: 0, desktop: 0, phone: 0, last: 0 };
+		s.total++, total++;
+		s[e.view === "phone" ? "phone" : "desktop"]++;
+		s.last = Math.max(s.last, e.ts);
+		by.set(e.name, s);
+	}
+	return { since: since || null, total, controls: [...by.values()].sort((a, b) => b.total - a.total) };
+}
 const bad = (msg: string, status = 400) => Response.json({ ok: false, error: msg }, { status });
 const after = async () => {
 	save();
@@ -771,6 +800,7 @@ async function handle(req: Request): Promise<Response> {
 				}
 			}
 			if (p === "/api/config") return Response.json({ httpsUrl: HTTPS_URL, home: HOME, fileInbox: `http://${host}:7374` });
+			if (p === "/api/stats") return Response.json(clickStats(Number(url.searchParams.get("days")) || 0));
 			if (p === "/api/state") return new Response(boardJson, { headers: { "content-type": "application/json" } });
 			if (p === "/api/transcript") {
 				const sid = url.searchParams.get("sid");
@@ -835,6 +865,13 @@ async function handle(req: Request): Promise<Response> {
 			return Response.json({ ok: true, paths: await Promise.all(files.map(saveUpload)) });
 		}
 		const body: any = await req.json().catch(() => ({}));
+		if (p === "/api/click") {
+			const name = String(body.name ?? "").trim().slice(0, 80);
+			if (!name) return bad("name required");
+			const view = body.view === "phone" ? "phone" : "desktop";
+			appendFileSync(CLICKS_FILE, JSON.stringify({ ts: Date.now(), name, view }) + "\n");
+			return new Response(null, { status: 204 });
+		}
 		const tab = String(body.tab ?? "");
 		const card = board.cards.find((c) => c.tab === tab);
 		const fail = (r: { err: string }, what: string) => bad(r.err.trim() || `${what} failed`, 409);

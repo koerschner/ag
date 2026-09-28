@@ -1,5 +1,5 @@
 #!/bin/sh
-# session-link: print a link that opens this pi session on the ag board (bin/dot-local/bin/ag-board), for the
+# session-link: print a link that opens this pi session on AG Dash (bin/dot-local/bin/ag-board), for the
 # phone: https://ag.<tailnet>.ts.net:7377/<pi session id> (full name + https so iMessage linkifies it and the
 # phone resolves it without MagicDNS short names). The board shows the live session (transcript, reply), or a
 # hibernated/closed one with Wake / Resume; its "📱 Open in Moshi" button goes on to the terminal via file-inbox

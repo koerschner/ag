@@ -1,5 +1,5 @@
 #!/usr/bin/env zsh
-# herdr-link — print clickable links to agent sessions, via the ag board (bin/dot-local/bin/ag-board).
+# herdr-link — print clickable links to agent sessions, via AG Dash (bin/dot-local/bin/ag-board).
 #
 #   herdr-link wN:tX              one tab            → "<Workspace> › <Tab>  http://ag:7376/<session id>"
 #   herdr-link wN:tX w8:tP        several

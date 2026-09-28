@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# ag-dash-stats [days]: which AG Dash (ag-board) controls get clicked most, from the board's click log
+# (~/.local/state/ag-board/clicks.jsonl via GET /api/stats). No argument = all time.
+set -euo pipefail
+json=$(curl -fsS "http://127.0.0.1:7376/api/stats?days=${1:-0}")
+jq -r '"\(.total) clicks" + (if .since then " since \(.since/1000|strflocaltime("%Y-%m-%d %H:%M"))" else " (all time)" end)' <<<"$json"
+echo
+jq -r '(["clicks","desktop","phone","last","control"] | @tsv),
+  (.controls[] | [.total, .desktop, .phone, (.last/1000|strflocaltime("%m-%d/%H:%M")), .name] | @tsv)' <<<"$json" | column -t -s $'\t'

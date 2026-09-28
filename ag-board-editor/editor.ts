@@ -1,4 +1,4 @@
-// The ag board's prompt editor: CodeMirror 6 with optional vim bindings.
+// AG Dash's prompt editor: CodeMirror 6 with optional vim bindings.
 // Built into ../ag-board/dot-local/share/ag-board/editor.js with `bun run build` (the bundle is committed,
 // so machines don't need to build it). The page imports it from /static/editor.js.
 //

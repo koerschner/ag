@@ -63,7 +63,7 @@ type Item = {
 	note?: string; // from `tickler trigger --note`
 	waiting_for?: string; // GTD "waiting for": the person we're waiting on
 	attempt?: number; // waiting-for: which check-in this is (1 = first)
-	needs_nathan?: boolean; // the wake-up waits on Nathan himself (a login, a click, an answer): ag-board keeps it in Needs you
+	needs_nathan?: boolean; // the wake-up waits on Nathan himself (a login, a click, an answer): AG Dash keeps it in Needs you
 	session?: string;
 	cwd: string;
 	workspace?: string;

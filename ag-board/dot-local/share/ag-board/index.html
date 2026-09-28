@@ -123,6 +123,10 @@ header h1{font-size:15px;margin:0 .4rem 0 0;font-weight:650}
 #dh .m{color:var(--dim);font-size:12px;margin-top:.2rem}
 #dh .acts{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.6rem}
 #dact{margin-top:.55rem}
+#drawer.ro .acts,#drawer.ro #dact,#drawer.ro #dtabs,#drawer.ro #reply,#drawer.ro #dstats{display:none}
+#dro{display:none;margin-top:.6rem;gap:.4rem;flex-wrap:wrap;align-items:center}
+#drawer.ro #dro{display:flex}
+#dro .note{font-size:12px;color:var(--dim);flex-basis:100%;margin-bottom:.2rem}
 #dtabs{display:flex;gap:.2rem;margin-top:.6rem}
 #dtabs button{border:0;background:none;color:var(--dim);padding:.35rem .7rem;border-radius:6px 6px 0 0;cursor:pointer;border-bottom:2px solid transparent}
 #dtabs button.on{color:var(--fg);border-bottom-color:var(--blue)}
@@ -215,12 +219,14 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   <div id="dh">
     <div class="top"><h3 id="dt" title="Click to rename the tab"></h3><button class="btn" id="dclose" aria-label="Close">✕</button></div>
     <div class="m" id="dm"></div>
+    <div id="dro"></div>
     <div class="stats" id="dstats"></div>
     <div class="acts">
       <button class="btn stop" id="dstop">⏹ Interrupt</button>
       <button class="btn" id="dhot">🔥 Hotpath</button>
       <button class="btn" id="dfocus">Open in Herdr</button>
       <button class="btn" id="dunread">Mark unread</button>
+      <button class="btn" id="dlink" title="Copy a stable link to this session (http://ag:7376/&lt;session id&gt;)">🔗 Link</button>
       <select class="btn" id="dlist"></select>
       <button class="btn" id="dkill" title="Archive: closes the Herdr tab after a few seconds, with Undo (e)">🗄 Archive</button>
     </div>
@@ -299,6 +305,7 @@ let view = localStorage.view || "state";
 let hotOnly = localStorage.hotOnly === "1";
 let collapsed = new Set(JSON.parse(localStorage.collapsed || '["s:resolved"]'));
 let sel = null; // keyboard-selected card
+let deepSid = location.pathname.match(/^\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/)?.[1] ?? null; // /<pi session id> deep link
 // Archive = close the Herdr tab, undoably: the card hides at once, the tab is closed only when the Undo toast
 // expires (or the page is left), so Undo just cancels it and the session is untouched.
 const ARCHIVE_MS = 6000;
@@ -503,6 +510,8 @@ function onData() {
   throbbing = now;
   render();
   if (openTab) renderDrawer();
+  else if (openSid) { const c = B.cards.find((x) => x.sid === openSid); if (c) openDrawer(c.tab); } // it came back to life
+  if (deepSid && B.cards.length) { const sid = deepSid; deepSid = null; openBySid(sid); }
 }
 
 // ---------- drawer ----------
@@ -516,8 +525,8 @@ function txHtml(msgs) {
     return `<details class="tl"><summary>${st}<span class="n">${esc(m.name)}</span><span class="dd mono">${esc(m.detail)}</span>${m.result?.media?.length ? `<span class="mbadge">🖼 ${m.result.media.length}</span>` : ""}</summary><div class="inner">${mediaHtml(m.result?.media)}<pre>${esc(m.args)}</pre>${m.result ? `<pre>${esc(m.result.text)}</pre>` : '<div class="empty">running…</div>'}</div></details>`;
   }).join("") || '<div class="empty">No messages yet.</div>';
 }
-async function loadTranscript(c) {
-  const msgs = await (await fetch("/api/transcript?tab=" + encodeURIComponent(c.tab))).json();
+async function loadTranscript(q) {
+  const msgs = await (await fetch("/api/transcript?" + q)).json();
   const tx = $("#tx");
   const atBottom = tx.scrollHeight - tx.scrollTop - tx.clientHeight < 80;
   const openDetails = new Set([...tx.querySelectorAll("details[open]")].map((d) => [...tx.querySelectorAll("details")].indexOf(d)));
@@ -561,22 +570,64 @@ function renderDrawer() {
   const ph = working ? "Steer this agent…" : "Reply to this agent…";
   if (rted._ph !== ph) { rted._ph = ph; rted.setPlaceholder(ph); }
   const key = c.tab + (c.lastAssistant?.ts || 0) + (c.lastUser?.ts || 0) + c.status + (c.activity?.since || 0);
-  if (key !== lastTxKey) { lastTxKey = key; loadTranscript(c); }
+  if (key !== lastTxKey) { lastTxKey = key; loadTranscript("tab=" + encodeURIComponent(c.tab)); }
   if (c.needsYou && c.status !== "blocked") api("/api/card", { tab: c.tab, seen: true });
   tick();
 }
+// Stable session links: http://ag:7376/<pi session id> (tab ids change when tabs move).
+const sessionLink = (sid) => `http://ag:7376/${sid}`;
+let openSid = null; // read-only drawer: a hibernated or closed session
 function openDrawer(tab) {
-  openTab = tab; lastTxKey = ""; loadTranscript.done = false;
-  history.replaceState(null, "", "#" + tab);
+  openTab = tab; openSid = null; lastTxKey = ""; loadTranscript.done = false;
+  $("#drawer").classList.remove("ro");
+  const c0 = card(tab);
+  history.replaceState(null, "", c0?.sid ? "/" + c0.sid : "#" + tab);
   $("#drawer").classList.add("open"); $("#scrim").classList.add("open"); $("#drawer").setAttribute("aria-hidden", "false");
   if (card(tab)) api("/api/card", { tab, seen: true });
   setTab(card(tab)?.status === "blocked" ? "live" : "tx");
   renderDrawer();
   if (matchMedia("(pointer:fine)").matches) setTimeout(() => rted.focus(), 60);
 }
+// A session with no live card (hibernated pane, or closed): its transcript, read-only, with Wake / Resume.
+function openSession(info) {
+  openTab = null; openSid = info.sid; loadTranscript.done = false; clearInterval(screenTimer);
+  history.replaceState(null, "", "/" + info.sid);
+  const d = $("#drawer"); d.classList.add("open", "ro"); $("#scrim").classList.add("open"); d.setAttribute("aria-hidden", "false");
+  setTab("tx");
+  $("#dt").textContent = info.title;
+  $("#dm").innerHTML = `${info.state === "hibernated" ? "💤 hibernated" : "closed"}${info.workspaceLabel ? " · " + esc(info.workspaceLabel) : ""} · last active ${since(info.lastAt)} ago · $${(info.stats?.cost || 0).toFixed(2)} · ${esc(shortModel(info.model))}`;
+  $("#dro").innerHTML = info.state === "hibernated"
+    ? `<div class="note">Its pi is asleep in Herdr (pi-hibernate). Opening the tab wakes it with full context.</div><button class="btn" id="dresume">💤 Wake in Herdr</button><button class="btn" id="dlink2">🔗 Link</button>`
+    : `<div class="note">No open tab has this session. Resume opens a new tab in Inbox running <code>pi --session</code> with its full history.</div><button class="btn" id="dresume">▶ Resume in a new tab</button><button class="btn" id="dlink2">🔗 Link</button>`;
+  $("#dresume").onclick = () => resume(info);
+  $("#dlink2").onclick = () => copyLink(info.sid);
+  loadTranscript("sid=" + info.sid);
+  tick();
+}
+async function resume(info) {
+  $("#dresume").disabled = true; toast(info.state === "hibernated" ? "Waking it in Herdr…" : "Resuming…");
+  const j = await (await fetch("/api/resume", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sid: info.sid }) })).json().catch(() => ({}));
+  if (!j.ok) { $("#dresume").disabled = false; return toast(j.error || "Couldn't resume it"); }
+  // The card shows up once pi is running again; open it then.
+  const until = Date.now() + 30000;
+  const wait = setInterval(() => { const c = B.cards.find((x) => x.sid === info.sid); if (c || Date.now() > until) { clearInterval(wait); if (c && openSid === info.sid) { openDrawer(c.tab); toast("Resumed"); } } }, 300);
+}
+function copyLink(sid) {
+  if (!sid) return toast("No session id yet");
+  navigator.clipboard?.writeText(sessionLink(sid)).then(() => toast("Link copied: " + sessionLink(sid)), () => toast(sessionLink(sid)));
+}
+async function openBySid(sid) {
+  const live = B.cards.find((c) => c.sid === sid);
+  if (live) return openDrawer(live.tab);
+  const r = await fetch("/api/session/" + sid);
+  if (!r.ok) { history.replaceState(null, "", "/"); return toast("No session with that id"); }
+  const info = await r.json();
+  if (info.state === "live") openDrawer(info.tab); else openSession(info);
+}
 function closeDrawer() {
-  openTab = null; clearInterval(screenTimer);
-  history.replaceState(null, "", location.pathname);
+  openTab = null; openSid = null; clearInterval(screenTimer);
+  $("#drawer").classList.remove("ro");
+  history.replaceState(null, "", "/");
   $("#drawer").classList.remove("open"); $("#scrim").classList.remove("open"); $("#drawer").setAttribute("aria-hidden", "true");
 }
 const toggleHot = (tab) => { const c = card(tab); if (c) { c.hot = !c.hot; render(); if (openTab === tab) renderDrawer(); api("/api/card", { tab, hot: c.hot }); } };
@@ -724,9 +775,9 @@ let lastX = 0;
 document.addEventListener("keydown", (e) => {
   if (e.altKey && (e.key === "v" || e.key === "√" || e.code === "KeyV")) { e.preventDefault(); const id = $("#ndlg").open ? "ned" : openTab ? "rted" : null; if (id) toggleVoice(id); return; }
   if (e.key === "Escape" && $("#lb").classList.contains("open")) { $("#lb").classList.remove("open"); $("#lb").innerHTML = ""; return; }
-  if (e.key === "Escape") { if ($("#ndlg").open || $("#help").open) return; if (openTab) closeDrawer(); else { $("#q").blur(); select(null); } return; }
+  if (e.key === "Escape") { if ($("#ndlg").open || $("#help").open) return; if (openTab || openSid) closeDrawer(); else { $("#q").blur(); select(null); } return; }
   if (typing() || e.metaKey || e.ctrlKey || e.altKey || $("dialog[open]")) return;
-  if (openTab && !["?"].includes(e.key)) return;
+  if ((openTab || openSid) && !["?"].includes(e.key)) return;
   const k = e.key;
   const map = {
     j: () => moveSel(1, 0), ArrowDown: () => moveSel(1, 0), k: () => moveSel(-1, 0), ArrowUp: () => moveSel(-1, 0),
@@ -841,6 +892,7 @@ $("#ndlg").addEventListener("cancel", (e) => { if (vimOn && document.activeEleme
 setInterval(tick, 1000);
 setInterval(render, 60_000);
 connect();
+$("#dlink").onclick = () => copyLink(card(openTab)?.sid);
 if (location.hash.length > 1) { const t = decodeURIComponent(location.hash.slice(1)); const wait = setInterval(() => { if (card(t)) { clearInterval(wait); openDrawer(t); } }, 200); setTimeout(() => clearInterval(wait), 5000); }
 </script>
 </body>

@@ -14,6 +14,10 @@
 //   resolved  = the latest answer ends with a DONE line (the global "signal completion" convention).
 //   hotpath   = 🔥 top priority (shift+click / long-press). Pinned to the top everywhere; its siren ring runs
 //               whenever the agent isn't working (throb). Becoming needsYou fires the fast lane: ag-text + a Herdr toast.
+// Deep links: http://ag:7376/<pi session id> (the UUID in the session filename; stable, unlike tab ids) serves the
+// board with that session open: the live card's drawer, or, for a hibernated pane or a closed session, its
+// transcript read-only with Wake in Herdr / Resume (POST /api/resume: new tab running `pi --session <file>`).
+// GET /api/session/<id> resolves an id; GET /api/transcript?sid=<id> reads any session file.
 // Media: GET /api/file?path= (image/video files under ~ or /tmp, Range-capable), GET /api/embedded?tab=&line=&idx=
 // (base64 images inside the session, e.g. pasted screenshots and read-tool images).
 // Also: voice (POST /api/transcribe, Whisper via TrueFoundry like ag-inbox), pasted files (POST /api/upload →
@@ -80,6 +84,7 @@ type Session = {
 	cost: number;
 	ctx: number;
 	activity: Activity;
+	lastAt: number; // newest entry timestamp (file mtimes aren't reliable: migrations copy files)
 };
 
 // ---------- state ----------
@@ -209,7 +214,7 @@ function readRange(path: string, start: number, len: number) {
 // Session summaries, read incrementally: the first read scans the whole file, later reads only the
 // bytes appended since (Pi appends). A file that shrank was rewritten, so it's rescanned.
 const sessions = new Map<string, Session>();
-const blank = (): Session => ({ mtime: 0, size: 0, offset: 0, tools: [], toolCount: 0, turns: 0, cost: 0, ctx: 0, activity: { kind: "idle", since: 0 } });
+const blank = (): Session => ({ mtime: 0, size: 0, offset: 0, tools: [], toolCount: 0, turns: 0, cost: 0, ctx: 0, activity: { kind: "idle", since: 0 }, lastAt: 0 });
 
 function ingest(s: Session, line: string) {
 	if (!line) return;
@@ -252,6 +257,7 @@ function ingest(s: Session, line: string) {
 	}
 	const m = e.message;
 	const ts = Date.parse(e.timestamp) || 0;
+	if (ts > s.lastAt) s.lastAt = ts;
 	if (m?.role === "user") {
 		const text = textOf(m.content).trim();
 		s.turns++;
@@ -309,14 +315,72 @@ function session(path?: string): Session | undefined {
 	return s;
 }
 
+// ---------- sessions by id ----------
+const SESSIONS_DIR = `${HOME}/.pi/agent/sessions`;
+const SID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const sidOf = (file?: string) => file?.match(/_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/)?.[1];
+const fileBySid = new Map<string, string>();
+function sessionFileFor(sid: string): string | undefined {
+	const hit = fileBySid.get(sid);
+	if (hit && existsSync(hit)) return hit;
+	for (const f of new Bun.Glob(`**/*_${sid}.jsonl`).scanSync({ cwd: SESSIONS_DIR, absolute: true })) {
+		fileBySid.set(sid, f);
+		return f;
+	}
+}
+// Hibernated panes (pi stopped, sleep screen; focusing the pane wakes it): pane, tab, session file.
+async function hibernated(): Promise<{ pane: string; tab: string; file: string }[]> {
+	const r = await run([`${HOME}/.local/bin/pi-hibernate`, "status"]);
+	return r.out
+		.split("\n")
+		.map((l) => l.trim().split(/\s+/))
+		.filter((x) => x.length >= 3 && x[2].endsWith(".jsonl"))
+		.map(([pane, tab, file]) => ({ pane, tab, file }));
+}
+// Any session's file by id: live card, hibernated pane, or the sessions directory.
+async function fileForSid(sid: string): Promise<string | undefined> {
+	if (!SID_RE.test(sid)) return;
+	return board.cards.find((c) => c.sid === sid)?.sessionFile ?? sessionFileFor(sid) ?? (await hibernated()).find((h) => sidOf(h.file) === sid)?.file;
+}
+let tabLabels: Record<string, string> = {};
+type Resolved =
+	| { state: "live"; sid: string; tab: string }
+	| { state: "hibernated" | "closed"; sid: string; tab?: string; file: string; title: string; workspaceLabel?: string; cwd?: string; startedAt?: number; lastAt: number; model?: string; stats: Card["stats"] };
+async function resolveSession(sid: string): Promise<Resolved | null> {
+	const live = board.cards.find((c) => c.sid === sid);
+	if (live) return { state: "live", sid, tab: live.tab };
+	const h = (await hibernated()).find((x) => sidOf(x.file) === sid);
+	const file = h?.file ?? sessionFileFor(sid);
+	if (!file || !existsSync(file)) return null;
+	const s = session(file)!;
+	const title = (h && cleanLabel(tabLabels[h.tab] ?? "")) || oneLine(s.first ?? "(no prompt)", 70);
+	const ws = h ? board.workspaces.find((w) => h.tab.startsWith(`${w.id}:`))?.label : undefined;
+	return { state: h ? "hibernated" : "closed", sid, tab: h?.tab, file, title, workspaceLabel: ws, cwd: s.cwd, startedAt: s.startedAt, lastAt: s.lastAt || s.mtime, model: s.model, stats: { cost: Math.round(s.cost * 100) / 100, ctx: s.ctx, turns: s.turns, tools: s.toolCount } };
+}
+async function resumeSession(sid: string, workspace?: string): Promise<string> {
+	const r = await resolveSession(sid);
+	if (!r) throw new Error("no such session");
+	if (r.state === "live") return r.tab;
+	if (r.state === "hibernated" && r.tab) {
+		await herdr("tab", "focus", r.tab); // focusing a hibernated pane wakes it (pi-hibernate daemon)
+		return r.tab;
+	}
+	const ws = workspace ?? board.workspaces.find((w) => w.label.toLowerCase() === "inbox")?.id ?? board.workspaces[0]?.id;
+	const cwd = r.cwd && existsSync(r.cwd) ? r.cwd : HOME;
+	const t = await herdr("tab", "create", "--workspace", ws, "--cwd", cwd, "--no-focus");
+	if (t.code !== 0) throw new Error(t.err.trim() || "tab create failed");
+	const { tab, root_pane } = JSON.parse(t.out).result;
+	const a = await herdr("agent", "start", `resume-${sid.slice(-8)}`, "--kind", "pi", "--pane", root_pane.pane_id, "--timeout", "30000", "--", "--session", r.file);
+	if (a.code !== 0) throw new Error(a.err.trim() || "pi didn't start");
+	return tab.tab_id;
+}
+
 // Full transcript for the drawer: prompts, answers, thinking, tool calls with a short result, and media
 // (images embedded in the session, plus image/video files mentioned by path).
-function transcript(tab: string) {
-	const card = board.cards.find((c) => c.tab === tab);
-	if (!card?.sessionFile) return [];
-	const lines = sessionLines(card.sessionFile);
+function transcript(file: string, ref: string) {
+	const lines = sessionLines(file);
 	const out: any[] = [];
-	const embedded = (line: number, n: number): Media[] => Array.from({ length: n }, (_, k) => ({ src: `/api/embedded?tab=${encodeURIComponent(tab)}&line=${line}&idx=${k}`, kind: "image" as const, name: `image ${k + 1}` }));
+	const embedded = (line: number, n: number): Media[] => Array.from({ length: n }, (_, k) => ({ src: `/api/embedded?${ref}&line=${line}&idx=${k}`, kind: "image" as const, name: `image ${k + 1}` }));
 	const results = new Map<string, { text: string; error: boolean; media: Media[] }>();
 	for (let i = lines.length - 1; i >= 0 && out.length < 120; i--) {
 		const l = lines[i];
@@ -384,6 +448,7 @@ type Card = {
 	media: Media[];
 	stats: { cost: number; ctx: number; turns: number; tools: number };
 	sessionFile?: string;
+	sid?: string;
 };
 let board: { cards: Card[]; lists: List[]; workspaces: { id: string; label: string }[] } = { cards: [], lists: state.lists, workspaces: [] };
 let boardJson = "";
@@ -401,7 +466,7 @@ const broadcast = () => {
 
 function fastLane(card: Card) {
 	const snippet = (card.status === "blocked" ? "is blocked and needs you" : "is ready") + (card.lastAssistant ? `: ${oneLine(card.lastAssistant.text, 160)}` : "");
-	void run([AG_TEXT, `🔥 ${card.title} (${card.workspaceLabel}) ${snippet}\n${HTTPS_URL}/#${card.tab}`]);
+	void run([AG_TEXT, `🔥 ${card.title} (${card.workspaceLabel}) ${snippet}\n${card.sid ? `http://ag:${PORT}/${card.sid}` : `${HTTPS_URL}/#${card.tab}`}`]);
 	void herdr("notification", "show", `🔥 ${card.title}`, "--body", snippet.slice(0, 120), "--sound", "request");
 	console.log(new Date().toISOString(), "fast-lane", card.tab, card.title);
 }
@@ -413,6 +478,7 @@ async function poll() {
 	const now = Date.now();
 	const wsLabel: Record<string, string> = Object.fromEntries(snap.workspaces.map((w: any) => [w.workspace_id, w.label]));
 	const tabs: Record<string, any> = Object.fromEntries(snap.tabs.map((t: any) => [t.tab_id, t]));
+	tabLabels = Object.fromEntries(snap.tabs.map((t: any) => [t.tab_id, t.label]));
 	const cards: Card[] = [];
 	const seenTabs = new Set<string>();
 	for (const a of snap.agents) {
@@ -422,7 +488,7 @@ async function poll() {
 		let cs = state.cards[a.tab_id];
 		if (!cs) {
 			// First sight. On the board's very first run, treat existing sessions as already seen (clean slate).
-			cs = state.cards[a.tab_id] = { seenAt: firstRun ? now : 0, status: a.agent_status, statusSince: s?.mtime ?? now };
+			cs = state.cards[a.tab_id] = { seenAt: firstRun ? now : 0, status: a.agent_status, statusSince: firstRun ? s?.lastAt || now : now };
 			dirty = true;
 		}
 		if (cs.status !== a.agent_status) {
@@ -467,6 +533,7 @@ async function poll() {
 			media: [...new Map([...mediaIn(s?.lastAssistant?.text), ...mediaIn(s?.lastUser?.text)].map((m) => [m.src, m])).values()].slice(0, 6),
 			stats: { cost: Math.round((s?.cost ?? 0) * 100) / 100, ctx: s?.ctx ?? 0, turns: s?.turns ?? 0, tools: s?.toolCount ?? 0 },
 			sessionFile: a.agent_session?.value,
+			sid: sidOf(a.agent_session?.value),
 		};
 		if (card.ping && !cs.wasNeedsYou && now - (cs.pingedAt ?? 0) > FAST_LANE_GAP_MS) {
 			cs.pingedAt = now;
@@ -610,10 +677,11 @@ async function handle(req: Request): Promise<Response> {
 				return path ? serveFile(path, req) : bad("not an allowed media file", 404);
 			}
 			if (p === "/api/embedded") {
-				const card = board.cards.find((c) => c.tab === url.searchParams.get("tab"));
-				if (!card?.sessionFile) return bad("no such card", 404);
+				const sid = url.searchParams.get("sid");
+				const file = sid ? await fileForSid(sid) : board.cards.find((c) => c.tab === url.searchParams.get("tab"))?.sessionFile;
+				if (!file) return bad("no such session", 404);
 				try {
-					const e = JSON.parse(sessionLines(card.sessionFile)[Number(url.searchParams.get("line"))] ?? "");
+					const e = JSON.parse(sessionLines(file)[Number(url.searchParams.get("line"))] ?? "");
 					const img: any = imagesOf(e.message?.content)[Number(url.searchParams.get("idx") ?? 0)];
 					if (!img?.data) return bad("no such image", 404);
 					return new Response(Buffer.from(img.data, "base64"), { headers: { "content-type": img.mimeType || "image/png", "cache-control": "private, max-age=3600" } });
@@ -623,7 +691,19 @@ async function handle(req: Request): Promise<Response> {
 			}
 			if (p === "/api/config") return Response.json({ httpsUrl: HTTPS_URL, home: HOME });
 			if (p === "/api/state") return new Response(boardJson, { headers: { "content-type": "application/json" } });
-			if (p === "/api/transcript") return Response.json(transcript(url.searchParams.get("tab") ?? ""));
+			if (p === "/api/transcript") {
+				const sid = url.searchParams.get("sid");
+				const file = sid ? await fileForSid(sid) : board.cards.find((c) => c.tab === url.searchParams.get("tab"))?.sessionFile;
+				if (!file) return Response.json([]);
+				return Response.json(transcript(file, sid ? `sid=${sid}` : `tab=${encodeURIComponent(url.searchParams.get("tab")!)}`));
+			}
+			const sp = p.match(/^\/api\/session\/([0-9a-f-]{36})$/)?.[1];
+			if (sp) {
+				const r = SID_RE.test(sp) ? await resolveSession(sp) : null;
+				return r ? Response.json(r) : bad("no such session", 404);
+			}
+			// Deep link: /<session id> is the board with that session open (the page reads the id from the path).
+			if (SID_RE.test(p.slice(1))) return new Response(Bun.file(PAGE), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 			if (p === "/api/screen") {
 				const card = board.cards.find((c) => c.tab === url.searchParams.get("tab"));
 				if (!card) return bad("no such card", 404);
@@ -730,6 +810,17 @@ async function handle(req: Request): Promise<Response> {
 				try {
 					const id = await newSession(ws, String(body.cwd ?? "~"), String(body.text ?? "").trim(), !!body.focus);
 					await after();
+					return Response.json({ ok: true, tab: id });
+				} catch (e: any) {
+					return bad(String(e?.message ?? e), 409);
+				}
+			}
+			case "/api/resume": {
+				const sid = String(body.sid ?? "");
+				if (!SID_RE.test(sid)) return bad("sid required");
+				try {
+					const id = await resumeSession(sid, body.workspace ? String(body.workspace) : undefined);
+					void after();
 					return Response.json({ ok: true, tab: id });
 				} catch (e: any) {
 					return bad(String(e?.message ?? e), 409);

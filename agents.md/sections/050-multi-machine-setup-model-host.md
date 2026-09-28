@@ -11,7 +11,7 @@ The setup is a host/client system. Setup mistakes have come from reasoning about
 - The client only translates keys. Hammerspoon turns Cmd shortcuts into Herdr prefix chords (`herdrShortcuts` in `hammerspoon/dot-hammerspoon/init.lua`); it never runs Herdr scripts or SSH.
 - The host executes. Any shortcut that runs a script is a Herdr `[[keys.command]]` in `herdr/dot-config/herdr/config.toml`, so the host's Herdr server runs it. Herdr drops client-side custom-command bindings over `--remote`; that's why `ag` uses the host's keybindings.
 - The chord must survive the terminal unchanged. Ghostty rewrites some keys before Herdr sees them (e.g. `alt+arrow` becomes `esc b`/`esc f`; check with `ghostty +list-keybinds --default`). Prefer `prefix+<plain key or punctuation>`, and check that `herdr server reload-config` reports no diagnostics.
-- Current map: Cmd+W/D/Shift+D/1–9 → built-in Herdr actions; Cmd+T → `prefix+t` (new pi tab); Cmd+[ / ] → `prefix+[` / `prefix+]` (herdr-nav back/forward); prefix+f space picker; prefix+Shift+L last space.
+- Current map: Cmd+W/D/Shift+D/1–9 → built-in Herdr actions; Cmd+T → `prefix+t` (new pi tab); Cmd+[ / ] → `prefix+[` / `prefix+]` (herdr-nav back/forward); prefix+f find tab (fuzzy over space/tab names and contents); prefix+Shift+L last space.
 - The same chords work when Nathan uses Herdr directly on the host, since host and client share this config.
 
 **Dotfiles portability.**

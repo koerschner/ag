@@ -25,14 +25,15 @@ split_horizontal = ["prefix+minus", "cmd+shift+d"]
 close_pane = ["prefix+x", "cmd+w"]
 switch_tab = ["prefix+1..9", "cmd+1..9"]
 
-# tmux-ish find-window: prefix+f opens a fuzzy space search; type, Enter.
+# tmux-ish find-window: prefix+f fuzzy-searches every tab by space name, tab name,
+# and contents (pi transcripts / scrollback); type, Enter jumps to the tab.
 [[keys.command]]
 key = "prefix+f"
 type = "popup"
-command = "$HOME/.local/bin/herdr-space-picker"
-description = "search spaces"
-width = "50%"
-height = "40%"
+command = "/usr/bin/python3 $HOME/.local/bin/herdr-find"
+description = "find tab"
+width = "80%"
+height = "70%"
 
 # tmux `prefix+L` (switch-client -l): toggle to the last used space.
 [[keys.command]]

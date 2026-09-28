@@ -607,6 +607,7 @@ function renderDrawer() {
 const sessionLink = (sid) => `http://ag:7376/${sid}`;
 let openSid = null; // read-only drawer: a hibernated or closed session
 function openDrawer(tab) {
+  if (openTab !== tab) { if (openTab) saveDraft(openTab, rted.value); rted.setValue(localStorage[draftKey(tab)] || ""); }
   openTab = tab; openSid = null; lastTxKey = ""; loadTranscript.done = false;
   $("#drawer").classList.remove("ro");
   const c0 = card(tab);
@@ -657,6 +658,7 @@ async function openBySid(sid) {
   if (info.state === "live") openDrawer(info.tab); else openSession(info);
 }
 function closeDrawer() {
+  if (openTab) saveDraft(openTab, rted.value);
   openTab = null; openSid = null; clearInterval(screenTimer);
   $("#drawer").classList.remove("ro");
   history.replaceState(null, "", "/");
@@ -752,9 +754,9 @@ $("#dkill").onclick = () => openTab && archive(openTab);
 async function send(interrupt) {
   const text = rted.value.trim(); if (!text || !openTab) return;
   const tab = openTab, c = card(tab);
-  rted.setValue("");
+  rted.setValue(""); saveDraft(tab, "");
   toast(interrupt ? "Interrupting…" : c?.status === "working" ? "Queued as steering" : "Sent");
-  if (!(await api("/api/prompt", { tab, text, interrupt }))) { if (!rted.value.trim()) rted.setValue(text); return; }
+  if (!(await api("/api/prompt", { tab, text, interrupt }))) { if (openTab === tab && !rted.value.trim()) rted.setValue(text); else saveDraft(tab, text); return; }
   if (interrupt) toast("Interrupted and sent");
 }
 $("#reply").onsubmit = (e) => { e.preventDefault(); send(false); };
@@ -842,17 +844,20 @@ $("#ldlg").addEventListener("close", () => {
 // ---------- editors (CodeMirror + optional vim), voice, attachments ----------
 let vimOn = localStorage.vim ? localStorage.vim === "1" : matchMedia("(pointer:fine)").matches;
 const editors = {};
-function mkEditor(id, onSubmit) {
+function mkEditor(id, onSubmit, onSave) {
   const ed = createEditor(document.getElementById(id), {
-    vim: vimOn, onSubmit,
+    vim: vimOn, onSubmit, onSave,
     onMode: (m) => { const b = document.querySelector(`[data-mode="${id}"]`); if (b) { b.textContent = m; b.className = "mode " + (m.split(" ")[0] || "").toLowerCase(); } },
     onPasteFiles: (files) => attach(id, files),
   });
   editors[id] = ed;
   return ed;
 }
-const rted = mkEditor("rted", () => send(false));
-const ned = mkEditor("ned", () => startNew());
+// Drafts: :w saves the reply box per session (and switching sessions keeps what you typed); :q sends.
+const draftKey = (tab) => "draft:" + (card(tab)?.sid || tab);
+function saveDraft(tab, text) { if (!tab) return; const k = draftKey(tab); if (text.trim()) localStorage[k] = text; else delete localStorage[k]; }
+const rted = mkEditor("rted", () => send(false), () => { if (!openTab) return; saveDraft(openTab, rted.value); toast(rted.value.trim() ? "Draft saved" : "Draft cleared"); });
+const ned = mkEditor("ned", () => startNew(), () => { localStorage.newDraft = ned.value; toast("Draft saved"); });
 ned.setPlaceholder("What should the new agent do?  (leave empty to just open pi)");
 document.querySelectorAll(".vimtoggle").forEach((cb) => {
   cb.checked = vimOn;
@@ -910,6 +915,7 @@ function openNew() {
   $("#ncwds").innerHTML = cwds.map((d) => `<option value="${esc(d)}">`).join("");
   $("#ncwd").value = localStorage.newCwd || "~";
   $("#nfocus").checked = localStorage.newFocus === "1";
+  if (!ned.value.trim() && localStorage.newDraft) ned.setValue(localStorage.newDraft);
   $("#ndlg").showModal();
   setTimeout(() => ned.focus(), 60);
 }
@@ -917,7 +923,7 @@ async function startNew() {
   const body = { workspace: $("#nws").value, cwd: $("#ncwd").value.trim() || "~", text: ned.value.trim(), focus: $("#nfocus").checked };
   localStorage.newWs = body.workspace; localStorage.newCwd = body.cwd; localStorage.newFocus = body.focus ? "1" : "0";
   // Optimistic: close at once; pi takes a few seconds to start. On failure the dialog reopens with your text.
-  ned.setValue(""); $("#ndlg").close(); toast("Starting pi…");
+  ned.setValue(""); delete localStorage.newDraft; $("#ndlg").close(); toast("Starting pi…");
   const j = await (await fetch("/api/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json().catch(() => ({}));
   if (!j.ok) { toast(j.error || "Couldn't start it"); ned.setValue(body.text); $("#ndlg").showModal(); return; }
   toast("Session started"); select(j.tab);

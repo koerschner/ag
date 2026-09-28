@@ -5,7 +5,7 @@
 //   const ed = createEditor(parent, { placeholder, vim, onSubmit, onMode, onPasteFiles })
 //   ed.value / ed.setValue(s) / ed.insert(s) / ed.focus() / ed.setVim(bool) / ed.setPlaceholder(s)
 // No soft wrapping: long lines scroll sideways, so j/k and the arrows move by real lines.
-// Submit: ⌘↩ / Ctrl+↩ in any mode, or :w / :q / :wq / :x in vim. Esc in insert mode goes to normal mode (vim) and
+// Submit: ⌘↩ / Ctrl+↩ in any mode, or :q / :wq / :x in vim. :w only saves (onSave) and stays in NORMAL mode. Esc in insert mode goes to normal mode (vim) and
 // never bubbles out to close the drawer. Vim starts in NORMAL mode, like nvim; `jk` also leaves insert mode.
 // Browser extensions like Vimium grab Esc before the page and blur the field; a blur with no click/tap behind
 // it is treated as that Esc: the editor takes focus back and goes to NORMAL mode.
@@ -21,6 +21,7 @@ type Opts = {
 	placeholder?: string;
 	vim?: boolean;
 	onSubmit?: () => void;
+	onSave?: () => void;
 	onMode?: (mode: string) => void;
 	onPasteFiles?: (files: File[]) => void;
 };
@@ -52,7 +53,7 @@ const highlight = HighlightStyle.define([
 	{ tag: tags.quote, color: "#8b919c" },
 ]);
 
-// :w / :wq submit the editor they're typed in.
+// :q / :wq / :x submit the editor they're typed in; :w just saves the draft (Nathan: only q sends).
 let exDefined = false;
 let lastPointer = 0;
 function defineEx() {
@@ -61,7 +62,7 @@ function defineEx() {
 	for (const ev of ["mousedown", "touchstart", "pointerdown"]) document.addEventListener(ev, () => (lastPointer = Date.now()), true);
 	Vim.map("jk", "<Esc>", "insert");
 	const submit = (cm: any) => cm.cm6?.dom?.dispatchEvent(new CustomEvent("ag-submit"));
-	Vim.defineEx("write", "w", submit);
+	Vim.defineEx("write", "w", (cm: any) => cm.cm6?.dom?.dispatchEvent(new CustomEvent("ag-save")));
 	Vim.defineEx("wq", "wq", submit);
 	Vim.defineEx("x", "x", submit);
 	Vim.defineEx("quit", "q", submit); // :q sends too (Nathan's habit)
@@ -115,6 +116,7 @@ export function createEditor(parent: HTMLElement, opts: Opts = {}) {
 		}),
 	});
 	view.dom.addEventListener("ag-submit", () => opts.onSubmit?.());
+	view.dom.addEventListener("ag-save", () => opts.onSave?.());
 	// Keep Escape inside the editor (vim uses it; it must not close the drawer).
 	view.dom.addEventListener("keydown", (e) => {
 		if (e.key === "Escape") e.stopPropagation();

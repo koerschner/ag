@@ -1,0 +1,377 @@
+#!/usr/bin/env bun
+// ag-board: a Kanban dashboard over every agent session in Herdr. http://ag:7376/ (Tailscale only).
+//
+// Herdr stays the runtime; this is a view on it plus a little metadata Herdr doesn't keep.
+//   - Polls `herdr api snapshot` (~15 ms) every POLL_MS; each tab hosting an agent is a card.
+//   - Reads each card's Pi session file (tail only, cached by mtime) for the latest ask/answer and model.
+//   - Keeps its own state in ~/.local/state/ag-board/state.json: red flag, list, seenAt, status timing, lists.
+//   - Pushes the whole board to browsers over SSE (/events) whenever anything changes.
+// Card semantics:
+//   ready     = agent idle/done/blocked (at its prompt)
+//   needsYou  = blocked, or ready with an answer newer than seenAt. Seen = opened on the board, replied
+//               from it, jumped to in Herdr, or the tab is focused in Herdr.
+//   resolved  = the latest answer ends with a DONE line (the global "signal completion" convention).
+//   red       = top priority (shift+click / long-press). Pinned to the top everywhere; a red card that
+//               needsYou throbs, and becoming so fires the fast lane: ag-text + a Herdr toast.
+// API: GET /api/state, GET /api/transcript?tab=, POST /api/card {tab, red?, list?, seen?},
+//      POST /api/lists {lists:[{id,name}]}, POST /api/prompt {tab,text}, POST /api/focus {tab}, POST /api/close {tab}.
+// Page: ~/.local/share/ag-board/index.html (stowed from dotfiles ag-board/), re-read on every request.
+// Run by the com.nathan.ag-board LaunchAgent (only on ag). Log: /tmp/ag-board.log.
+
+import { execFileSync } from "node:child_process";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+
+const PORT = 7376;
+const POLL_MS = 1500;
+const HOME = homedir();
+const HERDR = `${HOME}/.local/bin/herdr`;
+const AG_TEXT = `${HOME}/.local/bin/ag-text`;
+const STATE_DIR = `${HOME}/.local/state/ag-board`;
+const STATE_FILE = `${STATE_DIR}/state.json`;
+const PAGE = `${HOME}/.local/share/ag-board/index.html`;
+const FAST_LANE_GAP_MS = 60_000; // at most one fast-lane ping per card per minute
+const READY = new Set(["idle", "done", "blocked"]);
+
+type CardState = { red?: boolean; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
+type List = { id: string; name: string };
+type State = { cards: Record<string, CardState>; lists: List[] };
+type Msg = { role: "user" | "assistant"; text: string; ts: number };
+type Session = { mtime: number; size: number; offset: number; model?: string; first?: string; lastUser?: Msg; lastAssistant?: Msg; lastTs: number };
+
+// ---------- state ----------
+mkdirSync(STATE_DIR, { recursive: true });
+const firstRun = !existsSync(STATE_FILE);
+let state: State = { cards: {}, lists: [{ id: "now", name: "Now" }, { id: "next", name: "Next" }, { id: "later", name: "Later" }] };
+try {
+	state = { ...state, ...JSON.parse(readFileSync(STATE_FILE, "utf8")) };
+} catch {}
+let dirty = false;
+const save = () => {
+	if (!dirty) return;
+	writeFileSync(`${STATE_FILE}.tmp`, JSON.stringify(state, null, 1));
+	renameSync(`${STATE_FILE}.tmp`, STATE_FILE);
+	dirty = false;
+};
+
+// ---------- helpers ----------
+async function run(args: string[]) {
+	const p = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+	const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+	return { code, out, err };
+}
+const herdr = (...a: string[]) => run([HERDR, ...a]);
+const cleanLabel = (s: string) => s.replace(/\s*●\s*$/, "").trim();
+const textOf = (content: unknown): string =>
+	typeof content === "string"
+		? content
+		: Array.isArray(content)
+			? content
+					.filter((c: any) => c?.type === "text")
+					.map((c: any) => c.text)
+					.join("\n")
+			: "";
+
+function readRange(path: string, start: number, len: number) {
+	const fd = openSync(path, "r");
+	try {
+		const buf = Buffer.alloc(len);
+		const n = readSync(fd, buf, 0, len, start);
+		return buf.subarray(0, n).toString("utf8");
+	} finally {
+		closeSync(fd);
+	}
+}
+
+// Messages (user/assistant text only) in a chunk of a Pi session file. Tool results (often huge
+// screenshots) are skipped before JSON.parse.
+function messagesIn(chunk: string, partialFirst: boolean): (Msg & { model?: string })[] {
+	const lines = chunk.split("\n");
+	if (partialFirst) lines.shift();
+	const out: (Msg & { model?: string })[] = [];
+	for (const l of lines) {
+		if (!l.includes('"role":"user"') && !l.includes('"role":"assistant"')) continue;
+		let e: any;
+		try {
+			e = JSON.parse(l);
+		} catch {
+			continue;
+		}
+		const role = e?.message?.role;
+		if (e.type !== "message" || (role !== "user" && role !== "assistant")) continue;
+		const text = textOf(e.message.content).trim();
+		if (!text) continue;
+		out.push({ role, text, ts: Date.parse(e.timestamp) || 0, model: e.message.model });
+	}
+	return out;
+}
+
+// Session summaries, read incrementally: the first read scans the whole file, later reads only the
+// bytes appended since (Pi appends). A file that shrank was rewritten, so it's rescanned.
+const sessions = new Map<string, Session>();
+function session(path?: string): Session | undefined {
+	if (!path) return;
+	let st;
+	try {
+		st = statSync(path);
+	} catch {
+		return;
+	}
+	let s = sessions.get(path);
+	if (s && s.mtime === st.mtimeMs && s.size === st.size) return s;
+	if (!s || st.size < s.offset) s = { mtime: 0, size: 0, offset: 0, lastTs: 0 };
+	const chunk = readRange(path, s.offset, st.size - s.offset);
+	const complete = chunk.lastIndexOf("\n") + 1; // leave a half-written last line for next time
+	for (const m of messagesIn(chunk.slice(0, complete), false)) {
+		if (m.role === "user") (s.lastUser = m), (s.first ??= m.text);
+		else s.lastAssistant = m;
+		if (m.model) s.model = m.model;
+	}
+	s.offset += Buffer.byteLength(chunk.slice(0, complete));
+	s.mtime = st.mtimeMs;
+	s.size = st.size;
+	s.lastTs = st.mtimeMs;
+	sessions.set(path, s);
+	return s;
+}
+
+// ---------- board ----------
+type Card = {
+	tab: string;
+	pane: string;
+	workspace: string;
+	workspaceLabel: string;
+	title: string;
+	status: string;
+	statusSince: number;
+	red: boolean;
+	list?: string;
+	needsYou: boolean;
+	resolved: boolean;
+	throb: boolean;
+	focused: boolean;
+	model?: string;
+	first?: string;
+	lastUser?: Msg;
+	lastAssistant?: Msg;
+	sessionFile?: string;
+};
+let board: { cards: Card[]; lists: List[]; workspaces: { id: string; label: string }[]; at: number } = { cards: [], lists: state.lists, workspaces: [], at: 0 };
+let boardJson = "";
+const clients = new Set<ReadableStreamDefaultController>();
+const broadcast = () => {
+	const msg = `data: ${boardJson}\n\n`;
+	for (const c of clients) {
+		try {
+			c.enqueue(msg);
+		} catch {
+			clients.delete(c);
+		}
+	}
+};
+
+function fastLane(card: Card) {
+	const snippet = (card.status === "blocked" ? "is blocked and needs you" : "is ready") + (card.lastAssistant ? `: ${card.lastAssistant.text.replace(/\s+/g, " ").slice(0, 160)}` : "");
+	const text = `🔴 ${card.title} (${card.workspaceLabel}) ${snippet}\nhttp://ag:${PORT}/#${card.tab}`;
+	void run([AG_TEXT, text]);
+	void herdr("notification", "show", `🔴 ${card.title}`, "--body", snippet.slice(0, 120), "--sound", "request");
+	console.log(new Date().toISOString(), "fast-lane", card.tab, card.title);
+}
+
+async function poll() {
+	const r = await herdr("api", "snapshot");
+	if (r.code !== 0) return;
+	const snap = JSON.parse(r.out).result.snapshot;
+	const now = Date.now();
+	const wsLabel: Record<string, string> = Object.fromEntries(snap.workspaces.map((w: any) => [w.workspace_id, w.label]));
+	const tabs: Record<string, any> = Object.fromEntries(snap.tabs.map((t: any) => [t.tab_id, t]));
+	const cards: Card[] = [];
+	const seenTabs = new Set<string>();
+	for (const a of snap.agents) {
+		if (seenTabs.has(a.tab_id)) continue; // one card per tab (first agent pane)
+		seenTabs.add(a.tab_id);
+		const s = session(a.agent_session?.value);
+		let cs = state.cards[a.tab_id];
+		if (!cs) {
+			// First sight. On the board's very first run, treat existing sessions as already seen (clean slate).
+			cs = state.cards[a.tab_id] = { seenAt: firstRun ? now : 0, status: a.agent_status, statusSince: s?.lastTs ?? now };
+			dirty = true;
+		}
+		if (cs.status !== a.agent_status) {
+			cs.status = a.agent_status;
+			cs.statusSince = now;
+			dirty = true;
+		}
+		const ready = READY.has(a.agent_status);
+		const focused = snap.focused_tab_id === a.tab_id;
+		if (focused && ready && (s?.lastAssistant?.ts ?? 0) > cs.seenAt) {
+			cs.seenAt = now; // he's looking at it in Herdr
+			dirty = true;
+		}
+		const needsYou = a.agent_status === "blocked" || (ready && (s?.lastAssistant?.ts ?? 0) > cs.seenAt);
+		const resolved = ready && /(^|\n)\s*DONE\s*$/.test(s?.lastAssistant?.text ?? "");
+		const card: Card = {
+			tab: a.tab_id,
+			pane: a.pane_id,
+			workspace: a.workspace_id,
+			workspaceLabel: wsLabel[a.workspace_id] ?? a.workspace_id,
+			title: cleanLabel(tabs[a.tab_id]?.label ?? a.name ?? a.tab_id),
+			status: a.agent_status,
+			statusSince: cs.statusSince,
+			red: !!cs.red,
+			list: cs.list,
+			needsYou,
+			resolved,
+			throb: !!cs.red && needsYou,
+			focused,
+			model: s?.model,
+			first: s?.first?.slice(0, 600),
+			lastUser: s?.lastUser && { ...s.lastUser, text: s.lastUser.text.slice(-1200) },
+			lastAssistant: s?.lastAssistant && { ...s.lastAssistant, text: s.lastAssistant.text.slice(-1500) },
+			sessionFile: a.agent_session?.value,
+		};
+		if (card.throb && !cs.wasNeedsYou && now - (cs.pingedAt ?? 0) > FAST_LANE_GAP_MS) {
+			cs.pingedAt = now;
+			fastLane(card);
+		}
+		if (cs.wasNeedsYou !== needsYou) {
+			cs.wasNeedsYou = needsYou;
+			dirty = true;
+		}
+		cards.push(card);
+	}
+	// Forget cards whose tabs are gone.
+	for (const id of Object.keys(state.cards)) if (!seenTabs.has(id)) (delete state.cards[id], (dirty = true));
+	save();
+	board = { cards, lists: state.lists, workspaces: snap.workspaces.map((w: any) => ({ id: w.workspace_id, label: w.label })), at: now };
+	const { at: _, ...stable } = board;
+	const json = JSON.stringify(stable);
+	if (json !== boardJson) {
+		boardJson = json;
+		broadcast();
+	}
+}
+
+async function loop() {
+	for (;;) {
+		try {
+			await poll();
+		} catch (e) {
+			console.error(new Date().toISOString(), "poll failed", e);
+		}
+		await Bun.sleep(POLL_MS);
+	}
+}
+
+const markSeen = (tab: string) => {
+	const cs = state.cards[tab];
+	if (cs) (cs.seenAt = Date.now()), (dirty = true);
+};
+
+function transcript(tab: string) {
+	const card = board.cards.find((c) => c.tab === tab);
+	if (!card?.sessionFile) return [];
+	return messagesIn(readFileSync(card.sessionFile, "utf8"), false)
+		.slice(-40)
+		.map(({ role, text, ts }) => ({ role, ts, text: text.length > 6000 ? `${text.slice(0, 6000)}\n…` : text }));
+}
+
+// ---------- server ----------
+const host = execFileSync("/usr/local/bin/tailscale", ["ip", "-4"], { encoding: "utf8" }).trim().split("\n")[0];
+const ok = () => Response.json({ ok: true });
+const bad = (msg: string, status = 400) => Response.json({ ok: false, error: msg }, { status });
+const after = async () => {
+	save();
+	await poll();
+};
+
+Bun.serve({
+	hostname: host,
+	port: PORT,
+	idleTimeout: 0, // SSE streams stay open
+	async fetch(req) {
+		const url = new URL(req.url);
+		const p = url.pathname;
+		if (req.method === "GET" && p === "/") return new Response(Bun.file(PAGE), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+		if (req.method === "GET" && p === "/api/state") return new Response(boardJson, { headers: { "content-type": "application/json" } });
+		if (req.method === "GET" && p === "/api/transcript") return Response.json(transcript(url.searchParams.get("tab") ?? ""));
+		if (req.method === "GET" && p === "/events") {
+			let ctl: ReadableStreamDefaultController;
+			let ping: Timer;
+			return new Response(
+				new ReadableStream({
+					start(c) {
+						ctl = c;
+						clients.add(c);
+						c.enqueue(`data: ${boardJson}\n\n`);
+						ping = setInterval(() => {
+							try {
+								c.enqueue(": ping\n\n");
+							} catch {
+								clearInterval(ping);
+							}
+						}, 20_000);
+					},
+					cancel() {
+						clients.delete(ctl);
+						clearInterval(ping);
+					},
+				}),
+				{ headers: { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" } },
+			);
+		}
+		if (req.method !== "POST") return bad("not found", 404);
+		const body: any = await req.json().catch(() => ({}));
+		const tab = String(body.tab ?? "");
+		const card = board.cards.find((c) => c.tab === tab);
+		switch (p) {
+			case "/api/card": {
+				const cs = state.cards[tab];
+				if (!cs) return bad("no such card", 404);
+				if (typeof body.red === "boolean") cs.red = body.red;
+				if ("list" in body) cs.list = body.list || undefined;
+				if (body.seen === true) cs.seenAt = Date.now();
+				if (body.seen === false) cs.seenAt = 0;
+				dirty = true;
+				await after();
+				return ok();
+			}
+			case "/api/lists": {
+				if (!Array.isArray(body.lists)) return bad("lists required");
+				state.lists = body.lists.map((l: any) => ({ id: String(l.id), name: String(l.name).slice(0, 40) }));
+				const ids = new Set(state.lists.map((l) => l.id));
+				for (const cs of Object.values(state.cards)) if (cs.list && !ids.has(cs.list)) delete cs.list;
+				dirty = true;
+				await after();
+				return ok();
+			}
+			case "/api/prompt": {
+				const text = String(body.text ?? "").trim();
+				if (!card || !text) return bad("tab and text required");
+				const r = await herdr("agent", "prompt", card.pane, text);
+				if (r.code !== 0) return bad(r.err.trim() || "prompt failed", 409);
+				markSeen(tab);
+				await after();
+				return ok();
+			}
+			case "/api/focus": {
+				if (!card) return bad("no such card", 404);
+				const r = await herdr("tab", "focus", tab);
+				if (r.code !== 0) return bad(r.err.trim() || "focus failed", 409);
+				markSeen(tab);
+				await after();
+				return ok();
+			}
+			case "/api/close": {
+				if (!card) return bad("no such card", 404);
+				const r = await herdr("tab", "close", tab);
+				if (r.code !== 0) return bad(r.err.trim() || "close failed", 409);
+				await after();
+				return ok();
+			}
+		}
+		return bad("not found", 404);
+	},
+});
+console.log(`ag-board listening on http://${host}:${PORT}`);
+void loop();

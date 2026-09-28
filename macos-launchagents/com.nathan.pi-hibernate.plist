@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nathan.pi-hibernate</string>
+  <!-- Hibernate idle pi sessions to save memory; wake them when their Herdr pane is focused (bin/dot-local/bin/pi-hibernate). Only runs on ag. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>[[ $(scutil --get LocalHostName) == ag ]] || { sleep 3600; exit 0; }; exec "$HOME/.local/bin/pi-hibernate" daemon</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>15</integer>
+  <key>StandardOutPath</key>
+  <string>/tmp/pi-hibernate.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/pi-hibernate.log</string>
+</dict>
+</plist>

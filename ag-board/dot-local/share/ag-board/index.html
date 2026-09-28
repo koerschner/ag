@@ -11,62 +11,126 @@
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:14px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
 button,select,input,textarea{font:inherit;color:inherit}
+code,pre,.mono{font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace}
 header{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;padding:.6rem .9rem;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:5}
-header h1{font-size:15px;margin:0 .4rem 0 0;font-weight:650;letter-spacing:.01em}
-.counts{display:flex;gap:.35rem;margin-right:auto}
+header h1{font-size:15px;margin:0 .4rem 0 0;font-weight:650}
+.counts{display:flex;gap:.35rem;margin-right:auto;flex-wrap:wrap}
 .pill{padding:.12rem .5rem;border-radius:99px;background:var(--card);color:var(--dim);font-size:12px;white-space:nowrap}
 .pill b{color:var(--fg);font-weight:600}
 .pill.red b{color:var(--red)}
 .seg{display:flex;background:var(--card);border-radius:8px;padding:2px}
 .seg button{border:0;background:none;padding:.28rem .7rem;border-radius:6px;color:var(--dim);cursor:pointer}
 .seg button.on{background:var(--card2);color:var(--fg)}
-.btn{border:1px solid var(--line);background:var(--card);padding:.28rem .7rem;border-radius:8px;cursor:pointer}
+.btn{border:1px solid var(--line);background:var(--card);padding:.28rem .7rem;border-radius:8px;cursor:pointer;white-space:nowrap}
 .btn:hover{background:var(--card2)}
+.btn:disabled{opacity:.4;cursor:default}
 .btn.on{border-color:var(--red);color:var(--red)}
+.btn.stop{border-color:#6b2a2a;color:#ff8a8a}
+.btn.stop:hover{background:#3a1518}
+.btn.sm{padding:.12rem .5rem;font-size:12px;border-radius:6px}
 #q{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:.28rem .6rem;width:14rem;max-width:40vw}
 #board{display:flex;gap:.7rem;padding:.8rem;overflow-x:auto;height:calc(100% - 52px);align-items:flex-start}
-.col{flex:0 0 19rem;background:var(--col);border-radius:12px;display:flex;flex-direction:column;max-height:100%}
+.col{flex:0 0 21rem;width:21rem;min-width:0;background:var(--col);border-radius:12px;display:flex;flex-direction:column;max-height:100%}
 .col h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:0;padding:.65rem .8rem .45rem;display:flex;justify-content:space-between}
 .col .cards{overflow-y:auto;padding:0 .5rem .6rem;display:flex;flex-direction:column;gap:.45rem;min-height:3rem}
 .col.drop{outline:2px dashed var(--blue);outline-offset:-3px}
-.card{background:var(--card);border-radius:9px;padding:.55rem .65rem .6rem .75rem;cursor:pointer;position:relative;border:1px solid transparent;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+/* card */
+.card{flex:0 0 auto;min-width:0;overflow:hidden;background:var(--card);border-radius:9px;padding:.55rem .6rem .6rem .75rem;cursor:pointer;position:relative;border:1px solid transparent;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .card:hover{background:var(--card2)}
 .card::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:3px;background:var(--dim)}
 .card[data-s=working]::before{background:var(--blue)}
 .card[data-s=blocked]::before{background:var(--amber)}
 .card[data-s=done]::before,.card[data-s=idle]::before{background:var(--green)}
 .card.resolved{opacity:.6}
-.card .t{font-weight:600;display:flex;gap:.35rem;align-items:baseline}
-.card .t span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--violet);flex:0 0 8px;align-self:center}
+.card.resolved.open{opacity:1}
+.card .t{font-weight:600;display:flex;gap:.35rem;align-items:center}
+.card .t .tt{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .qa{display:flex;gap:.25rem;opacity:.55}
+.card:hover .qa,.card.open .qa{opacity:1}
+.ib{border:0;background:none;color:var(--dim);cursor:pointer;padding:.1rem .3rem;border-radius:5px;font-size:13px;line-height:1}
+.ib:hover{background:#343944;color:var(--fg)}
+.ib.stop{color:#ff8a8a}
+.chev{transition:transform .15s}
+.card.open .chev{transform:rotate(180deg)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--violet);flex:0 0 8px}
 .card .m{font-size:12px;color:var(--dim);margin-top:.1rem;display:flex;gap:.4rem;flex-wrap:wrap}
 .card .x{font-size:12.5px;color:#c3c7cf;margin-top:.3rem;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;word-break:break-word}
 .card .x.w{color:var(--dim);font-style:italic}
 .card.red{background:var(--redbg);border-color:var(--red)}
 .card.red::before{background:var(--red)}
 .card.throb{animation:throb 1.25s ease-in-out infinite}
-@keyframes throb{0%,100%{box-shadow:0 0 0 0 rgba(255,59,59,.0);transform:scale(1)}50%{box-shadow:0 0 0 5px rgba(255,59,59,.45),0 0 22px 4px rgba(255,59,59,.55);transform:scale(1.025)}}
+@keyframes throb{0%,100%{box-shadow:0 0 0 0 rgba(255,59,59,0);transform:scale(1)}50%{box-shadow:0 0 0 5px rgba(255,59,59,.45),0 0 22px 4px rgba(255,59,59,.55);transform:scale(1.025)}}
 @media (prefers-reduced-motion:reduce){.card.throb{animation:throbfade 1.4s ease-in-out infinite}@keyframes throbfade{50%{background:#5a1c20}}}
 .card.focused{outline:1px solid #555}
 .card.dragging{opacity:.4}
+/* activity indicator */
+.act{display:flex;align-items:center;gap:.4rem;font-size:12px;margin-top:.35rem;padding:.25rem .45rem;border-radius:6px;background:#1a2230;color:#a9c8ff;min-width:0}
+.act .lbl{white-space:nowrap}
+.act .d{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#d6e4ff}
+.act .since{color:var(--dim);white-space:nowrap}
+.act.thinking{background:#231d33;color:#cdb6ff}
+.act.blocked{background:#33280f;color:var(--amber)}
+.act.error{background:#331a1a;color:#ff9a9a}
+.act.long .since{color:var(--amber);font-weight:600}
+.spin{width:11px;height:11px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite;flex:0 0 11px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.dots{display:inline-flex;gap:2px;flex:0 0 auto}
+.dots i{width:4px;height:4px;border-radius:50%;background:currentColor;animation:bounce 1.1s infinite ease-in-out}
+.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}
+@keyframes bounce{0%,80%,100%{opacity:.25;transform:translateY(0)}40%{opacity:1;transform:translateY(-2px)}}
+@media (prefers-reduced-motion:reduce){.spin,.dots i{animation:none}}
+/* expanded card details */
+.det{margin-top:.5rem;border-top:1px solid var(--line);padding-top:.45rem;cursor:default;user-select:text;-webkit-user-select:text}
+.sec{margin:.1rem 0 .55rem}
+.sec>label{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);margin-bottom:.15rem}
+.sec .body{font-size:12.5px;white-space:pre-wrap;word-break:break-word;max-height:13em;overflow:auto}
+.sec .body.think{color:#bfb0e6;font-style:italic}
+.tools{list-style:none;margin:0;padding:0;font-size:12px}
+.tools li{display:flex;gap:.35rem;padding:.12rem 0;align-items:baseline}
+.tools .n{color:#a9c8ff;white-space:nowrap}
+.tools .dd{flex:1;color:#c3c7cf;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tools .dur{color:var(--dim);white-space:nowrap}
+.ok{color:var(--green)}.err{color:var(--red)}.run{color:var(--blue)}
+.stats{font-size:11.5px;color:var(--dim);display:flex;flex-wrap:wrap;gap:.2rem .7rem;margin:.3rem 0 .5rem}
+.stats b{color:#c3c7cf;font-weight:500}
+.det .acts{display:flex;gap:.35rem;flex-wrap:wrap}
 .empty{color:var(--dim);font-size:12px;padding:.4rem .3rem}
 /* drawer */
-#drawer{position:fixed;top:0;right:0;bottom:0;width:min(46rem,100%);background:#15171b;border-left:1px solid var(--line);transform:translateX(100%);transition:transform .18s ease;z-index:20;display:flex;flex-direction:column}
+#drawer{position:fixed;top:0;right:0;bottom:0;width:min(50rem,100%);background:#15171b;border-left:1px solid var(--line);transform:translateX(100%);transition:transform .18s ease;z-index:20;display:flex;flex-direction:column}
 #drawer.open{transform:none}
-#dh{padding:.8rem 1rem;border-bottom:1px solid var(--line)}
+#dh{padding:.8rem 1rem .5rem;border-bottom:1px solid var(--line)}
 #dh .top{display:flex;gap:.5rem;align-items:center}
 #dh h3{margin:0;font-size:16px;flex:1}
 #dh .m{color:var(--dim);font-size:12px;margin-top:.2rem}
 #dh .acts{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.6rem}
-#tx{flex:1;overflow-y:auto;padding:1rem}
-.msg{margin:0 0 .9rem}
+#dact{margin-top:.55rem}
+#dtabs{display:flex;gap:.2rem;margin-top:.6rem}
+#dtabs button{border:0;background:none;color:var(--dim);padding:.35rem .7rem;border-radius:6px 6px 0 0;cursor:pointer;border-bottom:2px solid transparent}
+#dtabs button.on{color:var(--fg);border-bottom-color:var(--blue)}
+#tx,#live{flex:1;overflow-y:auto;padding:1rem}
+#live{display:none;flex-direction:column;gap:.6rem}
+#screen{margin:0;background:#0b0c0e;border:1px solid var(--line);border-radius:8px;padding:.6rem;white-space:pre;overflow:auto;flex:1;font-size:11.5px}
+#keys{display:flex;gap:.3rem;flex-wrap:wrap}
+.msg{margin:0 0 .8rem}
 .msg .who{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin-bottom:.2rem}
 .msg .body{white-space:pre-wrap;word-break:break-word;font-size:13.5px}
 .msg.user .body{background:var(--card);padding:.5rem .65rem;border-radius:8px}
-.msg code,.msg pre{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace}
 .msg pre{background:#0c0d10;padding:.5rem;border-radius:6px;overflow-x:auto;white-space:pre}
-#reply{border-top:1px solid var(--line);padding:.7rem 1rem calc(.7rem + env(safe-area-inset-bottom));display:flex;gap:.5rem;align-items:flex-end}
+details.tl{margin:0 0 .45rem;background:#181b20;border:1px solid #252a31;border-radius:7px}
+details.tl summary{cursor:pointer;padding:.3rem .55rem;font-size:12.5px;list-style:none;display:flex;gap:.4rem;align-items:baseline;overflow:hidden}
+details.tl summary::-webkit-details-marker{display:none}
+details.tl summary .dd{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#c3c7cf}
+details.tl summary .n{color:#a9c8ff;white-space:nowrap}
+details.tl .inner{padding:0 .55rem .5rem}
+details.tl pre{margin:.3rem 0 0;background:#0c0d10;padding:.45rem;border-radius:6px;overflow:auto;max-height:22em;white-space:pre-wrap;word-break:break-word}
+details.think summary{color:#bfb0e6}
+details.think .inner{color:#bfb0e6;font-style:italic;white-space:pre-wrap;font-size:13px}
+.msg.error .body{color:#ff9a9a}
+#reply{border-top:1px solid var(--line);padding:.6rem 1rem calc(.7rem + env(safe-area-inset-bottom))}
+#reply .row{display:flex;gap:.5rem;align-items:flex-end}
 #reply textarea{flex:1;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:.5rem .6rem;min-height:2.6rem;max-height:30vh;resize:vertical}
+#reply .btns{display:flex;flex-direction:column;gap:.3rem}
+#rhint{font-size:11.5px;color:var(--dim);margin-bottom:.35rem}
 #scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:15;display:none}
 #scrim.open{display:block}
 #toast{position:fixed;left:50%;bottom:1.2rem;transform:translateX(-50%);background:#2a2e36;padding:.45rem .9rem;border-radius:8px;display:none;z-index:30}
@@ -84,11 +148,12 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   <div class="seg" id="views">
     <button data-v="state">State</button><button data-v="lists">Lists</button><button data-v="ws">Workspaces</button>
   </div>
+  <button class="btn" id="expandall" title="Expand or collapse every card's details">Details</button>
   <button class="btn" id="redonly" title="Show only red cards">🔴 only</button>
   <button class="btn" id="editlists">Lists…</button>
   <input id="q" placeholder="Filter  ( / )" autocomplete="off">
 </header>
-<div class="hint" id="hint">Shift+click (or long-press) a card to make it 🔴 top priority. Red cards throb and text you when they're ready. Drag cards between lists in the Lists view.</div>
+<div class="hint" id="hint">Shift+click (or long-press) → 🔴 top priority: throbs and texts you when ready. ▾ expands a card's details; ⏹ interrupts a working agent; click opens transcript, live screen and reply.</div>
 <main id="board"></main>
 
 <div id="scrim"></div>
@@ -96,16 +161,36 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   <div id="dh">
     <div class="top"><h3 id="dt"></h3><button class="btn" id="dclose" aria-label="Close">✕</button></div>
     <div class="m" id="dm"></div>
+    <div class="stats" id="dstats"></div>
     <div class="acts">
+      <button class="btn stop" id="dstop">⏹ Interrupt</button>
       <button class="btn" id="dred">🔴 Red</button>
       <button class="btn" id="dfocus">Open in Herdr</button>
       <button class="btn" id="dunread">Mark unread</button>
       <select class="btn" id="dlist"></select>
       <button class="btn" id="dkill">Close tab</button>
     </div>
+    <div id="dact"></div>
+    <div id="dtabs"><button data-t="tx">Transcript</button><button data-t="live">Live screen</button></div>
   </div>
   <div id="tx"></div>
-  <form id="reply"><textarea id="rt" placeholder="Reply to this agent  (⌘↩ to send)"></textarea><button class="btn">Send</button></form>
+  <div id="live">
+    <div id="keys">
+      <span class="pill">send key:</span>
+      <button class="btn sm" data-k="esc">Esc</button><button class="btn sm" data-k="enter">Enter</button>
+      <button class="btn sm" data-k="up">↑</button><button class="btn sm" data-k="down">↓</button>
+      <button class="btn sm" data-k="left">←</button><button class="btn sm" data-k="right">→</button>
+      <button class="btn sm" data-k="tab">Tab</button><button class="btn sm" data-k="y">y</button><button class="btn sm" data-k="n">n</button>
+      <button class="btn sm" data-k="1">1</button><button class="btn sm" data-k="2">2</button><button class="btn sm" data-k="3">3</button>
+    </div>
+    <pre id="screen" class="mono"></pre>
+  </div>
+  <form id="reply">
+    <div id="rhint"></div>
+    <div class="row"><textarea id="rt"></textarea>
+      <div class="btns"><button class="btn" id="rsend">Send</button><button class="btn stop" type="button" id="rint" title="Stop what it's doing, then send this instead">⏹ Interrupt &amp; send</button></div>
+    </div>
+  </form>
 </aside>
 <dialog id="ldlg"><form method="dialog">
   <h3 style="margin:.2rem 0 .6rem">Lists</h3>
@@ -120,9 +205,10 @@ const $ = (s) => document.querySelector(s);
 let B = { cards: [], lists: [], workspaces: [] };
 let view = localStorage.view || "state";
 let redOnly = localStorage.redOnly === "1";
-let openTab = null;
+let expanded = new Set(JSON.parse(localStorage.expanded || "[]"));
+let expandAll = localStorage.expandAll === "1";
+let openTab = null, dtab = "tx", lastTxKey = "", screenTimer = null;
 let throbbing = new Set();
-let lastTxKey = "";
 
 // ---------- data ----------
 function connect() {
@@ -140,20 +226,25 @@ async function api(path, body) {
 // ---------- helpers ----------
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 function ago(t) {
+  if (!t) return "";
   const s = Math.max(0, (Date.now() - t) / 1000);
-  if (s < 60) return "now";
-  if (s < 3600) return Math.floor(s / 60) + "m";
-  if (s < 86400) return Math.floor(s / 3600) + "h";
+  if (s < 60) return Math.floor(s) + "s";
+  if (s < 3600) return Math.floor(s / 60) + "m" + (s < 600 ? " " + Math.floor(s % 60) + "s" : "");
+  if (s < 86400) return Math.floor(s / 3600) + "h " + Math.floor((s % 3600) / 60) + "m";
   return Math.floor(s / 86400) + "d";
 }
-const STATUS = { working: "working", blocked: "blocked", done: "done", idle: "idle", unknown: "?" };
+const since = (t) => `<span class="since" data-t="${t || 0}"></span>`;
 const shortModel = (m) => (m || "").split("/").pop().replace(/^claude-/, "").replace(/-(\d)-(\d)$/, " $1.$2");
+const ktok = (n) => (n >= 1000 ? Math.round(n / 1000) + "k" : String(n || 0));
 function toast(t) { const el = $("#toast"); el.textContent = t; el.style.display = "block"; clearTimeout(toast.h); toast.h = setTimeout(() => (el.style.display = "none"), 2600); }
 function beep() {
   try {
     const a = beep.ctx || (beep.ctx = new AudioContext());
     [880, 1175].forEach((f, i) => { const o = a.createOscillator(), g = a.createGain(); o.frequency.value = f; o.connect(g); g.connect(a.destination); const t = a.currentTime + i * 0.16; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14); o.start(t); o.stop(t + 0.15); });
   } catch {}
+}
+function mdLite(s) {
+  return esc(s).replace(/```[\w-]*\n([\s\S]*?)```/g, (_, c) => `<pre>${c}</pre>`).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
 }
 // Card preview: the answer's last real paragraph (skipping DONE / LOC footer lines), which is usually the ask.
 function lastPara(t) {
@@ -162,56 +253,134 @@ function lastPara(t) {
   if (p.length < 60 && paras.length) p = paras.pop() + "\n" + p;
   return p.slice(0, 400);
 }
+const card = (tab) => B.cards.find((c) => c.tab === tab);
+const isOpen = (c) => expandAll ? !expanded.has("-" + c.tab) : expanded.has(c.tab);
 const rank = (c) => (c.red ? 0 : 4) + (c.throb ? 0 : 1) + (c.needsYou ? 0 : 2);
 const sortCards = (a) => a.sort((x, y) => rank(x) - rank(y) || y.statusSince - x.statusSince);
 
-// ---------- render ----------
+// Live activity line: what a working agent is doing right now, and for how long.
+function activity(c) {
+  if (c.status === "blocked") return `<div class="act blocked"><span class="lbl">⚠ waiting on you</span><span class="d">a question or approval is on its screen</span>${since(c.statusSince)}</div>`;
+  const a = c.activity;
+  if (c.status === "working") {
+    if (a?.kind === "tool") {
+      const long = Date.now() - a.since > 3 * 60_000 ? " long" : "";
+      return `<div class="act tool${long}"><i class="spin"></i><span class="lbl">${esc(a.tool)}</span><span class="d mono">${esc(a.detail)}</span>${since(a.since)}</div>`;
+    }
+    return `<div class="act thinking"><span class="dots"><i></i><i></i><i></i></span><span class="lbl">thinking</span><span class="d"></span>${since(a?.since || c.statusSince)}</div>`;
+  }
+  if (a?.kind === "error") return `<div class="act error"><span class="lbl">✖ stopped</span><span class="d">${esc(a.error)}</span>${since(a.since)}</div>`;
+  return "";
+}
+function toolsList(tools) {
+  return `<ul class="tools">${tools.slice().reverse().map((t) => {
+    const st = !t.end ? '<span class="run">⟳</span>' : t.error ? '<span class="err">✗</span>' : '<span class="ok">✓</span>';
+    const dur = t.end ? ago(Date.now() - (t.end - t.ts)).replace(/ .*/, "") : "";
+    return `<li>${st}<span class="n">${esc(t.name)}</span><span class="dd mono" title="${esc(t.detail)}">${esc(t.detail)}</span><span class="dur">${t.end ? esc(dur) : since(t.ts)}</span></li>`;
+  }).join("")}</ul>`;
+}
+function statsHtml(c) {
+  const s = c.stats || {};
+  return `<span><b>$${(s.cost || 0).toFixed(2)}</b> spent</span><span>context <b>${ktok(s.ctx)}</b></span><span><b>${s.turns || 0}</b> prompts</span><span><b>${s.tools || 0}</b> tool calls</span><span>${esc(shortModel(c.model))} · thinking <b>${esc(c.thinkingLevel || "?")}</b></span><span class="mono">${esc((c.cwd || "").replace(/^\/Users\/[^/]+/, "~"))}</span>${c.startedAt ? `<span>started ${since(c.startedAt)} ago</span>` : ""}`;
+}
+function details(c) {
+  const working = c.status === "working";
+  return `<div class="det">
+    ${c.lastUser ? `<div class="sec"><label>Latest prompt · ${since(c.lastUser.ts)} ago</label><div class="body">${esc(c.lastUser.text)}</div></div>` : ""}
+    ${c.thinking && (c.thinkingTs || 0) >= (c.lastUser?.ts || 0) ? `<div class="sec"><label>Latest thinking</label><div class="body think">${esc(c.thinking)}</div></div>` : ""}
+    ${c.lastAssistant ? `<div class="sec"><label>Latest answer · ${since(c.lastAssistant.ts)} ago</label><div class="body">${mdLite(c.lastAssistant.text)}</div></div>` : ""}
+    ${c.tools?.length ? `<div class="sec"><label>Recent tools</label>${toolsList(c.tools)}</div>` : ""}
+    <div class="stats">${statsHtml(c)}</div>
+    <div class="acts">
+      ${working ? '<button class="btn sm stop" data-a="stop">⏹ Interrupt</button>' : ""}
+      <button class="btn sm" data-a="open">Transcript &amp; reply</button>
+      <button class="btn sm" data-a="focus">Open in Herdr</button>
+      <button class="btn sm" data-a="red">${c.red ? "Clear red" : "🔴 Make red"}</button>
+    </div></div>`;
+}
+function cardHtml(c) {
+  const working = c.status === "working";
+  const snip = working ? (c.lastUser ? "▶ " + c.lastUser.text.slice(0, 300) : "") : lastPara(c.lastAssistant?.text || c.first);
+  const open = isOpen(c);
+  const cls = ["card", c.red && "red", c.throb && "throb", c.resolved && "resolved", c.focused && "focused", open && "open"].filter(Boolean).join(" ");
+  return `<div class="${cls}" data-key="${esc(c.tab)}" data-tab="${esc(c.tab)}" data-s="${esc(c.status)}" draggable="${view === "lists"}">
+    <div class="t">${c.needsYou ? '<i class="dot" title="New since you last looked"></i>' : ""}<span class="tt">${esc(c.title)}</span>
+      <span class="qa">${working ? '<button class="ib stop" data-a="stop" title="Interrupt (Esc Esc)">⏹</button>' : ""}<button class="ib chev" data-a="chev" title="Details">▾</button></span></div>
+    <div class="m"><span>${esc(view === "ws" ? "" : c.workspaceLabel)}</span><span>${esc(c.status)} ${since(c.statusSince)}</span>${c.model ? `<span>${esc(shortModel(c.model))}</span>` : ""}${c.stats?.cost ? `<span>$${c.stats.cost.toFixed(2)}</span>` : ""}</div>
+    ${activity(c)}
+    ${open ? details(c) : snip ? `<div class="x${working ? " w" : ""}">${esc(snip)}</div>` : ""}
+  </div>`;
+}
+
+// Keyed DOM patching: unchanged cards keep their node, so animations and scroll don't reset.
+function patch(container, items) {
+  const existing = new Map([...container.children].filter((e) => e.dataset.key != null).map((e) => [e.dataset.key, e]));
+  let prev = null;
+  for (const it of items) {
+    let el = existing.get(it.key);
+    if (!el || el._h !== it.html) {
+      const t = document.createElement("template"); t.innerHTML = it.html.trim();
+      const n = t.content.firstElementChild; n._h = it.html;
+      if (el) el.replaceWith(n);
+      el = n;
+    }
+    existing.delete(it.key);
+    const want = prev ? prev.nextSibling : container.firstChild;
+    if (el !== want) container.insertBefore(el, want);
+    prev = el;
+  }
+  for (const el of existing.values()) el.remove();
+  [...container.children].forEach((e) => { if (e.dataset.key == null) e.remove(); });
+}
 function columns(cards) {
   if (view === "lists") {
-    const cols = [{ id: "", name: "Unsorted" }, ...B.lists].map((l) => ({ key: l.id, name: l.name, drop: true, cards: [] }));
-    const by = Object.fromEntries(cols.map((c) => [c.key, c]));
+    const cols = [{ id: "", name: "Unsorted" }, ...B.lists].map((l) => ({ key: "l:" + l.id, list: l.id, name: l.name, drop: true, cards: [] }));
+    const by = Object.fromEntries(cols.map((c) => [c.list, c]));
     for (const c of cards) (by[c.list || ""] || by[""]).cards.push(c);
     return cols;
   }
   if (view === "ws") {
-    const cols = B.workspaces.map((w) => ({ key: w.id, name: w.label, cards: [] }));
-    const by = Object.fromEntries(cols.map((c) => [c.key, c]));
+    const cols = B.workspaces.map((w) => ({ key: "w:" + w.id, ws: w.id, name: w.label, cards: [] }));
+    const by = Object.fromEntries(cols.map((c) => [c.ws, c]));
     for (const c of cards) by[c.workspace]?.cards.push(c);
     return cols.filter((c) => c.cards.length);
   }
   const cols = [
-    { key: "needs", name: "Needs you", cards: [] },
-    { key: "working", name: "Working", cards: [] },
-    { key: "parked", name: "Parked", cards: [] },
-    { key: "resolved", name: "Resolved (DONE)", cards: [] },
+    { key: "s:needs", name: "Needs you", cards: [] },
+    { key: "s:working", name: "Working", cards: [] },
+    { key: "s:parked", name: "Parked", cards: [] },
+    { key: "s:resolved", name: "Resolved (DONE)", cards: [] },
   ];
   for (const c of cards) cols[c.status === "working" ? 1 : c.resolved ? 3 : c.needsYou ? 0 : 2].cards.push(c);
   return cols;
 }
-function cardHtml(c) {
-  const working = c.status === "working";
-  const snip = working ? (c.lastUser ? "▶ " + c.lastUser.text.slice(0, 400) : "") : lastPara(c.lastAssistant?.text || c.first);
-  const cls = ["card", c.red && "red", c.throb && "throb", c.resolved && "resolved", c.focused && "focused"].filter(Boolean).join(" ");
-  return `<div class="${cls}" data-tab="${esc(c.tab)}" data-s="${esc(c.status)}" draggable="${view === "lists"}">
-    <div class="t">${c.needsYou ? '<i class="dot" title="New since you last looked"></i>' : ""}<span>${esc(c.title)}</span></div>
-    <div class="m"><span>${esc(view === "ws" ? "" : c.workspaceLabel)}</span><span>${STATUS[c.status] || c.status} ${ago(c.statusSince)}</span>${c.model ? `<span>${esc(shortModel(c.model))}</span>` : ""}</div>
-    ${snip ? `<div class="x${working ? " w" : ""}">${esc(snip)}</div>` : ""}
-  </div>`;
-}
 function render() {
   const q = $("#q").value.trim().toLowerCase();
   let cards = B.cards.filter((c) => !redOnly || c.red);
-  if (q) cards = cards.filter((c) => [c.title, c.workspaceLabel, c.lastAssistant?.text, c.lastUser?.text, c.first].join(" ").toLowerCase().includes(q));
-  const html = columns(cards).map((col) => `<section class="col" data-key="${esc(col.key)}" data-drop="${col.drop ? 1 : ""}">
-      <h2><span>${esc(col.name)}</span><span>${col.cards.length}</span></h2>
-      <div class="cards">${sortCards(col.cards).map(cardHtml).join("") || '<div class="empty">—</div>'}</div></section>`).join("");
-  $("#board").innerHTML = html;
+  if (q) cards = cards.filter((c) => [c.title, c.workspaceLabel, c.lastAssistant?.text, c.lastUser?.text, c.first, c.activity?.detail].join(" ").toLowerCase().includes(q));
+  const cols = columns(cards);
+  patch($("#board"), cols.map((col) => ({ key: col.key, html: `<section class="col" data-key="${esc(col.key)}" data-list="${esc(col.list ?? "")}" data-drop="${col.drop ? 1 : ""}"><h2></h2><div class="cards"></div></section>` })));
+  for (const col of cols) {
+    const sec = $("#board").querySelector(`.col[data-key="${CSS.escape(col.key)}"]`);
+    sec.querySelector("h2").innerHTML = `<span>${esc(col.name)}</span><span>${col.cards.length}</span>`;
+    const box = sec.querySelector(".cards");
+    const items = sortCards(col.cards).map((c) => ({ key: c.tab, html: cardHtml(c) }));
+    if (!items.length) { box.innerHTML = '<div class="empty">—</div>'; continue; }
+    patch(box, items);
+  }
   const n = (f) => B.cards.filter(f).length;
   const needs = n((c) => c.needsYou);
-  $("#counts").innerHTML = `<span class="pill red">🔴 <b>${n((c) => c.red)}</b></span><span class="pill">needs you <b>${needs}</b></span><span class="pill">working <b>${n((c) => c.status === "working")}</b></span><span class="pill">total <b>${B.cards.length}</b></span>`;
+  $("#counts").innerHTML = `<span class="pill red">🔴 <b>${n((c) => c.red)}</b></span><span class="pill">needs you <b>${needs}</b></span><span class="pill">thinking <b>${n((c) => c.status === "working" && c.activity?.kind !== "tool")}</b></span><span class="pill">running tools <b>${n((c) => c.status === "working" && c.activity?.kind === "tool")}</b></span><span class="pill">blocked <b>${n((c) => c.status === "blocked")}</b></span><span class="pill">total <b>${B.cards.length}</b></span>`;
   document.title = (needs ? `(${needs}) ` : "") + "ag board";
   document.querySelectorAll("#views button").forEach((b) => b.classList.toggle("on", b.dataset.v === view));
   $("#redonly").classList.toggle("on", redOnly);
+  $("#expandall").classList.toggle("on", expandAll);
+  tick();
+}
+// Fill in every "since" span (runs every second; doesn't touch the card HTML).
+function tick() {
+  document.querySelectorAll(".since[data-t]").forEach((el) => { const t = +el.dataset.t; el.textContent = t ? ago(t) : ""; });
+  document.querySelectorAll(".act.tool").forEach((el) => { const t = +el.querySelector(".since")?.dataset.t; el.classList.toggle("long", t && Date.now() - t > 180000); });
 }
 function onData() {
   const now = new Set(B.cards.filter((c) => c.throb).map((c) => c.tab));
@@ -222,61 +391,114 @@ function onData() {
 }
 
 // ---------- drawer ----------
-function card(tab) { return B.cards.find((c) => c.tab === tab); }
-function mdLite(s) {
-  return esc(s).replace(/```[\w-]*\n([\s\S]*?)```/g, (_, c) => `<pre>${c}</pre>`).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+function txHtml(msgs) {
+  return msgs.map((m) => {
+    if (m.role === "user") return `<div class="msg user"><div class="who">prompt · ${since(m.ts)} ago${m.images ? ` · ${m.images} image${m.images > 1 ? "s" : ""}` : ""}</div><div class="body">${mdLite(m.text)}</div></div>`;
+    if (m.role === "assistant") return `<div class="msg"><div class="who">agent · ${since(m.ts)} ago</div><div class="body">${mdLite(m.text)}</div></div>`;
+    if (m.role === "thinking") return `<details class="tl think"><summary>💭 <span class="dd">${esc(m.text.replace(/\s+/g, " ").slice(0, 140))}</span></summary><div class="inner">${esc(m.text)}</div></details>`;
+    if (m.role === "error") return `<div class="msg error"><div class="body">✖ ${esc(m.text)}</div></div>`;
+    const st = !m.result ? '<span class="run">⟳</span>' : m.result.error ? '<span class="err">✗</span>' : '<span class="ok">✓</span>';
+    return `<details class="tl"><summary>${st}<span class="n">${esc(m.name)}</span><span class="dd mono">${esc(m.detail)}</span></summary><div class="inner"><pre>${esc(m.args)}</pre>${m.result ? `<pre>${esc(m.result.text)}</pre>` : '<div class="empty">running…</div>'}</div></details>`;
+  }).join("") || '<div class="empty">No messages yet.</div>';
 }
 async function loadTranscript(c) {
   const msgs = await (await fetch("/api/transcript?tab=" + encodeURIComponent(c.tab))).json();
   const tx = $("#tx");
   const atBottom = tx.scrollHeight - tx.scrollTop - tx.clientHeight < 80;
-  tx.innerHTML = msgs.map((m) => `<div class="msg ${m.role}"><div class="who">${m.role === "user" ? "Nathan / prompt" : "agent"} · ${ago(m.ts)} ago</div><div class="body">${mdLite(m.text)}</div></div>`).join("") || '<div class="empty">No messages yet.</div>';
-  if (atBottom || !renderDrawer.loaded) tx.scrollTop = tx.scrollHeight;
-  renderDrawer.loaded = true;
+  const openDetails = new Set([...tx.querySelectorAll("details[open]")].map((d) => [...tx.querySelectorAll("details")].indexOf(d)));
+  tx.innerHTML = txHtml(msgs);
+  [...tx.querySelectorAll("details")].forEach((d, i) => openDetails.has(i) && (d.open = true));
+  if (atBottom || !loadTranscript.done) tx.scrollTop = tx.scrollHeight;
+  loadTranscript.done = true;
+  tick();
+}
+async function loadScreen() {
+  if (!openTab || dtab !== "live") return;
+  const r = await fetch("/api/screen?tab=" + encodeURIComponent(openTab));
+  const text = await r.text();
+  const el = $("#screen");
+  const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  el.textContent = text.replace(/\n+$/, "");
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+function setTab(t) {
+  dtab = t;
+  document.querySelectorAll("#dtabs button").forEach((b) => b.classList.toggle("on", b.dataset.t === t));
+  $("#tx").style.display = t === "tx" ? "block" : "none";
+  $("#live").style.display = t === "live" ? "flex" : "none";
+  clearInterval(screenTimer);
+  if (t === "live") { loadScreen(); screenTimer = setInterval(loadScreen, 1000); }
 }
 function renderDrawer() {
   const c = card(openTab);
   if (!c) { closeDrawer(); return; }
+  const working = c.status === "working";
   $("#dt").textContent = (c.red ? "🔴 " : "") + c.title;
-  $("#dm").textContent = `${c.workspaceLabel} · ${c.status} ${ago(c.statusSince)} · ${shortModel(c.model)} · ${c.tab}`;
+  $("#dm").innerHTML = `${esc(c.workspaceLabel)} · ${esc(c.status)} ${since(c.statusSince)} · ${esc(c.tab)}`;
+  $("#dstats").innerHTML = statsHtml(c);
+  $("#dact").innerHTML = activity(c);
+  $("#dstop").disabled = !working;
   $("#dred").classList.toggle("on", c.red);
   $("#dlist").innerHTML = [{ id: "", name: "No list" }, ...B.lists].map((l) => `<option value="${esc(l.id)}" ${l.id === (c.list || "") ? "selected" : ""}>${esc(l.name)}</option>`).join("");
-  const key = c.tab + (c.lastAssistant?.ts || 0) + (c.lastUser?.ts || 0) + c.status;
+  $("#rint").style.display = working ? "" : "none";
+  $("#rsend").textContent = working ? "Steer" : "Send";
+  $("#rhint").textContent = working ? "It's working. Steer = queued and delivered after its current step. Interrupt & send = stop it now and send this instead." : c.status === "blocked" ? "It's showing a question or approval: use the Live screen keys, or reply." : "";
+  $("#rt").placeholder = working ? "Steer this agent  (⌘↩)" : "Reply to this agent  (⌘↩ to send)";
+  const key = c.tab + (c.lastAssistant?.ts || 0) + (c.lastUser?.ts || 0) + c.status + (c.activity?.since || 0);
   if (key !== lastTxKey) { lastTxKey = key; loadTranscript(c); }
   if (c.needsYou && c.status !== "blocked") api("/api/card", { tab: c.tab, seen: true });
+  tick();
 }
 function openDrawer(tab) {
-  openTab = tab; lastTxKey = ""; renderDrawer.loaded = false;
+  openTab = tab; lastTxKey = ""; loadTranscript.done = false;
   history.replaceState(null, "", "#" + tab);
   $("#drawer").classList.add("open"); $("#scrim").classList.add("open"); $("#drawer").setAttribute("aria-hidden", "false");
-  const c = card(tab);
-  if (c) api("/api/card", { tab, seen: true });
+  if (card(tab)) api("/api/card", { tab, seen: true });
+  setTab(card(tab)?.status === "blocked" ? "live" : "tx");
   renderDrawer();
   if (matchMedia("(pointer:fine)").matches) $("#rt").focus();
 }
 function closeDrawer() {
-  openTab = null;
+  openTab = null; clearInterval(screenTimer);
   history.replaceState(null, "", location.pathname);
   $("#drawer").classList.remove("open"); $("#scrim").classList.remove("open"); $("#drawer").setAttribute("aria-hidden", "true");
 }
 const toggleRed = (tab) => { const c = card(tab); if (c) { c.red = !c.red; render(); api("/api/card", { tab, red: c.red }); } };
+async function stop(tab) { if (await api("/api/interrupt", { tab })) toast("Interrupted"); }
+function toggleOpen(tab) {
+  const k = expandAll ? "-" + tab : tab;
+  expanded.has(k) ? expanded.delete(k) : expanded.add(k);
+  localStorage.expanded = JSON.stringify([...expanded]);
+  render();
+}
 
 // ---------- events ----------
 let pressTimer = null, longPressed = false;
 $("#board").addEventListener("click", (e) => {
   const el = e.target.closest(".card"); if (!el) return;
+  const tab = el.dataset.tab;
   if (longPressed) { longPressed = false; return; }
-  if (e.shiftKey) { e.preventDefault(); toggleRed(el.dataset.tab); return; }
-  openDrawer(el.dataset.tab);
+  const a = e.target.closest("[data-a]")?.dataset.a;
+  if (a) {
+    e.stopPropagation();
+    if (a === "chev") toggleOpen(tab);
+    else if (a === "stop") stop(tab);
+    else if (a === "open") openDrawer(tab);
+    else if (a === "focus") api("/api/focus", { tab }).then((ok) => ok && toast("Focused in Herdr"));
+    else if (a === "red") toggleRed(tab);
+    return;
+  }
+  if (e.shiftKey) { e.preventDefault(); toggleRed(tab); return; }
+  if (e.target.closest(".det")) return; // let you select text in expanded details
+  openDrawer(tab);
 });
-$("#board").addEventListener("mousedown", (e) => { if (e.shiftKey) e.preventDefault(); }); // no text selection on shift+click
+$("#board").addEventListener("mousedown", (e) => { if (e.shiftKey) e.preventDefault(); });
 $("#board").addEventListener("touchstart", (e) => {
-  const el = e.target.closest(".card"); if (!el) return;
+  const el = e.target.closest(".card"); if (!el || e.target.closest("[data-a], .det")) return;
   longPressed = false;
   pressTimer = setTimeout(() => { longPressed = true; navigator.vibrate?.(30); toggleRed(el.dataset.tab); }, 550);
 }, { passive: true });
 ["touchend", "touchmove", "touchcancel"].forEach((ev) => $("#board").addEventListener(ev, () => clearTimeout(pressTimer), { passive: true }));
-// drag between lists
 $("#board").addEventListener("dragstart", (e) => { const el = e.target.closest(".card"); if (!el) return; e.dataTransfer.setData("text/plain", el.dataset.tab); el.classList.add("dragging"); });
 $("#board").addEventListener("dragend", (e) => e.target.closest?.(".card")?.classList.remove("dragging"));
 $("#board").addEventListener("dragover", (e) => { const col = e.target.closest(".col[data-drop='1']"); if (!col) return; e.preventDefault(); document.querySelectorAll(".col.drop").forEach((c) => c !== col && c.classList.remove("drop")); col.classList.add("drop"); });
@@ -285,28 +507,35 @@ $("#board").addEventListener("drop", (e) => {
   const col = e.target.closest(".col[data-drop='1']"); if (!col) return;
   e.preventDefault(); col.classList.remove("drop");
   const tab = e.dataTransfer.getData("text/plain"); const c = card(tab); if (!c) return;
-  c.list = col.dataset.key || undefined; render(); api("/api/card", { tab, list: col.dataset.key });
+  c.list = col.dataset.list || undefined; render(); api("/api/card", { tab, list: col.dataset.list });
 });
 $("#views").addEventListener("click", (e) => { const v = e.target.dataset.v; if (v) { view = localStorage.view = v; render(); } });
 $("#redonly").onclick = () => { redOnly = !redOnly; localStorage.redOnly = redOnly ? "1" : "0"; render(); };
+$("#expandall").onclick = () => { expandAll = !expandAll; expanded.clear(); localStorage.expandAll = expandAll ? "1" : "0"; localStorage.expanded = "[]"; render(); };
 $("#q").addEventListener("input", render);
 $("#scrim").onclick = closeDrawer;
 $("#dclose").onclick = closeDrawer;
+$("#dtabs").addEventListener("click", (e) => e.target.dataset.t && setTab(e.target.dataset.t));
+$("#keys").addEventListener("click", async (e) => { const k = e.target.dataset.k; if (k && openTab) { await api("/api/keys", { tab: openTab, keys: [k] }); setTimeout(loadScreen, 250); } });
+$("#dstop").onclick = () => openTab && stop(openTab);
 $("#dred").onclick = () => toggleRed(openTab);
 $("#dfocus").onclick = async () => { if (await api("/api/focus", { tab: openTab })) toast("Focused in Herdr"); };
 $("#dunread").onclick = async () => { const t = openTab; closeDrawer(); await api("/api/card", { tab: t, seen: false }); };
 $("#dlist").onchange = (e) => api("/api/card", { tab: openTab, list: e.target.value });
 $("#dkill").onclick = async () => { const c = card(openTab); if (c && confirm(`Close the Herdr tab "${c.title}"? The agent session ends (its Pi session file stays).`)) { if (await api("/api/close", { tab: c.tab })) closeDrawer(); } };
-$("#reply").onsubmit = async (e) => {
-  e.preventDefault(); const text = $("#rt").value.trim(); if (!text || !openTab) return;
-  if (await api("/api/prompt", { tab: openTab, text })) { $("#rt").value = ""; toast("Sent"); }
-};
-$("#rt").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("#reply").requestSubmit(); });
+async function send(interrupt) {
+  const text = $("#rt").value.trim(); if (!text || !openTab) return;
+  const c = card(openTab);
+  if (interrupt) toast("Interrupting…");
+  if (await api("/api/prompt", { tab: openTab, text, interrupt })) { $("#rt").value = ""; toast(interrupt ? "Interrupted and sent" : c?.status === "working" ? "Queued as steering" : "Sent"); }
+}
+$("#reply").onsubmit = (e) => { e.preventDefault(); send(false); };
+$("#rint").onclick = () => send(true);
+$("#rt").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(false); } });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") { if (openTab) closeDrawer(); else $("#q").blur(); }
-  if (e.key === "/" && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); $("#q").focus(); }
+  if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); $("#q").focus(); }
 });
-// lists editor
 function listRow(l) { return `<div class="row" data-id="${esc(l.id)}"><input value="${esc(l.name)}"><button type="button" class="btn" data-del>✕</button></div>`; }
 $("#editlists").onclick = () => { $("#lrows").innerHTML = B.lists.map(listRow).join(""); $("#ldlg").showModal(); };
 $("#ladd").onclick = () => $("#lrows").insertAdjacentHTML("beforeend", listRow({ id: "l" + Date.now().toString(36), name: "" }));
@@ -316,7 +545,8 @@ $("#ldlg").addEventListener("close", () => {
   const lists = [...document.querySelectorAll("#lrows .row")].map((r) => ({ id: r.dataset.id, name: r.querySelector("input").value.trim() })).filter((l) => l.name);
   api("/api/lists", { lists });
 });
-setInterval(render, 30_000); // keep "5m ago" fresh
+setInterval(tick, 1000);
+setInterval(render, 60_000);
 connect();
 if (location.hash.length > 1) { const t = decodeURIComponent(location.hash.slice(1)); const wait = setInterval(() => { if (card(t)) { clearInterval(wait); openDrawer(t); } }, 200); setTimeout(() => clearInterval(wait), 5000); }
 </script>

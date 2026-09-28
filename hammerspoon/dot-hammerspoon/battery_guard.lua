@@ -1,4 +1,4 @@
--- Battery guard
+-- Battery guard (host only; loaded from init.lua when `machine-role host`)
 -- `pmset disablesleep 1` (set in ../macos) means the Mac never sleeps, even
 -- with the lid closed. This watcher is the safety net: when running on battery
 -- below a threshold, temporarily allow sleep and sleep now, then re-arm

@@ -1,0 +1,10 @@
+#!/bin/zsh
+# Print this Mac's role ("host" or "client") from machines/README.md, matched
+# by LocalHostName. Unlisted machines count as clients.
+#   machine-role            # -> host | client
+#   machine-role host && …  # exit 0 if this Mac has that role
+repo=${0:A:h:h:h:h}
+name=$(scutil --get LocalHostName 2>/dev/null || hostname -s)
+role=$(awk -F'|' -v n="$name" '{gsub(/[ `]/,"",$3); gsub(/ /,"",$4)} $3==n {print $4; exit}' "$repo/machines/README.md")
+role=${role:-client}
+if (( $# )); then [[ $role == $1 ]]; else print $role; fi

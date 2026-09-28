@@ -18,6 +18,9 @@ Roles:
 | `ag` | `ag` | host | `natkoersch` | `/Users/natkoersch` | `~/dotfiles-seen-setup` | `100.107.192.32` |
 | `nathan-dev-client` | `nathans-MacBook-Pro-2` | client | `nathan` | `/Users/nathan` | `~/dotfiles` | `100.68.116.104` |
 
+`machine-role` prints this Mac's role from the table (unlisted = client); role-specific
+setup uses it, e.g. sleep: hosts never sleep, clients sleep normally (`macos`, Hammerspoon's battery guard).
+
 Adding a machine: run `bootstrap`, add its row here and its `Host` block to
 `ssh/dot-ssh/config`, authorize SSH keys between it and the host(s), then run
 `snapshot --commit` on it.

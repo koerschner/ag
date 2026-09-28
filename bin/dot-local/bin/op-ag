@@ -1,5 +1,9 @@
 #!/usr/bin/env -S uv run --quiet --script
-"""Run 1Password CLI with the arcade.school-only Keychain credential."""
+"""Run 1Password CLI with a single-vault service-account Keychain credential.
+
+Invoked as op-ag: arcade.school vault. Invoked as op-shared (a symlink to this
+file): Nathan's machine-shared vault. Each name maps to its own Keychain item.
+"""
 import os
 import plistlib
 import subprocess
@@ -9,9 +13,18 @@ import time
 import uuid
 from pathlib import Path
 
+SERVICES = {
+    "op-ag": "ag 1Password service account",
+    "op-shared": "ag machine-shared service account",
+}
+NAME = Path(__file__).name
+if NAME not in SERVICES:
+    print(f"{NAME}: unknown wrapper name (expected one of {', '.join(SERVICES)})",
+          file=sys.stderr)
+    sys.exit(1)
 KEYCHAIN_COMMAND = [
     "/usr/bin/security", "find-generic-password", "-a", "natkoersch",
-    "-s", "ag 1Password service account", "-w",
+    "-s", SERVICES[NAME], "-w",
 ]
 
 
@@ -24,8 +37,8 @@ def read_token():
     # user's GUI session can read the same Keychain item. The credential travels
     # through a private FIFO into memory; no token file or persistent agent exists.
     target = f"gui/{os.getuid()}"
-    label = "com.nathan.op-ag-keychain." + uuid.uuid4().hex
-    with tempfile.TemporaryDirectory(prefix="op-ag-") as directory:
+    label = f"com.nathan.{NAME}-keychain." + uuid.uuid4().hex
+    with tempfile.TemporaryDirectory(prefix=f"{NAME}-") as directory:
         folder = Path(directory)
         pipe = folder / "token.pipe"
         os.mkfifo(pipe, 0o600)
@@ -82,7 +95,7 @@ try:
     if not token:
         raise RuntimeError("the service token is empty")
 except (RuntimeError, OSError, subprocess.TimeoutExpired, UnicodeError) as error:
-    print(f"op-ag: {error}", file=sys.stderr)
+    print(f"{NAME}: {error}", file=sys.stderr)
     sys.exit(1)
 
 # Inherited Connect credentials must not select a broader identity.

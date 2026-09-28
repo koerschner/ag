@@ -5,29 +5,37 @@
 //   - Polls `herdr api snapshot` (~15 ms) every POLL_MS; each tab hosting an agent is a card.
 //   - Reads each card's Pi session file incrementally (only appended bytes) for the latest ask/answer,
 //     live activity (thinking / running a tool since when), recent tools, thinking, cost and context size.
-//   - Keeps its own state in ~/.local/state/ag-board/state.json: red flag, list, seenAt, status timing, lists.
+//   - Keeps its own state in ~/.local/state/ag-board/state.json: hotpath flag, list, seenAt, status timing, lists.
 //   - Pushes the whole board to browsers over SSE (/events) whenever anything changes.
 // Card semantics:
 //   ready     = agent idle/done/blocked (at its prompt)
 //   needsYou  = blocked, or ready with an answer newer than seenAt. Seen = opened on the board, replied
 //               from it, jumped to in Herdr, or the tab is focused in Herdr.
 //   resolved  = the latest answer ends with a DONE line (the global "signal completion" convention).
-//   red       = top priority (shift+click / long-press). Pinned to the top everywhere; a red card that
+//   hotpath   = 🔥 top priority (shift+click / long-press). Pinned to the top everywhere; a hotpath card that
 //               needsYou throbs, and becoming so fires the fast lane: ag-text + a Herdr toast.
+// Media: GET /api/file?path= (image/video files under ~ or /tmp, Range-capable), GET /api/embedded?tab=&line=&idx=
+// (base64 images inside the session, e.g. pasted screenshots and read-tool images).
+// Also: voice (POST /api/transcribe, Whisper via TrueFoundry like ag-inbox), pasted files (POST /api/upload →
+// ~/inbox/clipboard), new sessions (POST /api/new: tab in any workspace, pi, first prompt; the herdr-tab-name
+// extension names it), renaming tabs (POST /api/rename). Served on the Tailscale IP (http://ag:7376), on
+// 127.0.0.1 (for tailscale serve), and at https://ag.<tailnet>.ts.net:7377 (set up at startup), where voice works.
 // Control (Pi semantics): a prompt sent while the agent works is queued as steering (delivered after the
 // current step). Interrupt = Esc twice (this Pi setup asks for a second Esc); Pi puts any queued steering
 // back in its editor. Interrupt & send = interrupt, wait until ready, clear the editor (Ctrl+U), then send.
 // API: GET /api/state, /api/transcript?tab=, /api/screen?tab=
-//      POST /api/card {tab, red?, list?, seen?}, /api/lists {lists}, /api/prompt {tab, text, interrupt?},
+//      POST /api/card {tab, hot?, list?, seen?}, /api/lists {lists}, /api/prompt {tab, text, interrupt?},
 //           /api/interrupt {tab}, /api/keys {tab, keys[]}, /api/focus {tab}, /api/close {tab}
 // Page: ~/.local/share/ag-board/index.html (stowed from dotfiles ag-board/), re-read on every request.
 // Run by the com.nathan.ag-board LaunchAgent (only on ag). Log: /tmp/ag-board.log.
 
 import { execFileSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { dirname } from "node:path";
 
 const PORT = 7376;
+const HTTPS_PORT = 7377; // `tailscale serve` → https://ag.<tailnet>.ts.net:7377 (browsers only allow the mic on https)
 const POLL_MS = 1500;
 const HOME = homedir();
 const HERDR = `${HOME}/.local/bin/herdr`;
@@ -35,12 +43,19 @@ const AG_TEXT = `${HOME}/.local/bin/ag-text`;
 const STATE_DIR = `${HOME}/.local/state/ag-board`;
 const STATE_FILE = `${STATE_DIR}/state.json`;
 const PAGE = `${HOME}/.local/share/ag-board/index.html`;
+// Static assets sit next to the page in the dotfiles checkout (the page itself is a symlink into it).
+const STATIC_DIR = dirname(realpathSync(PAGE));
+const STATIC = new Set(["editor.js", "manifest.json", "icon.svg"]);
+const UPLOAD_DIR = `${HOME}/inbox/clipboard`;
+const STT_URL = "https://tfy.promptlens.trilogy.com/audio/transcriptions";
+const STT_MODELS = ["whisper-1", "openai-esw/whisper-1"]; // second is the fallback route
+const STT_HINT = "Herdr, ag, pi, Arcade, arcade.school, Jev, TrueFoundry, Linear, Honeycomb, Hammerspoon, dotfiles, Roblox, TSA, hotpath.";
 const FAST_LANE_GAP_MS = 60_000; // at most one fast-lane ping per card per minute
 const READY = new Set(["idle", "done", "blocked"]);
 const BIG_LINE = 256 * 1024; // tool results this big (screenshots) are summarised by regex, not parsed
 const KEYS = new Set(["esc", "enter", "up", "down", "left", "right", "tab", "backspace", "ctrl+u", "y", "n", "1", "2", "3"]);
 
-type CardState = { red?: boolean; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
+type CardState = { hot?: boolean; red?: boolean /* pre-rename name of hot */; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
 type List = { id: string; name: string };
 type State = { cards: Record<string, CardState>; lists: List[] };
 type Msg = { role: "user" | "assistant"; text: string; ts: number };
@@ -74,6 +89,8 @@ let state: State = { cards: {}, lists: [{ id: "now", name: "Now" }, { id: "next"
 try {
 	state = { ...state, ...JSON.parse(readFileSync(STATE_FILE, "utf8")) };
 } catch {}
+// "red" was renamed "hotpath" (🔥); carry old flags over.
+for (const cs of Object.values(state.cards)) if (cs.red !== undefined) ((cs.hot = cs.red), delete cs.red);
 let dirty = false;
 const save = () => {
 	if (!dirty) return;
@@ -112,6 +129,70 @@ function toolDetail(name: string, args: any): string {
 	return oneLine(first ?? "", 140);
 }
 const shortTool = (n: string) => n.replace(/^mcp_/, "").replace(/_/g, " ");
+
+// ---------- media ----------
+// Images/videos mentioned by path in prompts and answers render on the board. Only media files under the home
+// folder or /tmp are served (GET /api/file, with Range support so videos seek).
+const MEDIA_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", heic: "image/heic", mp4: "video/mp4", m4v: "video/mp4", mov: "video/quicktime", webm: "video/webm" };
+const MEDIA_ROOTS = [HOME, "/tmp", "/private/tmp", "/private/var/folders", "/var/folders"];
+const MEDIA_RE = /(?:~|\/(?:Users|tmp|private|var))[^\s"'`<>()[\]{}|,;]*?\.(png|jpe?g|gif|webp|svg|heic|mp4|m4v|mov|webm)\b/gi;
+type Media = { src: string; kind: "image" | "video"; name: string };
+const mediaType = (path: string) => MEDIA_TYPES[path.split(".").pop()!.toLowerCase()];
+function allowedMedia(raw: string): string | null {
+	let path = raw.replace(/^~(?=\/)/, HOME);
+	try {
+		path = realpathSync(path);
+	} catch {
+		return null;
+	}
+	if (!mediaType(path) || !MEDIA_ROOTS.some((r) => path === r || path.startsWith(`${r}/`))) return null;
+	try {
+		return statSync(path).isFile() ? path : null;
+	} catch {
+		return null;
+	}
+}
+const mediaCache = new Map<string, Media[]>();
+function mediaIn(text?: string): Media[] {
+	if (!text) return [];
+	const hit = mediaCache.get(text);
+	if (hit) return hit;
+	const out: Media[] = [];
+	const seen = new Set<string>();
+	for (const m of text.matchAll(MEDIA_RE)) {
+		const path = allowedMedia(m[0].replace(/[.:]+$/, ""));
+		if (!path || seen.has(path)) continue;
+		seen.add(path);
+		out.push({ src: `/api/file?path=${encodeURIComponent(path)}`, kind: mediaType(path).startsWith("video") ? "video" : "image", name: path.split("/").pop()! });
+		if (out.length >= 8) break;
+	}
+	if (mediaCache.size > 500) mediaCache.clear();
+	mediaCache.set(text, out);
+	return out;
+}
+function serveFile(path: string, req: Request): Response {
+	const file = Bun.file(path);
+	const size = file.size;
+	const headers: Record<string, string> = { "content-type": mediaType(path), "accept-ranges": "bytes", "cache-control": "private, max-age=300" };
+	const range = req.headers.get("range")?.match(/bytes=(\d*)-(\d*)/);
+	if (!range) return new Response(file, { headers: { ...headers, "content-length": String(size) } });
+	const start = range[1] ? +range[1] : Math.max(0, size - +range[2]);
+	const end = range[1] && range[2] ? Math.min(+range[2], size - 1) : range[1] ? size - 1 : size - 1;
+	if (start >= size || start > end) return new Response(null, { status: 416, headers: { "content-range": `bytes */${size}` } });
+	return new Response(file.slice(start, end + 1), { status: 206, headers: { ...headers, "content-range": `bytes ${start}-${end}/${size}`, "content-length": String(end - start + 1) } });
+}
+// Session lines, cached briefly, so embedded images (base64 in the session file) can be served one at a time.
+const linesCache = new Map<string, { mtime: number; lines: string[] }>();
+function sessionLines(path: string): string[] {
+	const mtime = statSync(path).mtimeMs;
+	const hit = linesCache.get(path);
+	if (hit?.mtime === mtime) return hit.lines;
+	const lines = readFileSync(path, "utf8").split("\n");
+	if (linesCache.size > 4) linesCache.clear();
+	linesCache.set(path, { mtime, lines });
+	return lines;
+}
+const imagesOf = (content: unknown) => (Array.isArray(content) ? content.filter((c: any) => c?.type === "image") : []);
 
 function readRange(path: string, start: number, len: number) {
 	const fd = openSync(path, "r");
@@ -228,27 +309,23 @@ function session(path?: string): Session | undefined {
 	return s;
 }
 
-// Full transcript for the drawer: prompts, answers, thinking, tool calls with a short result.
+// Full transcript for the drawer: prompts, answers, thinking, tool calls with a short result, and media
+// (images embedded in the session, plus image/video files mentioned by path).
 function transcript(tab: string) {
 	const card = board.cards.find((c) => c.tab === tab);
 	if (!card?.sessionFile) return [];
-	const lines = readFileSync(card.sessionFile, "utf8").split("\n");
+	const lines = sessionLines(card.sessionFile);
 	const out: any[] = [];
-	const results = new Map<string, { text: string; error: boolean }>();
+	const embedded = (line: number, n: number): Media[] => Array.from({ length: n }, (_, k) => ({ src: `/api/embedded?tab=${encodeURIComponent(tab)}&line=${line}&idx=${k}`, kind: "image" as const, name: `image ${k + 1}` }));
+	const results = new Map<string, { text: string; error: boolean; media: Media[] }>();
 	for (let i = lines.length - 1; i >= 0 && out.length < 120; i--) {
 		const l = lines[i];
 		if (!l.includes('"type":"message"')) continue;
 		if (l.includes('"role":"toolResult"')) {
-			const id = l.match(/"toolCallId":"([^"]+)"/)?.[1];
-			if (!id) continue;
-			if (l.length > BIG_LINE) {
-				results.set(id, { text: "(large result, e.g. an image)", error: /"isError":true/.test(l) });
-				continue;
-			}
 			try {
 				const e = JSON.parse(l);
 				const t = textOf(e.message.content);
-				results.set(id, { text: t.length > 2500 ? `${t.slice(0, 2500)}\n…` : t, error: !!e.message.isError });
+				results.set(e.message.toolCallId, { text: t.length > 2500 ? `${t.slice(0, 2500)}\n…` : t, error: !!e.message.isError, media: [...embedded(i, imagesOf(e.message.content).length), ...mediaIn(t)] });
 			} catch {}
 			continue;
 		}
@@ -263,16 +340,15 @@ function transcript(tab: string) {
 		const clip = (t: string, n = 8000) => (t.length > n ? `${t.slice(0, n)}\n…` : t);
 		if (m.role === "user") {
 			const text = textOf(m.content).trim();
-			const images = Array.isArray(m.content) ? m.content.filter((c: any) => c.type === "image").length : 0;
-			out.push({ role: "user", ts, text: clip(text), images });
+			out.push({ role: "user", ts, text: clip(text), media: [...embedded(i, imagesOf(m.content).length), ...mediaIn(text)] });
 		} else if (m.role === "assistant") {
 			const c: any[] = Array.isArray(m.content) ? m.content : [];
+			if (m.stopReason === "error" || m.stopReason === "aborted") out.push({ role: "error", ts, text: m.errorMessage || m.stopReason });
 			for (const x of [...c].reverse()) {
 				if (x.type === "toolCall") out.push({ role: "tool", ts, name: shortTool(x.name), detail: toolDetail(x.name, x.arguments), args: clip(JSON.stringify(x.arguments, null, 1), 3000), result: results.get(x.id) });
-				else if (x.type === "text" && x.text?.trim()) out.push({ role: "assistant", ts, text: clip(x.text.trim()) });
+				else if (x.type === "text" && x.text?.trim()) out.push({ role: "assistant", ts, text: clip(x.text.trim()), media: mediaIn(x.text) });
 				else if (x.type === "thinking" && x.thinking?.trim()) out.push({ role: "thinking", ts, text: clip(x.thinking.trim(), 4000) });
 			}
-			if (m.stopReason === "error" || m.stopReason === "aborted") out.push({ role: "error", ts, text: m.errorMessage || m.stopReason });
 		}
 	}
 	return out.reverse();
@@ -287,7 +363,7 @@ type Card = {
 	title: string;
 	status: string;
 	statusSince: number;
-	red: boolean;
+	hot: boolean;
 	list?: string;
 	needsYou: boolean;
 	resolved: boolean;
@@ -304,6 +380,7 @@ type Card = {
 	thinkingTs?: number;
 	activity?: Activity;
 	tools: Tool[];
+	media: Media[];
 	stats: { cost: number; ctx: number; turns: number; tools: number };
 	sessionFile?: string;
 };
@@ -323,8 +400,8 @@ const broadcast = () => {
 
 function fastLane(card: Card) {
 	const snippet = (card.status === "blocked" ? "is blocked and needs you" : "is ready") + (card.lastAssistant ? `: ${oneLine(card.lastAssistant.text, 160)}` : "");
-	void run([AG_TEXT, `🔴 ${card.title} (${card.workspaceLabel}) ${snippet}\nhttp://ag:${PORT}/#${card.tab}`]);
-	void herdr("notification", "show", `🔴 ${card.title}`, "--body", snippet.slice(0, 120), "--sound", "request");
+	void run([AG_TEXT, `🔥 ${card.title} (${card.workspaceLabel}) ${snippet}\n${HTTPS_URL}/#${card.tab}`]);
+	void herdr("notification", "show", `🔥 ${card.title}`, "--body", snippet.slice(0, 120), "--sound", "request");
 	console.log(new Date().toISOString(), "fast-lane", card.tab, card.title);
 }
 
@@ -368,11 +445,11 @@ async function poll() {
 			title: cleanLabel(tabs[a.tab_id]?.label ?? a.name ?? a.tab_id),
 			status: a.agent_status,
 			statusSince: cs.statusSince,
-			red: !!cs.red,
+			hot: !!cs.hot,
 			list: cs.list,
 			needsYou,
 			resolved,
-			throb: !!cs.red && needsYou,
+			throb: !!cs.hot && needsYou,
 			focused,
 			model: s?.model,
 			thinkingLevel: s?.thinkingLevel,
@@ -385,6 +462,7 @@ async function poll() {
 			thinkingTs: s?.thinkingTs,
 			activity: s?.activity,
 			tools: (s?.tools ?? []).slice(-6).map(({ id: _, ...t }) => t),
+			media: [...new Map([...mediaIn(s?.lastAssistant?.text), ...mediaIn(s?.lastUser?.text)].map((m) => [m.src, m])).values()].slice(0, 6),
 			stats: { cost: Math.round((s?.cost ?? 0) * 100) / 100, ctx: s?.ctx ?? 0, turns: s?.turns ?? 0, tools: s?.toolCount ?? 0 },
 			sessionFile: a.agent_session?.value,
 		};
@@ -425,6 +503,54 @@ const markSeen = (tab: string) => {
 	if (cs) (cs.seenAt = Date.now()), (dirty = true);
 };
 
+// ---------- voice / uploads / new sessions ----------
+function tfyToken(): string {
+	if (process.env.TFY_TOKEN) return process.env.TFY_TOKEN;
+	const m = readFileSync(`${HOME}/.zshenv.local`, "utf8").match(/TFY_TOKEN=["']?([^"'\s]+)/);
+	if (!m) throw new Error("TFY_TOKEN not found in ~/.zshenv.local");
+	return m[1];
+}
+async function transcribe(file: File): Promise<string> {
+	let last: unknown;
+	for (const model of STT_MODELS) {
+		try {
+			const body = new FormData();
+			body.set("model", model);
+			body.set("prompt", STT_HINT);
+			body.set("file", file, file.name || "voice.webm");
+			const res = await fetch(STT_URL, { method: "POST", headers: { authorization: `Bearer ${tfyToken()}` }, body, signal: AbortSignal.timeout(60_000) });
+			if (!res.ok) throw new Error(`stt ${model} ${res.status}: ${await res.text()}`);
+			return String((await res.json()).text ?? "").trim();
+		} catch (e) {
+			last = e;
+		}
+	}
+	throw last;
+}
+async function saveUpload(f: File): Promise<string> {
+	mkdirSync(UPLOAD_DIR, { recursive: true });
+	const safe = (f.name || "paste").replace(/[^\w.-]+/g, "_").slice(-60);
+	const path = `${UPLOAD_DIR}/${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}-board-${safe}`;
+	writeFileSync(path, Buffer.from(await f.arrayBuffer()));
+	return path;
+}
+// New pi session: an unlabeled tab (the herdr-tab-name extension names it from the first prompt).
+async function newSession(workspace: string, cwd: string, text: string, focus: boolean) {
+	const dir = cwd.replace(/^~(?=\/|$)/, HOME) || HOME;
+	if (!existsSync(dir)) throw new Error(`no such directory: ${cwd}`);
+	const t = await herdr("tab", "create", "--workspace", workspace, "--cwd", dir, focus ? "--focus" : "--no-focus");
+	if (t.code !== 0) throw new Error(t.err.trim() || "tab create failed");
+	const { tab, root_pane } = JSON.parse(t.out).result;
+	const name = `board-${crypto.randomUUID().slice(0, 8)}`;
+	const a = await herdr("agent", "start", name, "--kind", "pi", "--pane", root_pane.pane_id, "--timeout", "30000");
+	if (a.code !== 0) throw new Error(a.err.trim() || "pi didn't start");
+	if (text) {
+		const r = await herdr("agent", "prompt", root_pane.pane_id, text);
+		if (r.code !== 0) throw new Error(r.err.trim() || "prompt failed");
+	}
+	return tab.tab_id as string;
+}
+
 // ---------- control ----------
 const keys = async (pane: string, ...ks: string[]) => {
 	for (const k of ks) {
@@ -456,15 +582,44 @@ const after = async () => {
 	await poll();
 };
 
-Bun.serve({
-	hostname: host,
-	port: PORT,
-	idleTimeout: 0, // SSE streams stay open
-	async fetch(req) {
+const gz = new Map<string, { mtime: number; body: Uint8Array }>();
+function staticFile(name: string, req: Request) {
+	const path = `${STATIC_DIR}/${name}`;
+	const st = statSync(path);
+	const type = name.endsWith(".js") ? "text/javascript" : name.endsWith(".svg") ? "image/svg+xml" : "application/manifest+json";
+	const etag = `"${st.mtimeMs.toString(36)}"`;
+	if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304 });
+	const headers: Record<string, string> = { "content-type": type, etag, "cache-control": "no-cache" };
+	if (!(req.headers.get("accept-encoding") ?? "").includes("gzip")) return new Response(Bun.file(path), { headers });
+	let hit = gz.get(path);
+	if (!hit || hit.mtime !== st.mtimeMs) gz.set(path, (hit = { mtime: st.mtimeMs, body: Bun.gzipSync(readFileSync(path)) }));
+	return new Response(hit.body, { headers: { ...headers, "content-encoding": "gzip" } });
+}
+
+async function handle(req: Request): Promise<Response> {
 		const url = new URL(req.url);
 		const p = url.pathname;
 		if (req.method === "GET") {
 			if (p === "/") return new Response(Bun.file(PAGE), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+			const sf = p.match(/^\/static\/([\w.-]+)$/)?.[1];
+			if (sf && STATIC.has(sf)) return staticFile(sf, req);
+			if (p === "/api/file") {
+				const path = allowedMedia(url.searchParams.get("path") ?? "");
+				return path ? serveFile(path, req) : bad("not an allowed media file", 404);
+			}
+			if (p === "/api/embedded") {
+				const card = board.cards.find((c) => c.tab === url.searchParams.get("tab"));
+				if (!card?.sessionFile) return bad("no such card", 404);
+				try {
+					const e = JSON.parse(sessionLines(card.sessionFile)[Number(url.searchParams.get("line"))] ?? "");
+					const img: any = imagesOf(e.message?.content)[Number(url.searchParams.get("idx") ?? 0)];
+					if (!img?.data) return bad("no such image", 404);
+					return new Response(Buffer.from(img.data, "base64"), { headers: { "content-type": img.mimeType || "image/png", "cache-control": "private, max-age=3600" } });
+				} catch {
+					return bad("no such image", 404);
+				}
+			}
+			if (p === "/api/config") return Response.json({ httpsUrl: HTTPS_URL, home: HOME });
 			if (p === "/api/state") return new Response(boardJson, { headers: { "content-type": "application/json" } });
 			if (p === "/api/transcript") return Response.json(transcript(url.searchParams.get("tab") ?? ""));
 			if (p === "/api/screen") {
@@ -501,6 +656,21 @@ Bun.serve({
 			return bad("not found", 404);
 		}
 		if (req.method !== "POST") return bad("not found", 404);
+		// Multipart endpoints first (voice, files).
+		if (p === "/api/transcribe") {
+			const f = (await req.formData()).get("audio");
+			if (!(f instanceof File) || !f.size) return bad("audio required");
+			try {
+				return Response.json({ ok: true, text: await transcribe(f) });
+			} catch (e) {
+				return bad(`transcription failed: ${e}`, 502);
+			}
+		}
+		if (p === "/api/upload") {
+			const files = (await req.formData()).getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
+			if (!files.length) return bad("file required");
+			return Response.json({ ok: true, paths: await Promise.all(files.map(saveUpload)) });
+		}
 		const body: any = await req.json().catch(() => ({}));
 		const tab = String(body.tab ?? "");
 		const card = board.cards.find((c) => c.tab === tab);
@@ -509,7 +679,7 @@ Bun.serve({
 			case "/api/card": {
 				const cs = state.cards[tab];
 				if (!cs) return bad("no such card", 404);
-				if (typeof body.red === "boolean") cs.red = body.red;
+				if (typeof body.hot === "boolean") cs.hot = body.hot;
 				if ("list" in body) cs.list = body.list || undefined;
 				if (body.seen === true) cs.seenAt = Date.now();
 				if (body.seen === false) cs.seenAt = 0;
@@ -552,6 +722,25 @@ Bun.serve({
 				await after();
 				return ok();
 			}
+			case "/api/new": {
+				const ws = String(body.workspace ?? "");
+				if (!board.workspaces.some((w) => w.id === ws)) return bad("pick a workspace");
+				try {
+					const id = await newSession(ws, String(body.cwd ?? "~"), String(body.text ?? "").trim(), !!body.focus);
+					await after();
+					return Response.json({ ok: true, tab: id });
+				} catch (e: any) {
+					return bad(String(e?.message ?? e), 409);
+				}
+			}
+			case "/api/rename": {
+				const label = String(body.label ?? "").trim().slice(0, 60);
+				if (!card || !label) return bad("tab and label required");
+				const r = await herdr("tab", "rename", tab, label);
+				if (r.code !== 0) return fail(r, "rename");
+				await after();
+				return ok();
+			}
 			case "/api/focus": {
 				if (!card) return bad("no such card", 404);
 				const r = await herdr("tab", "focus", tab);
@@ -569,7 +758,21 @@ Bun.serve({
 			}
 		}
 		return bad("not found", 404);
-	},
-});
-console.log(`ag-board listening on http://${host}:${PORT}`);
+}
+
+const serveOpts = { port: PORT, idleTimeout: 0 /* SSE streams stay open */, maxRequestBodySize: 64 * 1024 * 1024, fetch: handle };
+Bun.serve({ ...serveOpts, hostname: host });
+Bun.serve({ ...serveOpts, hostname: "127.0.0.1" }); // tailscale serve proxies here (it can't reach ag's own Tailscale IP)
+// HTTPS on the tailnet (idempotent; persists in tailscaled). Voice needs it: browsers only allow the mic on https.
+const HTTPS_URL = (() => {
+	try {
+		execFileSync("/usr/local/bin/tailscale", ["serve", "--bg", `--https=${HTTPS_PORT}`, `http://127.0.0.1:${PORT}`], { stdio: "ignore", timeout: 15_000 });
+		const dns = JSON.parse(execFileSync("/usr/local/bin/tailscale", ["status", "--json"], { encoding: "utf8" })).Self.DNSName.replace(/\.$/, "");
+		return `https://${dns}:${HTTPS_PORT}`;
+	} catch (e) {
+		console.error("tailscale serve failed", e);
+		return `http://ag:${PORT}`;
+	}
+})();
+console.log(`ag-board listening on http://${host}:${PORT}, http://127.0.0.1:${PORT}, ${HTTPS_URL}`);
 void loop();

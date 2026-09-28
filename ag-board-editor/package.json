@@ -1,0 +1,17 @@
+{
+  "name": "ag-board-editor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun build editor.ts --minify --format esm --target browser --outfile ../ag-board/dot-local/share/ag-board/editor.js"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.13",
+    "@lezer/highlight": "^1.2.5",
+    "@replit/codemirror-vim": "^6.4.0"
+  }
+}

@@ -5,9 +5,12 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#101114">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="icon" href="/static/icon.svg">
+<link rel="apple-touch-icon" href="/static/icon.svg">
 <title>ag board</title>
 <style>
-:root{--bg:#101114;--col:#17191e;--card:#1f2228;--card2:#262a31;--line:#2e333b;--fg:#e7e9ee;--dim:#8b919c;--red:#ff3b3b;--redbg:#3a1518;--green:#3ecf8e;--amber:#f5b33b;--blue:#5aa2ff;--violet:#b18cff}
+:root{--bg:#101114;--col:#17191e;--card:#1f2228;--card2:#262a31;--line:#2e333b;--fg:#e7e9ee;--dim:#8b919c;--red:#ff3b3b;--fire:#ff2d3d;--firebg:#3a1016;--green:#3ecf8e;--amber:#f5b33b;--blue:#5aa2ff;--violet:#b18cff}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:14px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
 button,select,input,textarea{font:inherit;color:inherit}
@@ -17,14 +20,14 @@ header h1{font-size:15px;margin:0 .4rem 0 0;font-weight:650}
 .counts{display:flex;gap:.35rem;margin-right:auto;flex-wrap:wrap}
 .pill{padding:.12rem .5rem;border-radius:99px;background:var(--card);color:var(--dim);font-size:12px;white-space:nowrap}
 .pill b{color:var(--fg);font-weight:600}
-.pill.red b{color:var(--red)}
+.pill.hot b{color:var(--fire)}
 .seg{display:flex;background:var(--card);border-radius:8px;padding:2px}
 .seg button{border:0;background:none;padding:.28rem .7rem;border-radius:6px;color:var(--dim);cursor:pointer}
 .seg button.on{background:var(--card2);color:var(--fg)}
 .btn{border:1px solid var(--line);background:var(--card);padding:.28rem .7rem;border-radius:8px;cursor:pointer;white-space:nowrap}
 .btn:hover{background:var(--card2)}
 .btn:disabled{opacity:.4;cursor:default}
-.btn.on{border-color:var(--red);color:var(--red)}
+.btn.on{border-color:var(--fire);color:var(--fire)}
 .btn.stop{border-color:#6b2a2a;color:#ff8a8a}
 .btn.stop:hover{background:#3a1518}
 .btn.sm{padding:.12rem .5rem;font-size:12px;border-radius:6px}
@@ -56,12 +59,27 @@ header h1{font-size:15px;margin:0 .4rem 0 0;font-weight:650}
 .card .m{font-size:12px;color:var(--dim);margin-top:.1rem;display:flex;gap:.4rem;flex-wrap:wrap}
 .card .x{font-size:12.5px;color:#c3c7cf;margin-top:.3rem;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;word-break:break-word}
 .card .x.w{color:var(--dim);font-style:italic}
-.card.red{background:var(--redbg);border-color:var(--red)}
-.card.red::before{background:var(--red)}
-.card.throb{animation:throb 1.25s ease-in-out infinite}
-@keyframes throb{0%,100%{box-shadow:0 0 0 0 rgba(255,59,59,0);transform:scale(1)}50%{box-shadow:0 0 0 5px rgba(255,59,59,.45),0 0 22px 4px rgba(255,59,59,.55);transform:scale(1.025)}}
-@media (prefers-reduced-motion:reduce){.card.throb{animation:throbfade 1.4s ease-in-out infinite}@keyframes throbfade{50%{background:#5a1c20}}}
+.card.hot{background:var(--firebg);border-color:var(--fire)}
+.card.hot::before{background:var(--fire)}
+/* Hotpath "siren": a bright segment orbiting the card's rim (after the arcade's animate-laser-orbit ring):
+   a conic-gradient spun by a registered angle (unregistered custom properties don't interpolate), masked to
+   a 2px border ring, plus a soft pulsing glow. Reduced motion: a steady solid rim instead. */
+@property --laser-angle{syntax:"<angle>";inherits:false;initial-value:0deg}
+@keyframes laser-orbit{to{--laser-angle:360deg}}
+@keyframes siren-glow{50%{box-shadow:0 0 16px 2px rgba(255,40,60,.5)}}
+.card.throb{border-color:#5c1a22;box-shadow:0 0 8px 0 rgba(255,40,60,.28);animation:siren-glow 1.4s ease-in-out infinite}
+.card.throb::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:2px;pointer-events:none;
+  background:conic-gradient(from var(--laser-angle),transparent 0 62%,#ff2d3d 80%,#ff6b78 90%,#ffe3e6 95%,transparent 100%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);
+  animation:laser-orbit 1.6s linear infinite}
+@media (prefers-reduced-motion:reduce){.card.throb{animation:none;box-shadow:0 0 10px 1px rgba(255,40,60,.45)}.card.throb::after{animation:none;background:#ff2d3d}}
 .card.focused{outline:1px solid #555}
+.card.sel{box-shadow:0 0 0 2px var(--blue) !important}
+.col.collapsed .cards{display:none}
+.col h2{cursor:pointer;user-select:none}
+.col h2 .tw{display:inline-block;transition:transform .15s;margin-right:.3rem}
+.col.collapsed h2 .tw{transform:rotate(-90deg)}
 .card.dragging{opacity:.4}
 /* activity indicator */
 .act{display:flex;align-items:center;gap:.4rem;font-size:12px;margin-top:.35rem;padding:.25rem .45rem;border-radius:6px;background:#1a2230;color:#a9c8ff;min-width:0}
@@ -100,7 +118,8 @@ header h1{font-size:15px;margin:0 .4rem 0 0;font-weight:650}
 #drawer.open{transform:none}
 #dh{padding:.8rem 1rem .5rem;border-bottom:1px solid var(--line)}
 #dh .top{display:flex;gap:.5rem;align-items:center}
-#dh h3{margin:0;font-size:16px;flex:1}
+#dh h3{margin:0;font-size:16px;flex:1;cursor:text}
+#dh h3:hover{text-decoration:underline dotted #555}
 #dh .m{color:var(--dim);font-size:12px;margin-top:.2rem}
 #dh .acts{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.6rem}
 #dact{margin-top:.55rem}
@@ -128,13 +147,46 @@ details.think .inner{color:#bfb0e6;font-style:italic;white-space:pre-wrap;font-s
 .msg.error .body{color:#ff9a9a}
 #reply{border-top:1px solid var(--line);padding:.6rem 1rem calc(.7rem + env(safe-area-inset-bottom))}
 #reply .row{display:flex;gap:.5rem;align-items:flex-end}
-#reply textarea{flex:1;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:.5rem .6rem;min-height:2.6rem;max-height:30vh;resize:vertical}
+.ed{flex:1;min-width:0}
+.edbar{display:flex;gap:.35rem;align-items:center;margin-top:.35rem;flex-wrap:wrap}
+.mode{font:11px ui-monospace,monospace;padding:.1rem .45rem;border-radius:5px;background:#26303f;color:#a9c8ff;min-width:4.5rem;text-align:center}
+.mode:empty{display:none}
+.mode.insert{background:#1f3326;color:var(--green)}
+.mode.visual{background:#3a2a10;color:var(--amber)}
+.mic{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:.28rem .6rem;cursor:pointer}
+.mic.rec{background:#4a1515;border-color:var(--red);color:#fff;animation:recpulse 1s ease-in-out infinite}
+.mic.busy{opacity:.6;cursor:progress}
+@keyframes recpulse{50%{box-shadow:0 0 0 4px rgba(255,59,59,.35)}}
+.edbar .sp{flex:1}
+.edbar label{font-size:12px;color:var(--dim);display:flex;gap:.25rem;align-items:center;cursor:pointer}
+.kbd{font:11px ui-monospace,monospace;background:#262a31;border:1px solid #3a3f48;border-bottom-width:2px;border-radius:4px;padding:0 .3rem}
 #reply .btns{display:flex;flex-direction:column;gap:.3rem}
 #rhint{font-size:11.5px;color:var(--dim);margin-bottom:.35rem}
 #scrim{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:15;display:none}
 #scrim.open{display:block}
 #toast{position:fixed;left:50%;bottom:1.2rem;transform:translateX(-50%);background:#2a2e36;padding:.45rem .9rem;border-radius:8px;display:none;z-index:30}
+.media{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.45rem}
+.media .thumb{max-height:150px;max-width:100%;border-radius:7px;border:1px solid #333a44;cursor:zoom-in;background:#0b0c0e;object-fit:contain}
+.media video{max-height:220px;max-width:100%;border-radius:7px;border:1px solid #333a44;background:#000}
+.media.sm .thumb{height:58px;max-height:58px;max-width:110px;object-fit:cover}
+.media.sm video{height:58px;max-width:110px;object-fit:cover}
+.mbadge{font-size:11px;color:#a9c8ff;white-space:nowrap}
+#lb{position:fixed;inset:0;background:rgba(5,6,8,.92);z-index:40;display:none;align-items:center;justify-content:center;flex-direction:column;gap:.6rem;padding:1.5rem;cursor:zoom-out}
+#lb.open{display:flex}
+#lb img,#lb video{max-width:96vw;max-height:88vh;border-radius:8px;cursor:default}
+#lb .cap{color:var(--dim);font-size:12px}
+#undos{position:fixed;left:1.2rem;bottom:1.2rem;display:flex;flex-direction:column;gap:.4rem;z-index:31}
+.undo{background:#2a2e36;border:1px solid #3a3f48;border-radius:9px;padding:.45rem .5rem .45rem .8rem;display:flex;gap:.7rem;align-items:center;box-shadow:0 6px 20px rgba(0,0,0,.4);position:relative;overflow:hidden;max-width:26rem}
+.undo span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.undo button{border:1px solid #4a90e2;background:#1d3350;color:#cfe3ff;border-radius:6px;padding:.2rem .7rem;cursor:pointer;font-weight:600}
+.undo i{position:absolute;left:0;bottom:0;height:2px;background:#5aa2ff;animation:undobar linear forwards}
+@keyframes undobar{from{width:100%}to{width:0}}
 dialog{background:#15171b;color:var(--fg);border:1px solid var(--line);border-radius:12px;width:min(26rem,92vw)}
+dialog.wide{width:min(46rem,96vw)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+dialog select,dialog .inp{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:.3rem .5rem;color:var(--fg)}
+dialog .fld{display:flex;flex-direction:column;gap:.2rem;flex:1;font-size:12px;color:var(--dim)}
+#help td{padding:.15rem .6rem .15rem 0;font-size:13px}
 dialog input{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:.3rem .5rem;flex:1}
 dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
 .hint{color:var(--dim);font-size:12px;padding:0 .9rem .6rem}
@@ -144,31 +196,33 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
 <body>
 <header>
   <h1>ag board</h1>
+  <button class="btn" id="newbtn" title="Start a new pi session (n)">＋ New session</button>
   <div class="counts" id="counts"></div>
   <div class="seg" id="views">
     <button data-v="state">State</button><button data-v="lists">Lists</button><button data-v="ws">Workspaces</button>
   </div>
   <button class="btn" id="expandall" title="Expand or collapse every card's details">Details</button>
-  <button class="btn" id="redonly" title="Show only red cards">🔴 only</button>
+  <button class="btn" id="hotonly" title="Show only hotpath cards">🔥 only</button>
   <button class="btn" id="editlists">Lists…</button>
   <input id="q" placeholder="Filter  ( / )" autocomplete="off">
+  <button class="btn" id="helpbtn" title="Keyboard shortcuts (?)">?</button>
 </header>
-<div class="hint" id="hint">Shift+click (or long-press) → 🔴 top priority: throbs and texts you when ready. ▾ expands a card's details; ⏹ interrupts a working agent; click opens transcript, live screen and reply.</div>
+<div class="hint" id="hint">Shift+click (or long-press) → 🔥 hotpath: pinned on top, throbs and texts you when ready. ▾ details · ⏹ interrupt · click for transcript, live screen and reply · keyboard: j/k to move, e to archive, ? for all shortcuts.</div>
 <main id="board"></main>
 
 <div id="scrim"></div>
 <aside id="drawer" aria-hidden="true">
   <div id="dh">
-    <div class="top"><h3 id="dt"></h3><button class="btn" id="dclose" aria-label="Close">✕</button></div>
+    <div class="top"><h3 id="dt" title="Click to rename the tab"></h3><button class="btn" id="dclose" aria-label="Close">✕</button></div>
     <div class="m" id="dm"></div>
     <div class="stats" id="dstats"></div>
     <div class="acts">
       <button class="btn stop" id="dstop">⏹ Interrupt</button>
-      <button class="btn" id="dred">🔴 Red</button>
+      <button class="btn" id="dhot">🔥 Hotpath</button>
       <button class="btn" id="dfocus">Open in Herdr</button>
       <button class="btn" id="dunread">Mark unread</button>
       <select class="btn" id="dlist"></select>
-      <button class="btn" id="dkill">Close tab</button>
+      <button class="btn" id="dkill" title="Archive: closes the Herdr tab after a few seconds, with Undo (e)">🗄 Archive</button>
     </div>
     <div id="dact"></div>
     <div id="dtabs"><button data-t="tx">Transcript</button><button data-t="live">Live screen</button></div>
@@ -187,9 +241,10 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   </div>
   <form id="reply">
     <div id="rhint"></div>
-    <div class="row"><textarea id="rt"></textarea>
+    <div class="row"><div class="ed" id="rted"></div>
       <div class="btns"><button class="btn" id="rsend">Send</button><button class="btn stop" type="button" id="rint" title="Stop what it's doing, then send this instead">⏹ Interrupt &amp; send</button></div>
     </div>
+    <div class="edbar"><button type="button" class="mic" data-mic="rted" title="Voice: click to talk, click again to stop (Alt+V)">🎙 Voice</button><button type="button" class="mic" data-attach="rted" title="Attach files or images (or paste / drop them into the editor)">📎</button><span class="mode" data-mode="rted"></span><span class="sp"></span><label><input type="checkbox" class="vimtoggle"> vim</label><span class="kbd">⌘↩</span><span style="font-size:11.5px;color:var(--dim)">or <span class="kbd">:w</span> sends</span></div>
   </form>
 </aside>
 <dialog id="ldlg"><form method="dialog">
@@ -198,13 +253,56 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   <div class="row"><button type="button" class="btn" id="ladd">+ Add list</button></div>
   <div class="row" style="justify-content:flex-end"><button class="btn" value="cancel">Cancel</button><button class="btn" id="lsave" value="save">Save</button></div>
 </form></dialog>
+<dialog id="ndlg" class="wide"><form method="dialog" id="nform">
+  <h3 style="margin:.2rem 0 .7rem">New pi session</h3>
+  <div class="row"><label class="fld">Workspace<select id="nws"></select></label><label class="fld">Directory<input class="inp" id="ncwd" list="ncwds" value="~"><datalist id="ncwds"></datalist></label></div>
+  <div class="fld" style="margin:.5rem 0 .2rem">First prompt (optional; the tab names itself from it)</div>
+  <div class="ed" id="ned"></div>
+  <div class="edbar"><button type="button" class="mic" data-mic="ned" title="Voice (Alt+V)">🎙 Voice</button><button type="button" class="mic" data-attach="ned" title="Attach files">📎</button><span class="mode" data-mode="ned"></span><span class="sp"></span><label><input type="checkbox" id="nfocus"> open it in Herdr</label><label><input type="checkbox" class="vimtoggle"> vim</label></div>
+  <div class="row" style="justify-content:flex-end;margin-top:.8rem"><button class="btn" value="cancel" type="button" id="ncancel">Cancel</button><button class="btn" id="ngo" type="button">Start session <span class="kbd">⌘↩</span></button></div>
+</form></dialog>
+<dialog id="help"><form method="dialog">
+  <h3 style="margin:.2rem 0 .6rem">Keyboard</h3>
+  <table>
+    <tr><td><span class="kbd">j</span> <span class="kbd">k</span></td><td>next / previous card</td></tr>
+    <tr><td><span class="kbd">h</span> <span class="kbd">l</span></td><td>previous / next column</td></tr>
+    <tr><td><span class="kbd">o</span> <span class="kbd">Enter</span></td><td>open the card (transcript, live screen, reply)</td></tr>
+    <tr><td><span class="kbd">Space</span></td><td>expand / collapse details</td></tr>
+    <tr><td><span class="kbd">f</span></td><td>🔥 toggle hotpath</td></tr>
+    <tr><td><span class="kbd">x</span></td><td>⏹ interrupt (press twice)</td></tr>
+    <tr><td><span class="kbd">g</span></td><td>open in Herdr</td></tr>
+    <tr><td><span class="kbd">u</span></td><td>mark unread</td></tr>
+    <tr><td><span class="kbd">e</span></td><td>🗄 archive (closes the tab; Undo for a few seconds)</td></tr>
+    <tr><td><span class="kbd">n</span></td><td>new session</td></tr>
+    <tr><td><span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span></td><td>State / Lists / Workspaces view</td></tr>
+    <tr><td><span class="kbd">/</span></td><td>filter</td></tr>
+    <tr><td><span class="kbd">Esc</span></td><td>close panel (in the editor: vim normal mode)</td></tr>
+    <tr><td><span class="kbd">Alt</span>+<span class="kbd">V</span></td><td>voice in the focused editor</td></tr>
+    <tr><td><span class="kbd">⌘↩</span> / <span class="kbd">:w</span></td><td>send</td></tr>
+  </table>
+  <div class="row" style="justify-content:flex-end"><button class="btn">Close</button></div>
+</form></dialog>
+<input type="file" id="filepick" multiple hidden>
 <div id="toast"></div>
+<div id="undos"></div>
+<div id="lb" role="dialog" aria-label="Media viewer"></div>
 
-<script>
+<script type="module">
+import { createEditor } from "/static/editor.js";
 const $ = (s) => document.querySelector(s);
+// Voice needs a secure context; the https (tailscale serve) URL serves the same board, so hop there.
+if (!window.isSecureContext && location.hostname !== "localhost") {
+  fetch("/api/config").then((r) => r.json()).then((c) => { if (c.httpsUrl?.startsWith("https:")) location.replace(c.httpsUrl + location.pathname + location.hash); }).catch(() => {});
+}
 let B = { cards: [], lists: [], workspaces: [] };
 let view = localStorage.view || "state";
-let redOnly = localStorage.redOnly === "1";
+let hotOnly = localStorage.hotOnly === "1";
+let collapsed = new Set(JSON.parse(localStorage.collapsed || '["s:resolved"]'));
+let sel = null; // keyboard-selected card
+// Archive = close the Herdr tab, undoably: the card hides at once, the tab is closed only when the Undo toast
+// expires (or the page is left), so Undo just cancels it and the session is untouched.
+const ARCHIVE_MS = 6000;
+const archiving = new Map(); // tab → { timer, el }
 let expanded = new Set(JSON.parse(localStorage.expanded || "[]"));
 let expandAll = localStorage.expandAll === "1";
 let openTab = null, dtab = "tx", lastTxKey = "", screenTimer = null;
@@ -246,6 +344,19 @@ function beep() {
 function mdLite(s) {
   return esc(s).replace(/```[\w-]*\n([\s\S]*?)```/g, (_, c) => `<pre>${c}</pre>`).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
 }
+// Images and videos: thumbnails (click → full-size viewer) and inline video players.
+function mediaHtml(list, small) {
+  if (!list?.length) return "";
+  return `<div class="media${small ? " sm" : ""}">${list.map((m) => m.kind === "video"
+    ? `<video src="${esc(m.src)}" controls preload="metadata" playsinline muted title="${esc(m.name)}"></video>`
+    : `<img class="thumb" src="${esc(m.src)}" loading="lazy" alt="${esc(m.name)}" title="${esc(m.name)}">`).join("")}</div>`;
+}
+function lightbox(el) {
+  const lb = $("#lb");
+  lb.innerHTML = el.tagName === "VIDEO" ? `<video src="${esc(el.currentSrc || el.src)}" controls autoplay playsinline></video>` : `<img src="${esc(el.src)}" alt="">`;
+  lb.insertAdjacentHTML("beforeend", `<div class="cap">${esc(el.title || el.alt || "")} · <a href="${esc(el.currentSrc || el.src)}" target="_blank" style="color:#7ab4ff">open original</a> · click or Esc to close</div>`);
+  lb.classList.add("open");
+}
 // Card preview: the answer's last real paragraph (skipping DONE / LOC footer lines), which is usually the ask.
 function lastPara(t) {
   const paras = String(t || "").replace(/(\n\s*(DONE|LOC [^\n]*))+\s*$/g, "").trim().split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
@@ -255,7 +366,7 @@ function lastPara(t) {
 }
 const card = (tab) => B.cards.find((c) => c.tab === tab);
 const isOpen = (c) => expandAll ? !expanded.has("-" + c.tab) : expanded.has(c.tab);
-const rank = (c) => (c.red ? 0 : 4) + (c.throb ? 0 : 1) + (c.needsYou ? 0 : 2);
+const rank = (c) => (c.hot ? 0 : 4) + (c.throb ? 0 : 1) + (c.needsYou ? 0 : 2);
 const sortCards = (a) => a.sort((x, y) => rank(x) - rank(y) || y.statusSince - x.statusSince);
 
 // Live activity line: what a working agent is doing right now, and for how long.
@@ -295,20 +406,22 @@ function details(c) {
       ${working ? '<button class="btn sm stop" data-a="stop">⏹ Interrupt</button>' : ""}
       <button class="btn sm" data-a="open">Transcript &amp; reply</button>
       <button class="btn sm" data-a="focus">Open in Herdr</button>
-      <button class="btn sm" data-a="red">${c.red ? "Clear red" : "🔴 Make red"}</button>
+      <button class="btn sm" data-a="archive" title="Archive (e)">🗄 Archive</button>
+      <button class="btn sm" data-a="hot">${c.hot ? "Remove 🔥" : "🔥 Hotpath"}</button>
     </div></div>`;
 }
 function cardHtml(c) {
   const working = c.status === "working";
   const snip = working ? (c.lastUser ? "▶ " + c.lastUser.text.slice(0, 300) : "") : lastPara(c.lastAssistant?.text || c.first);
   const open = isOpen(c);
-  const cls = ["card", c.red && "red", c.throb && "throb", c.resolved && "resolved", c.focused && "focused", open && "open"].filter(Boolean).join(" ");
+  const cls = ["card", c.hot && "hot", c.throb && "throb", c.resolved && "resolved", c.focused && "focused", open && "open", sel === c.tab && "sel"].filter(Boolean).join(" ");
   return `<div class="${cls}" data-key="${esc(c.tab)}" data-tab="${esc(c.tab)}" data-s="${esc(c.status)}" draggable="${view === "lists"}">
-    <div class="t">${c.needsYou ? '<i class="dot" title="New since you last looked"></i>' : ""}<span class="tt">${esc(c.title)}</span>
+    <div class="t">${c.hot ? "🔥" : ""}${c.needsYou ? '<i class="dot" title="New since you last looked"></i>' : ""}<span class="tt">${esc(c.title)}</span>
       <span class="qa">${working ? '<button class="ib stop" data-a="stop" title="Interrupt (Esc Esc)">⏹</button>' : ""}<button class="ib chev" data-a="chev" title="Details">▾</button></span></div>
     <div class="m"><span>${esc(view === "ws" ? "" : c.workspaceLabel)}</span><span>${esc(c.status)} ${since(c.statusSince)}</span>${c.model ? `<span>${esc(shortModel(c.model))}</span>` : ""}${c.stats?.cost ? `<span>$${c.stats.cost.toFixed(2)}</span>` : ""}</div>
     ${activity(c)}
     ${open ? details(c) : snip ? `<div class="x${working ? " w" : ""}">${esc(snip)}</div>` : ""}
+    ${mediaHtml(c.media, !open)}
   </div>`;
 }
 
@@ -356,25 +469,27 @@ function columns(cards) {
 }
 function render() {
   const q = $("#q").value.trim().toLowerCase();
-  let cards = B.cards.filter((c) => !redOnly || c.red);
+  let cards = B.cards.filter((c) => !archiving.has(c.tab) && (!hotOnly || c.hot));
   if (q) cards = cards.filter((c) => [c.title, c.workspaceLabel, c.lastAssistant?.text, c.lastUser?.text, c.first, c.activity?.detail].join(" ").toLowerCase().includes(q));
   const cols = columns(cards);
   patch($("#board"), cols.map((col) => ({ key: col.key, html: `<section class="col" data-key="${esc(col.key)}" data-list="${esc(col.list ?? "")}" data-drop="${col.drop ? 1 : ""}"><h2></h2><div class="cards"></div></section>` })));
   for (const col of cols) {
     const sec = $("#board").querySelector(`.col[data-key="${CSS.escape(col.key)}"]`);
-    sec.querySelector("h2").innerHTML = `<span>${esc(col.name)}</span><span>${col.cards.length}</span>`;
+    sec.querySelector("h2").innerHTML = `<span><span class="tw">▾</span>${esc(col.name)}</span><span>${col.cards.length}</span>`;
+    sec.classList.toggle("collapsed", collapsed.has(col.key));
     const box = sec.querySelector(".cards");
     const items = sortCards(col.cards).map((c) => ({ key: c.tab, html: cardHtml(c) }));
     if (!items.length) { box.innerHTML = '<div class="empty">—</div>'; continue; }
     patch(box, items);
   }
-  const n = (f) => B.cards.filter(f).length;
+  const n = (f) => B.cards.filter((c) => !archiving.has(c.tab) && f(c)).length;
   const needs = n((c) => c.needsYou);
-  $("#counts").innerHTML = `<span class="pill red">🔴 <b>${n((c) => c.red)}</b></span><span class="pill">needs you <b>${needs}</b></span><span class="pill">thinking <b>${n((c) => c.status === "working" && c.activity?.kind !== "tool")}</b></span><span class="pill">running tools <b>${n((c) => c.status === "working" && c.activity?.kind === "tool")}</b></span><span class="pill">blocked <b>${n((c) => c.status === "blocked")}</b></span><span class="pill">total <b>${B.cards.length}</b></span>`;
+  $("#counts").innerHTML = `<span class="pill hot">🔥 <b>${n((c) => c.hot)}</b></span><span class="pill">needs you <b>${needs}</b></span><span class="pill">thinking <b>${n((c) => c.status === "working" && c.activity?.kind !== "tool")}</b></span><span class="pill">running tools <b>${n((c) => c.status === "working" && c.activity?.kind === "tool")}</b></span><span class="pill">blocked <b>${n((c) => c.status === "blocked")}</b></span><span class="pill">total <b>${B.cards.length}</b></span>`;
   document.title = (needs ? `(${needs}) ` : "") + "ag board";
   document.querySelectorAll("#views button").forEach((b) => b.classList.toggle("on", b.dataset.v === view));
-  $("#redonly").classList.toggle("on", redOnly);
+  $("#hotonly").classList.toggle("on", hotOnly);
   $("#expandall").classList.toggle("on", expandAll);
+  if (sel && !card(sel)) sel = null;
   tick();
 }
 // Fill in every "since" span (runs every second; doesn't touch the card HTML).
@@ -393,12 +508,12 @@ function onData() {
 // ---------- drawer ----------
 function txHtml(msgs) {
   return msgs.map((m) => {
-    if (m.role === "user") return `<div class="msg user"><div class="who">prompt · ${since(m.ts)} ago${m.images ? ` · ${m.images} image${m.images > 1 ? "s" : ""}` : ""}</div><div class="body">${mdLite(m.text)}</div></div>`;
-    if (m.role === "assistant") return `<div class="msg"><div class="who">agent · ${since(m.ts)} ago</div><div class="body">${mdLite(m.text)}</div></div>`;
+    if (m.role === "user") return `<div class="msg user"><div class="who">prompt · ${since(m.ts)} ago${m.images ? ` · ${m.images} image${m.images > 1 ? "s" : ""}` : ""}</div><div class="body">${mdLite(m.text)}</div>${mediaHtml(m.media)}</div>`;
+    if (m.role === "assistant") return `<div class="msg"><div class="who">agent · ${since(m.ts)} ago</div><div class="body">${mdLite(m.text)}</div>${mediaHtml(m.media)}</div>`;
     if (m.role === "thinking") return `<details class="tl think"><summary>💭 <span class="dd">${esc(m.text.replace(/\s+/g, " ").slice(0, 140))}</span></summary><div class="inner">${esc(m.text)}</div></details>`;
     if (m.role === "error") return `<div class="msg error"><div class="body">✖ ${esc(m.text)}</div></div>`;
     const st = !m.result ? '<span class="run">⟳</span>' : m.result.error ? '<span class="err">✗</span>' : '<span class="ok">✓</span>';
-    return `<details class="tl"><summary>${st}<span class="n">${esc(m.name)}</span><span class="dd mono">${esc(m.detail)}</span></summary><div class="inner"><pre>${esc(m.args)}</pre>${m.result ? `<pre>${esc(m.result.text)}</pre>` : '<div class="empty">running…</div>'}</div></details>`;
+    return `<details class="tl"><summary>${st}<span class="n">${esc(m.name)}</span><span class="dd mono">${esc(m.detail)}</span>${m.result?.media?.length ? `<span class="mbadge">🖼 ${m.result.media.length}</span>` : ""}</summary><div class="inner">${mediaHtml(m.result?.media)}<pre>${esc(m.args)}</pre>${m.result ? `<pre>${esc(m.result.text)}</pre>` : '<div class="empty">running…</div>'}</div></details>`;
   }).join("") || '<div class="empty">No messages yet.</div>';
 }
 async function loadTranscript(c) {
@@ -433,17 +548,18 @@ function renderDrawer() {
   const c = card(openTab);
   if (!c) { closeDrawer(); return; }
   const working = c.status === "working";
-  $("#dt").textContent = (c.red ? "🔴 " : "") + c.title;
+  $("#dt").textContent = (c.hot ? "🔥 " : "") + c.title;
   $("#dm").innerHTML = `${esc(c.workspaceLabel)} · ${esc(c.status)} ${since(c.statusSince)} · ${esc(c.tab)}`;
   $("#dstats").innerHTML = statsHtml(c);
   $("#dact").innerHTML = activity(c);
   $("#dstop").disabled = !working;
-  $("#dred").classList.toggle("on", c.red);
+  $("#dhot").classList.toggle("on", c.hot);
   $("#dlist").innerHTML = [{ id: "", name: "No list" }, ...B.lists].map((l) => `<option value="${esc(l.id)}" ${l.id === (c.list || "") ? "selected" : ""}>${esc(l.name)}</option>`).join("");
   $("#rint").style.display = working ? "" : "none";
   $("#rsend").textContent = working ? "Steer" : "Send";
   $("#rhint").textContent = working ? "It's working. Steer = queued and delivered after its current step. Interrupt & send = stop it now and send this instead." : c.status === "blocked" ? "It's showing a question or approval: use the Live screen keys, or reply." : "";
-  $("#rt").placeholder = working ? "Steer this agent  (⌘↩)" : "Reply to this agent  (⌘↩ to send)";
+  const ph = working ? "Steer this agent…" : "Reply to this agent…";
+  if (rted._ph !== ph) { rted._ph = ph; rted.setPlaceholder(ph); }
   const key = c.tab + (c.lastAssistant?.ts || 0) + (c.lastUser?.ts || 0) + c.status + (c.activity?.since || 0);
   if (key !== lastTxKey) { lastTxKey = key; loadTranscript(c); }
   if (c.needsYou && c.status !== "blocked") api("/api/card", { tab: c.tab, seen: true });
@@ -456,14 +572,14 @@ function openDrawer(tab) {
   if (card(tab)) api("/api/card", { tab, seen: true });
   setTab(card(tab)?.status === "blocked" ? "live" : "tx");
   renderDrawer();
-  if (matchMedia("(pointer:fine)").matches) $("#rt").focus();
+  if (matchMedia("(pointer:fine)").matches) setTimeout(() => rted.focus(), 60);
 }
 function closeDrawer() {
   openTab = null; clearInterval(screenTimer);
   history.replaceState(null, "", location.pathname);
   $("#drawer").classList.remove("open"); $("#scrim").classList.remove("open"); $("#drawer").setAttribute("aria-hidden", "true");
 }
-const toggleRed = (tab) => { const c = card(tab); if (c) { c.red = !c.red; render(); api("/api/card", { tab, red: c.red }); } };
+const toggleHot = (tab) => { const c = card(tab); if (c) { c.hot = !c.hot; render(); if (openTab === tab) renderDrawer(); api("/api/card", { tab, hot: c.hot }); } };
 async function stop(tab) { if (await api("/api/interrupt", { tab })) toast("Interrupted"); }
 function toggleOpen(tab) {
   const k = expandAll ? "-" + tab : tab;
@@ -474,7 +590,12 @@ function toggleOpen(tab) {
 
 // ---------- events ----------
 let pressTimer = null, longPressed = false;
+document.addEventListener("click", (e) => {
+  if (e.target.closest("#lb")) { if (!e.target.closest("video, a")) { $("#lb").classList.remove("open"); $("#lb").innerHTML = ""; } return; }
+  const t = e.target.closest(".media .thumb"); if (t) { e.stopPropagation(); e.preventDefault(); lightbox(t); }
+}, true);
 $("#board").addEventListener("click", (e) => {
+  if (e.target.closest(".media")) return; // thumbnails zoom, videos play; neither opens the card
   const el = e.target.closest(".card"); if (!el) return;
   const tab = el.dataset.tab;
   if (longPressed) { longPressed = false; return; }
@@ -485,10 +606,12 @@ $("#board").addEventListener("click", (e) => {
     else if (a === "stop") stop(tab);
     else if (a === "open") openDrawer(tab);
     else if (a === "focus") api("/api/focus", { tab }).then((ok) => ok && toast("Focused in Herdr"));
-    else if (a === "red") toggleRed(tab);
+    else if (a === "hot") toggleHot(tab);
+    else if (a === "archive") archive(tab);
     return;
   }
-  if (e.shiftKey) { e.preventDefault(); toggleRed(tab); return; }
+  select(tab, false);
+  if (e.shiftKey) { e.preventDefault(); toggleHot(tab); return; }
   if (e.target.closest(".det")) return; // let you select text in expanded details
   openDrawer(tab);
 });
@@ -496,7 +619,7 @@ $("#board").addEventListener("mousedown", (e) => { if (e.shiftKey) e.preventDefa
 $("#board").addEventListener("touchstart", (e) => {
   const el = e.target.closest(".card"); if (!el || e.target.closest("[data-a], .det")) return;
   longPressed = false;
-  pressTimer = setTimeout(() => { longPressed = true; navigator.vibrate?.(30); toggleRed(el.dataset.tab); }, 550);
+  pressTimer = setTimeout(() => { longPressed = true; navigator.vibrate?.(30); toggleHot(el.dataset.tab); }, 550);
 }, { passive: true });
 ["touchend", "touchmove", "touchcancel"].forEach((ev) => $("#board").addEventListener(ev, () => clearTimeout(pressTimer), { passive: true }));
 $("#board").addEventListener("dragstart", (e) => { const el = e.target.closest(".card"); if (!el) return; e.dataTransfer.setData("text/plain", el.dataset.tab); el.classList.add("dragging"); });
@@ -509,8 +632,20 @@ $("#board").addEventListener("drop", (e) => {
   const tab = e.dataTransfer.getData("text/plain"); const c = card(tab); if (!c) return;
   c.list = col.dataset.list || undefined; render(); api("/api/card", { tab, list: col.dataset.list });
 });
-$("#views").addEventListener("click", (e) => { const v = e.target.dataset.v; if (v) { view = localStorage.view = v; render(); } });
-$("#redonly").onclick = () => { redOnly = !redOnly; localStorage.redOnly = redOnly ? "1" : "0"; render(); };
+$("#views").addEventListener("click", (e) => { const v = e.target.dataset.v; if (v) setView(v); });
+$("#board").addEventListener("click", (e) => {
+  const h = e.target.closest(".col h2"); if (!h) return;
+  const key = h.parentElement.dataset.key;
+  collapsed.has(key) ? collapsed.delete(key) : collapsed.add(key);
+  localStorage.collapsed = JSON.stringify([...collapsed]); render();
+}, true);
+$("#helpbtn").onclick = () => $("#help").showModal();
+$("#dt").onclick = async () => {
+  const c = card(openTab); if (!c) return;
+  const label = prompt("Rename this Herdr tab:", c.title);
+  if (label && label.trim() && label.trim() !== c.title && await api("/api/rename", { tab: c.tab, label: label.trim() })) toast("Renamed (pinned: auto-naming won't change it)");
+};
+$("#hotonly").onclick = () => { hotOnly = !hotOnly; localStorage.hotOnly = hotOnly ? "1" : "0"; render(); };
 $("#expandall").onclick = () => { expandAll = !expandAll; expanded.clear(); localStorage.expandAll = expandAll ? "1" : "0"; localStorage.expanded = "[]"; render(); };
 $("#q").addEventListener("input", render);
 $("#scrim").onclick = closeDrawer;
@@ -518,24 +653,90 @@ $("#dclose").onclick = closeDrawer;
 $("#dtabs").addEventListener("click", (e) => e.target.dataset.t && setTab(e.target.dataset.t));
 $("#keys").addEventListener("click", async (e) => { const k = e.target.dataset.k; if (k && openTab) { await api("/api/keys", { tab: openTab, keys: [k] }); setTimeout(loadScreen, 250); } });
 $("#dstop").onclick = () => openTab && stop(openTab);
-$("#dred").onclick = () => toggleRed(openTab);
+$("#dhot").onclick = () => toggleHot(openTab);
 $("#dfocus").onclick = async () => { if (await api("/api/focus", { tab: openTab })) toast("Focused in Herdr"); };
 $("#dunread").onclick = async () => { const t = openTab; closeDrawer(); await api("/api/card", { tab: t, seen: false }); };
 $("#dlist").onchange = (e) => api("/api/card", { tab: openTab, list: e.target.value });
-$("#dkill").onclick = async () => { const c = card(openTab); if (c && confirm(`Close the Herdr tab "${c.title}"? The agent session ends (its Pi session file stays).`)) { if (await api("/api/close", { tab: c.tab })) closeDrawer(); } };
+$("#dkill").onclick = () => openTab && archive(openTab);
 async function send(interrupt) {
-  const text = $("#rt").value.trim(); if (!text || !openTab) return;
+  const text = rted.value.trim(); if (!text || !openTab) return;
   const c = card(openTab);
   if (interrupt) toast("Interrupting…");
-  if (await api("/api/prompt", { tab: openTab, text, interrupt })) { $("#rt").value = ""; toast(interrupt ? "Interrupted and sent" : c?.status === "working" ? "Queued as steering" : "Sent"); }
+  if (await api("/api/prompt", { tab: openTab, text, interrupt })) { rted.setValue(""); toast(interrupt ? "Interrupted and sent" : c?.status === "working" ? "Queued as steering" : "Sent"); }
 }
 $("#reply").onsubmit = (e) => { e.preventDefault(); send(false); };
 $("#rint").onclick = () => send(true);
-$("#rt").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(false); } });
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") { if (openTab) closeDrawer(); else $("#q").blur(); }
-  if (e.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); $("#q").focus(); }
+// ---------- archive (undoable close) ----------
+function archive(tab) {
+  const c = card(tab); if (!c || archiving.has(tab)) return;
+  if (sel === tab) { const cards = visibleCards(); const i = cards.findIndex((e) => e.dataset.tab === tab); sel = (cards[i + 1] || cards[i - 1])?.dataset.tab ?? null; }
+  if (openTab === tab) closeDrawer();
+  const el = document.createElement("div");
+  el.className = "undo"; el.dataset.tab = tab;
+  el.innerHTML = `<span>🗄 Archived “${esc(c.title)}”</span><button type="button">Undo</button><i style="animation-duration:${ARCHIVE_MS}ms"></i>`;
+  el.querySelector("button").onclick = () => unarchive(tab);
+  $("#undos").appendChild(el);
+  archiving.set(tab, { el, timer: setTimeout(() => commitArchive(tab), ARCHIVE_MS) });
+  render(); select(sel, false);
+}
+function unarchive(tab) {
+  const a = archiving.get(tab); if (!a) return;
+  clearTimeout(a.timer); a.el.remove(); archiving.delete(tab);
+  render(); select(tab); toast("Restored");
+}
+async function commitArchive(tab) {
+  const a = archiving.get(tab); if (!a) return;
+  a.el.remove();
+  const ok = await api("/api/close", { tab });
+  archiving.delete(tab);
+  if (!ok) render(); // close failed: show the card again (api() already toasted the error)
+}
+// Leaving the page commits pending archives (what you saw is what happens).
+addEventListener("pagehide", () => {
+  for (const tab of archiving.keys()) navigator.sendBeacon("/api/close", new Blob([JSON.stringify({ tab })], { type: "application/json" }));
 });
+
+// ---------- keyboard ----------
+const typing = () => /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName) || document.activeElement?.closest?.(".cm-editor");
+function visibleCards() { return [...document.querySelectorAll(".col:not(.collapsed) .card")]; }
+function select(tab, scroll = true) {
+  sel = tab;
+  document.querySelectorAll(".card.sel").forEach((e) => e.classList.remove("sel"));
+  const el = tab && document.querySelector(`.card[data-tab="${CSS.escape(tab)}"]`);
+  if (el) { el.classList.add("sel"); if (scroll) el.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+}
+function moveSel(dy, dx) {
+  const cards = visibleCards(); if (!cards.length) return;
+  let i = cards.findIndex((e) => e.dataset.tab === sel);
+  if (i < 0) return select(cards[0].dataset.tab);
+  if (dy) return select(cards[Math.max(0, Math.min(cards.length - 1, i + dy))].dataset.tab);
+  const cols = [...document.querySelectorAll(".col:not(.collapsed)")].filter((c) => c.querySelector(".card"));
+  const ci = cols.findIndex((c) => c.contains(cards[i]));
+  const target = cols[ci + dx]; if (!target) return;
+  const row = [...cards[i].parentElement.children].indexOf(cards[i]);
+  const tc = target.querySelectorAll(".card");
+  select(tc[Math.min(row, tc.length - 1)].dataset.tab);
+}
+let lastX = 0;
+document.addEventListener("keydown", (e) => {
+  if (e.altKey && (e.key === "v" || e.key === "√" || e.code === "KeyV")) { e.preventDefault(); const id = $("#ndlg").open ? "ned" : openTab ? "rted" : null; if (id) toggleVoice(id); return; }
+  if (e.key === "Escape" && $("#lb").classList.contains("open")) { $("#lb").classList.remove("open"); $("#lb").innerHTML = ""; return; }
+  if (e.key === "Escape") { if ($("#ndlg").open || $("#help").open) return; if (openTab) closeDrawer(); else { $("#q").blur(); select(null); } return; }
+  if (typing() || e.metaKey || e.ctrlKey || e.altKey || $("dialog[open]")) return;
+  if (openTab && !["?"].includes(e.key)) return;
+  const k = e.key;
+  const map = {
+    j: () => moveSel(1, 0), ArrowDown: () => moveSel(1, 0), k: () => moveSel(-1, 0), ArrowUp: () => moveSel(-1, 0),
+    h: () => moveSel(0, -1), ArrowLeft: () => moveSel(0, -1), l: () => moveSel(0, 1), ArrowRight: () => moveSel(0, 1),
+    o: () => sel && openDrawer(sel), Enter: () => sel && openDrawer(sel), " ": () => sel && toggleOpen(sel),
+    f: () => sel && toggleHot(sel), g: () => sel && api("/api/focus", { tab: sel }).then((ok) => ok && toast("Focused in Herdr")),
+    u: () => sel && api("/api/card", { tab: sel, seen: false }), e: () => sel && archive(sel), n: () => openNew(), "?": () => $("#help").showModal(),
+    "/": () => $("#q").focus(), 1: () => setView("state"), 2: () => setView("lists"), 3: () => setView("ws"),
+    x: () => { if (!sel) return; if (Date.now() - lastX < 1500) { lastX = 0; stop(sel); } else { lastX = Date.now(); toast("Press x again to interrupt"); } },
+  };
+  if (map[k]) { e.preventDefault(); map[k](); }
+});
+function setView(v) { view = localStorage.view = v; render(); }
 function listRow(l) { return `<div class="row" data-id="${esc(l.id)}"><input value="${esc(l.name)}"><button type="button" class="btn" data-del>✕</button></div>`; }
 $("#editlists").onclick = () => { $("#lrows").innerHTML = B.lists.map(listRow).join(""); $("#ldlg").showModal(); };
 $("#ladd").onclick = () => $("#lrows").insertAdjacentHTML("beforeend", listRow({ id: "l" + Date.now().toString(36), name: "" }));
@@ -545,6 +746,96 @@ $("#ldlg").addEventListener("close", () => {
   const lists = [...document.querySelectorAll("#lrows .row")].map((r) => ({ id: r.dataset.id, name: r.querySelector("input").value.trim() })).filter((l) => l.name);
   api("/api/lists", { lists });
 });
+// ---------- editors (CodeMirror + optional vim), voice, attachments ----------
+let vimOn = localStorage.vim ? localStorage.vim === "1" : matchMedia("(pointer:fine)").matches;
+const editors = {};
+function mkEditor(id, onSubmit) {
+  const ed = createEditor(document.getElementById(id), {
+    vim: vimOn, onSubmit,
+    onMode: (m) => { const b = document.querySelector(`[data-mode="${id}"]`); if (b) { b.textContent = m; b.className = "mode " + (m.split(" ")[0] || "").toLowerCase(); } },
+    onPasteFiles: (files) => attach(id, files),
+  });
+  editors[id] = ed;
+  return ed;
+}
+const rted = mkEditor("rted", () => send(false));
+const ned = mkEditor("ned", () => startNew());
+ned.setPlaceholder("What should the new agent do?  (leave empty to just open pi)");
+document.querySelectorAll(".vimtoggle").forEach((cb) => {
+  cb.checked = vimOn;
+  cb.onchange = () => { vimOn = cb.checked; localStorage.vim = vimOn ? "1" : "0"; document.querySelectorAll(".vimtoggle").forEach((x) => (x.checked = vimOn)); Object.values(editors).forEach((ed) => ed.setVim(vimOn)); };
+});
+// Files: pasted, dropped or picked → saved on ag (~/inbox/clipboard) → their paths go into the prompt.
+async function attach(id, files) {
+  const fd = new FormData(); files.forEach((f) => fd.append("file", f, f.name || "paste.png"));
+  toast(`Uploading ${files.length} file${files.length > 1 ? "s" : ""}…`);
+  const j = await (await fetch("/api/upload", { method: "POST", body: fd })).json().catch(() => ({}));
+  if (!j.ok) return toast(j.error || "Upload failed");
+  const ed = editors[id]; const cur = ed.value;
+  ed.insert((cur && !/\s$/.test(cur) ? " " : "") + j.paths.join(" ") + " ");
+  ed.focus(); toast("Attached");
+}
+let pickFor = null;
+document.addEventListener("click", (e) => { const a = e.target.closest("[data-attach]"); if (a) { pickFor = a.dataset.attach; $("#filepick").click(); } });
+$("#filepick").onchange = (e) => { const f = [...e.target.files]; e.target.value = ""; if (f.length && pickFor) attach(pickFor, f); };
+// Voice: MediaRecorder → /api/transcribe (Whisper) → text at the cursor.
+let rec = null;
+async function toggleVoice(id) {
+  const btn = document.querySelector(`[data-mic="${id}"]`);
+  if (rec) { rec.stop(); return; }
+  if (!navigator.mediaDevices?.getUserMedia) return toast("Voice needs the https board URL");
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { return toast("Microphone permission denied"); }
+  const type = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"].find((t) => MediaRecorder.isTypeSupported(t)) || "";
+  const chunks = [];
+  rec = new MediaRecorder(stream, type ? { mimeType: type } : {});
+  rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  rec.onstop = async () => {
+    stream.getTracks().forEach((t) => t.stop()); rec = null;
+    btn.classList.remove("rec"); btn.classList.add("busy"); btn.textContent = "… transcribing";
+    const blob = new Blob(chunks, { type: chunks[0]?.type || type || "audio/webm" });
+    const fd = new FormData(); fd.append("audio", blob, blob.type.includes("mp4") ? "voice.m4a" : "voice.webm");
+    const j = await (await fetch("/api/transcribe", { method: "POST", body: fd })).json().catch(() => ({}));
+    btn.classList.remove("busy"); btn.textContent = "🎙 Voice";
+    if (!j.ok) return toast(j.error || "Transcription failed");
+    if (!j.text) return toast("Didn't catch anything");
+    const ed = editors[id]; const cur = ed.value;
+    ed.insert((cur && !/\s$/.test(cur) ? " " : "") + j.text); ed.focus();
+  };
+  rec.start(); btn.classList.add("rec"); btn.textContent = "■ Stop";
+}
+document.addEventListener("click", (e) => { const m = e.target.closest("[data-mic]"); if (m && !m.classList.contains("busy")) toggleVoice(m.dataset.mic); });
+
+// ---------- new session ----------
+function openNew() {
+  const inbox = B.workspaces.find((w) => w.label.toLowerCase() === "inbox");
+  const cur = card(openTab || sel);
+  $("#nws").innerHTML = B.workspaces.map((w) => `<option value="${esc(w.id)}">${esc(w.label)}</option>`).join("");
+  $("#nws").value = localStorage.newWs && B.workspaces.some((w) => w.id === localStorage.newWs) ? localStorage.newWs : inbox?.id || B.workspaces[0]?.id;
+  const home = (c) => (c || "").replace(/^\/Users\/[^/]+/, "~");
+  const cwds = [...new Set(["~", ...B.cards.map((c) => home(c.cwd)).filter(Boolean)])].slice(0, 30);
+  $("#ncwds").innerHTML = cwds.map((d) => `<option value="${esc(d)}">`).join("");
+  $("#ncwd").value = localStorage.newCwd || "~";
+  $("#nfocus").checked = localStorage.newFocus === "1";
+  $("#ndlg").showModal();
+  setTimeout(() => ned.focus(), 60);
+}
+async function startNew() {
+  const body = { workspace: $("#nws").value, cwd: $("#ncwd").value.trim() || "~", text: ned.value.trim(), focus: $("#nfocus").checked };
+  localStorage.newWs = body.workspace; localStorage.newCwd = body.cwd; localStorage.newFocus = body.focus ? "1" : "0";
+  $("#ngo").disabled = true; toast("Starting pi…");
+  const r = await fetch("/api/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  $("#ngo").disabled = false;
+  if (!j.ok) return toast(j.error || "Couldn't start it");
+  ned.setValue(""); $("#ndlg").close(); toast("Session started"); select(j.tab);
+}
+$("#newbtn").onclick = openNew;
+$("#ngo").onclick = startNew;
+$("#ncancel").onclick = () => $("#ndlg").close();
+// Esc in a vim editor means "normal mode", not "close the dialog".
+$("#ndlg").addEventListener("cancel", (e) => { if (vimOn && document.activeElement?.closest(".cm-editor")) e.preventDefault(); });
+
 setInterval(tick, 1000);
 setInterval(render, 60_000);
 connect();

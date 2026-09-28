@@ -24,6 +24,10 @@
 // ~/inbox/clipboard), new sessions (POST /api/new: tab in any workspace, pi, first prompt; the herdr-tab-name
 // extension names it), renaming tabs (POST /api/rename). Served on the Tailscale IP (http://ag:7376), on
 // 127.0.0.1 (for tailscale serve), and at https://ag.<tailnet>.ts.net:7377 (set up at startup), where voice works.
+// Waiting for: a session with a live tickler item (a wake-up on CI / a condition / an event, a presence item, a
+// scheduled time, or a GTD waiting-for on a person; ~/.local/state/tickler/*.json, matched by session file), or
+// marked by hand (POST /api/card {waiting}; clears when the agent works again). Waiting cards sit in their own
+// column, aren't "needs you", never ping or get the red siren; they get a blue orbit instead.
 // Control (Pi semantics): a prompt sent while the agent works is queued as steering (delivered after the
 // current step). Interrupt = Esc twice (this Pi setup asks for a second Esc); Pi puts any queued steering
 // back in its editor. Interrupt & send = interrupt, wait until ready, clear the editor (Ctrl+U), then send.
@@ -34,7 +38,7 @@
 // Run by the com.nathan.ag-board LaunchAgent (only on ag). Log: /tmp/ag-board.log.
 
 import { execFileSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname } from "node:path";
 
@@ -59,7 +63,7 @@ const READY = new Set(["idle", "done", "blocked"]);
 const BIG_LINE = 256 * 1024; // tool results this big (screenshots) are summarised by regex, not parsed
 const KEYS = new Set(["esc", "enter", "up", "down", "left", "right", "tab", "backspace", "ctrl+u", "y", "n", "1", "2", "3"]);
 
-type CardState = { hot?: boolean; red?: boolean /* pre-rename name of hot */; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
+type CardState = { waiting?: boolean /* marked by hand */; hot?: boolean; red?: boolean /* pre-rename name of hot */; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
 type List = { id: string; name: string };
 type State = { cards: Record<string, CardState>; lists: List[] };
 type Msg = { role: "user" | "assistant"; text: string; ts: number };
@@ -418,6 +422,42 @@ function transcript(file: string, ref: string) {
 	return out.reverse();
 }
 
+// ---------- waiting for (tickler) ----------
+const TICKLER_DIR = `${HOME}/.local/state/tickler`;
+type Waiting = { id?: string; title: string; kind: "check" | "event" | "online" | "at" | "person" | "manual"; detail: string; since?: number; due?: number };
+function ticklerWaits(): Map<string, Waiting[]> {
+	const out = new Map<string, Waiting[]>();
+	let files: string[] = [];
+	try {
+		files = readdirSync(TICKLER_DIR).filter((f) => f.endsWith(".json"));
+	} catch {
+		return out;
+	}
+	for (const f of files) {
+		let i: any;
+		try {
+			i = JSON.parse(readFileSync(`${TICKLER_DIR}/${f}`, "utf8"));
+		} catch {
+			continue;
+		}
+		const sid = sidOf(i.session);
+		if (i.status !== "waiting" || !sid) continue;
+		const due = i.due ? Date.parse(i.due) : undefined;
+		const w: Waiting = i.waiting_for
+			? { id: i.id, title: i.title, kind: "person", detail: `on ${i.waiting_for}${i.attempt > 1 ? ` (check-in ${i.attempt})` : ""}`, due }
+			: i.when === "check"
+				? { id: i.id, title: i.title, kind: "check", detail: oneLine(i.check ?? "", 90), due: i.expires ? Date.parse(i.expires) : undefined }
+				: i.when === "event"
+					? { id: i.id, title: i.title, kind: "event", detail: "webhook / another session", due: i.expires ? Date.parse(i.expires) : undefined }
+					: i.when === "online"
+						? { id: i.id, title: i.title, kind: "online", detail: "until Nathan is back at his Mac" }
+						: { id: i.id, title: i.title, kind: "at", detail: "scheduled", due };
+		w.since = Date.parse(i.created_at) || undefined;
+		out.set(sid, [...(out.get(sid) ?? []), w]);
+	}
+	return out;
+}
+
 // ---------- board ----------
 type Card = {
 	tab: string;
@@ -431,8 +471,9 @@ type Card = {
 	list?: string;
 	needsYou: boolean;
 	resolved: boolean;
-	throb: boolean; // hotpath and not working: the siren ring runs
-	ping: boolean; // hotpath and needs you: fast lane + page beep
+	throb: boolean; // hotpath, not working, not waiting: the red siren runs
+	ping: boolean; // hotpath and needs you (not waiting): fast lane + page beep
+	waiting: Waiting[]; // non-empty: waiting for something (blue orbit, Waiting for column)
 	focused: boolean;
 	model?: string;
 	thinkingLevel?: string;
@@ -481,6 +522,7 @@ async function poll() {
 	tabLabels = Object.fromEntries(snap.tabs.map((t: any) => [t.tab_id, t.label]));
 	const cards: Card[] = [];
 	const seenTabs = new Set<string>();
+	const waits = ticklerWaits();
 	for (const a of snap.agents) {
 		if (seenTabs.has(a.tab_id)) continue; // one card per tab (first agent pane)
 		seenTabs.add(a.tab_id);
@@ -494,6 +536,7 @@ async function poll() {
 		if (cs.status !== a.agent_status) {
 			cs.status = a.agent_status;
 			cs.statusSince = now;
+			if (a.agent_status === "working" && cs.waiting) delete cs.waiting; // a hand-set wait ends when it works again
 			dirty = true;
 		}
 		const ready = READY.has(a.agent_status);
@@ -502,7 +545,10 @@ async function poll() {
 			cs.seenAt = now; // he's looking at it in Herdr
 			dirty = true;
 		}
-		const needsYou = a.agent_status === "blocked" || (ready && (s?.lastAssistant?.ts ?? 0) > cs.seenAt);
+		const sid = sidOf(a.agent_session?.value);
+		const waiting: Waiting[] = a.agent_status === "working" ? [] : [...((sid && waits.get(sid)) || []), ...(cs.waiting ? [{ title: "Marked waiting", kind: "manual" as const, detail: "set on the board" }] : [])];
+		const isWaiting = waiting.length > 0 && a.agent_status !== "blocked";
+		const needsYou = a.agent_status === "blocked" || (!isWaiting && ready && (s?.lastAssistant?.ts ?? 0) > cs.seenAt);
 		const resolved = ready && /(^|\n)\s*DONE\s*$/.test(s?.lastAssistant?.text ?? "");
 		const card: Card = {
 			tab: a.tab_id,
@@ -516,8 +562,9 @@ async function poll() {
 			list: cs.list,
 			needsYou,
 			resolved,
-			throb: !!cs.hot && a.agent_status !== "working",
+			throb: !!cs.hot && a.agent_status !== "working" && !isWaiting,
 			ping: !!cs.hot && needsYou,
+			waiting: isWaiting ? waiting : [],
 			focused,
 			model: s?.model,
 			thinkingLevel: s?.thinkingLevel,
@@ -533,7 +580,7 @@ async function poll() {
 			media: [...new Map([...mediaIn(s?.lastAssistant?.text), ...mediaIn(s?.lastUser?.text)].map((m) => [m.src, m])).values()].slice(0, 6),
 			stats: { cost: Math.round((s?.cost ?? 0) * 100) / 100, ctx: s?.ctx ?? 0, turns: s?.turns ?? 0, tools: s?.toolCount ?? 0 },
 			sessionFile: a.agent_session?.value,
-			sid: sidOf(a.agent_session?.value),
+			sid,
 		};
 		if (card.ping && !cs.wasNeedsYou && now - (cs.pingedAt ?? 0) > FAST_LANE_GAP_MS) {
 			cs.pingedAt = now;
@@ -762,6 +809,7 @@ async function handle(req: Request): Promise<Response> {
 				const cs = state.cards[tab];
 				if (!cs) return bad("no such card", 404);
 				if (typeof body.hot === "boolean") cs.hot = body.hot;
+				if (typeof body.waiting === "boolean") body.waiting ? (cs.waiting = true) : delete cs.waiting;
 				if ("list" in body) cs.list = body.list || undefined;
 				if (body.seen === true) cs.seenAt = Date.now();
 				if (body.seen === false) cs.seenAt = 0;

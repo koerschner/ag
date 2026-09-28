@@ -76,6 +76,15 @@ header h1{font-size:15px;margin:0 .4rem 0 0;font-weight:650}
   -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
   mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);
   animation:laser-orbit 1.6s linear infinite}
+/* Waiting for: a calm blue orbit (slower, dimmer) instead of the red siren. */
+.card.waiting{border-color:#1d3350}
+.card.waiting::after{content:"";position:absolute;inset:0;border-radius:inherit;padding:2px;pointer-events:none;
+  background:conic-gradient(from var(--laser-angle),transparent 0 70%,#2f6fd6 84%,#5aa2ff 93%,#cfe3ff 97%,transparent 100%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);
+  animation:laser-orbit 4.5s linear infinite;opacity:.85}
+.act.waiting{background:#15233a;color:#8fbaff}
+@media (prefers-reduced-motion:reduce){.card.waiting::after{animation:none;background:#2f6fd6;opacity:.7}}
 @media (prefers-reduced-motion:reduce){.card.throb{animation:none;box-shadow:0 0 10px 1px rgba(255,40,60,.45)}.card.throb::after{animation:none;background:#ff2d3d}}
 .card.focused{outline:1px solid #555}
 .card.sel{box-shadow:0 0 0 2px var(--blue) !important}
@@ -227,6 +236,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
     <div class="acts">
       <button class="btn stop" id="dstop">⏹ Interrupt</button>
       <button class="btn" id="dhot">🔥 Hotpath</button>
+      <button class="btn" id="dwait" title="Mark waiting for something (w)">⏳ Waiting</button>
       <button class="btn" id="dfocus">Open in Herdr</button>
       <button class="btn" id="dunread">Mark unread</button>
       <a class="btn" id="dmoshi" style="display:none;text-decoration:none" title="Open this session's terminal in Moshi (via file-inbox)">📱 Moshi</a>
@@ -282,6 +292,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
     <tr><td><span class="kbd">x</span></td><td>⏹ interrupt (press twice)</td></tr>
     <tr><td><span class="kbd">g</span></td><td>open in Herdr</td></tr>
     <tr><td><span class="kbd">u</span></td><td>mark unread</td></tr>
+    <tr><td><span class="kbd">w</span></td><td>⏳ mark / unmark waiting for something</td></tr>
     <tr><td><span class="kbd">e</span></td><td>🗄 archive (closes the tab; Undo for a few seconds)</td></tr>
     <tr><td><span class="kbd">n</span></td><td>new session</td></tr>
     <tr><td><span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span></td><td>State / Lists / Workspaces view</td></tr>
@@ -399,6 +410,7 @@ function activity(c) {
     }
     return `<div class="act thinking"><span class="dots"><i></i><i></i><i></i></span><span class="lbl">thinking</span><span class="d"></span>${since(a?.since || c.statusSince)}</div>`;
   }
+  if (c.waiting?.length) { const w = c.waiting[0]; return `<div class="act waiting"><span class="lbl">⏳ waiting</span><span class="d">${esc(w.title)}${c.waiting.length > 1 ? ` +${c.waiting.length - 1}` : ""}</span>${w.since ? since(w.since) : ""}</div>`; }
   if (a?.kind === "error") return `<div class="act error"><span class="lbl">✖ stopped</span><span class="d">${esc(a.error)}</span>${since(a.since)}</div>`;
   return "";
 }
@@ -413,12 +425,14 @@ function statsHtml(c) {
   const s = c.stats || {};
   return `<span><b>$${(s.cost || 0).toFixed(2)}</b> spent</span><span>context <b>${ktok(s.ctx)}</b></span><span><b>${s.turns || 0}</b> prompts</span><span><b>${s.tools || 0}</b> tool calls</span><span>${esc(shortModel(c.model))} · thinking <b>${esc(c.thinkingLevel || "?")}</b></span><span class="mono">${esc((c.cwd || "").replace(/^\/Users\/[^/]+/, "~"))}</span>${c.startedAt ? `<span>started ${since(c.startedAt)} ago</span>` : ""}`;
 }
+const WAIT_ICON = { check: "🔁", event: "📡", online: "🟢", at: "⏰", person: "👤", manual: "✋" };
 function details(c) {
   const working = c.status === "working";
   return `<div class="det">
     ${c.lastUser ? `<div class="sec"><label>Latest prompt · ${since(c.lastUser.ts)} ago</label><div class="body">${esc(c.lastUser.text)}</div></div>` : ""}
     ${c.thinking && (c.thinkingTs || 0) >= (c.lastUser?.ts || 0) ? `<div class="sec"><label>Latest thinking</label><div class="body think">${esc(c.thinking)}</div></div>` : ""}
     ${c.lastAssistant ? `<div class="sec"><label>Latest answer · ${since(c.lastAssistant.ts)} ago</label><div class="body">${mdLite(c.lastAssistant.text)}</div></div>` : ""}
+    ${c.waiting?.length ? `<div class="sec"><label>Waiting for</label>${c.waiting.map((w) => `<div class="body">${WAIT_ICON[w.kind] || "⏳"} <b>${esc(w.title)}</b> · ${esc(w.detail)}${w.due ? ` · ${w.due > Date.now() ? "due in" : "overdue by"} ${esc(ago(Date.now() - Math.abs(w.due - Date.now())).replace(/ .*/, ""))}` : ""}</div>`).join("")}</div>` : ""}
     ${c.tools?.length ? `<div class="sec"><label>Recent tools</label>${toolsList(c.tools)}</div>` : ""}
     <div class="stats">${statsHtml(c)}</div>
     <div class="acts">
@@ -426,6 +440,7 @@ function details(c) {
       <button class="btn sm" data-a="open">Transcript &amp; reply</button>
       <button class="btn sm" data-a="focus">Open in Herdr</button>
       <button class="btn sm" data-a="archive" title="Archive (e)">🗄 Archive</button>
+      <button class="btn sm" data-a="wait" title="Mark waiting for something (w)">${c.waiting?.some((w) => w.kind === "manual") ? "Not waiting" : "⏳ Waiting"}</button>
       <button class="btn sm" data-a="hot">${c.hot ? "Remove 🔥" : "🔥 Hotpath"}</button>
     </div></div>`;
 }
@@ -433,7 +448,7 @@ function cardHtml(c) {
   const working = c.status === "working";
   const snip = working ? (c.lastUser ? "▶ " + c.lastUser.text.slice(0, 300) : "") : lastPara(c.lastAssistant?.text || c.first);
   const open = isOpen(c);
-  const cls = ["card", c.hot && "hot", c.throb && "throb", c.resolved && "resolved", c.focused && "focused", open && "open", sel === c.tab && "sel"].filter(Boolean).join(" ");
+  const cls = ["card", c.hot && "hot", c.throb && "throb", c.waiting?.length && "waiting", c.resolved && "resolved", c.focused && "focused", open && "open", sel === c.tab && "sel"].filter(Boolean).join(" ");
   return `<div class="${cls}" data-key="${esc(c.tab)}" data-tab="${esc(c.tab)}" data-s="${esc(c.status)}" draggable="${view === "lists"}">
     <div class="t">${c.hot ? "🔥" : ""}${c.needsYou ? '<i class="dot" title="New since you last looked"></i>' : ""}<span class="tt">${esc(c.title)}</span>
       <span class="qa">${working ? '<button class="ib stop" data-a="stop" title="Interrupt (Esc Esc)">⏹</button>' : ""}<button class="ib chev" data-a="chev" title="Details">▾</button></span></div>
@@ -480,10 +495,11 @@ function columns(cards) {
   const cols = [
     { key: "s:needs", name: "Needs you", cards: [] },
     { key: "s:working", name: "Working", cards: [] },
+    { key: "s:waiting", name: "Waiting for", cards: [] },
     { key: "s:parked", name: "Parked", cards: [] },
     { key: "s:resolved", name: "Resolved (DONE)", cards: [] },
   ];
-  for (const c of cards) cols[c.status === "working" ? 1 : c.resolved ? 3 : c.needsYou ? 0 : 2].cards.push(c);
+  for (const c of cards) cols[c.status === "working" ? 1 : c.status === "blocked" ? 0 : c.waiting?.length ? 2 : c.resolved ? 4 : c.needsYou ? 0 : 3].cards.push(c);
   return cols;
 }
 function render() {
@@ -503,7 +519,7 @@ function render() {
   }
   const n = (f) => B.cards.filter((c) => !archiving.has(c.tab) && f(c)).length;
   const needs = n((c) => c.needsYou);
-  $("#counts").innerHTML = `<span class="pill hot">🔥 <b>${n((c) => c.hot)}</b></span><span class="pill">needs you <b>${needs}</b></span><span class="pill">thinking <b>${n((c) => c.status === "working" && c.activity?.kind !== "tool")}</b></span><span class="pill">running tools <b>${n((c) => c.status === "working" && c.activity?.kind === "tool")}</b></span><span class="pill">blocked <b>${n((c) => c.status === "blocked")}</b></span><span class="pill">total <b>${B.cards.length}</b></span>`;
+  $("#counts").innerHTML = `<span class="pill hot">🔥 <b>${n((c) => c.hot)}</b></span><span class="pill">needs you <b>${needs}</b></span><span class="pill">thinking <b>${n((c) => c.status === "working" && c.activity?.kind !== "tool")}</b></span><span class="pill">running tools <b>${n((c) => c.status === "working" && c.activity?.kind === "tool")}</b></span><span class="pill">blocked <b>${n((c) => c.status === "blocked")}</b></span><span class="pill">waiting <b>${n((c) => c.waiting?.length)}</b></span><span class="pill">total <b>${B.cards.length}</b></span>`;
   document.title = (needs ? `(${needs}) ` : "") + "ag board";
   document.querySelectorAll("#views button").forEach((b) => b.classList.toggle("on", b.dataset.v === view));
   $("#hotonly").classList.toggle("on", hotOnly);
@@ -575,6 +591,7 @@ function renderDrawer() {
   $("#dact").innerHTML = activity(c);
   $("#dstop").disabled = !working;
   $("#dhot").classList.toggle("on", c.hot);
+  $("#dwait").classList.toggle("on", !!c.waiting?.some((w) => w.kind === "manual"));
   $("#dlist").innerHTML = [{ id: "", name: "No list" }, ...B.lists].map((l) => `<option value="${esc(l.id)}" ${l.id === (c.list || "") ? "selected" : ""}>${esc(l.name)}</option>`).join("");
   $("#rint").style.display = working ? "" : "none";
   $("#rsend").textContent = working ? "Steer" : "Send";
@@ -645,6 +662,11 @@ function closeDrawer() {
   history.replaceState(null, "", "/");
   $("#drawer").classList.remove("open"); $("#scrim").classList.remove("open"); $("#drawer").setAttribute("aria-hidden", "true");
 }
+function toggleWait(tab) {
+  const c = card(tab); if (!c) return;
+  const manual = c.waiting?.some((w) => w.kind === "manual");
+  api("/api/card", { tab, waiting: !manual }).then((ok) => ok && toast(manual ? "No longer waiting" : "⏳ Marked waiting (clears when it works again)"));
+}
 const toggleHot = (tab) => { const c = card(tab); if (c) { c.hot = !c.hot; render(); if (openTab === tab) renderDrawer(); api("/api/card", { tab, hot: c.hot }); } };
 async function stop(tab) { if (await api("/api/interrupt", { tab })) toast("Interrupted"); }
 function toggleOpen(tab) {
@@ -674,6 +696,7 @@ $("#board").addEventListener("click", (e) => {
     else if (a === "focus") api("/api/focus", { tab }).then((ok) => ok && toast("Focused in Herdr"));
     else if (a === "hot") toggleHot(tab);
     else if (a === "archive") archive(tab);
+    else if (a === "wait") toggleWait(tab);
     return;
   }
   select(tab, false);
@@ -720,6 +743,7 @@ $("#dtabs").addEventListener("click", (e) => e.target.dataset.t && setTab(e.targ
 $("#keys").addEventListener("click", async (e) => { const k = e.target.dataset.k; if (k && openTab) { await api("/api/keys", { tab: openTab, keys: [k] }); setTimeout(loadScreen, 250); } });
 $("#dstop").onclick = () => openTab && stop(openTab);
 $("#dhot").onclick = () => toggleHot(openTab);
+$("#dwait").onclick = () => openTab && toggleWait(openTab);
 $("#dfocus").onclick = async () => { if (await api("/api/focus", { tab: openTab })) toast("Focused in Herdr"); };
 $("#dunread").onclick = async () => { const t = openTab; closeDrawer(); await api("/api/card", { tab: t, seen: false }); };
 $("#dlist").onchange = (e) => api("/api/card", { tab: openTab, list: e.target.value });
@@ -799,7 +823,7 @@ document.addEventListener("keydown", (e) => {
     h: () => moveSel(0, -1), ArrowLeft: () => moveSel(0, -1), l: () => moveSel(0, 1), ArrowRight: () => moveSel(0, 1),
     o: () => sel && openDrawer(sel), Enter: () => sel && openDrawer(sel), " ": () => sel && toggleOpen(sel),
     f: () => sel && toggleHot(sel), g: () => sel && api("/api/focus", { tab: sel }).then((ok) => ok && toast("Focused in Herdr")),
-    u: () => sel && api("/api/card", { tab: sel, seen: false }), e: () => sel && archive(sel), n: () => openNew(), "?": () => $("#help").showModal(),
+    u: () => sel && api("/api/card", { tab: sel, seen: false }), e: () => sel && archive(sel), w: () => sel && toggleWait(sel), n: () => openNew(), "?": () => $("#help").showModal(),
     "/": () => $("#q").focus(), 1: () => setView("state"), 2: () => setView("lists"), 3: () => setView("ws"),
     x: () => { if (!sel) return; if (Date.now() - lastX < 1500) { lastX = 0; stop(sel); } else { lastX = Date.now(); toast("Press x again to interrupt"); } },
   };

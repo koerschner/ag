@@ -34,19 +34,27 @@ export default function (pi: ExtensionAPI) {
 		name: "tickler",
 		label: "Tickler",
 		description:
-			"GTD tickler: defer a task to a specific future time, or to the next time Nathan comes online at his client Mac (when: \"online\"). At that moment a new Herdr tab opens running pi (forked from this conversation by default, so it has full context) and the task is sent to it as a prompt. Also list or cancel scheduled items.",
+			"GTD tickler: defer a task to a specific future time, to the next time Nathan comes online at his client Mac (when: \"online\"), or wake this session when something finishes (when: \"check\" with a shell check, or \"event\" via a webhook). At that moment a new Herdr tab opens running pi (forked from this conversation by default, so it has full context) and the task is sent to it as a prompt. Also list or cancel scheduled items.",
 		promptSnippet: "Schedule a task/reminder to come back at a future time, or when Nathan is next online at his Mac, as a new pi tab",
 		promptGuidelines: [
 			"When Nathan asks in plain text to do, check, or remind him of something at a later time (\"on Friday\", \"tomorrow at 9\", \"in two weeks\", \"defer this\", \"send this back to me later\"), call the tickler tool with action \"schedule\" yourself; never ask him to run a command.",
 			"For the tickler tool, resolve the time to an ISO 8601 timestamp with offset using the current local time the tool reports (call tickler with action \"list\" first if you don't know the current date). If he gave no time of day, use 09:00 local. If he gave no date at all, ask once.",
 			"When the work should resume once Nathan is back at his Mac (\"next time I'm on the client\", \"when I'm back at my computer\", \"when I'm online\", or it needs him physically: a phone press, a click, a login), call the tickler tool with action \"schedule\" and when: \"online\" instead of `at`. It fires on his next arrival at the client after now (sustained activity, not a brief wake), once. Run `presence` in bash to see whether he's online right now.",
+			"When you're waiting on something slow that isn't about Nathan (a machine coming back online, CI, a deploy, a long job, someone's reply) and there's nothing else useful to do, don't hold the turn open with long sleeps: schedule a wake-up with the tickler tool, when: \"check\" plus `check` (a cheap shell command that exits 0 once it's ready, e.g. `ssh -o ConnectTimeout=5 nathan-dev-client true`), or when: \"event\" and hand the printed webhook URL to whatever finishes. It runs every minute without a model, then resumes this session in place (or a forked tab if this one closed). Then end your turn saying what you're waiting for.",
 			"The tickler task text must be self-contained: what to do and the key facts/decisions so far, written as an instruction to the future agent.",
 			"After scheduling with the tickler tool, confirm in one line with the resolved local date and time.",
 		],
 		parameters: Type.Object({
 			action: StringEnum(["schedule", "list", "cancel"] as const),
 			at: Type.Optional(Type.String({ description: "schedule: ISO 8601 time with offset, e.g. 2026-10-03T09:00:00-05:00 (omit when using `when`)" })),
-			when: Type.Optional(StringEnum(["online"] as const, { description: "schedule: instead of `at`, fire the next time Nathan comes online at his client Mac" })),
+			when: Type.Optional(
+				StringEnum(["online", "check", "event"] as const, {
+					description:
+						"schedule, instead of `at`: online = next time Nathan comes online at his client Mac; check = once `check` exits 0 (polled every minute, no model); event = only when triggered via the printed webhook",
+				}),
+			),
+			check: Type.Optional(Type.String({ description: "when=check: shell command that exits 0 when the thing is ready (keep it fast; 20s cap)" })),
+			expires: Type.Optional(Type.String({ description: "when=check|event: ISO time to give up and fire as expired (default 7 days)" })),
 			task: Type.Optional(Type.String({ description: "schedule: self-contained instruction for the future agent" })),
 			title: Type.Optional(Type.String({ description: "schedule: short tab title (≤ 35 chars)" })),
 			workspace: Type.Optional(Type.String({ description: "schedule: Herdr workspace label to open in (default: the current one)" })),
@@ -59,7 +67,10 @@ export default function (pi: ExtensionAPI) {
 			else if (p.action === "cancel") args = ["cancel", p.id ?? ""];
 			else {
 				if (!p.task || !!p.at === !!p.when) throw new Error("schedule needs `task` and exactly one of `at` or `when`");
+				if (p.when === "check" && !p.check) throw new Error("when: \"check\" needs `check`");
 				const trigger = p.when ? ["--when", p.when] : ["--at", p.at!];
+				if (p.check) trigger.push("--check", p.check);
+				if (p.expires) trigger.push("--expires", p.expires);
 				args = ["add", ...trigger, "--task", p.task, "--cwd", ctx.cwd, "--mode", p.mode ?? "fork"];
 				const session = ctx.sessionManager.getSessionFile();
 				const workspace = p.workspace ?? herdrWorkspaceLabel();

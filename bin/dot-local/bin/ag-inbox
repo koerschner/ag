@@ -25,6 +25,7 @@
 // Playbooks (~/.config/ag-inbox/playbooks/*.md, stowed from dotfiles, re-read per request): typical
 // kinds of captures (e.g. a name + phone number) with a set workflow. The router picks at most one and
 // its instructions are prepended to the prompt.
+// Also: POST /tickler/<id> (body = optional note) fires a waiting tickler wake-up (bin/dot-local/bin/tickler).
 // Listens only on ag's Tailscale IP. Never focuses anything, so attached Herdr clients aren't disturbed.
 // Run by the com.nathan.ag-inbox LaunchAgent.
 
@@ -420,6 +421,14 @@ Bun.serve({
 	async fetch(req) {
 		const url = new URL(req.url);
 		if (req.method === "GET" && url.pathname === "/") return new Response(PAGE, { headers: { "content-type": "text/html" } });
+		// Tickler wake-up webhook: POST /tickler/<id> (optional body = note) fires that waiting item now.
+		const wake = url.pathname.match(/^\/tickler\/([0-9a-f]{8})$/);
+		if (req.method === "POST" && wake) {
+			const note = (await req.text()).trim().slice(0, 2000);
+			const r = Bun.spawnSync([`${HOME}/.local/bin/tickler`, "trigger", wake[1], ...(note ? ["--note", note] : [])]);
+			const out = (r.stdout.toString() + r.stderr.toString()).trim();
+			return new Response(out + "\n", { status: r.exitCode === 0 ? 200 : 404 });
+		}
 		if (req.method !== "POST" || url.pathname !== "/prompt") return new Response("not found", { status: 404 });
 
 		const type = req.headers.get("content-type") ?? "";

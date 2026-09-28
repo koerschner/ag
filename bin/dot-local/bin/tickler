@@ -3,6 +3,9 @@
 //
 //   tickler add --at <ISO time> --task <text> [--title t] [--session f] [--cwd d] [--workspace label] [--mode fork|fresh]
 //   tickler add --when online --task <text> ...   # fire the next time Nathan comes online at the client (`presence`)
+//   tickler add --when check --check '<sh cmd>' --task <text> [--expires ISO] ...  # fire once the check exits 0
+//   tickler add --when event --task <text> [--expires ISO] ...                     # fire only via `tickler trigger`
+//   tickler trigger <id> [--note text]   # the webhook: fire a waiting item now (also POST http://ag:7373/tickler/<id>)
 //   tickler list [--all]
 //   tickler cancel <id>
 //   tickler fire            # run by the com.nathan.tickler LaunchAgent every minute
@@ -14,6 +17,11 @@
 // Presence items (--when online) open as "🟢 <title>" on Nathan's next arrival at the client after they were
 // queued (an arrival that started after created_at), per ~/.local/state/presence/state.json. `presence poll`
 // runs `tickler fire` the moment he arrives; the every-minute run is the backstop.
+// Wake-ups (--when check|event) are how an agent waits on something slow (a machine coming back, CI, a deploy)
+// without holding a model turn open: the every-minute run executes the cheap shell check (no LLM, 20s cap), and
+// `tickler trigger` / the webhook fires at once. They resume the deferring session in place when its pane is
+// still open and ready (idle/done); otherwise they open a forked tab like any item. After --expires (default
+// 7 days) they fire anyway, telling the agent the condition never came true.
 
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -33,7 +41,11 @@ type Item = {
 	title: string;
 	task: string;
 	due?: string; // ISO; absent for presence items
-	when?: "online"; // presence trigger: next time Nathan comes online at the client
+	when?: "online" | "check" | "event"; // online: next arrival at the client; check: shell cmd exits 0; event: `tickler trigger`
+	check?: string;
+	expires?: string; // ISO; check/event items fire as expired after this
+	triggered?: boolean; // fired by `tickler trigger` / the webhook
+	note?: string; // from `tickler trigger --note`
 	session?: string;
 	cwd: string;
 	workspace?: string;
@@ -53,7 +65,13 @@ const load = (): Item[] =>
 		.sort((a, b) => (a.due ?? "~").localeCompare(b.due ?? "~") || a.created_at.localeCompare(b.created_at));
 const log = (id: string, step: string, data: object = {}) =>
 	appendFileSync(`${DIR}/log.jsonl`, JSON.stringify({ ts: new Date().toISOString(), id, step, ...data }) + "\n");
-const whenText = (i: Item) => (i.when === "online" ? "when Nathan is next online" : local(i.due!));
+const WAKE_DEFAULT_MS = 7 * 24 * 3600_000;
+const isWake = (i: Item) => i.when === "check" || i.when === "event";
+const whenText = (i: Item) =>
+	i.when === "online" ? "when Nathan is next online"
+	: i.when === "check" ? `when \`${i.check}\` succeeds (expires ${local(i.expires!)})`
+	: i.when === "event" ? `when triggered (expires ${local(i.expires!)})`
+	: local(i.due!);
 const local = (iso: string) =>
 	new Date(iso).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
 
@@ -69,18 +87,25 @@ function flags(argv: string[]): Record<string, string> {
 }
 
 function add(f: Record<string, string>) {
-	const online = f.when === "online";
-	if (f.when && !online) throw new Error(`unknown --when: ${f.when} (only "online")`);
-	if (!f.task || !!f.at === online) throw new Error("add needs --task and exactly one of --at <ISO time> or --when online");
-	const due = online ? undefined : new Date(f.at);
+	const when = f.when as Item["when"];
+	if (when && !["online", "check", "event"].includes(when)) throw new Error(`unknown --when: ${when} (online|check|event)`);
+	if (!f.task || !!f.at === !!when) throw new Error("add needs --task and exactly one of --at <ISO time> or --when online|check|event");
+	if (when === "check" && !f.check) throw new Error("--when check needs --check '<shell command>'");
+	const online = when === "online";
+	const wake = when === "check" || when === "event";
+	const due = when ? undefined : new Date(f.at);
 	if (due && isNaN(+due)) throw new Error(`unparseable --at: ${f.at}`);
+	const expires = wake ? (f.expires ? new Date(f.expires) : new Date(Date.now() + WAKE_DEFAULT_MS)) : undefined;
+	if (expires && isNaN(+expires)) throw new Error(`unparseable --expires: ${f.expires}`);
 	const session = f.session && existsSync(f.session) ? f.session : undefined;
 	const item: Item = {
 		id: randomBytes(4).toString("hex"),
 		title: (f.title ?? f.task).slice(0, 40),
 		task: f.task,
 		due: due?.toISOString(),
-		when: online ? "online" : undefined,
+		when,
+		check: when === "check" ? f.check : undefined,
+		expires: expires?.toISOString(),
 		session,
 		cwd: f.cwd ?? HOME,
 		workspace: f.workspace,
@@ -89,9 +114,13 @@ function add(f: Record<string, string>) {
 		created_at: new Date().toISOString(),
 	};
 	save(item);
-	log(item.id, "added", { due: item.due, when: item.when });
+	log(item.id, "added", { due: item.due, when: item.when, check: item.check });
 	const late = due && +due < Date.now() ? " (already past: fires within a minute)" : "";
-	const p = online ? ` ${presenceLine()} It fires on his next arrival after now.` : "";
+	const p = online
+		? ` ${presenceLine()} It fires on his next arrival after now.`
+		: wake
+			? ` Resumes this session in place if it's still open and ready, else a forked tab. Webhook: curl -X POST http://ag:7373/tickler/${item.id} (or \`tickler trigger ${item.id}\`).`
+			: "";
 	console.log(`Scheduled ${item.id} "${item.title}" for ${whenText(item)}${late}, in workspace ${item.workspace ?? FALLBACK_WORKSPACE}, mode ${item.mode}.${p}`);
 }
 
@@ -132,14 +161,38 @@ function presenceLine(): string {
 	return p.state === "online" ? `Presence: Nathan is online at ${p.client} now.` : `Presence: Nathan is ${p.state} at ${p.client}.`;
 }
 
+function checkPasses(cmd: string): boolean {
+	try {
+		execFileSync("/bin/sh", ["-c", cmd], { stdio: "ignore", timeout: 20_000, env: { ...process.env, PATH: `${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin` } });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 // Time items: due has passed. Presence items: Nathan is online in an arrival that began after the item was queued.
+// Wake items: the check passes, or they expired (event items only fire via `trigger`, which calls fireOne directly).
 function isDue(i: Item, p: Presence | null): boolean {
 	if (i.when === "online") return p?.state === "online" && !!p.online_since && p.online_since > i.created_at;
+	if (isWake(i)) return +new Date(i.expires!) <= Date.now() || (i.when === "check" && checkPasses(i.check!));
 	return +new Date(i.due!) <= Date.now();
 }
 
 function prompt(i: Item): string {
 	const when = local(i.created_at);
+	if (isWake(i)) {
+		const what = i.when === "check" ? `\`${i.check}\` to succeed` : "a trigger (webhook)";
+		const status = i.triggered ? `It was triggered${i.note ? `: ${i.note}` : "."}` : "";
+		const expired = !i.triggered && +new Date(i.expires!) <= Date.now() && !(i.when === "check" && checkPasses(i.check!));
+		const head = expired
+			? `🔔 Wake-up ${i.id} (queued ${when}, waiting for ${what}) EXPIRED at ${local(i.expires!)} without the condition coming true. Find out why and tell Nathan; requeue with the tickler tool if it's still worth waiting.`
+			: `🔔 Wake-up ${i.id} (queued ${when}): what you were waiting for is ready (waited for ${what}). ${status}`;
+		return `${head}
+
+Task: ${i.task}
+
+Continue now.`;
+	}
 	if (i.when === "online") {
 		const context = i.mode === "fork" ? " This session is a fork of the conversation where it was queued, so you have that context." : "";
 		return `🟢 Presence item ${i.id}, queued on ${when} for "the next time Nathan is online at the client". He just came online.${context}
@@ -157,9 +210,29 @@ Task: ${i.task}
 Do it now. If it's a reminder or needs Nathan's decision, check what changed since it was deferred (PRs, commits, Slack, Linear as relevant) and give him a 3-line status and the next step. If he asks to push it back, reschedule it with the tickler tool.`;
 }
 
+// The pane still running the deferring pi session, if it's ready for input.
+function originPane(i: Item): string | null {
+	if (!i.session) return null;
+	try {
+		const panes = herdr("pane", "list").panes as { pane_id: string; agent_status?: string; agent_session?: { value?: string } }[];
+		const p = panes.find((x) => x.agent_session?.value === i.session);
+		return p && ["idle", "done"].includes(p.agent_status ?? "") ? p.pane_id : null;
+	} catch {
+		return null;
+	}
+}
+
 function fireOne(i: Item) {
+	const origin = isWake(i) ? originPane(i) : null;
+	if (origin) {
+		herdr("agent", "prompt", origin, prompt(i));
+		try {
+			herdr("notification", "show", `🔔 ${i.title}`.slice(0, 40), "--body", "Wake-up fired: resumed its session", "--sound", "request");
+		} catch {}
+		return log(i.id, "fired", { pane: origin, resumed: true });
+	}
 	const ws = workspaceFor(i.workspace);
-	const icon = i.when === "online" ? "🟢" : "⏰";
+	const icon = i.when === "online" ? "🟢" : isWake(i) ? "🔔" : "⏰";
 	const label = `${icon} ${i.title}`.slice(0, 40);
 	const cwd = existsSync(i.cwd) ? i.cwd : HOME;
 	let pane: string;
@@ -183,10 +256,25 @@ function fireOne(i: Item) {
 	}
 	herdr("agent", "prompt", agent, prompt(i));
 	try {
-		const why = i.when === "online" ? "Welcome back: queued for when you're online" : "Tickler fired";
+		const why = i.when === "online" ? "Welcome back: queued for when you're online" : isWake(i) ? "Wake-up fired (its session was closed or busy)" : "Tickler fired";
 		herdr("notification", "show", label, "--body", `${why}, in ${i.workspace ?? FALLBACK_WORKSPACE}`, "--sound", "request");
 	} catch {}
 	log(i.id, "fired", { pane, agent });
+}
+
+function trigger(id: string, note?: string) {
+	const i = load().find((x) => x.id === id);
+	if (!i) throw new Error(`no item ${id}`);
+	if (i.status !== "waiting") return console.log(`${id} is already ${i.status}.`);
+	const item: Item = { ...i, triggered: true, note };
+	save({ ...item, status: "fired", fired_at: new Date().toISOString() });
+	try {
+		fireOne(item);
+	} catch (e) {
+		save({ ...item, status: "failed", fired_at: new Date().toISOString(), error: String(e) });
+		throw e;
+	}
+	console.log(`Fired ${id} "${i.title}".`);
 }
 
 function fire() {
@@ -226,8 +314,9 @@ try {
 	else if (cmd === "list") list(rest.includes("--all"));
 	else if (cmd === "cancel") cancel(rest[0]);
 	else if (cmd === "fire") fire();
+	else if (cmd === "trigger") trigger(rest[0], flags(rest.slice(1)).note);
 	else {
-		console.error("usage: tickler add|list|cancel|fire (see header)");
+		console.error("usage: tickler add|list|cancel|trigger|fire (see header)");
 		process.exit(2);
 	}
 } catch (e) {

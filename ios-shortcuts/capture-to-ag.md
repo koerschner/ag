@@ -8,11 +8,15 @@ Tailscale only). This is the GTD inbox capture point.
 
 Typed capture is still there: **Capture to ag** (screenshot, then "Capture" text box). Voice to ag
 hands off to it in two cases:
-- **Second Action Button press while recording** (the "double press"): the first press leaves a
-  flag file, `ag-state/pressed.txt`, until its recording ends; a run that finds the flag deletes it
-  and opens Capture to ag instead. Whether iOS starts a second run while the first is still
-  recording is not yet verified (see below).
+- **Quick double press**: each press saves a flag, `ag-state/pressed.txt`, just before recording.
+  A press that finds a flag created in the last 2 seconds is the second press: it saves
+  `ag-state/double.txt` and opens Capture to ag. The first press's recording sheet is still up
+  underneath; when it's stopped, it sees `double.txt` and discards the recording. A stale flag
+  (older than 2 s) is ignored, so it never needs cleaning up.
 - **Recording shorter than 1 second** (press, then tap stop immediately).
+
+Only the screenshot and two small iCloud file operations (read the flag, write it) run before
+recording starts; converting and saving happen after the recording.
 
 iOS limits: the Action Button starts a shortcut on press-and-hold but a shortcut can't detect the
 release, so "hold to record, release to send" isn't possible; tap-to-finish is the closest. There is
@@ -32,16 +36,17 @@ ignores a repeated `id`, so resending an item whose response was lost is safe.
 
 ```mermaid
 flowchart TD
-    A[Action Button] --> V0{"ag-state/pressed.txt exists?"}
-    V0 -- "yes (2nd press)" --> V1["Delete flag → Run Capture to ag → Stop"]
-    V0 -- no --> V2["Save flag ag-state/pressed.txt"]
-    V2 --> V3["Take Screenshot → Convert Image → JPEG"]
+    A[Action Button] --> V0["Take Screenshot<br/>Get ag-state/pressed.txt + its creation date"]
+    V0 --> V1{"flag created < 2 s ago?"}
+    V1 -- "yes (2nd press)" --> V2["Save ag-state/double.txt → Run Capture to ag → Stop"]
+    V1 -- no --> V3["Save ag-state/pressed.txt"]
     V3 --> V4["Record Audio: Immediately, finish On Tap"]
-    V4 --> V5["Delete flag if present"]
-    V5 --> V6{"Duration < 1 s?"}
-    V6 -- yes --> V1b["Run Capture to ag → Stop"]
-    V6 -- no --> V7["Format Date yyyyMMdd-HHmmss-SSS<br/>Save Date.m4a and Date.jpg → ag-queue/"]
-    V7 --> F
+    V4 --> V5{"ag-state/double.txt exists?"}
+    V5 -- yes --> V6["Delete it → Stop (discard recording)"]
+    V5 -- no --> V7{"Duration < 1 s?"}
+    V7 -- yes --> V8["Run Capture to ag → Stop"]
+    V7 -- no --> V9["Convert screenshot → JPEG<br/>Save Date.m4a and Date.jpg → ag-queue/"]
+    V9 --> F
 
     T["Capture to ag (typed)"] --> S["Take Screenshot → JPEG"]
     S --> B["Ask for Input (Text) 'Capture'"]
@@ -90,22 +95,25 @@ The flush sends every queued file as the form field `text` with type **File**: a
    9. **Run Shortcut**: Flush ag Queue.
    No Show Notification action.
 4. Shortcut **Voice to ag** (Action Button):
-   1. **Get File from Folder**: Shortcuts, `ag-state/pressed.txt`, Error If Not Found off.
-   2. **If** File has any value → **Delete Files**: File → **Run Shortcut**: Capture to ag →
-      **Stop This Shortcut** → **End If**.
-   3. **Text**: `1` → **Set Name**: `pressed.txt` → **Save File**: Shortcuts, subpath `ag-state/`,
-      Ask off, Overwrite on. (A Text item always gets a `.txt` name, so the flag must live outside
-      `ag-queue` or the flush would send it.)
-   4. **Take Screenshot** → **Convert Image**: JPEG.
-   5. **Record Audio**: Quality Normal, Start Recording **Immediately**, Finish Recording **On Tap**.
-   6. **Get File from Folder**: `ag-state/pressed.txt` (Error If Not Found off) → **If** has any
-      value → **Delete Files** → **End If**.
-   7. **Get Details of Music/Media**: Duration of Recorded Audio → **If** Duration is less than 1
+   1. **Take Screenshot** (Full Screen).
+   2. **Get File from Folder**: Shortcuts, `ag-state/pressed.txt`, Error If Not Found off.
+   3. **Get Details of Files**: Date Created of File.
+   4. **If** File has any value **and** Date Created is in the last 2 seconds → **Text** `1` →
+      **Set Name** `double.txt` → **Save File**: subpath `ag-state/` (Ask off, Overwrite on) →
+      **Run Shortcut**: Capture to ag → **Stop This Shortcut** → **End If**.
+   5. **Text** `1` → **Set Name** `pressed.txt` → **Save File**: subpath `ag-state/`, Ask off,
+      Overwrite on. (A Text item always gets a `.txt` name, so flags live outside `ag-queue` or the
+      flush would send them.)
+   6. **Record Audio**: Quality Normal, Start Recording **Immediately**, Finish Recording **On Tap**.
+   7. **Get File from Folder**: `ag-state/double.txt` (Error If Not Found off) → **If** has any value
+      → **Delete Files** → **Stop This Shortcut** → **End If**.
+   8. **Get Details of Music/Media**: Duration of Recorded Audio → **If** Duration is less than 1
       → **Run Shortcut**: Capture to ag → **Stop This Shortcut** → **End If**.
-   8. **Format Date**: Current Date, Custom `yyyyMMdd-HHmmss-SSS`.
-   9. **Set Name**: Recorded Audio → `<Formatted Date>.m4a` → **Save File**: subpath `ag-queue/`, Ask off, Overwrite on.
-   10. **Set Name**: Converted Image → `<Formatted Date>.jpg` → **Save File**: subpath `ag-queue/`, Ask off, Overwrite on.
-   11. **Run Shortcut**: Flush ag Queue.
+   9. **Convert Image**: Screenshot → JPEG.
+   10. **Format Date**: Current Date, Custom `yyyyMMdd-HHmmss-SSS`.
+   11. **Set Name**: Recorded Audio → `<Formatted Date>.m4a` → **Save File**: subpath `ag-queue/`, Ask off, Overwrite on.
+   12. **Set Name**: Converted Image → `<Formatted Date>.jpg` → **Save File**: subpath `ag-queue/`, Ask off, Overwrite on.
+   13. **Run Shortcut**: Flush ag Queue.
 5. Automation → New → **Wi-Fi** → Any Network → **Is Joined** → **Run Immediately**
    → Run Shortcut **Flush ag Queue**.
 6. First run: allow microphone, connecting to `100.107.192.32` → **Always Allow**, running
@@ -132,3 +140,6 @@ Claude (anthropic-primary/claude-opus-5-5), assisting Nathan:
   prompt, screenshot gate, queued `.txt`/`.m4a` as `text` files). Still to verify on the physical
   phone: a real voice capture end to end, and whether a second Action Button press during a
   recording starts the typed capture.
+- 2026-09-27 (night): voice capture verified end to end on the phone. Rebuilt Voice to ag for a fast
+  single press (removed a 1 s wait and three iCloud file operations before recording) and a
+  creation-date double-press check. Awaiting Nathan's physical single/double press test.

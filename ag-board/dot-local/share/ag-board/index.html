@@ -6,12 +6,12 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="ag board">
+<meta name="apple-mobile-web-app-title" content="AG Dash">
 <meta name="theme-color" content="#101114">
 <link rel="manifest" href="/static/manifest.json">
 <link rel="icon" href="/static/icon.svg">
 <link rel="apple-touch-icon" href="/static/icon-180.png">
-<title>ag board</title>
+<title>AG Dash</title>
 <style>
 :root{--bg:#101114;--col:#17191e;--card:#1f2228;--card2:#262a31;--line:#2e333b;--fg:#e7e9ee;--dim:#8b919c;--red:#ff3b3b;--fire:#ff2d3d;--firebg:#3a1016;--green:#3ecf8e;--amber:#f5b33b;--blue:#5aa2ff;--violet:#b18cff}
 *{box-sizing:border-box}
@@ -285,7 +285,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
 </head>
 <body>
 <header>
-  <h1>ag board</h1>
+  <h1>AG Dash</h1>
   <button class="btn" id="newbtn" title="Start a new pi session (n)">＋ New session</button>
   <div class="counts" id="counts"></div>
   <div class="seg" id="views">
@@ -596,7 +596,7 @@ function render() {
   const n = (f) => B.cards.filter((c) => !archiving.has(c.tab) && f(c)).length;
   const needs = n((c) => c.needsYou);
   $("#counts").innerHTML = `<span class="pill hot">🔥 <b>${n((c) => c.hot)}</b></span><span class="pill">needs you <b>${needs}</b></span><span class="pill">thinking <b>${n((c) => c.status === "working" && c.activity?.kind !== "tool")}</b></span><span class="pill">running tools <b>${n((c) => c.status === "working" && c.activity?.kind === "tool")}</b></span><span class="pill">blocked <b>${n((c) => c.status === "blocked")}</b></span><span class="pill">waiting <b>${n((c) => c.waiting?.length)}</b></span>${n((c) => c.noWake) ? `<span class="pill warn" title="In Waiting for without a tickler wake-up">no wake-up <b>${n((c) => c.noWake)}</b></span>` : ""}<span class="pill">total <b>${B.cards.length}</b></span>`;
-  document.title = (needs ? `(${needs}) ` : "") + "ag board";
+  document.title = (needs ? `(${needs}) ` : "") + "AG Dash";
   document.querySelectorAll("#views button").forEach((b) => b.classList.toggle("on", b.dataset.v === view));
   $("#hotonly").classList.toggle("on", hotOnly);
   $("#expandall").classList.toggle("on", expandAll);
@@ -1069,6 +1069,29 @@ if (location.hash.length > 1) { const t = decodeURIComponent(location.hash.slice
   vv?.addEventListener("resize", fit); vv?.addEventListener("scroll", fit);
   new MutationObserver(fit).observe(drawer, { attributes: true, attributeFilter: ["class"] });
   build();
+}
+
+// ---------- click telemetry: which controls get used (POST /api/click → ~/.local/state/ag-board/clicks.jsonl; `ag-dash-stats`) ----------
+// One capture-phase listener, so handlers that stop propagation still count. Names are stable: data-track, else the
+// control's data action/id, else its title/label/text (digits dropped, so counts don't split a control), scoped by
+// the nearest ancestor id (or "card"/"col").
+{
+  const phone = matchMedia("(max-width:700px),(pointer:coarse) and (max-height:500px)"); // same test as the phone block
+  const CTL = "[data-track],button,a[href],summary,select,input:not([type=text]):not([type=search]),[role=button],[data-a],.card,.col>h2";
+  const d = (el, k) => el.dataset[k] !== undefined;
+  const nameOf = (el) => {
+    if (el.matches(".card")) return "card:open";
+    if (el.matches(".col>h2")) return "col:" + (el.parentElement.dataset.key || "header");
+    const ds = el.dataset, txt = (el.getAttribute("title") || el.getAttribute("aria-label") || el.textContent || "").replace(/\d+/g, "").replace(/\s+/g, " ").trim().slice(0, 40);
+    return ds.track || (ds.a && "a:" + ds.a) || (ds.v && "view:" + ds.v) || (ds.k && "k:" + ds.k) || (ds.t && "tab:" + ds.t) ||
+      (d(el, "mic") && "mic") || (d(el, "attach") && "attach") || (d(el, "del") && "del") || (el.id && "#" + el.id) || txt || el.tagName.toLowerCase();
+  };
+  document.addEventListener("click", (e) => {
+    const el = e.target.closest?.(CTL); if (!el) return;
+    const scope = el.parentElement?.closest(".card") ? "card" : el.parentElement?.closest(".col") && !el.matches(".card,.col>h2") ? "col" : el.parentElement?.closest("[id]")?.id;
+    const n = nameOf(el), name = scope && !n.startsWith("#") ? `${scope}/${n}` : n;
+    try { navigator.sendBeacon("/api/click", JSON.stringify({ name, view: phone.matches ? "phone" : "desktop" })); } catch {}
+  }, true);
 }
 </script>
 </body>

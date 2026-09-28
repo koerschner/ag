@@ -101,62 +101,17 @@ You are usually started in `~` (the home directory), not inside a project. Assum
 
 ## ag development Mac
 
-- **Planned: the Ag system.** "Ag" is becoming the name of the whole system: rented Linux machines (the brain: Herdr, every Pi session, dev work) plus this Mac, to be renamed **ag-mac** and used only for Mac-only apps and computer use, which the Linux sessions reach into. Design and status: `docs/ag.md` in dotfiles. Until the migration happens, everything below still describes today's setup (the Mac is still `ag`).
-- **ag** (Always Generating, formerly Seen/Scene) is Nathan's primary development Mac. Keep its system, Tailscale, Herdr, Jump Desktop, and Moshi connection names as lowercase `ag`.
-- From Nathan's client Mac, run `ag` in a fresh terminal to attach to ag's existing Herdr session, or `ssh ag` for a shell. SSH uses `natkoersch@100.107.192.32` over Nathan's personal Tailscale account (`nathankoerschner@gmail.com`); its MagicDNS name is `ag.tail44736d.ts.net`.
-- In Jump Desktop or iPhone Moshi, select **ag**. Keep Tailscale connected. Agents continue on ag when a client disconnects.
-- ag's login password is stored in the **client Mac's macOS login Keychain**, service/item **`ag Mac login`**, account **`natkoersch`**. Retrieve it there only when needed for an authorized action on ag; capture it directly into memory or the destination's secure input, without printing it into tool output, chat, logs, files, or command-line arguments. It is not stored in dotfiles, and SSH normally uses the existing key instead.
-- ag's home is `/Users/natkoersch`; other machines' homes are in `machines/README.md` (the current client's is `/Users/nathan`). Confirm which machine commands target. Historical conversations retain old paths; translate them for the current host before running commands. Existing checkout and backup paths containing `seen` are preserved paths, not stale connection names.
-- The legacy Herdr session on `nathan-dev-client` is retired and archived. Do not restore or recreate its old agents unless Nathan asks. Bare `herdr` attaches locally on whichever computer runs it; a client's `ag` command attaches remotely.
-- The current client Mac is `nathan-dev-client` on Tailscale (`100.68.116.104`). From ag, `ssh nathan-dev-client` connects as `nathan` using ag's existing ED25519 key; this was verified on 2026-09-26. Remote Login on the client permits only Nathan, its authorized key is restricted to ag's Tailscale IP, and ag pins the client's verified SSH host key. Keep every machine online with Tailscale connected. Full disk access for remote users is off.
-- For the return desktop connection, Jump Desktop on ag is signed into `nathankoerschner@gmail.com`; select **nathan-dev-client** (formerly **superbuilders**, verified against this client's Jump device ID). Its login is `nathan` and requires the **client Mac's** password, not ag's. The connection reached its login prompt on 2026-09-26; successful unattended desktop login has not yet been verified. The separate saved **Nathans-MacBook-Pro-2** connection points to an older Mac.
-- Keyboard shortcuts and dotfiles portability: see "Multi-machine setup model: host and client" below. When Nathan types into ag's Herdr, his keys go through the client first, so a broken shortcut may be a client-side problem. Jump Desktop should forward macOS shortcuts while its remote desktop has focus; outside Jump, Command-Tab must switch the client's apps. Keep that behavior; don't disable remote shortcut forwarding everywhere to hide a local problem.
-- ag hosts the agent processes and repositories; model inference goes through TrueFoundry. Keep that routing when configuring agents there.
-- Pi on ag uses `~/.pi/agent/mcp.json` with host-correct paths. Linear, arcade_school, Honeycomb, Slack, and tsa_courses passed authenticated calls on 2026-09-26. Linear must return the superbuilders workspace ID documented below; Honeycomb keeps `mcp:read` access. Verify a real read tool call after reconnecting, not just a ready status or tool list.
-- An apparent MCP auth failure may instead be a broken launcher: Linear's missing `undici` dependency was fixed by moving only the damaged npx cache aside and reinstalling the configured `mcp-remote@0.14.3`; do not erase valid credentials or all npm caches. For OAuth on ag using an already-signed-in client browser, forward the MCP helper's actual localhost callback port from the client to ag with SSH (Honeycomb currently uses `3705`), complete the normal authorization flow, then close the temporary tunnel. Never print tokens or copy an entire browser profile. Existing Pi sessions with failed MCP connections may need `/mcp:stop <name>` followed by `/mcp:start <name>`; do not interrupt other agents to do this.
-- Use `op-ag` for unattended 1Password CLI access on ag (also installed on the client). It loads the **ag 1Password service account** login-Keychain item, account **natkoersch**, only into the CLI process. The service account **ag arcade.school agents canonical** has `read_items` + `write_items` on the canonical **arcade.school** vault **`jjbrfvemdg4y3prkikxur6thbq`** only. This is Liwei’s new vault; all 13 items were migrated from the retired vault `enyn2sokk44c3c2uzvdmg7mrym`. Use the canonical ID in automation. Other vaults and the personal account are excluded. Recovery token: Trilogy → Employee → **ag arcade.school service account**. Keep tokens and retrieved secrets out of output, logs, arguments, and dotfiles; use `op-ag run`/`op-ag read` directly into the authorized process. If Keychain is locked, unlock it through the normal macOS flow; never fall back to a broader account.
-- `chatgpt-cua` is the dotfiles helper for desktop computer use through Codex and TrueFoundry. When run on ag, it must control ag's desktop. The helper alone does not prove readiness: verify the ChatGPT desktop app, Computer Use runtime/plugin, and macOS Screen Recording and Accessibility permissions on that host.
-- Use `op-shared` for Nathan's everyday personal credentials on ag (logins, API keys, credit cards for paying bills, utility and rent portals). Same design as `op-ag` (symlink to it): it loads the **ag machine-shared service account** login-Keychain item, account **natkoersch**, for the service account **ag machine-shared agents**, which has `read_items` + `write_items` on vault **machine-shared** (`qxomga2s2ppd3agns74jhfz7yi`) in Nathan's personal account only. Items were moved (not copied) there, so it is the one source of truth; add new shared items there. Banking, investments, tax, medical, identity documents, recovery codes, private keys, and primary Google/Apple/1Password accounts deliberately stay out of it: never reach them through computer use in the 1Password app or browser extension; ask Nathan instead. Nathan's personal 1Password account (my.1password.com) was signed out of ag's 1Password app and Chrome extension on 2026-09-28; don't sign it back in on ag. Only the Urban Dharma team account remains in the app. Recovery token: personal account → Personal → **ag machine-shared service account** (only Nathan can reach it now). Same secret-handling rules as `op-ag`.
-- **Programmatic first; client CUA is an antipattern.** Do the work through an API, CLI, or MCP tool (a service's REST API with a key from the vault, `gh`, `op-ag`, the repo's scripts) whenever one exists. Driving a GUI is a last resort, and driving the *client's* GUI (`client-cua`) is the last of all: use it only when there is truly no programmatic path and it can't be done on ag. When you do reach for the client, use it to **build capacity**, not to do the task: mint the missing API key or token once, store it in the canonical vault via `op-ag` without printing it, then do the task (and every later one) programmatically. Example: flipping PostHog flags by clicking through the client's logged-in browser was wrong; the right move was one client CUA pass to create a scoped PostHog personal API key into the vault, then the flags API.
-- **Computer use runs on ag by default.** Use `chatgpt-cua` (or the `chatgpt_cua` tool) on ag's own desktop for all computer use. Only drive a client when the task is absolutely impossible on ag: the thing exists only on that client (a dialog or permission prompt shown there, iPhone Mirroring, a client-only app or setting). "The app is already logged in on the client" is not enough: first try to get it working on ag (sign in, install, grant permissions), and if that needs Nathan, ask him.
-- When a client is truly required, drive its desktop from ag with `client-cua --why "<why this exists only on the client>" "<task>"` (targets `nathan-dev-client` by default; `CLIENT_CUA_HOST=<alias>` for another) (plain `ssh` + codex can't see the client's screen; `client-cua` submits the job into its GUI session).
-- **The client-CUA guard enforces this.** Every `client-cua` run, and any Pi bash call that SSHes to the client with UI automation (osascript/System Events, Hammerspoon event taps, cliclick), is judged by `client-cua-gate` (Jev) against the rule above. Unjustified, unsure, or Jev unreachable → blocked (fails closed), and a new Inbox session is spun out to get the missing access onto ag. When blocked, don't rephrase or route around it: do the task on ag, or tell Nathan what ag is missing and let the access session fix it. Pi runs the gate via the `client-cua-guard.ts` extension; `client-cua` itself requires `--why` and runs the same gate, so Codex and Claude Code hit it too.
-- **Permission dialogs: grant them yourself with CUA.** Whenever a task stalls or fails in a way that suggests a pending permission prompt or system dialog (macOS TCC prompts for Accessibility/Screen Recording/Automation/Full Disk Access, keychain "Allow" prompts, app "Open"/"Allow" confirmations, OAuth consent pages, etc.), infer that it is waiting on a permission. Don't ask Nathan to click it. Work out which machine is showing the request, then use CUA on that machine to grant it or click through the dialog: `chatgpt-cua` (or the `chatgpt_cua` tool) for ag, `client-cua` (with `CLIENT_CUA_HOST` for a non-default machine) for any other. Afterwards, confirm the blocked step now proceeds. Still stop and ask first if the prompt would grant access beyond what the task needs or authorize something destructive, and never type secrets into a dialog unless the task already authorizes that secret for it.
-- **Tell Nathan what ag needs.** Whenever something on ag is missing, expired, or under-permissioned (credentials, CLI logins, tools, TCC permissions, MCP auth, access to a vault or service), fix it yourself if you can do so safely (e.g. copy an existing credential from the client over SSH, install a Brewfile tool, grant a dialog with CUA), capture the fix in dotfiles, and tell him what you fixed. If it needs him (a login only he can do, a broader grant, a new secret), stop and tell him clearly what's needed and why, as a friendly request; don't silently work around it or drop the task. Also mention anything you notice that would make ag work better.
+Load the **`ag-machine-ops`** skill for connection details, Keychain items, MCP re-auth recipes, 1Password vault IDs, and computer-use setup. The essentials:
+
+- **ag** (Always Generating) is Nathan's primary development Mac and the host: it runs Herdr, every agent, and the repos; model inference goes through TrueFoundry. Home is `/Users/natkoersch`. The client Mac is `nathan-dev-client` (home `/Users/nathan`; `ssh nathan-dev-client`). `machines/README.md` in dotfiles is the inventory. Translate old paths in historical conversations for the current host; checkout paths containing `seen` are preserved names, not stale ones. Planned: "Ag" becomes the whole system (Linux machines plus this Mac renamed ag-mac); see `docs/ag.md` in dotfiles. Until then this still describes today's setup.
+- **Secrets:** `op-ag` reads/writes the canonical arcade.school vault (`jjbrfvemdg4y3prkikxur6thbq`); `op-shared` reads/writes Nathan's everyday personal credentials (vault machine-shared). Pipe secrets straight into the process that needs them (`op-ag run`/`op-ag read`); never print them into output, logs, arguments, or dotfiles. Banking, tax, medical, identity, recovery codes, private keys and primary accounts are deliberately out of reach: ask Nathan, never go around it through the 1Password app or browser.
+- **Programmatic first; driving the client's desktop is an antipattern.** Use an API, CLI, or MCP tool whenever one exists. Computer use runs on ag (`chatgpt-cua` / the `chatgpt_cua` tool). Drive the client only when the task truly exists only there (see the skill for the tool and its `--why` rule); a Jev guard blocks unjustified client automation, so don't route around it. When you must use the client, use it to build capacity (mint the missing API key into the vault once), then work programmatically.
+- **Permission dialogs:** when a task stalls on a likely permission prompt or system dialog, grant it yourself with computer use on the machine showing it, then confirm the step proceeds. Ask first only if it grants more than the task needs, authorizes something destructive, or needs a secret the task doesn't already authorize.
+- **Tell Nathan what ag needs.** If something on ag is missing, expired, or under-permissioned, fix it yourself when it's safe, capture the fix in dotfiles, and tell him. If it needs him (a login, a broader grant, a new secret), stop and ask clearly and kindly; don't silently work around it or drop the task.
 
 ## Machine setup lives in dotfiles (infrastructure as code)
 
-Every change to the machine setup (any computer, phone, device, or service in the stack) must be fully captured in dotfiles in the same task, and committed and pushed. Every computer runs the same repo; `machines/README.md` in dotfiles is the inventory of machines, with each one's role, SSH alias, user, home, and checkout path (currently ag: `~/dotfiles-seen-setup`, others: `~/dotfiles`). The bar: if any device or part of the system were replaced, or a new one added, it could be built from zero using only the dotfiles (`bootstrap` + README + the secrets checklist). Concretely:
-
-- Scripts go in `bin/dot-local/bin`, LaunchAgents in `macos-launchagents/`, configs in a stow package (add new packages to `STOW_PACKAGES` in `bootstrap`).
-- Settings that can't be stowed (app preferences, iOS Shortcuts, GUI-only toggles) get documented in the README or a doc in the repo, precise enough to recreate. Examples: the CleanShot export path; iOS Shortcuts in `ios-shortcuts/`, as a mermaid flowchart plus build steps.
-- Secrets are never committed; list any new one in the bootstrap secrets checklist and README.
-- Every push to dotfiles ends with syncing **every machine in the inventory**; a push isn't finished until all of them have it. On each machine (locally, or over `ssh <alias>`): `git pull --ff-only` in its checkout, then apply what changed. Restow the touched packages (`/opt/homebrew/bin/stow --dotfiles --no-folding -d <checkout> -t ~ <pkg>`; use the full path, since non-interactive SSH has a minimal PATH), reload Hammerspoon (`/opt/homebrew/bin/hs -c 'hs.reload()'`), reload or kickstart any changed LaunchAgent, and run `bootstrap` if it changed. Verify it works on each machine. If a machine is unreachable, name it in your report so it gets synced later.
-- When a machine joins, leaves, or changes role, update `machines/README.md`, `ssh/dot-ssh/config`, and any role-specific defaults in the same change.
-- Don't leave hand edits outside the repo.
-
-## Multi-machine setup model: host and client (read before changing shortcuts, Herdr, or dotfiles)
-
-The setup is a host/client system. Setup mistakes have come from reasoning about one machine when the behavior spans two. Think in roles, not machine names. `machines/README.md` maps roles to machines (today: host `ag`, client `nathan-dev-client`); everything below applies to whichever machine holds a role.
-
-**Roles.**
-- **Host:** runs the Herdr server, the agents, and the repos. All session state lives here, and every script that acts on Herdr must run here.
-- **Client:** where Nathan sits. It runs no Herdr server. It attaches to the host with the `ag` command (`bin/dot-local/bin/ag` = `herdr --remote <host> --remote-keybindings server`), and runs the desktop side: Hammerspoon, Ghostty, Jump Desktop, CleanShot, and the bridge helpers.
-- A key press travels client keyboard → client Hammerspoon → client Ghostty → herdr client → SSH → host Herdr server. Anything that *executes* on the client (a Hammerspoon task, a local script) runs where there is no Herdr session, and fails quietly.
-
-**Shortcut rules.**
-- The client only translates keys. Hammerspoon turns Cmd shortcuts into Herdr prefix chords (`herdrShortcuts` in `hammerspoon/dot-hammerspoon/init.lua`); it never runs Herdr scripts or SSH.
-- The host executes. Any shortcut that runs a script is a Herdr `[[keys.command]]` in `herdr/dot-config/herdr/config.toml`, so the host's Herdr server runs it. Herdr drops client-side custom-command bindings over `--remote`; that's why `ag` uses the host's keybindings.
-- The chord must survive the terminal unchanged. Ghostty rewrites some keys before Herdr sees them (e.g. `alt+arrow` becomes `esc b`/`esc f`; check with `ghostty +list-keybinds --default`). Prefer `prefix+<plain key or punctuation>`, and check that `herdr server reload-config` reports no diagnostics.
-- Current map: Cmd+W/D/Shift+D/1–9 → built-in Herdr actions; Cmd+T → `prefix+t` (new pi tab); Cmd+[ / ] → `prefix+[` / `prefix+]` (herdr-nav back/forward); prefix+f find tab (fuzzy over space/tab names and contents); prefix+Shift+L last space.
-- The same chords work when Nathan uses Herdr directly on the host, since host and client share this config.
-
-**Dotfiles portability.**
-- Usernames and homes differ per machine (see the inventory). Never commit an absolute home path or username. Use `$HOME`/`~`, or `sh -c '... "$HOME/..."'` where a tool doesn't expand them (pi's `mcp.json`).
-- Tracked configs must be symlinks into the checkout on every machine, never edited copies. A copy stops receiving updates without any error. Settings that only one machine needs go in an untracked include (e.g. `~/.config/ghostty/local.conf`) and are documented in the README.
-- Only known per-machine copy: `~/.codex/config.toml` (the Codex app rewrites it). A machine can hold an old retired checkout (ag has `~/dotfiles`); nothing current should link into it.
-
-**Verify on the real path.** Unit-testing a script, or synthesizing keys past Ghostty, is not proof. Send the actual Cmd shortcut or prefix chord into the focused Ghostty Herdr window (e.g. `hs.eventtap.keyStroke` after `hs.application.find("Ghostty"):activate(true)`), then confirm the effect on the host with `herdr api snapshot` or `herdr tab list`. Close any test tabs. To test the client path, do the same on the client over `ssh <client>` with `/opt/homebrew/bin/hs`. After a Herdr config change on the host, `herdr server reload-config` updates attached clients live. Reattaching (prefix+d, then `ag`) is only needed when the `ag` command changed. To audit links on a machine, compare every `git ls-files <pkg>` entry to its `$HOME` target; each should be a symlink that resolves into that machine's checkout.
+Every change to the machine setup (any computer, phone, device, or service in the stack) must be captured in dotfiles in the same task, committed, pushed, and synced to **every machine** in `machines/README.md`, so any machine could be rebuilt from the dotfiles alone. Never leave hand edits outside the repo or commit secrets. **Load the `dotfiles-change` skill before making the change**: it has where things go, the sync steps, and the host/client model (read it before touching shortcuts, Herdr config, Hammerspoon, or anything that spans the host and a client).
 
 ## Client ↔ host bridge (screenshots, viewing, phone)
 
@@ -170,12 +125,7 @@ Nathan sits at a client machine (and sometimes his iPhone); you run on a host (c
 
 ## Visual review pages
 
-Whenever work changes something people see (UI screens, dialogs, native alerts, emails, dashboards, copy), give Nathan a review page before asking him to approve it: one self-contained HTML file that shows every changed screen **in context**, then open it on his screen with `show`. Screenshots in chat alone aren't enough.
-
-- **In context:** for each screen, say who sees it, when, and what just happened (e.g. "Kid pressed Play with Roblox signed into the wrong account"), then the screenshot, then what they can do next. Order the screens as the user meets them, like a storyboard. Show the before next to the after when something existing changed.
-- **Real renders, not mockups:** capture the actual component (Storybook stories plus headless Playwright; add a story when a state has none), the real native UI (render the actual `NSAlert` or window offscreen to PNG), or the running app. Mark anything that isn't the real render.
-- **Self-contained:** embed the images (base64) so the file works anywhere, keep it in `/tmp/<topic>-review/index.html`, and `show` it. Include the `phone:` link that `show` prints in your message, so he can also review and comment from his iPhone. Include the ticket/PR links and the diff size.
-- **Link back to the session:** put a clickable link to the Herdr tab that did the work at the top (`herdr-link $HERDR_TAB_ID` gives the tab's label and ID). In HTML, link it as `hammerspoon://herdr?tab=<tab_id>&host=<host>`, which jumps his attached Herdr to that tab (Hammerspoon on the client handles it; see "Helper sessions and links" under Herdr). Also print the Pi session file (`$PI_SESSION_FILE`) as a copyable `pi --session <path>` fallback, since a tab can close.
+Whenever work changes something people see (UI screens, dialogs, native alerts, emails, dashboards, copy), give Nathan a review page before asking him to approve it: load the **`visual-review-page`** skill and follow it. Screenshots in chat alone aren't enough.
 
 ## Worktrees
 
@@ -247,90 +197,16 @@ Spatial language refers to the Herdr layout:
 - "workspace" = a Herdr workspace (a topic area), not a session.
 - "space" = the current Herdr workspace (`$HERDR_WORKSPACE_ID`), e.g. "all my agents in this space" = every agent in this workspace's tabs (excluding yourself).
 
-### Seeing what's in motion (tmux `capture-pane` equivalent)
+### Working with panes and agents
 
-Reading works on any pane in any workspace, not just your own. Use it to orient when the user references work happening elsewhere ("the dev server", "the other agent", "what's failing over there").
+Run `herdr --skill` for the full command reference of the installed version (reading panes, layout, running commands, starting and driving agents, waits); `herdr <group>` lists a group's commands. The rules that matter every time:
 
-```bash
-herdr workspace list                                  # labels, IDs, agent_status, tab/pane counts
-herdr tab list --workspace <ws>                       # tabs + labels in a workspace
-herdr pane list [--workspace <ws>]                    # every pane: pane_id, tab_id, cwd, terminal_title,
-                                                      #   agent, agent_status, agent_session.value (Pi .jsonl path)
-herdr agent list                                      # only panes hosting recognized agents, with names/states
-herdr pane get <pane-id> | herdr agent get <target>   # one pane / one agent in detail
-herdr pane process-info --pane <pane-id>              # foreground process argv, pgid
-herdr pane layout --pane <pane-id>                    # geometry (use before deciding split direction)
-herdr pane read <pane-id> --source recent-unwrapped --lines 200   # scrollback + viewport
-herdr agent read <target> --source recent-unwrapped --lines 200   # same, via agent surface
-herdr pane wait-output <pane-id> --match <text> | --regex <re> [--timeout <ms>]   # block until it appears
-herdr agent wait <target> [--until idle|done|blocked] [--timeout <ms>]           # block on lifecycle state
-herdr agent explain <target>                          # why Herdr classified the agent's state as it did
-herdr api snapshot                                    # whole live session state as one JSON blob
-```
-
-Read sources: `visible` (rendered screen only), `recent` (with soft wraps), `recent-unwrapped` (wraps joined — default choice for logs/transcripts), `detection` (plain-text buffer Herdr uses for agent detection). Add `--format ansi` only when color is evidence. If a large read still doesn't show a completed agent response, ask that agent to write it to a temp Markdown file and reply with the path; read the file.
-
-Reading is safe anywhere. Only send input (`pane send-text`, `pane send-keys`, `pane run`, `agent prompt`, `agent send-keys`) to panes you created or the user explicitly pointed you at — other panes may be another agent mid-task. Never answer another agent's `blocked` dialog without asking the user.
-
-### Creating layout
-
-```bash
-herdr pane split --current --direction right|down --cwd "$PWD" [--ratio 0.5] --no-focus   # → .result.pane.pane_id
-herdr tab create --workspace "$HERDR_WORKSPACE_ID" --label <name> --cwd <dir> --no-focus   # → .result.tab, .result.root_pane
-herdr workspace create --cwd <dir> --label <name> --no-focus                                # → .result.workspace/.tab/.root_pane (only when asked)
-herdr worktree open   --cwd ~/<repo> (--path <p> | --branch <b>) --no-focus   # only when Nathan asks
-herdr pane rename <pane-id> <name>   |  herdr tab rename <tab-id> <name>  |  herdr workspace rename <ws> <name>
-herdr pane zoom / resize / swap / move / focus / close    (see --help)
-herdr pane close <pane-id>  |  herdr tab close <tab-id>   # only things you created
-```
-
-Split direction: check `herdr pane layout --pane "$HERDR_PANE_ID"`; split wide panes `right`, narrow/tall ones `down`; avoid stacking same-direction splits into slivers. Always `--no-focus` so the user's focus stays put. `--trust-repository` on worktree commands only after the user has vetted the repo — not a retry flag.
-
-### Running commands in panes
-
-```bash
-herdr pane run <pane-id> "<cmd>"                      # sends text + Enter atomically
-herdr pane send-text <pane-id> "<text>"               # literal text, no Enter
-herdr pane send-keys <pane-id> enter|esc|ctrl+c|...   # logical keys, validated before write
-herdr pane wait-output <pane-id> --match "ready" --timeout 120000
-herdr pane read <pane-id> --source recent-unwrapped --lines 120
-```
-
-`wait-output` matches output that already exists too — including the echoed command line itself. So `pane run <id> 'cmd; echo DONE'` + `--match DONE` returns immediately. Use a sentinel that only appears on completion and anchor it: `pane run <id> 'cmd; echo PROBE_DONE'` then `wait-output <id> --regex '^PROBE_DONE$'`. Omit `--timeout` for indefinite.
-
-For dev processes (apps, servers, watchers):
-- Never create a new session or workspace unless explicitly asked. Work inside the current workspace.
-- Start each task in a new tab with a descriptive label, or split beside yourself for something short-lived.
-- Group related processes as panes within one tab rather than spreading across tabs.
-- Tell the user which tab and panes things are running in (label and IDs).
-
-### Starting and driving another agent
-
-Only when the user asks for delegation/parallel agents — not merely because a task could benefit from it.
-
-```bash
-herdr pane split --current --direction right --cwd "$PWD" --no-focus              # need a pane at a bare shell prompt
-herdr agent start <name> --kind pi|claude|codex|gemini|... --pane <pane-id> [--timeout 30000] [-- <agent-args>]
-herdr agent prompt <name> "<text>" --wait --timeout 120000    # submits; waits for first settled idle/done/blocked
-herdr agent wait <name> --until blocked --timeout 120000      # only for state-specific waits
-herdr agent read <name> --source recent-unwrapped --lines 120
-herdr agent send-keys <name> esc | ctrl+c | enter
-herdr agent get <name>  |  herdr agent explain <name>
-herdr agent rename <target> <name>|--clear  |  herdr agent focus <target>
-```
-
-- `agent start` needs an *existing* pane at an interactive prompt; it never creates layout. It returns once the agent is detected and ready (or `agent_not_ready` if blocked during startup — name still usable for read/send-keys).
-- `agent prompt` refuses with `agent_blocked` if a dialog is up; inspect via `agent read`, ask the user before answering it.
-- `--wait` returns `agent_prompt_stalled` if no `working`/`blocked` activity within ~5s, or `timeout`. Neither proves the prompt wasn't delivered — read the pane before resending.
-- Pane-level `send-text`/`run` on an agent pane is raw terminal control; use the agent surface unless raw control is intentional.
-
-### Other
-
-- `herdr notification show "<title>" [--body TEXT] [--sound done|request]` — surface a toast to the user (e.g. long job finished).
-- `herdr status` — client/server versions (check before relying on a new feature; a missing method is not a reason to restart/upgrade).
-- `herdr --machine <label> <cmd>` — run any of the above against a saved SSH machine; discover IDs there, don't reuse local ones. `herdr machine list` shows profiles only. Don't add/remove profiles unless asked.
-- `herdr session ...` — named persistent servers; leave alone unless asked.
-- `herdr api schema` — full socket API schema if a CLI flag is missing.
+- **Reading is safe anywhere.** `herdr workspace list`, `herdr tab list --workspace <ws>`, `herdr pane list`, `herdr agent list`, and `herdr pane read <pane> --source recent-unwrapped --lines 200` work on any pane; use them to orient when Nathan refers to work elsewhere ("the dev server", "the other agent").
+- **Only send input** (`pane run`/`send-text`/`send-keys`, `agent prompt`/`send-keys`) to panes you created or Nathan pointed you at. Never answer another agent's `blocked` dialog without asking him.
+- **Dev processes** (apps, servers, watchers): start each in a new tab with a descriptive label in the current workspace (or split beside yourself for something short-lived), group related processes as panes in one tab, always pass `--no-focus`, and tell Nathan the tab/pane labels and IDs. Never create a new session or workspace unless asked; close only things you created.
+- **`pane wait-output` also matches output that already exists**, including the echoed command line. Use an anchored sentinel that only appears on completion (`echo PROBE_DONE` + `--regex '^PROBE_DONE$'`).
+- **Delegating to another agent** only when Nathan asks (see "Use other sessions freely" below for his standing permission): `agent start` needs an existing pane at a shell prompt; `agent prompt --wait` returning `agent_prompt_stalled` or `timeout` doesn't prove the prompt wasn't delivered, so read the pane before resending.
+- `herdr notification show "<title>" [--body TEXT] [--sound done|request]` surfaces a toast to Nathan. Leave `herdr session …` and machine profiles alone unless asked; a missing method is not a reason to restart or upgrade.
 
 ### Helper sessions and links
 
@@ -382,29 +258,16 @@ Applies to ANYTHING another human may read that you author. Always follow the AI
 
 ## Arcade Discord
 
-- Use Discord for messages to Nathan's team unless he explicitly says otherwise.
-- Server: **Arcade** (ID `1524527312429912125`).
-- **Brain channels:** each teammate has a personal channel named after them (e.g. `#frank` for Frank Yang). We call these their "brain channels". When Nathan says to send something to someone's brain channel, post in their named channel on the Arcade server, not a DM.
-- Posting: post through the Discord app on ag with `chatgpt-cua`. If Discord on ag is logged out, ask Nathan to sign it in (see "Tell Nathan what ag needs"); only fall back to `client-cua` on the client Mac (logged in as Nathan) when a message can't wait. Never enter Discord credentials.
-- Donald Geddes is **Hbauer** on Discord (username `hbauer`; Linear `handlebauer`). For the Arcade Linear migration, coordinate with Donald only, not Benjamin Hitov or Eli (not on Nathan's team).
-- Frank Yang is **Frank Y** on Discord (username `flankalanka`; GitHub `FlankaLanka`).
+Use Discord (server **Arcade**) for messages to Nathan's team unless he says otherwise; a teammate's "brain channel" is their named channel there. Load the **`arcade-discord`** skill before posting (handles, how to post from ag).
 
-## "Meat harness"
+## Other skill triggers
 
-When Nathan says to **"meat harness"** something, the fix lives in someone else's system and they run their own coding agent. Nathan (or you) sends that person a short note plus a copy-paste prompt for them to hand to their agent. The human is the harness that carries the prompt to their agent. Deliver:
-
-1. A one- or two-line ask to the person (the request only, per the messaging rules above).
-2. A fenced, self-contained prompt for their agent. It should cover the goal, the current behavior and why it's a problem, the exact desired output (with a concrete example), the constraints, and how to verify. Assume their agent has zero context on our side. Don't guess at their code paths or file names.
+- **"Meat harness"** something → load the `meat-harness` skill.
+- **Anything on Nathan's iPhone** (apps, settings, pairing, iOS Shortcuts) → load the `iphone-mirroring` skill; don't hand phone steps back to him.
 
 ## Python
 
 Always use `uv` (venvs, dependencies, Python versions): `uv init`, `uv add`, `uv run`. Never install packages globally or use raw pip/venv.
-
-## Phone work (iPhone Mirroring)
-
-For anything on Nathan's iPhone (install/configure apps, pairing, reading a setting, iOS Shortcuts), drive **iPhone Mirroring on the client Mac** with `client-cua`; don't hand phone steps back to Nathan. Before doing phone work, read `~/dotfiles-seen-setup/docs/iphone-mirroring.md` (client: `~/dotfiles/docs/iphone-mirroring.md`): locked-phone requirement, secret handling, and the tested text-entry workaround.
-
-Mirroring only connects while the phone is locked and not in use. On **iPhone in Use**, notify Nathan right away so he locks it, don't just stall: `ssh nathan-dev-client "osascript -e 'display notification \"Please lock your iPhone so I can use iPhone Mirroring\" with title \"ag needs your phone\" sound name \"Glass\"'"` plus `herdr notification show "Lock your iPhone" --sound request`. Then retry every ~30s.
 
 ## Scope discipline
 

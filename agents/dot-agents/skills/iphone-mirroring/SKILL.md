@@ -1,4 +1,9 @@
-## Phone work (iPhone Mirroring)
+---
+name: iphone-mirroring
+description: Do anything on Nathan's iPhone (install or configure apps, pairing, reading a setting, iOS Shortcuts) by driving iPhone Mirroring on the client Mac. Use for any phone task instead of handing steps back to Nathan.
+---
+
+# Phone work (iPhone Mirroring)
 
 For anything on Nathan's iPhone (install/configure apps, pairing, reading a setting, iOS Shortcuts), drive **iPhone Mirroring on the client Mac** with `client-cua`; don't hand phone steps back to Nathan. Before doing phone work, read `~/dotfiles-seen-setup/docs/iphone-mirroring.md` (client: `~/dotfiles/docs/iphone-mirroring.md`): locked-phone requirement, secret handling, and the tested text-entry workaround.
 

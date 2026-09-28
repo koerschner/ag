@@ -1,4 +1,9 @@
-## "Meat harness"
+---
+name: meat-harness
+description: Hand a fix to someone else's coding agent via a human courier. Use when Nathan says to "meat harness" something, or when the fix lives in another person's system and they run their own agent.
+---
+
+# Meat harness
 
 When Nathan says to **"meat harness"** something, the fix lives in someone else's system and they run their own coding agent. Nathan (or you) sends that person a short note plus a copy-paste prompt for them to hand to their agent. The human is the harness that carries the prompt to their agent. Deliver:
 

@@ -1,4 +1,28 @@
-## Multi-machine setup model: host and client (read before changing shortcuts, Herdr, or dotfiles)
+---
+name: dotfiles-change
+description: Make any machine-setup change the dotfiles way (scripts, configs, LaunchAgents, shortcuts, Hammerspoon, Herdr keybindings, stow packages, new machines) and sync it to every machine. Use before touching dotfiles or anything outside a repo on ag or a client, and whenever changing keyboard shortcuts or the host/client setup.
+---
+
+# Changing the machine setup (dotfiles)
+
+The rule (always-on, in the global instructions): every machine change lives in dotfiles, is committed and pushed in the same task, and is synced to every machine. This skill is the how.
+
+## What goes where
+
+Every change to the machine setup (any computer, phone, device, or service in the stack) must be fully captured in dotfiles in the same task, and committed and pushed. Every computer runs the same repo; `machines/README.md` in dotfiles is the inventory of machines, with each one's role, SSH alias, user, home, and checkout path (currently ag: `~/dotfiles-seen-setup`, others: `~/dotfiles`). The bar: if any device or part of the system were replaced, or a new one added, it could be built from zero using only the dotfiles (`bootstrap` + README + the secrets checklist). Concretely:
+
+- Scripts go in `bin/dot-local/bin`, LaunchAgents in `macos-launchagents/`, configs in a stow package (add new packages to `STOW_PACKAGES` in `bootstrap`).
+- Settings that can't be stowed (app preferences, iOS Shortcuts, GUI-only toggles) get documented in the README or a doc in the repo, precise enough to recreate. Examples: the CleanShot export path; iOS Shortcuts in `ios-shortcuts/`, as a mermaid flowchart plus build steps.
+- Secrets are never committed; list any new one in the bootstrap secrets checklist and README.
+- Every push to dotfiles ends with syncing **every machine in the inventory**; a push isn't finished until all of them have it. On each machine (locally, or over `ssh <alias>`): `git pull --ff-only` in its checkout, then apply what changed. Restow the touched packages (`/opt/homebrew/bin/stow --dotfiles --no-folding -d <checkout> -t ~ <pkg>`; use the full path, since non-interactive SSH has a minimal PATH), reload Hammerspoon (`/opt/homebrew/bin/hs -c 'hs.reload()'`), reload or kickstart any changed LaunchAgent, and run `bootstrap` if it changed. Verify it works on each machine. If a machine is unreachable, name it in your report so it gets synced later.
+- When a machine joins, leaves, or changes role, update `machines/README.md`, `ssh/dot-ssh/config`, and any role-specific defaults in the same change.
+- Don't leave hand edits outside the repo.
+
+## Commit policy
+
+Dotfiles is fully slop-cannon: commit only the files you changed and push to `main` without asking (ag's checkout is on a local branch, so push with `git push origin HEAD:main` after `git pull --rebase --autostash origin main`). Leave other uncommitted changes alone; another session may own them.
+
+## Host/client model (read before changing shortcuts, Herdr, or dotfiles)
 
 The setup is a host/client system. Setup mistakes have come from reasoning about one machine when the behavior spans two. Think in roles, not machine names. `machines/README.md` maps roles to machines (today: host `ag`, client `nathan-dev-client`); everything below applies to whichever machine holds a role.
 

@@ -22,90 +22,16 @@ Spatial language refers to the Herdr layout:
 - "workspace" = a Herdr workspace (a topic area), not a session.
 - "space" = the current Herdr workspace (`$HERDR_WORKSPACE_ID`), e.g. "all my agents in this space" = every agent in this workspace's tabs (excluding yourself).
 
-# Seeing what's in motion (tmux `capture-pane` equivalent)
+# Working with panes and agents
 
-Reading works on any pane in any workspace, not just your own. Use it to orient when the user references work happening elsewhere ("the dev server", "the other agent", "what's failing over there").
+Run `herdr --skill` for the full command reference of the installed version (reading panes, layout, running commands, starting and driving agents, waits); `herdr <group>` lists a group's commands. The rules that matter every time:
 
-```bash
-herdr workspace list                                  # labels, IDs, agent_status, tab/pane counts
-herdr tab list --workspace <ws>                       # tabs + labels in a workspace
-herdr pane list [--workspace <ws>]                    # every pane: pane_id, tab_id, cwd, terminal_title,
-                                                      #   agent, agent_status, agent_session.value (Pi .jsonl path)
-herdr agent list                                      # only panes hosting recognized agents, with names/states
-herdr pane get <pane-id> | herdr agent get <target>   # one pane / one agent in detail
-herdr pane process-info --pane <pane-id>              # foreground process argv, pgid
-herdr pane layout --pane <pane-id>                    # geometry (use before deciding split direction)
-herdr pane read <pane-id> --source recent-unwrapped --lines 200   # scrollback + viewport
-herdr agent read <target> --source recent-unwrapped --lines 200   # same, via agent surface
-herdr pane wait-output <pane-id> --match <text> | --regex <re> [--timeout <ms>]   # block until it appears
-herdr agent wait <target> [--until idle|done|blocked] [--timeout <ms>]           # block on lifecycle state
-herdr agent explain <target>                          # why Herdr classified the agent's state as it did
-herdr api snapshot                                    # whole live session state as one JSON blob
-```
-
-Read sources: `visible` (rendered screen only), `recent` (with soft wraps), `recent-unwrapped` (wraps joined — default choice for logs/transcripts), `detection` (plain-text buffer Herdr uses for agent detection). Add `--format ansi` only when color is evidence. If a large read still doesn't show a completed agent response, ask that agent to write it to a temp Markdown file and reply with the path; read the file.
-
-Reading is safe anywhere. Only send input (`pane send-text`, `pane send-keys`, `pane run`, `agent prompt`, `agent send-keys`) to panes you created or the user explicitly pointed you at — other panes may be another agent mid-task. Never answer another agent's `blocked` dialog without asking the user.
-
-# Creating layout
-
-```bash
-herdr pane split --current --direction right|down --cwd "$PWD" [--ratio 0.5] --no-focus   # → .result.pane.pane_id
-herdr tab create --workspace "$HERDR_WORKSPACE_ID" --label <name> --cwd <dir> --no-focus   # → .result.tab, .result.root_pane
-herdr workspace create --cwd <dir> --label <name> --no-focus                                # → .result.workspace/.tab/.root_pane (only when asked)
-herdr worktree open   --cwd ~/<repo> (--path <p> | --branch <b>) --no-focus   # only when Nathan asks
-herdr pane rename <pane-id> <name>   |  herdr tab rename <tab-id> <name>  |  herdr workspace rename <ws> <name>
-herdr pane zoom / resize / swap / move / focus / close    (see --help)
-herdr pane close <pane-id>  |  herdr tab close <tab-id>   # only things you created
-```
-
-Split direction: check `herdr pane layout --pane "$HERDR_PANE_ID"`; split wide panes `right`, narrow/tall ones `down`; avoid stacking same-direction splits into slivers. Always `--no-focus` so the user's focus stays put. `--trust-repository` on worktree commands only after the user has vetted the repo — not a retry flag.
-
-# Running commands in panes
-
-```bash
-herdr pane run <pane-id> "<cmd>"                      # sends text + Enter atomically
-herdr pane send-text <pane-id> "<text>"               # literal text, no Enter
-herdr pane send-keys <pane-id> enter|esc|ctrl+c|...   # logical keys, validated before write
-herdr pane wait-output <pane-id> --match "ready" --timeout 120000
-herdr pane read <pane-id> --source recent-unwrapped --lines 120
-```
-
-`wait-output` matches output that already exists too — including the echoed command line itself. So `pane run <id> 'cmd; echo DONE'` + `--match DONE` returns immediately. Use a sentinel that only appears on completion and anchor it: `pane run <id> 'cmd; echo PROBE_DONE'` then `wait-output <id> --regex '^PROBE_DONE$'`. Omit `--timeout` for indefinite.
-
-For dev processes (apps, servers, watchers):
-- Never create a new session or workspace unless explicitly asked. Work inside the current workspace.
-- Start each task in a new tab with a descriptive label, or split beside yourself for something short-lived.
-- Group related processes as panes within one tab rather than spreading across tabs.
-- Tell the user which tab and panes things are running in (label and IDs).
-
-# Starting and driving another agent
-
-Only when the user asks for delegation/parallel agents — not merely because a task could benefit from it.
-
-```bash
-herdr pane split --current --direction right --cwd "$PWD" --no-focus              # need a pane at a bare shell prompt
-herdr agent start <name> --kind pi|claude|codex|gemini|... --pane <pane-id> [--timeout 30000] [-- <agent-args>]
-herdr agent prompt <name> "<text>" --wait --timeout 120000    # submits; waits for first settled idle/done/blocked
-herdr agent wait <name> --until blocked --timeout 120000      # only for state-specific waits
-herdr agent read <name> --source recent-unwrapped --lines 120
-herdr agent send-keys <name> esc | ctrl+c | enter
-herdr agent get <name>  |  herdr agent explain <name>
-herdr agent rename <target> <name>|--clear  |  herdr agent focus <target>
-```
-
-- `agent start` needs an *existing* pane at an interactive prompt; it never creates layout. It returns once the agent is detected and ready (or `agent_not_ready` if blocked during startup — name still usable for read/send-keys).
-- `agent prompt` refuses with `agent_blocked` if a dialog is up; inspect via `agent read`, ask the user before answering it.
-- `--wait` returns `agent_prompt_stalled` if no `working`/`blocked` activity within ~5s, or `timeout`. Neither proves the prompt wasn't delivered — read the pane before resending.
-- Pane-level `send-text`/`run` on an agent pane is raw terminal control; use the agent surface unless raw control is intentional.
-
-# Other
-
-- `herdr notification show "<title>" [--body TEXT] [--sound done|request]` — surface a toast to the user (e.g. long job finished).
-- `herdr status` — client/server versions (check before relying on a new feature; a missing method is not a reason to restart/upgrade).
-- `herdr --machine <label> <cmd>` — run any of the above against a saved SSH machine; discover IDs there, don't reuse local ones. `herdr machine list` shows profiles only. Don't add/remove profiles unless asked.
-- `herdr session ...` — named persistent servers; leave alone unless asked.
-- `herdr api schema` — full socket API schema if a CLI flag is missing.
+- **Reading is safe anywhere.** `herdr workspace list`, `herdr tab list --workspace <ws>`, `herdr pane list`, `herdr agent list`, and `herdr pane read <pane> --source recent-unwrapped --lines 200` work on any pane; use them to orient when Nathan refers to work elsewhere ("the dev server", "the other agent").
+- **Only send input** (`pane run`/`send-text`/`send-keys`, `agent prompt`/`send-keys`) to panes you created or Nathan pointed you at. Never answer another agent's `blocked` dialog without asking him.
+- **Dev processes** (apps, servers, watchers): start each in a new tab with a descriptive label in the current workspace (or split beside yourself for something short-lived), group related processes as panes in one tab, always pass `--no-focus`, and tell Nathan the tab/pane labels and IDs. Never create a new session or workspace unless asked; close only things you created.
+- **`pane wait-output` also matches output that already exists**, including the echoed command line. Use an anchored sentinel that only appears on completion (`echo PROBE_DONE` + `--regex '^PROBE_DONE$'`).
+- **Delegating to another agent** only when Nathan asks (see "Use other sessions freely" below for his standing permission): `agent start` needs an existing pane at a shell prompt; `agent prompt --wait` returning `agent_prompt_stalled` or `timeout` doesn't prove the prompt wasn't delivered, so read the pane before resending.
+- `herdr notification show "<title>" [--body TEXT] [--sound done|request]` surfaces a toast to Nathan. Leave `herdr session …` and machine profiles alone unless asked; a missing method is not a reason to restart or upgrade.
 
 # Helper sessions and links
 

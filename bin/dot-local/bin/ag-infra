@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ag-infra: create, scale and destroy Ag's rented Linux machines (infra/hetzner, OpenTofu).
 #   ag-infra plan | up | down | scale N | status | ssh [name]
-# Secrets are read from the ag-shared work vault via op-work, only into this process.
+# Secrets are read from the ag-vault work vault via op-work, only into this process.
 set -euo pipefail
 here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 dir="$(cd "$here/../../../infra/hetzner" && pwd)"
 state="$HOME/.local/state/ag-infra"; mkdir -p "$state"
-VAULT=${AG_INFRA_VAULT:-ag-shared}
+VAULT=${AG_INFRA_VAULT:-c3qkbcqktsxmi6hnpzpltdbose} # ag-vault (by id, so renames never break it)
 
 secrets() {
   export HCLOUD_TOKEN TF_VAR_tailscale_auth_key TF_VAR_ssh_public_key

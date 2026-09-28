@@ -3,7 +3,7 @@
 
 Invoked as op-ag: arcade.school vault. Invoked as op-shared (a symlink to this
 file): Nathan's personal machine-shared vault. Invoked as op-work (symlink):
-the ag-shared vault in the Trilogy work account. Each name maps to its own
+the ag-vault vault (formerly ag-shared) in the Trilogy work account. Each name maps to its own
 Keychain item.
 """
 import os

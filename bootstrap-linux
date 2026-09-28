@@ -85,7 +85,7 @@ check() { [[ -e $1 ]] && echo "  ok   $2" || { echo "  TODO $2"; failed+=("secre
 check ~/.config/gh/hosts.yml       "gh auth login (GitHub)"
 check ~/.pi/agent/auth.json        "Pi model auth (TrueFoundry)"
 check ~/.pi/agent/mcp.json         "Pi MCP config"
-check ~/.config/ag/op-work.token   "ag-shared 1Password service-account token (op-work on Linux)"
+check ~/.config/ag/op-work.token   "ag-vault 1Password service-account token (op-work on Linux)"
 
 if ((${#failed[@]})); then
   printf '\n\033[33m%d item(s) need attention:\033[0m\n' "${#failed[@]}"; printf '  - %s\n' "${failed[@]}"

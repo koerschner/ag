@@ -94,7 +94,7 @@ Nothing important may live only on a machine's local disk.
 
 1. Upgrade Tailscale for tagged ephemeral nodes and API/Terraform access (split-out session
    "Upgrade Tailscale Plan").
-2. IaC (`infra/hetzner`, `ag-infra up`; scaffold done, waiting on a Hetzner account + `ag-shared` vault), `bootstrap-linux` (written, untested until the first box exists). Bring up one brain.
+2. IaC (`infra/hetzner`, `ag-infra up`; scaffold done, waiting on a Hetzner account + the Ramp card in `ag-vault`), `bootstrap-linux` (written, untested until the first box exists). Bring up one brain.
 3. Build the pi-sessions archive and the persistent-volume layout.
 4. Build the `mac` tool (brain → ag-mac, including computer use) and prove it works.
 5. Move arcade dev onto the brain as the real test.

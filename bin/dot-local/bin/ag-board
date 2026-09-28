@@ -26,8 +26,13 @@
 // 127.0.0.1 (for tailscale serve), and at https://ag.<tailnet>.ts.net:7377 (set up at startup), where voice works.
 // Waiting for: a session with a live tickler item (a wake-up on CI / a condition / an event, a presence item, a
 // scheduled time, or a GTD waiting-for on a person; ~/.local/state/tickler/*.json, matched by session file), or
-// marked by hand (POST /api/card {waiting}; clears when the agent works again). Waiting cards sit in their own
-// column, aren't "needs you", never ping or get the red siren; they get a blue orbit instead.
+// marked by hand (POST /api/card {waiting}). Waiting cards sit in their own column, aren't "needs you", never ping
+// or get the red siren; they get a blue orbit instead.
+// "Waiting always wakes up" (AGENTS.md → GTD model): nothing may sit in Waiting for without a tickler item that will
+// wake it. A hand-set wait prompts the session (once it's at its prompt) to schedule its own wake-up at an interval
+// it chooses; until the item exists the card is flagged "no wake-up" (noWake) and re-asked up to WAKE_MAX times,
+// WAKE_EVERY_MS apart. When the tickler item appears it takes over and the hand-set flag drops; the flag also clears
+// if the session is given new work (a prompt that isn't ours).
 // Control (Pi semantics): a prompt sent while the agent works is queued as steering (delivered after the
 // current step). Interrupt = Esc twice (this Pi setup asks for a second Esc); Pi puts any queued steering
 // back in its editor. Interrupt & send = interrupt, wait until ready, clear the editor (Ctrl+U), then send.
@@ -60,10 +65,14 @@ const STT_MODELS = ["whisper-1", "openai-esw/whisper-1"]; // second is the fallb
 const STT_HINT = "Herdr, ag, pi, Arcade, arcade.school, Jev, TrueFoundry, Linear, Honeycomb, Hammerspoon, dotfiles, Roblox, TSA, hotpath.";
 const FAST_LANE_GAP_MS = 60_000; // at most one fast-lane ping per card per minute
 const READY = new Set(["idle", "done", "blocked"]);
+const WAKE_EVERY_MS = 15 * 60_000;
+const WAKE_MAX = 3;
+const WAKE_PREFIX = "[ag board] Nathan moved this session to Waiting for.";
+const WAKE_PROMPT = `${WAKE_PREFIX} Per "Waiting always wakes up" (AGENTS.md → GTD model), schedule your own wake-up with the tickler now, at an interval you choose: a waitingFor item if you're waiting on a person, or when: "check" with a cheap shell check plus expires for a machine or programmatic signal (if it can't be checked programmatically, the woken session checks by computer use). Don't follow up with outside parties without Nathan's OK; draft it for him instead. Then reply in one or two lines: what you're waiting on and when you'll next check. The card stays flagged "no wake-up" on the board until the tickler item exists.`;
 const BIG_LINE = 256 * 1024; // tool results this big (screenshots) are summarised by regex, not parsed
 const KEYS = new Set(["esc", "enter", "up", "down", "left", "right", "tab", "backspace", "ctrl+u", "y", "n", "1", "2", "3"]);
 
-type CardState = { waiting?: boolean /* marked by hand */; hot?: boolean; red?: boolean /* pre-rename name of hot */; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
+type CardState = { waiting?: boolean /* marked by hand */; wakeAskedAt?: number; wakeAsks?: number; hot?: boolean; red?: boolean /* pre-rename name of hot */; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
 type List = { id: string; name: string };
 type State = { cards: Record<string, CardState>; lists: List[] };
 type Msg = { role: "user" | "assistant"; text: string; ts: number };
@@ -475,6 +484,7 @@ type Card = {
 	throb: boolean; // hotpath, not working, not waiting: the red siren runs
 	ping: boolean; // hotpath and needs you (not waiting): fast lane + page beep
 	waiting: Waiting[]; // non-empty: waiting for something (blue orbit, Waiting for column)
+	noWake?: { askedAt?: number; asks: number }; // waiting only by hand: no tickler item will wake it yet
 	focused: boolean;
 	model?: string;
 	thinkingLevel?: string;
@@ -537,7 +547,6 @@ async function poll() {
 		if (cs.status !== a.agent_status) {
 			cs.status = a.agent_status;
 			cs.statusSince = now;
-			if (a.agent_status === "working" && cs.waiting) delete cs.waiting; // a hand-set wait ends when it works again
 			dirty = true;
 		}
 		const ready = READY.has(a.agent_status);
@@ -547,7 +556,22 @@ async function poll() {
 			dirty = true;
 		}
 		const sid = sidOf(a.agent_session?.value);
-		const waiting: Waiting[] = a.agent_status === "working" ? [] : [...((sid && waits.get(sid)) || []), ...(cs.waiting ? [{ title: "Marked waiting", kind: "manual" as const, detail: "set on the board" }] : [])];
+		const tick = (sid && waits.get(sid)) || [];
+		if (cs.waiting) {
+			// The tickler item takes over from a hand-set wait; new work (a prompt that isn't our wake-up ask) ends it.
+			const lu = s?.lastUser;
+			const newWork = lu && lu.ts > (cs.wakeAskedAt ?? 0) + 2000 && !lu.text.startsWith(WAKE_PREFIX) && cs.wakeAskedAt;
+			if (tick.length || newWork) {
+				delete cs.waiting, delete cs.wakeAskedAt, delete cs.wakeAsks;
+				dirty = true;
+			} else if (ready && a.agent_status !== "blocked" && (cs.wakeAsks ?? 0) < WAKE_MAX && now - (cs.wakeAskedAt ?? 0) > WAKE_EVERY_MS) {
+				cs.wakeAskedAt = now;
+				cs.wakeAsks = (cs.wakeAsks ?? 0) + 1;
+				dirty = true;
+				void herdr("agent", "prompt", a.pane_id, WAKE_PROMPT).then((r) => console.log(new Date().toISOString(), "wake-up ask", a.tab_id, r.code === 0 ? "sent" : r.err.trim()));
+			}
+		}
+		const waiting: Waiting[] = a.agent_status === "working" ? [] : [...tick, ...(cs.waiting ? [{ title: "Marked waiting", kind: "manual" as const, detail: "asked the session to schedule its wake-up" }] : [])];
 		const isWaiting = waiting.length > 0 && a.agent_status !== "blocked";
 		const needsYou = a.agent_status === "blocked" || (!isWaiting && ready && (s?.lastAssistant?.ts ?? 0) > cs.seenAt);
 		const resolved = ready && /(^|\n)\s*DONE\s*$/.test(s?.lastAssistant?.text ?? "");
@@ -566,6 +590,7 @@ async function poll() {
 			throb: !!cs.hot && a.agent_status !== "working" && !isWaiting,
 			ping: !!cs.hot && needsYou,
 			waiting: isWaiting ? waiting : [],
+			noWake: cs.waiting && !tick.length ? { askedAt: cs.wakeAskedAt, asks: cs.wakeAsks ?? 0 } : undefined,
 			focused,
 			model: s?.model,
 			thinkingLevel: s?.thinkingLevel,
@@ -810,7 +835,10 @@ async function handle(req: Request): Promise<Response> {
 				const cs = state.cards[tab];
 				if (!cs) return bad("no such card", 404);
 				if (typeof body.hot === "boolean") cs.hot = body.hot;
-				if (typeof body.waiting === "boolean") body.waiting ? (cs.waiting = true) : delete cs.waiting;
+				if (typeof body.waiting === "boolean") {
+					if (body.waiting) cs.waiting = true; // the next poll asks the session to schedule its wake-up
+					else delete cs.waiting, delete cs.wakeAskedAt, delete cs.wakeAsks;
+				}
 				if ("list" in body) cs.list = body.list || undefined;
 				if (body.seen === true) cs.seenAt = Date.now();
 				if (body.seen === false) cs.seenAt = 0;

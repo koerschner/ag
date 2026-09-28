@@ -442,6 +442,7 @@ function ticklerWaits(): Map<string, Waiting[]> {
 		}
 		const sid = sidOf(i.session);
 		if (i.status !== "waiting" || !sid) continue;
+		if (i.needs_nathan || /^nathan\b/i.test(i.waiting_for ?? "")) continue; // waiting on Nathan = Needs you, not Waiting for
 		const due = i.due ? Date.parse(i.due) : undefined;
 		const w: Waiting = i.waiting_for
 			? { id: i.id, title: i.title, kind: "person", detail: `on ${i.waiting_for}${i.attempt > 1 ? ` (check-in ${i.attempt})` : ""}`, due }

@@ -63,6 +63,7 @@ type Item = {
 	note?: string; // from `tickler trigger --note`
 	waiting_for?: string; // GTD "waiting for": the person we're waiting on
 	attempt?: number; // waiting-for: which check-in this is (1 = first)
+	needs_nathan?: boolean; // the wake-up waits on Nathan himself (a login, a click, an answer): ag-board keeps it in Needs you
 	session?: string;
 	cwd: string;
 	workspace?: string;
@@ -127,6 +128,7 @@ function add(f: Record<string, string>) {
 		check: when === "check" || (!when && f.check) ? f.check : undefined,
 		waiting_for: f["waiting-for"],
 		attempt: f["waiting-for"] ? Math.max(1, Number(f.attempt) || 1) : undefined,
+		needs_nathan: f["needs-nathan"] === "true" || undefined,
 		expires: expires?.toISOString(),
 		session,
 		cwd: f.cwd ?? HOME,

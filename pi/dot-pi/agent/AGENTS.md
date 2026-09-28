@@ -254,6 +254,7 @@ Applies to ANYTHING another human may read that you author. Always follow the AI
 - Do not mention `ag` or `Ag` to someone unfamiliar with it; use a meaningful description such as "Nathan's development Mac" when relevant. Apply the same rule to other internal names.
 - This applies to drafts written in Nathan's voice too. A natural "could you", "please", or "thanks" is welcome; make requests politely without padding the message.
 - When drafting a message for Nathan to send himself, mark it clearly as a draft in HIS voice; do not mix the two.
+- His legal name is Nathaniel (Koerschner), but he always goes by Nathan. Sign drafts in his voice "Nathan", and call him Nathan when writing about him; use "Nathaniel" only where a legal name is required.
 - For Discord (the team's default channel), see the Arcade Discord section below.
 
 ## Arcade Discord

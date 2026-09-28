@@ -1,0 +1,8 @@
+#!/bin/zsh
+# pi-private: pi on OpenRouter (Nathan's personal account) with sessions kept out of Nessie.
+# Nessie syncs everything under ~/.pi; these sessions go to ~/private-chat/pi-sessions instead.
+# The nessie-openrouter-guard extension blocks OpenRouter models in sessions under ~/.pi.
+dir=$HOME/private-chat/pi-sessions
+mkdir -p $dir && chmod 700 $HOME/private-chat $dir
+export PI_CODING_AGENT_SESSION_DIR=$dir
+exec pi --provider openrouter --model anthropic/claude-fable-5 "$@"

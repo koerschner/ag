@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Adversarial mobile review of the ag board (http://ag:7376) on a simulated iPhone 15 Pro.
+// Adversarial mobile review of AG Dash (http://ag:7376) on a simulated iPhone 15 Pro.
 // Every write is stubbed (recorded, never sent), so it's safe against the live board.
 //   node agboard.mjs                 # live page
 //   PAGE=path/to/index.html node agboard.mjs   # test a local edit of the page before it goes live

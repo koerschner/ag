@@ -1,6 +1,6 @@
 ---
 name: mobile-review
-description: Adversarially review a web app on a simulated iPhone and make sure every button, gesture and screen actually works (tap every control, catch freezes, safe areas, on-screen keyboard, landscape, target sizes), then fix what breaks. Use for "mobile review", "test it on mobile/phone/iPhone", "the X/button doesn't work on my phone", and before shipping any change to a mobile layout. Includes a ready-made suite for the ag board (AgDash, http://ag:7376, the iPhone home-screen app).
+description: Adversarially review a web app on a simulated iPhone and make sure every button, gesture and screen actually works (tap every control, catch freezes, safe areas, on-screen keyboard, landscape, target sizes), then fix what breaks. Use for "mobile review", "test it on mobile/phone/iPhone", "the X/button doesn't work on my phone", and before shipping any change to a mobile layout. Includes a ready-made suite for AG Dash (http://ag:7376, the iPhone home-screen app).
 ---
 
 # Mobile review
@@ -23,7 +23,7 @@ phone bug is fixed.
 Setup once per machine: `scripts/setup.sh` (Playwright + browsers into `~/.local/share/mobile-review`, AXe into
 `~/.local/share/axe`). For tier 2 also an iOS runtime: `xcodebuild -downloadPlatform iOS` (~8 GB, minutes).
 
-## The ag board (AgDash)
+## AG Dash
 
 Page: `ag-board/dot-local/share/ag-board/index.html` in dotfiles (served by `bin/dot-local/bin/ag-board`,
 re-read on every request, so a saved edit is live at once). Nathan uses it as a home-screen app on his

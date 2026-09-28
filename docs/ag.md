@@ -1,6 +1,6 @@
 # Ag
 
-Status: **design, not built yet** (started 2026-09-28 in the "Cloud VM Setup" session). Today everything
+Status: **in progress** (started 2026-09-28 in the "Cloud VM Setup" session). IaC scaffold: `infra/` + `ag-infra`; first brain = Hetzner CCX53 in Hillsboro. Today everything
 still runs on the Mac called `ag`; this doc is the target and the source of truth for what goes where.
 
 ## What Ag is
@@ -28,10 +28,10 @@ Everything is joined by one Tailscale tailnet.
   to ag-mac as a shortcut, but that's optional.
 - **Scoped access.** The brain uses a dedicated SSH key or Tailscale SSH identity on ag-mac, allowed
   only from the tailnet and limited to the `mac` entry points.
-- **Ephemeral and IaC.** One command (`ag up`) builds a brain or worker from nothing: Terraform/OpenTofu
+- **Ephemeral and IaC.** One command (`ag-infra up`) builds a brain or worker from nothing: Terraform/OpenTofu
   creates the machine, cloud-init joins Tailscale with an ephemeral, pre-authorized tagged key, and it
   runs dotfiles `bootstrap` (Linux support needed) and pulls secrets through the 1Password service account.
-  `ag scale N` adds or removes workers, and `ag down` destroys them. Any machine can be thrown away
+  `ag-infra scale N` adds or removes workers, and `ag-infra down` destroys machines but keeps the brain's data volume. Any machine can be thrown away
   and rebuilt.
 
 ## Persistence (because machines are ephemeral)
@@ -94,7 +94,7 @@ Nothing important may live only on a machine's local disk.
 
 1. Upgrade Tailscale for tagged ephemeral nodes and API/Terraform access (split-out session
    "Upgrade Tailscale Plan").
-2. Build the IaC repo and `ag up`, and make dotfiles `bootstrap` work on Linux. Bring up one brain.
+2. IaC (`infra/hetzner`, `ag-infra up`; scaffold done, waiting on a Hetzner account + `ag-shared` vault), and make dotfiles `bootstrap` work on Linux. Bring up one brain.
 3. Build the pi-sessions archive and the persistent-volume layout.
 4. Build the `mac` tool (brain → ag-mac, including computer use) and prove it works.
 5. Move arcade dev onto the brain as the real test.

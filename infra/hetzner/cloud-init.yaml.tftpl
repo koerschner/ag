@@ -1,0 +1,33 @@
+#cloud-config
+# Ag machine first boot: user, base packages, persistent volume (brain), Tailscale, dotfiles.
+# The Linux side of dotfiles `bootstrap` (herdr, pi, bun, services) runs from here once it exists.
+hostname: ${hostname}
+users:
+  - name: ${user}
+    shell: /bin/bash
+    groups: [sudo, docker]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    ssh_authorized_keys:
+      - ${ssh_public_key}
+ssh_pwauth: false
+disable_root: true
+package_update: true
+packages: [git, curl, jq, unzip, zsh, stow, ripgrep, fd-find, build-essential, docker.io, ca-certificates]
+write_files:
+  - path: /etc/ag-role
+    content: "${role}\n"
+runcmd:
+%{ if volume_device != "" ~}
+  - mkdir -p /data
+  - echo '${volume_device} /data ext4 discard,nofail,defaults 0 0' >> /etc/fstab
+  - mount /data
+  - install -d -o ${user} -g ${user} /data/pi /data/inbox /data/state
+  - sudo -u ${user} mkdir -p /home/${user}/.local
+  - sudo -u ${user} ln -sfn /data/pi /home/${user}/.pi
+  - sudo -u ${user} ln -sfn /data/inbox /home/${user}/inbox
+  - sudo -u ${user} ln -sfn /data/state /home/${user}/.local/state
+%{ endif ~}
+  - curl -fsSL https://tailscale.com/install.sh | sh
+  - tailscale up --auth-key='${ts_auth_key}' --hostname=${hostname} --ssh --advertise-tags=${ts_tags}
+  - sudo -u ${user} git clone ${dotfiles_repo} /home/${user}/dotfiles
+  - "[ -x /home/${user}/dotfiles/bootstrap-linux ] && sudo -u ${user} -H /home/${user}/dotfiles/bootstrap-linux || true"

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# ag-infra: create, scale and destroy Ag's rented Linux machines (infra/hetzner, OpenTofu).
+#   ag-infra plan | up | down | scale N | status | ssh [name]
+# Secrets are read from the ag-shared work vault via op-work, only into this process.
+set -euo pipefail
+here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+dir="$(cd "$here/../../../infra/hetzner" && pwd)"
+state="$HOME/.local/state/ag-infra"; mkdir -p "$state"
+VAULT=${AG_INFRA_VAULT:-ag-shared}
+
+secrets() {
+  export HCLOUD_TOKEN TF_VAR_tailscale_auth_key TF_VAR_ssh_public_key
+  HCLOUD_TOKEN=$(op-work read "op://$VAULT/Hetzner Cloud/credential")
+  TF_VAR_tailscale_auth_key=$(op-work read "op://$VAULT/Tailscale ag auth key/credential")
+  TF_VAR_ssh_public_key=$(cat "$HOME/.ssh/id_ed25519.pub")
+}
+tf() { tofu -chdir="$dir" "$@"; }
+init() { tf init -input=false -upgrade=false -backend-config="path=$state/terraform.tfstate" >/dev/null; }
+workers() { tf output -json workers 2>/dev/null | jq length 2>/dev/null || echo 0; }
+
+cmd=${1:-status}; shift || true
+case $cmd in
+  plan)   secrets; init; tf plan -var "worker_count=$(workers)" "$@" ;;
+  up)     secrets; init; tf apply -auto-approve -var "worker_count=${AG_WORKERS:-$(workers)}" "$@" ;;
+  scale)  secrets; init; tf apply -auto-approve -var "worker_count=${1:?usage: ag-infra scale N}" ;;
+  down)   secrets; init; tf apply -auto-approve -var brain_enabled=false -var worker_count=0 ;;
+  status) init; tf output ;;
+  ssh)    exec ssh "${1:-ag-brain}" ;;
+  *) sed -n '2,4p' "$0"; exit 2 ;;
+esac

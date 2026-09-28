@@ -15,10 +15,15 @@ name.
 #### The rule
 
 Everything an assistant writes that another person may read opens with an
-attribution line, on its own first line, before any other content:
+attribution line, on its own first line, before any other content. The
+attribution line is plain, unquoted text; everything after it goes inside a
+quote block in the destination's native quote format:
 
 ```text
 <Assistant> (<model>), assisting <user's name>:
+> The message body, quoted.
+>
+> Every following line stays inside the quote.
 ```
 
 Examples: `Claude (anthropic-primary/claude-opus-5-5), assisting Nathan:` or
@@ -30,6 +35,13 @@ Examples: `Claude (anthropic-primary/claude-opus-5-5), assisting Nathan:` or
   `$PI_MODEL`). Never guess or invent one.
 - **Third-party voice.** The assistant speaks as itself and never writes as the
   user or implies the user wrote it.
+- **Body in a quote.** Quote the whole body, not just the first paragraph, so
+  readers can see where the assistant's text starts and ends. Use the tool's own
+  quote syntax: `> ` on every line in Markdown (GitHub, Linear, Slack, Discord),
+  including headings, lists, and blank lines between paragraphs (`>`); the quote
+  or blockquote style in rich-text editors and email. Code blocks go inside the
+  quote too (prefix their lines with `> `). Where the medium has no quote format
+  (commit messages, SMS, plain-text fields, filenames), send the body unquoted.
 
 #### Precedence
 
@@ -64,7 +76,8 @@ Issue, PR, and message templates (including the ones in repository skills) defin
 the content that follows the attribution line. They never replace it, even when
 a skill says to use its template exactly. When a
 template starts with a heading such as `#### Context`, the attribution line goes
-above that heading.
+above that heading, and the template content (heading included) goes inside the
+quote block.
 
 #### Exceptions
 
@@ -79,7 +92,8 @@ above that heading.
 
 After publishing, read back what was posted (for example
 `gh issue view <n> --json body --jq .body | head -1`) and confirm the first line
-is the attribution line. If it is missing, edit the posted text to add it.
+is the attribution line, unquoted, and that the body renders as a quote. If
+either is wrong, edit the posted text to fix it.
 
 ## Working directory
 

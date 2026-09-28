@@ -30,3 +30,13 @@ With `cua_repl`, `typeText`, ordinary `pressKey`, and direct `paste` can fail to
 4. Reuse only the temporary document for subsequent values and discard it afterward. Do not stage passwords, tokens, or private keys in TextEdit or another autosaving scratch document.
 
 If Mirroring reports **iPhone in Use**, ask Nathan to leave the physical phone locked; reconnect after it is available. Do not mistake that disconnection for a text-entry failure. Keep requested onboarding pauses so Nathan can read each screen.
+
+## Shortcuts: build on ag, they sync to the phone
+
+ag's Shortcuts app is signed into Nathan's Apple ID with **iCloud Sync** on (Shortcuts ›
+Settings › General, verified 2026-09-27; ag already lists Voice to ag, Capture to ag, Share to ag
+and Flush ag Queue). So a shortcut built on ag (with `chatgpt-cua` in the Shortcuts app) appears on
+the iPhone by itself; no second iPhone is needed. (`shortcuts list` on the CLI can show a stale
+list; trust the app.) What does **not** sync and still needs the phone (via Mirroring): Back Tap
+and Action Button assignments, personal automations (e.g. "Wi-Fi joins"), and iOS-only actions
+that the Mac editor can't add (e.g. Take Screenshot, Record Audio settings) or test.

@@ -18,7 +18,7 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "nod
 
 const PORT = 7375;
 const DIR = `${process.env.HOME}/private-chat`;
-const MODELS = ["anthropic/claude-opus-5.5", "openai/gpt-6-sol", "anthropic/claude-fable-5.1", "google/gemini-3.8-flash"];
+const MODELS = ["anthropic/claude-opus-5.5", "openai/gpt-6-sol", "google/gemini-3.8-flash"];
 mkdirSync(DIR, { recursive: true, mode: 0o700 });
 
 type Msg = { role: "user" | "assistant"; content: string };

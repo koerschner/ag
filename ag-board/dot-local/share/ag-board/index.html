@@ -27,7 +27,7 @@ header h1{font-size:15px;margin:0 .4rem 0 0;font-weight:650}
 .seg{display:flex;background:var(--card);border-radius:8px;padding:2px}
 .seg button{border:0;background:none;padding:.28rem .7rem;border-radius:6px;color:var(--dim);cursor:pointer}
 .seg button.on{background:var(--card2);color:var(--fg)}
-.btn{border:1px solid var(--line);background:var(--card);padding:.28rem .7rem;border-radius:8px;cursor:pointer;white-space:nowrap}
+.btn{border:1px solid var(--line);background:var(--card);padding:.28rem .7rem;border-radius:8px;cursor:pointer;white-space:nowrap;color:inherit}
 .btn:hover{background:var(--card2)}
 .btn:disabled{opacity:.4;cursor:default}
 .btn.on{border-color:var(--fire);color:var(--fire)}
@@ -213,12 +213,13 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
 .hint{color:var(--dim);font-size:12px;padding:0 .9rem .6rem}
 /* iOS zooms the page into any focused field under 16px */
 @media (pointer:coarse){input,select,textarea,.cm-editor .cm-content{font-size:16px!important}}
-/* ---------- phone (≤700px): an app, not a squeezed desktop ----------
+/* ---------- phone (≤700px, or a short touch screen): an app, not a squeezed desktop ----------
    One column per screen, swiped sideways (scroll-snap) with a tab strip; the page itself never scrolls.
    Compact header; desktop-only controls and keyboard hints hidden; the drawer is full-screen and
    follows the on-screen keyboard (visualViewport, see the phone block at the end of the script). */
 #coltabs{display:none}
-@media (max-width:700px){
+/* also a phone turned sideways: wide but short, where the desktop drawer header would leave one line of transcript */
+@media (max-width:700px),(pointer:coarse) and (max-height:500px){
   html,body{height:100%;overflow:hidden;overscroll-behavior:none}
   body{display:flex;flex-direction:column;height:100dvh}
   body::before{content:"";position:fixed;top:0;left:0;right:0;height:env(safe-area-inset-top);background:var(--bg);z-index:6}
@@ -230,7 +231,16 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   #views{order:3}#hotonly{order:4}
   #q{order:5;flex:1;min-width:0;width:auto;max-width:none}
   #expandall,#editlists,#helpbtn,.hint{display:none}
-  .btn,.seg button{min-height:34px}
+  .btn,.seg button{min-height:40px}
+  a.btn{display:inline-flex;align-items:center}
+  /* finger-sized targets (Apple: 44pt): close, key buttons, card chevrons, column and drawer tabs */
+  #dclose{min-width:44px;min-height:44px;font-size:18px;padding:0}
+  #keys{align-items:center}#keys .btn.sm{min-width:44px;min-height:40px;font-size:14px}
+  #coltabs button{min-height:40px}
+  #q{min-height:40px}
+  #newbtn{min-width:44px}
+  #dtabs button{min-height:40px}
+  .card .qa .ib{min-width:40px;min-height:40px}
   #coltabs{display:flex;flex:none;gap:.3rem;overflow-x:auto;scrollbar-width:none;padding:.1rem calc(.7rem + env(safe-area-inset-right)) .45rem calc(.7rem + env(safe-area-inset-left));border-bottom:1px solid var(--line)}
   #coltabs::-webkit-scrollbar{display:none}
   #coltabs button{flex:none;border:1px solid var(--line);background:var(--card);color:var(--dim);border-radius:99px;padding:.3rem .75rem;font-size:13px;white-space:nowrap}
@@ -249,7 +259,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   .card .qa{opacity:1}.ib{padding:.35rem .5rem;font-size:15px}
   .empty{padding:1.5rem;text-align:center}
   /* drawer: full screen, compact top, one scrollable row of actions */
-  #drawer{width:100%;border-left:0;bottom:auto;height:100dvh}
+  #drawer{width:100%;border-left:0;bottom:auto;height:100dvh;padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)}
   #dh{padding:.55rem .8rem .35rem}
   #dh h3{font-size:17px}
   #dh .acts{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin-top:.45rem;padding-bottom:.1rem}
@@ -1008,14 +1018,16 @@ if (location.hash.length > 1) { const t = decodeURIComponent(location.hash.slice
 
 // ---------- phone: column tabs + swipe, drawer above the keyboard ----------
 {
-  const phone = matchMedia("(max-width:700px)");
+  const phone = matchMedia("(max-width:700px),(pointer:coarse) and (max-height:500px)"); // keep in sync with the phone @media block
   const board = $("#board"), tabs = $("#coltabs"), drawer = $("#drawer");
   const cols = () => [...board.querySelectorAll(":scope > .col")];
   const cur = () => Math.round(board.scrollLeft / Math.max(1, board.clientWidth));
-  let want = localStorage.phoneCol || "", sig = "";
+  let want = localStorage.phoneCol || "", sig = "", marked = -1;
+  // Only reveal the active tab when the active column changes: build() runs on every board mutation
+  // (including the 1 s "since" ticks), and scrolling the strip each time snapped it back while you swiped it.
   function mark() {
     const i = cur(); [...tabs.children].forEach((b, j) => b.classList.toggle("on", i === j));
-    tabs.children[i]?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (i !== marked) { marked = i; tabs.children[i]?.scrollIntoView({ block: "nearest", inline: "nearest" }); }
   }
   function build() {
     if (!phone.matches) return;
@@ -1025,8 +1037,11 @@ if (location.hash.length > 1) { const t = decodeURIComponent(location.hash.slice
     if (s !== sig) {
       const keysChanged = JSON.stringify(items.map((x) => x[0])) !== JSON.stringify(JSON.parse(sig || "[]").map((x) => x[0]));
       sig = s;
-      tabs.innerHTML = items.map(([k, n, c]) => `<button data-k="${esc(k)}">${esc(n)}<b>${esc(c)}</b></button>`).join("");
-      if (keysChanged) { const i = Math.max(0, cs.findIndex((c) => c.dataset.key === want)); board.scrollLeft = i * board.clientWidth; }
+      const label = (n, c) => `${esc(n)}<b>${esc(c)}</b>`;
+      if (keysChanged) {
+        tabs.innerHTML = items.map(([k, n, c]) => `<button data-k="${esc(k)}">${label(n, c)}</button>`).join("");
+        const i = Math.max(0, cs.findIndex((c) => c.dataset.key === want)); board.scrollLeft = i * board.clientWidth; marked = -1;
+      } else items.forEach(([, n, c], j) => { const b = tabs.children[j], h = label(n, c); if (b.innerHTML !== h) b.innerHTML = h; }); // keep the buttons: a count changing mid-tap mustn't eat the tap
     }
     mark();
   }
@@ -1041,11 +1056,15 @@ if (location.hash.length > 1) { const t = decodeURIComponent(location.hash.slice
   addEventListener("resize", () => { sig = ""; build(); });
   phone.addEventListener("change", () => { sig = ""; build(); });
   // iOS keeps position:fixed boxes under the keyboard: size the drawer to the visible viewport instead.
+  // fit() runs from a MutationObserver on the drawer's class, so it must only write class when the value
+  // actually changes: classList.remove() of an absent token still rewrites the attribute, which re-fires the
+  // observer forever and freezes the page (that was the "✕ does nothing" bug).
   const vv = window.visualViewport;
+  const setKb = (on) => { if (drawer.classList.contains("kb") !== on) drawer.classList.toggle("kb", on); };
   const fit = () => {
-    if (!vv || !phone.matches || !drawer.classList.contains("open")) { drawer.style.height = drawer.style.top = ""; drawer.classList.remove("kb"); return; }
+    if (!vv || !phone.matches || !drawer.classList.contains("open")) { drawer.style.height = drawer.style.top = ""; setKb(false); return; }
     drawer.style.height = vv.height + "px"; drawer.style.top = vv.offsetTop + "px";
-    drawer.classList.toggle("kb", vv.height < innerHeight - 80);
+    setKb(vv.height < innerHeight - 80);
   };
   vv?.addEventListener("resize", fit); vv?.addEventListener("scroll", fit);
   new MutationObserver(fit).observe(drawer, { attributes: true, attributeFilter: ["class"] });

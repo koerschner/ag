@@ -50,9 +50,9 @@ There are two roles. Work out which one you are:
    - external (outside Ag's control; say so, then reduce the damage)
 3. **Fix it at the most central layer**, preferring in this order:
    access and credentials on ag and the brain machines (vaults, logins, tokens)
-   → a dotfiles tool or config fix → an AGENTS.md rule or profile fact
+   → an ag (or dotfiles) tool or config fix → an AGENTS.md rule or profile fact
    (`agents.md/sections/`) → a skill. Change the thing that caused it, not the
-   one task. Keep fixes small; don't build a framework. Follow the dotfiles
+   one task. Keep fixes small; don't build a framework. Follow the machine-setup
    rules (`dotfiles-change` skill): commit, push, and sync every machine.
 4. **If the fix needs Nathan** (a login, a grant, a secret, a decision on a broad
    permission), ask him clearly and kindly, once, explaining why, and wait with a
@@ -60,7 +60,7 @@ There are two roles. Work out which one you are:
    granting anything broader than the friction needs.
 5. **Verify** it's fixed: reproduce what failed and show it now works without
    Nathan.
-6. **Log it** in `~/dotfiles-seen-setup/friction.md` (committed with the fix).
+6. **Log it** in `~/ag/friction.md` (committed with the fix).
    If the same friction is already there, add the date to that entry and
    rethink the fix, since it didn't hold. Entry format:
 

@@ -31,6 +31,7 @@ start)
 	if ! screencapture -x -D $(( screen + 1 )) $state/probe.png 2>/dev/null; then
 		echo "screen-record: no Screen Recording permission for this process (parent: $(ps -o comm= -p $PPID))." >&2
 		echo "  Grant it in System Settings → Privacy & Security → Screen & System Audio Recording (on ag-mac: add ~/.local/bin/herdr)." >&2
+		echo "  A new grant only applies after that app restarts. Meanwhile, launching via Ghostty works: open -na Ghostty.app --args -e /bin/zsh -lc \"screen-record start …\"" >&2
 		exit 3
 	fi
 	# Pixels per point on this screen, from the probe capture vs the screen's size in points.
@@ -49,7 +50,7 @@ start)
 	[[ -n $out ]] || out=/tmp/screen-record/$(date +%Y-%m-%dT%H-%M-%S)${win:+-${win// /-}}.mp4
 	mkdir -p ${out:h}
 	# The avfoundation device name is stable; its index shifts with cameras.
-	nohup ffmpeg -nostdin -y -loglevel error -f avfoundation -capture_cursor 1 -framerate $fps \
+	nohup ffmpeg -nostdin -y -loglevel error -f avfoundation -pixel_format nv12 -capture_cursor 1 -framerate $fps \
 		-i "Capture screen $screen:none" -t $max -vf $vf -r $fps \
 		-c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -movflags +faststart $out \
 		> $state/ffmpeg.log 2>&1 &

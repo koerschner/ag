@@ -480,7 +480,7 @@ mp4s with faststart, so they play in QuickTime and inline on iPhone Safari.
   records ag's main screen, or crops to one app's front window, while `chatgpt-cua` drives it.
   ffmpeg avfoundation, 15 fps, capped at 30 min. Needs macOS **Screen Recording** permission for the
   process chain running it: on ag that's `~/.local/bin/herdr` (System Settings → Privacy & Security →
-  Screen & System Audio Recording → +). GUI-only, so re-grant it on a new host; `start` fails fast
+  Screen & System Audio Recording → +). GUI-only, so re-grant it on a new host (granted on ag 2026-09-29; takes effect once the herdr server restarts; until then launch `start` through Ghostty, which has the permission: `open -na Ghostty.app --args -e /bin/zsh -lc 'screen-record start …'`, and `stop` from anywhere); `start` fails fast
   with that hint when it's missing. Admin prompts on ag are answered with `ag-login-password type`.
 - **Showing it**: `show clip.mp4` opens it on the client and publishes a phone player page
   (`phone:` link). In review pages, keep the page self-contained for images (base64) but put videos

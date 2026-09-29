@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""pi-sessions-sync: archive every Pi session transcript to Nathan's private GitHub, redacted then encrypted.
+
+Design (docs/ag.md, "pi-sessions archive"):
+  - Repos nathankoerschner/pi-sessions-NNN ("volumes"). The newest unarchived one is current; when it
+    passes ROLL_GB, a new volume is created and the old one archived. The newest volume holding a file
+    has its latest version.
+  - Layout: machines/<machine>/<project dir>/<session>.jsonl
+  - Redact first (token/key patterns -> [REDACTED:<kind>]), then git-crypt encrypts everything under
+    machines/, so GitHub only holds ciphertext. Originals stay untouched.
+  - Only "quiet" files are copied (untouched for QUIET_MIN minutes), so a live session isn't recommitted
+    every run; it's picked up once it settles, and again if it changes later.
+  - Pushes in batches under ~BATCH_MB (GitHub rejects pushes over 2 GB).
+  - The git-crypt key (base64) lives in 1Password: ag-vault "pi-sessions git-crypt key" (via op-work).
+
+Sources: this machine's ~/.pi/agent/sessions, plus any `--remote <ssh-alias>` machines pulled over SSH
+(e.g. ag-mac archives the client Mac, which holds no vault credentials).
+
+  pi-sessions-sync [--remote nathan-dev-client ...] [--dry-run] [--quiet-min N]
+"""
+import argparse, base64, hashlib, json, os, re, shutil, socket, subprocess, sys, tempfile, time
+from pathlib import Path
+
+OWNER = "nathankoerschner"
+PREFIX = "pi-sessions-"
+VAULT = "c3qkbcqktsxmi6hnpzpltdbose"  # ag-vault
+KEY_ITEM = "pi-sessions git-crypt key"
+ROLL_GB = 4.0
+BATCH_MB = 400
+HOME = Path.home()
+STATE = Path(os.environ.get("PI_SESSIONS_STATE", HOME / ".local/state/pi-sessions"))
+LOCK = STATE / "lock"
+
+PATTERNS = [
+    ("private-key", r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"),
+    ("github", r"\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{50,})\b"),
+    ("openai", r"\bsk-(?:proj-|ant-|or-v1-)?[A-Za-z0-9_\-]{20,}\b"),
+    ("slack", r"\bxox[abposr]-[A-Za-z0-9\-]{10,}\b"),
+    ("aws", r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),
+    ("1password", r"\bops_[A-Za-z0-9_\-]{40,}\b"),
+    ("tailscale", r"\btskey-[a-z]+-[A-Za-z0-9\-]{10,}\b"),
+    ("google", r"\bAIza[0-9A-Za-z_\-]{35}\b|\bya29\.[0-9A-Za-z_\-]{20,}"),
+    ("stripe", r"\b[rs]k_(?:live|test)_[A-Za-z0-9]{20,}\b"),
+    ("jwt", r"\beyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"),
+    ("bearer", r"(?i)(?<=bearer )[A-Za-z0-9_\-\.=]{24,}"),
+    # key = "value" style assignments (also JSON-escaped); group 1 is kept, group 2 redacted.
+    ("assignment", r"(?i)((?:api[_-]?key|secret|token|password|passwd|auth[_-]?token)\\?[\"']?\s?[:=]\s?\\?[\"'])([^\"'\s\\]{12,})"),
+    # Payment cards: issuer prefixes + Luhn, so timestamps and IDs aren't touched.
+    ("card", r"\b(?:4\d{3}|5[1-5]\d{2}|2[2-7]\d{2}|3[47]\d{2}|6(?:011|5\d{2}))[ -]?\d{4}[ -]?\d{4}[ -]?\d{1,4}\b"),
+]
+RX = [(k, re.compile(p)) for k, p in PATTERNS]
+
+
+def luhn(digits):
+    s, alt = 0, False
+    for d in reversed(digits):
+        n = int(d)
+        if alt:
+            n = n * 2 - 9 if n * 2 > 9 else n * 2
+        s += n; alt = not alt
+    return s % 10 == 0
+
+
+def redact(text):
+    counts = {}
+    for kind, rx in RX:
+        def sub(m):
+            v = m.group(0)
+            if kind == "card":
+                d = re.sub(r"\D", "", v)
+                if not (13 <= len(d) <= 19 and luhn(d)):
+                    return v
+            counts[kind] = counts.get(kind, 0) + 1
+            if kind == "assignment":
+                return m.group(1) + "[REDACTED:secret]"
+            return f"[REDACTED:{kind}]"
+        text = rx.sub(sub, text)
+    return text, counts
+
+
+def sh(*cmd, cwd=None, check=True, capture=False, input=None):
+    r = subprocess.run(cmd, cwd=cwd, text=True, input=input,
+                       capture_output=capture, check=False)
+    if check and r.returncode:
+        raise SystemExit(f"pi-sessions-sync: {' '.join(cmd[:3])}… failed: {(r.stderr or '')[-400:]}")
+    return r.stdout.strip() if capture else r.returncode
+
+
+def op_work(*args):
+    return subprocess.run(["op-work", *args], text=True, capture_output=True)
+
+
+def git_crypt_key():
+    """The symmetric key file (bytes); created and stored in ag-vault on first use."""
+    r = op_work("item", "get", KEY_ITEM, "--vault", VAULT, "--fields", "password", "--reveal")
+    if r.returncode == 0 and r.stdout.strip():
+        return base64.b64decode(r.stdout.strip())
+    if "isn't an item" not in r.stderr and "not found" not in r.stderr.lower():
+        raise SystemExit(f"pi-sessions-sync: can't read the key from ag-vault: {r.stderr.strip()[-300:]}")
+    with tempfile.TemporaryDirectory() as d:
+        sh("git", "init", "-q", d); sh("git-crypt", "init", cwd=d, capture=True)
+        kf = Path(d) / "key"; sh("git-crypt", "export-key", str(kf), cwd=d)
+        key = kf.read_bytes()
+    tmpl = {"title": KEY_ITEM, "category": "PASSWORD", "fields": [
+        {"id": "password", "type": "CONCEALED", "purpose": "PASSWORD", "value": base64.b64encode(key).decode()},
+        {"id": "notesPlain", "type": "STRING", "purpose": "NOTES",
+         "value": "git-crypt symmetric key (base64) for nathankoerschner/pi-sessions-NNN. Decode: base64 -d > key; git-crypt unlock key"}]}
+    r = subprocess.run(["op-work", "item", "create", "--vault", VAULT, "--format", "json", "-"],
+                       text=True, input=json.dumps(tmpl), capture_output=True)
+    if r.returncode:
+        raise SystemExit(f"pi-sessions-sync: storing the new key failed: {r.stderr.strip()[-300:]}")
+    return key
+
+
+def volumes():
+    out = sh("gh", "repo", "list", OWNER, "--limit", "1000", "--json", "name,isArchived,diskUsage", capture=True)
+    vols = sorted((v for v in json.loads(out) if re.fullmatch(PREFIX + r"\d{3}", v["name"])), key=lambda v: v["name"])
+    return vols
+
+
+def ensure_volume(key, dry):
+    vols = [v for v in volumes() if not v["isArchived"]]
+    if vols and vols[-1]["diskUsage"] / 1024 / 1024 < ROLL_GB:
+        name = vols[-1]["name"]
+    else:
+        n = int(vols[-1]["name"][-3:]) + 1 if vols else 1
+        name = f"{PREFIX}{n:03d}"
+        if dry:
+            print(f"(dry run) would create {name}"); return name, None
+        sh("gh", "repo", "create", f"{OWNER}/{name}", "--private", "--description",
+           "Pi session transcripts (redacted, git-crypt encrypted). See dotfiles docs/ag.md.")
+        if vols:  # roll over: archive the full volume
+            sh("gh", "repo", "archive", f"{OWNER}/{vols[-1]['name']}", "--yes")
+    repo = STATE / name
+    if not (repo / ".git").exists():
+        STATE.mkdir(parents=True, exist_ok=True)
+        if sh("git", "clone", "-q", f"git@github.com:{OWNER}/{name}.git", str(repo), check=False):
+            sh("git", "clone", "-q", f"https://github.com/{OWNER}/{name}.git", str(repo))
+    configured = lambda: sh("git", "config", "filter.git-crypt.clean", cwd=repo, check=False, capture=True) != ""
+    with tempfile.NamedTemporaryFile(delete=False) as f:
+        f.write(key); kf = f.name
+    try:
+        if not configured():
+            sh("git-crypt", "unlock", kf, cwd=repo, check=False, capture=True)
+        if not configured():  # empty repo: git-crypt won't unlock it, so install the key by hand
+            gc = repo / ".git/git-crypt/keys"; gc.mkdir(parents=True, exist_ok=True)
+            shutil.copy(kf, gc / "default"); os.chmod(gc / "default", 0o600)
+            for k, v in [("filter.git-crypt.smudge", '"git-crypt" smudge'), ("filter.git-crypt.clean", '"git-crypt" clean'),
+                         ("filter.git-crypt.required", "true"), ("diff.git-crypt.textconv", '"git-crypt" diff')]:
+                sh("git", "config", k, v, cwd=repo)
+    finally:
+        os.unlink(kf)
+    if not (repo / ".gitattributes").exists():
+        (repo / ".gitattributes").write_text("machines/** filter=git-crypt diff=git-crypt\n")
+        (repo / "README.md").write_text("# Pi session transcripts\n\nRedacted, then encrypted with git-crypt "
+                                        "(key: 1Password ag-vault \"pi-sessions git-crypt key\"). Written by "
+                                        "`pi-sessions-sync` in Nathan's dotfiles.\n")
+        sh("git", "add", ".gitattributes", "README.md", cwd=repo)
+        sh("git", "commit", "-qm", "init", cwd=repo)
+        sh("git", "push", "-q", "-u", "origin", "HEAD:main", cwd=repo)
+    return name, repo
+
+
+def machine_name():
+    n = socket.gethostname().split(".")[0].lower()
+    return {"ag": "ag-mac"}.get(n, n)
+
+
+def collect(sources, quiet_s):
+    """Yield (machine, relpath, abs path) for quiet session files."""
+    now = time.time()
+    for machine, root in sources:
+        if not root.exists():
+            continue
+        for p in root.rglob("*.jsonl"):
+            try:
+                if now - p.stat().st_mtime >= quiet_s:
+                    yield machine, p.relative_to(root), p
+            except FileNotFoundError:
+                pass
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--remote", action="append", default=[], help="ssh alias of another machine to archive")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--quiet-min", type=int, default=60)
+    a = ap.parse_args()
+
+    STATE.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(LOCK, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode()); os.close(fd)
+    except FileExistsError:
+        pid = LOCK.read_text().strip()
+        if pid.isdigit() and subprocess.run(["kill", "-0", pid], capture_output=True).returncode == 0:
+            print("pi-sessions-sync: already running"); return
+        LOCK.unlink(); return main()
+    try:
+        run(a)
+    finally:
+        LOCK.unlink(missing_ok=True)
+
+
+def run(a):
+    sources = [(machine_name(), HOME / ".pi/agent/sessions")]
+    mirror = STATE / "remotes"
+    for alias in a.remote:
+        dst = mirror / alias
+        dst.mkdir(parents=True, exist_ok=True)
+        if sh("rsync", "-a", "--timeout=60", f"{alias}:.pi/agent/sessions/", f"{dst}/", check=False):
+            print(f"pi-sessions-sync: {alias} unreachable, skipped"); continue
+        sources.append((alias, dst))
+
+    key = git_crypt_key()
+    name, repo = ensure_volume(key, a.dry_run)
+    index_f = STATE / "index.json"
+    index = json.loads(index_f.read_text()) if index_f.exists() else {}  # "<machine>/<rel>" -> [size, mtime]
+
+    todo = []
+    for machine, rel, p in collect(sources, a.quiet_min * 60):
+        st = p.stat(); k = f"{machine}/{rel}"
+        if index.get(k) != [st.st_size, int(st.st_mtime)] or (repo and not (repo / "machines" / k).exists() and k not in index):
+            todo.append((k, p, st))
+    print(f"pi-sessions-sync: {len(todo)} new/changed quiet session(s) -> {name}")
+    if a.dry_run or not todo:
+        return
+
+    totals, batch, batch_bytes, done = {}, 0, 0, 0
+    def commit_push(msg):
+        sh("git", "add", "-A", "machines", cwd=repo)
+        if sh("git", "diff", "--cached", "--quiet", cwd=repo, check=False):
+            sh("git", "commit", "-qm", msg, cwd=repo)
+            # Other machines push to the same volume (each under its own machines/<name>), so rebase first.
+            for attempt in range(3):
+                sh("git", "pull", "-q", "--rebase", "origin", "main", cwd=repo, check=False)
+                if sh("git", "push", "-q", "origin", "HEAD:main", cwd=repo, check=False) == 0:
+                    break
+            else:
+                raise SystemExit("pi-sessions-sync: push failed 3 times")
+        index_f.write_text(json.dumps(index))
+    for k, p, st in todo:
+        dst = repo / "machines" / k
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        text, counts = redact(p.read_text(errors="replace"))
+        dst.write_text(text)
+        for c, n in counts.items():
+            totals[c] = totals.get(c, 0) + n
+        index[k] = [st.st_size, int(st.st_mtime)]
+        batch += 1; batch_bytes += st.st_size; done += 1
+        if batch_bytes > BATCH_MB * 1024 * 1024:
+            commit_push(f"{time.strftime('%Y-%m-%d')} {machine_name()}: batch of {batch} ({done}/{len(todo)})")
+            batch = batch_bytes = 0
+    commit_push(f"{time.strftime('%Y-%m-%d')} {machine_name()}: {batch} session(s)")
+    red = ", ".join(f"{k} {v}" for k, v in sorted(totals.items())) or "none"
+    print(f"pi-sessions-sync: archived {done} file(s); redactions: {red}")
+
+
+if __name__ == "__main__":
+    main()

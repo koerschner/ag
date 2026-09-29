@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.nathan.pi-sessions-sync</string>
+  <!-- Hourly: archive Pi sessions (this Mac + the client, pulled over SSH) to nathankoerschner/pi-sessions-NNN,
+       redacted and git-crypt encrypted. Only on the host (the client has no vault credentials). docs/ag.md. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-c</string>
+    <string>[ "$(machine-role 2>/dev/null)" = host ] || exit 0; exec pi-sessions-sync --remote nathan-dev-client</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>3600</integer>
+  <key>StandardOutPath</key>
+  <string>/tmp/pi-sessions-sync.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/pi-sessions-sync.log</string>
+</dict>
+</plist>

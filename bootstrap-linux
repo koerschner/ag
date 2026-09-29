@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bring an Ag Linux machine (Ubuntu 24.04; brain or worker) to parity. Idempotent: safe to re-run.
+# Bring an Ag Linux machine (Ubuntu 24.04; engine or worker) to parity. Idempotent: safe to re-run.
 # Run as the normal user (sudo without password). Cloud-init runs it on first boot (infra/hetzner).
 #
 #   ~/ag/bootstrap-linux     (cloud-init clones ~/ag first; the ag repo is private, so a bare curl won't work)
@@ -125,10 +125,10 @@ fi
 ZSHENV
 echo "  ok"
 
-step "brain → ag-mac SSH key + MCP tunnel"
+step "engine → ag-mac SSH key + MCP tunnel"
 mkdir -p ~/.ssh/sockets
 if [[ ! -f ~/.ssh/ag-mac && -f ~/.config/ag/op-work.token ]]; then
-  ( umask 077; op-work item get "ag-brain → ag-mac SSH key" --vault c3qkbcqktsxmi6hnpzpltdbose --fields "private key" --reveal --format json |
+  ( umask 077; op-work item get vqpozjumzkuz7sgdcdgvdpaujq --vault c3qkbcqktsxmi6hnpzpltdbose --fields "private key" --reveal --format json |
       jq -r '.ssh_formats.openssh.value // .value' > ~/.ssh/ag-mac ) || warn "ag-mac SSH key"
 fi
 sudo loginctl enable-linger "$USER" >/dev/null 2>&1 || true
@@ -142,7 +142,7 @@ check ~/.zshenv.local              "model keys (TFY_TOKEN, OPENROUTER_API_KEY) i
 check ~/.pi/agent/auth.json        "Pi OAuth logins (anthropic, openai-codex, openrouter)"
 check ~/.pi/agent/mcp.json         "Pi MCP config"
 check ~/.config/ag/op-work.token   "ag-vault 1Password service-account token (op-work on Linux)"
-check ~/.ssh/ag-mac                "brain → ag-mac SSH key (fetched from ag-vault once op-work.token exists)"
+check ~/.ssh/ag-mac                "engine → ag-mac SSH key (fetched from ag-vault once op-work.token exists)"
 check ~/.config/ag/op-ag.token     "arcade.school 1Password service-account token (op-ag on Linux)"
 
 if ((${#failed[@]})); then

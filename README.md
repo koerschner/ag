@@ -2,7 +2,7 @@
 
 Ag is Nathan's agent system: Herdr as the runtime, Pi as the harness, and everything around them
 that makes it one system across his machines. It covers AG Dash, the ag inbox, the tickler,
-presence, the client ↔ host bridge, computer use, 1Password and Tailscale access, the Linux brain's
+presence, the client ↔ host bridge, computer use, 1Password and Tailscale access, the Linux engine's
 infrastructure, the global agent instructions (`agents.md/`), and the skills.
 
 Personal machine config (shell, editor, terminal, window management, Brewfile) stays in the public
@@ -399,7 +399,7 @@ Design notes: `docs/ag.md` ("pi-sessions archive").
   machines, the `pi-sessions-sync.timer` systemd user unit archives that machine. Log on ag: `/tmp/pi-sessions-sync.log`.
 - **Volumes:** at about 4 GB a new private volume is created and the old one archived. The newest
   volume holding a file has its latest version. Pushes go in batches of about 400 MB.
-- **State** (clones, index, remote mirrors): `~/.local/state/pi-sessions/`, on the brain's /data volume.
+- **State** (clones, index, remote mirrors): `~/.local/state/pi-sessions/`, on the engine's /data volume.
 - **Separate from Nessie,** which syncs company-paid traces to the company. OpenRouter sessions under
   `~/private-chat` aren't archived.
 

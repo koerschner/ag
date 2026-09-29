@@ -26,12 +26,12 @@ case $cmd in
   scale)  secrets; init; tf apply -auto-approve -var "worker_count=${1:?usage: ag-infra scale N}" ;;
   down)   secrets; init
           # Free the tailnet names first so a rebuilt machine gets the same hostname back.
-          for h in $(tf output -json 2>/dev/null | jq -r '[.brain.value.name?, (.workers.value[]?.name)] | .[] // empty'); do
+          for h in $(tf output -json 2>/dev/null | jq -r '[.engine.value.name?, (.workers.value[]?.name)] | .[] // empty'); do
             ssh -o ConnectTimeout=5 "$h" sudo tailscale logout 2>/dev/null || true
-          done; tf apply -auto-approve -var brain_enabled=false -var worker_count=0
+          done; tf apply -auto-approve -var engine_enabled=false -var worker_count=0
           # A rebuilt machine has a new host key: forget the old one so ssh doesn't refuse it.
-          for h in ag-brain ag-brain.tail44736d.ts.net $(seq -f 'ag-worker-%g' 1 20); do ssh-keygen -R "$h" >/dev/null 2>&1; done ;;
+          for h in ag-engine ag-engine.tail44736d.ts.net $(seq -f 'ag-worker-%g' 1 20); do ssh-keygen -R "$h" >/dev/null 2>&1; done ;;
   status) init; tf output ;;
-  ssh)    exec ssh "${1:-ag-brain}" ;;
+  ssh)    exec ssh "${1:-ag-engine}" ;;
   *) sed -n '2,4p' "$0"; exit 2 ;;
 esac

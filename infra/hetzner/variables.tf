@@ -7,19 +7,19 @@ variable "image" {
   type    = string
   default = "ubuntu-24.04"
 }
-variable "brain_enabled" {
-  description = "false = destroy the brain machine but keep its data volume"
+variable "engine_enabled" {
+  description = "false = destroy the engine machine but keep its data volume"
   type        = bool
   default     = true
 }
-variable "brain_type" {
+variable "engine_type" {
   # New Hetzner accounts are capped at 8 dedicated vCPUs and can't request more yet ("account too new"),
-  # so start on ccx33 and move to ccx53 (32 vCPU / 128 GB) once the limit is raised: ag-infra up -var brain_type=ccx53
+  # so start on ccx33 and move to ccx53 (32 vCPU / 128 GB) once the limit is raised: ag-infra up -var engine_type=ccx53
   description = "ccx33 = 8 dedicated vCPU / 32 GB; ccx53 = 32 / 128; ccx63 = 48 / 192"
   type        = string
   default     = "ccx33"
 }
-variable "brain_volume_gb" {
+variable "engine_volume_gb" {
   type    = number
   default = 200
 }

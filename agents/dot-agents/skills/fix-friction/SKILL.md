@@ -49,7 +49,7 @@ There are two roles. Work out which one you are:
    - guard false positive (a safety check blocked something it should allow)
    - external (outside Ag's control; say so, then reduce the damage)
 3. **Fix it at the most central layer**, preferring in this order:
-   access and credentials on ag and the brain machines (vaults, logins, tokens)
+   access and credentials on ag and the engine machines (vaults, logins, tokens)
    → an ag (or dotfiles) tool or config fix → an AGENTS.md rule or profile fact
    (`agents.md/sections/`) → a skill. Change the thing that caused it, not the
    one task. Keep fixes small; don't build a framework. Follow the machine-setup

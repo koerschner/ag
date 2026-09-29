@@ -1,37 +1,37 @@
 # Ag
 
-Status: **in progress** (started 2026-09-28 in the "Cloud VM Setup" session). First brain `ag-brain` is up (2026-09-29): Hetzner CCX33 (8 vCPU/32 GB; the account is capped at 8 dedicated vCPUs until Hetzner allows a limit request), Hillsboro, joined to the tailnet, `bootstrap-linux` clean, Pi working. Today everything
+Status: **in progress** (started 2026-09-28 in the "Cloud VM Setup" session). First engine `ag-engine` is up (2026-09-29): Hetzner CCX33 (8 vCPU/32 GB; the account is capped at 8 dedicated vCPUs until Hetzner allows a limit request), Hillsboro, joined to the tailnet, `bootstrap-linux` clean, Pi working. Today everything
 still runs on the Mac called `ag`; this doc is the target and the source of truth for what goes where.
 
 ## What Ag is
 
-Ag is Nathan's whole agent system, not one computer:
+Ag is Nathan's whole agent system, not one computer. Names: the **engine** (`ag-engine`, formerly "brain") does the work; **ag-mac** is the Mac it reaches into; **workers** scale out.
 
 | Part | What it is | Runs |
 |---|---|---|
-| **Brain** | Rented Linux machine(s), built from zero by IaC | Herdr server, every Pi session, repos and worktrees, builds, tests, Docker, MCP servers, inbox, tickler, `show`, and phone review |
-| **Workers** | More rented Linux machines, created and destroyed on demand | Heavy or parallel jobs sent from the brain (big test suites, many agents at once) |
+| **Engine** | Rented Linux machine(s), built from zero by IaC | Herdr server, every Pi session, repos and worktrees, builds, tests, Docker, MCP servers, inbox, tickler, `show`, and phone review |
+| **Workers** | More rented Linux machines, created and destroyed on demand | Heavy or parallel jobs sent from the engine (big test suites, many agents at once) |
 | **ag-mac** | The 2024 MacBook, now called `ag` and to be renamed `ag-mac` | Only what needs macOS: computer use, Mac-only apps (Discord, the ChatGPT app), Xcode and macOS/iOS builds, native UI renders, Roblox Studio, Keychain items, macOS permission prompts |
-| **Client** | `nathan-dev-client` (and the iPhone) | Where Nathan sits. It attaches to the brain's Herdr and runs Hammerspoon, CleanShot, and the client side of the bridge. Unchanged. |
+| **Client** | `nathan-dev-client` (and the iPhone) | Where Nathan sits. It attaches to the engine's Herdr and runs Hammerspoon, CleanShot, and the client side of the bridge. Unchanged. |
 
 Everything is joined by one Tailscale tailnet.
 
 ## How it works
 
-- **One session store.** Every session lives on the brain; there is no Herdr server on ag-mac. The
-  client's attach command (today `ag`) points at the brain.
+- **One session store.** Every session lives on the engine; there is no Herdr server on ag-mac. The
+  client's attach command (today `ag`) points at the engine.
 - **Reaching into the Mac, not routing.** Nothing decides upfront where a query should go. Agents
-  on the brain have a `mac` tool/command that runs a task on ag-mac over Tailscale:
+  on the engine have a `mac` tool/command that runs a task on ag-mac over Tailscale:
   `mac cua "<task>"` for computer use, `mac run <cmd>` for Mac-only CLIs and builds, and file transfer
   in both directions. An agent calls it when it finds, partway through a task, that it needs the Mac.
   (It generalizes today's `client-cua`.) Jev may still send obviously Mac-only inbox captures straight
   to ag-mac as a shortcut, but that's optional.
-- **Scoped access.** The brain uses a dedicated SSH key or Tailscale SSH identity on ag-mac, allowed
+- **Scoped access.** The engine uses a dedicated SSH key or Tailscale SSH identity on ag-mac, allowed
   only from the tailnet and limited to the `mac` entry points.
-- **Ephemeral and IaC.** One command (`ag-infra up`) builds a brain or worker from nothing: Terraform/OpenTofu
+- **Ephemeral and IaC.** One command (`ag-infra up`) builds a engine or worker from nothing: Terraform/OpenTofu
   creates the machine, cloud-init joins Tailscale with an ephemeral, pre-authorized tagged key, and it
   clones the ag repo (read-only deploy key) and runs its `bootstrap-linux`, which also installs the public dotfiles, and pulls secrets through the 1Password service account.
-  `ag-infra scale N` adds or removes workers, and `ag-infra down` destroys machines but keeps the brain's data volume. Any machine can be thrown away
+  `ag-infra scale N` adds or removes workers, and `ag-infra down` destroys machines but keeps the engine's data volume. Any machine can be thrown away
   and rebuilt.
 
 ## Persistence (because machines are ephemeral)
@@ -40,10 +40,10 @@ Nothing important may live only on a machine's local disk.
 
 | State | Where it lives |
 |---|---|
-| Pi session transcripts | A persistent volume on the brain for speed, plus the **pi-sessions GitHub archive** (below) as the durable off-site copy |
-| Code | Git remotes. Worktrees push WIP branches often, so a rebuilt brain can recreate them. |
-| Herdr layout (workspaces, tabs, and which session each tab resumes) | Snapshotted regularly with `herdr api snapshot` and restored on a new brain, so tabs come back and resume their Pi sessions |
-| Tickler items, inbox and tickler logs, `~/inbox` files | The brain's persistent volume, also backed up to the archive |
+| Pi session transcripts | A persistent volume on the engine for speed, plus the **pi-sessions GitHub archive** (below) as the durable off-site copy |
+| Code | Git remotes. Worktrees push WIP branches often, so a rebuilt engine can recreate them. |
+| Herdr layout (workspaces, tabs, and which session each tab resumes) | Snapshotted regularly with `herdr api snapshot` and restored on a new engine, so tabs come back and resume their Pi sessions |
+| Tickler items, inbox and tickler logs, `~/inbox` files | The engine's persistent volume, also backed up to the archive |
 | Secrets | The 1Password service account only (never in a repo or image) |
 | Machine setup | The ag repo (agent system + IaC) plus dotfiles (personal config) |
 
@@ -70,7 +70,7 @@ Nothing important may live only on a machine's local disk.
 ## Provider (researched 2026-09-28)
 
 - **Primary: Hetzner Cloud, Hillsboro (HIL).**
-  - Brain: CCX53 (32 vCPU/128 GB, ~€533/mo) or CCX63 (48/192, ~€853/mo), with dedicated vCPUs.
+  - Engine: CCX53 (32 vCPU/128 GB, ~€533/mo) or CCX63 (48/192, ~€853/mo), with dedicated vCPUs.
   - Workers: CCX33 or CCX43 built from a Packer snapshot, billed hourly.
   - Tooling: the best `hcloud` CLI and Terraform experience at this price, plus Volumes and snapshots.
   - Gotchas:
@@ -82,7 +82,7 @@ Nothing important may live only on a machine's local disk.
   - ~$701 for 32/128, billed per hour.
   - More US regions, including Seattle.
   - Bare metal through the same API and Terraform provider.
-- **Bare-metal alternative for the brain: Latitude.sh.** 16 cores/128 GB in LA for ~$456/mo, hourly,
+- **Bare-metal alternative for the engine: Latitude.sh.** 16 cores/128 GB in LA for ~$456/mo, hourly,
   with Terraform.
 - **Future cloud Mac:** EC2 Mac, about $900/mo per machine because of the 24-hour minimum. Not needed
   while ag-mac exists.
@@ -94,11 +94,11 @@ Nothing important may live only on a machine's local disk.
 
 1. Upgrade Tailscale for tagged ephemeral nodes and API/Terraform access (split-out session
    "Upgrade Tailscale Plan").
-2. ✅ IaC (`infra/hetzner`, `ag-infra up`/`down`, verified by a full destroy + rebuild), ✅ `bootstrap-linux` (idempotent, clean run). ✅ One brain up. Left: MCP server auth on the brain, and moving to CCX53 once allowed.
-3. ✅ Persistent volume layout (/data bind mounts). ✅ pi-sessions archive: `pi-sessions-sync` (README "Pi sessions archive"), hourly on the host (plus the client over SSH) and on the brain.
-4. ✅ `mac` tool (`bin/dot-local/bin/mac`: run, cua, push/pull, show, status) over the brain's own SSH key (ag-vault "ag-brain → ag-mac SSH key", authorized on ag-mac only from tailnet IPs); tested run, files, computer use. ✅ MCP on the brain with zero per-machine auth: `mcp-tunnel` (systemd user unit) forwards 127.0.0.1:7381-7384 to ag-mac's shared gateway; Slack's OAuth file copied. When the brain becomes the host, the gateway moves there and auth lives in exactly one place.
-5. Move arcade dev onto the brain as the real test.
-6. Move Herdr, the inbox, the tickler, `show`, and `presence` to the brain (LaunchAgents become systemd
+2. ✅ IaC (`infra/hetzner`, `ag-infra up`/`down`, verified by a full destroy + rebuild), ✅ `bootstrap-linux` (idempotent, clean run). ✅ One engine up. Left: MCP server auth on the engine, and moving to CCX53 once allowed.
+3. ✅ Persistent volume layout (/data bind mounts). ✅ pi-sessions archive: `pi-sessions-sync` (README "Pi sessions archive"), hourly on the host (plus the client over SSH) and on the engine.
+4. ✅ `mac` tool (`bin/dot-local/bin/mac`: run, cua, push/pull, show, status) over the engine's own SSH key (ag-vault "ag-brain → ag-mac SSH key" (id vqpozjumzkuz7sgdcdgvdpaujq; the CLI can't rename SSH-key items), authorized on ag-mac only from tailnet IPs); tested run, files, computer use. ✅ MCP on the engine with zero per-machine auth: `mcp-tunnel` (systemd user unit) forwards 127.0.0.1:7381-7384 to ag-mac's shared gateway; Slack's OAuth file copied. When the engine becomes the host, the gateway moves there and auth lives in exactly one place.
+5. Move arcade dev onto the engine as the real test.
+6. Move Herdr, the inbox, the tickler, `show`, and `presence` to the engine (LaunchAgents become systemd
    units), and point the client's attach command at it.
 7. Rename `ag` → `ag-mac` everywhere (Tailscale, SSH aliases, `machines/README.md`, docs, AGENTS.md),
    and shrink it to the Mac-worker role.

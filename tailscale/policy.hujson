@@ -6,17 +6,17 @@
 	"tagOwners": {
 		// The OAuth client "ag IaC and auth key minting" carries these tags, and keys it mints are owned
 		// by them, so the tags must own themselves for new machines to be allowed to advertise them.
-		"tag:ag-brain":  ["autogroup:admin", "tag:ag-brain", "tag:ag-worker"],
-		"tag:ag-worker": ["autogroup:admin", "tag:ag-brain", "tag:ag-worker"],
+		"tag:ag-engine":  ["autogroup:admin", "tag:ag-engine", "tag:ag-worker"],
+		"tag:ag-worker": ["autogroup:admin", "tag:ag-engine", "tag:ag-worker"],
 	},
 
 	"grants": [
 		// Nathan's own devices (ag-mac, the client Mac, the phone) reach everything.
 		{"src": ["autogroup:member"], "dst": ["*"], "ip": ["*"]},
-		// The brain drives everything too: ag-mac for computer use, workers, Nathan's devices.
-		{"src": ["tag:ag-brain"], "dst": ["*"], "ip": ["*"]},
-		// Workers only talk to the brain and each other, never to Nathan's personal devices.
-		{"src": ["tag:ag-worker"], "dst": ["tag:ag-brain", "tag:ag-worker"], "ip": ["*"]},
+		// The engine drives everything too: ag-mac for computer use, workers, Nathan's devices.
+		{"src": ["tag:ag-engine"], "dst": ["*"], "ip": ["*"]},
+		// Workers only talk to the engine and each other, never to Nathan's personal devices.
+		{"src": ["tag:ag-worker"], "dst": ["tag:ag-engine", "tag:ag-worker"], "ip": ["*"]},
 	],
 
 	"ssh": [
@@ -25,13 +25,13 @@
 		{
 			"action": "accept",
 			"src":    ["autogroup:member"],
-			"dst":    ["tag:ag-brain", "tag:ag-worker"],
+			"dst":    ["tag:ag-engine", "tag:ag-worker"],
 			"users":  ["autogroup:nonroot", "root"],
 		},
-		// The brain SSHes into workers it spins up.
+		// The engine SSHes into workers it spins up.
 		{
 			"action": "accept",
-			"src":    ["tag:ag-brain"],
+			"src":    ["tag:ag-engine"],
 			"dst":    ["tag:ag-worker"],
 			"users":  ["autogroup:nonroot", "root"],
 		},
@@ -53,12 +53,12 @@
 	],
 
 	"tests": [
-		{"src": "nathankoerschner@gmail.com", "accept": ["tag:ag-brain:22", "tag:ag-worker:22"]},
-		{"src": "tag:ag-brain", "accept": ["tag:ag-worker:22", "nathankoerschner@gmail.com:22"]},
-		{"src": "tag:ag-worker", "accept": ["tag:ag-brain:22"], "deny": ["nathankoerschner@gmail.com:22"]},
+		{"src": "nathankoerschner@gmail.com", "accept": ["tag:ag-engine:22", "tag:ag-worker:22"]},
+		{"src": "tag:ag-engine", "accept": ["tag:ag-worker:22", "nathankoerschner@gmail.com:22"]},
+		{"src": "tag:ag-worker", "accept": ["tag:ag-engine:22"], "deny": ["nathankoerschner@gmail.com:22"]},
 	],
 	"sshTests": [
-		{"src": "nathankoerschner@gmail.com", "dst": ["tag:ag-brain", "tag:ag-worker"], "accept": ["root", "natkoersch"]},
-		{"src": "tag:ag-brain", "dst": ["tag:ag-worker"], "accept": ["root"]},
+		{"src": "nathankoerschner@gmail.com", "dst": ["tag:ag-engine", "tag:ag-worker"], "accept": ["root", "natkoersch"]},
+		{"src": "tag:ag-engine", "dst": ["tag:ag-worker"], "accept": ["root"]},
 	],
 }

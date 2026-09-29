@@ -7,7 +7,7 @@ description: Operational details for ag (Nathan's development Mac) and the clien
 
 The always-on summary lives in the global instructions ("ag development Mac"). This is the full reference.
 
-- **Planned: the Ag system.** "Ag" is becoming the name of the whole system: rented Linux machines (the brain: Herdr, every Pi session, dev work) plus this Mac, to be renamed **ag-mac** and used only for Mac-only apps and computer use, which the Linux sessions reach into. Design and status: `docs/ag.md` in the ag repo (`~/ag`). Until the migration happens, everything below still describes today's setup (the Mac is still `ag`).
+- **Planned: the Ag system.** "Ag" is becoming the name of the whole system: rented Linux machines (the engine: Herdr, every Pi session, dev work) plus this Mac, to be renamed **ag-mac** and used only for Mac-only apps and computer use, which the Linux sessions reach into. Design and status: `docs/ag.md` in the ag repo (`~/ag`). Until the migration happens, everything below still describes today's setup (the Mac is still `ag`).
 - **ag** (Always Generating, formerly Seen/Scene) is Nathan's primary development Mac. Keep its system, Tailscale, Herdr, Jump Desktop, and Moshi connection names as lowercase `ag`.
 - From Nathan's client Mac, run `ag` in a fresh terminal to attach to ag's existing Herdr session, or `ssh ag` for a shell. SSH uses `natkoersch@100.107.192.32` over Nathan's personal Tailscale account (`nathankoerschner@gmail.com`); its MagicDNS name is `ag.tail44736d.ts.net`.
 - In Jump Desktop or iPhone Moshi, select **ag**. Keep Tailscale connected. Agents continue on ag when a client disconnects.

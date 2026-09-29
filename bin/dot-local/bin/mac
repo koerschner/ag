@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# mac: reach into ag-mac (the Mac half of Ag) from the brain or any Linux Ag machine.
+# mac: reach into ag-mac (the Mac half of Ag) from the engine or any Linux Ag machine.
 # Use it when a task needs macOS: computer use, Mac-only apps and CLIs (Xcode, Discord, the Keychain),
 # native UI renders, iPhone Mirroring via the client, anything whose files only exist on the Mac.
 #
 #   mac run <cmd...>           run a shell command on ag-mac (login env; exit code passes through)
 #   mac cua "<task>"           computer use on ag-mac's desktop (chatgpt-cua); prints its report
-#   mac push <local> [remote]  copy a file/dir to ag-mac (default: ~/inbox/from-brain/)
+#   mac push <local> [remote]  copy a file/dir to ag-mac (default: ~/inbox/from-engine/)
 #   mac pull <remote> [local]  copy a file/dir from ag-mac (default: ./)
 #   mac show <file|url>        open it on Nathan's screen via ag-mac's `show` (pushes local files first)
 #   mac status                 is ag-mac reachable, and is Nathan at his client?
 #
-# SSH alias `ag-mac` (ssh/dot-ssh/config) with the brain's own key (~/.ssh/ag-mac).
+# SSH alias `ag-mac` (ssh/dot-ssh/config) with the engine's own key (~/.ssh/ag-mac).
 set -euo pipefail
 HOST=${MAC_HOST:-ag-mac}
 ssh_() { ssh -o ConnectTimeout=10 -o BatchMode=yes "$HOST" "$@"; }
@@ -27,14 +27,14 @@ case $cmd in
     # The task travels on stdin so quoting can't mangle it.
     printf '%s' "$*" | ssh_ 'chatgpt-cua "$(cat)"' ;;
   push)
-    src=${1:?usage: mac push <local> [remote]}; dst=${2:-inbox/from-brain/}
+    src=${1:?usage: mac push <local> [remote]}; dst=${2:-inbox/from-engine/}
     ssh_ "mkdir -p $(q "$(dirname "$dst/x")")" && rsync -az "$src" "$HOST:$dst" && echo "$HOST:$dst" ;;
   pull)
     src=${1:?usage: mac pull <remote> [local]}; rsync -az "$HOST:$src" "${2:-./}" ;;
   show)
     t=${1:?usage: mac show <file|url>}
     if [[ -e $t ]]; then
-      d="inbox/from-brain/show-$(date +%s)"; ssh_ "mkdir -p $d"; rsync -az "$t" "$HOST:$d/"
+      d="inbox/from-engine/show-$(date +%s)"; ssh_ "mkdir -p $d"; rsync -az "$t" "$HOST:$d/"
       t="$d/$(basename "$t")"
     fi
     ssh_ "show $(q "$t")" ;;

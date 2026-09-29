@@ -427,8 +427,20 @@ let es = null, esRetry = null;
 function connect() {
   clearTimeout(esRetry); es?.close();
   es = new EventSource("/events");
-  es.onmessage = (e) => { B = JSON.parse(e.data); onData(); };
+  es.onmessage = (e) => { B = JSON.parse(e.data); if (!staleReload()) onData(); };
   es.onerror = () => { es.close(); esRetry = setTimeout(connect, 2000); };
+}
+// Reload onto a newly deployed page version (the server sends index.html's mtime as B.page), but never while
+// Nathan is typing: an unsent reply would be lost. Checked again on every update until the fields are empty.
+let pageVersion = null;
+function staleReload() {
+  if (!B.page) return false;
+  pageVersion ??= B.page;
+  if (B.page === pageVersion) return false;
+  const typing = Object.values(editors).some((ed) => ed.value.trim()) || [...document.querySelectorAll("dialog[open] input")].some((f) => f.value.trim());
+  if (typing) return false;
+  location.reload();
+  return true;
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) connect(); });
 addEventListener("pageshow", (e) => { if (e.persisted) connect(); });

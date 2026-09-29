@@ -633,7 +633,13 @@ async function poll() {
 	// Forget cards whose tabs are gone.
 	for (const id of Object.keys(state.cards)) if (!keys.has(id)) (delete state.cards[id], (dirty = true));
 	save();
-	board = { cards, lists: state.lists, workspaces: snap.workspaces.map((w: any) => ({ id: w.workspace_id, label: w.label })) };
+	// page: the served index.html's mtime, so open tabs (desktop and the phone PWA) reload themselves onto a new
+	// version instead of rendering with stale code until someone refreshes by hand.
+	let page = 0;
+	try {
+		page = statSync(realpathSync(PAGE)).mtimeMs;
+	} catch {}
+	board = { cards, lists: state.lists, workspaces: snap.workspaces.map((w: any) => ({ id: w.workspace_id, label: w.label })), page };
 	const json = JSON.stringify(board);
 	if (json !== boardJson) {
 		boardJson = json;

@@ -6,20 +6,30 @@
 #   echo "task" | chatgpt-cua
 #
 # Always runs gpt-6-astra via the TFY gateway (the default Codex provider).
+# Afterwards cua-cleanup quits apps and closes Chrome tabs / Safari windows the run opened
+# (summary appended to the output). CHATGPT_CUA_KEEP_OPEN=1 skips that for tasks meant to
+# leave something open.
 set -euo pipefail
 
 effort=${CHATGPT_CUA_EFFORT:-medium}
 out=$(mktemp -t chatgpt-cua)
-trap 'rm -f "$out"' EXIT
+snap=$(mktemp -t cua-snapshot)
+trap 'rm -f "$out" "$snap"' EXIT
+keep=${CHATGPT_CUA_KEEP_OPEN:-}
 
 task=${*:-$(cat)}
 [[ -n $task ]] || { echo "usage: chatgpt-cua <task>" >&2; exit 2; }
 
 prompt="You are a computer-use agent operating Nathan's Mac. Use your computer-use tools (cua_repl) to do this task, then reply with a concise final report of what you did and what you observed.
+${keep:+Leave open the apps, windows and tabs the task needs.}${keep:-When you're done, close the apps, windows and tabs you opened (leave anything that was already open).}
 
 Task: $task"
 
+cleanup=${0:A:h}/cua-cleanup
+[[ -n $keep ]] || $cleanup snapshot "$snap"
+
 cd "${CHATGPT_CUA_CWD:-$HOME}"
+rc=0
 codex exec \
   --skip-git-repo-check \
   --dangerously-bypass-approvals-and-sandbox \
@@ -27,6 +37,8 @@ codex exec \
   -c model_reasoning_effort="$effort" \
   -m gpt-6-astra \
   --output-last-message "$out" \
-  "$prompt" </dev/null >&2
+  "$prompt" </dev/null >&2 || rc=$?
 
 cat "$out"
+[[ -n $keep ]] || { echo; $cleanup restore "$snap"; }
+exit $rc

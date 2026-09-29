@@ -14,10 +14,16 @@ export default function (pi: ExtensionAPI) {
 			"Delegate a computer-use task (see the screen, click, type, operate any native Mac app or browser) to ChatGPT/Codex's native computer-use agent (always gpt-6-astra). Give a complete, self-contained task; returns its final report. Slow (tens of seconds to minutes). Prefer APIs/CLIs when they exist.",
 		parameters: Type.Object({
 			task: Type.String({ description: "Self-contained task for the computer-use agent" }),
+			keepOpen: Type.Optional(
+				Type.Boolean({ description: "Leave the apps/tabs the run opened (default: close them afterwards)" }),
+			),
 		}),
 		async execute(_id, params, signal, onUpdate) {
 			return await new Promise((resolve) => {
-				const child = spawn(bin, [params.task], { signal });
+				const child = spawn(bin, [params.task], {
+					signal,
+					env: params.keepOpen ? { ...process.env, CHATGPT_CUA_KEEP_OPEN: "1" } : process.env,
+				});
 				let stdout = "";
 				let log = "";
 				child.stdout.on("data", (d) => (stdout += d));

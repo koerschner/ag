@@ -1,0 +1,119 @@
+#!/usr/bin/env zsh
+# cua-cleanup — close what a computer-use run opened, and nothing else.
+#
+#   cua-cleanup snapshot <file>   # before the run: record open apps, Chrome tabs, Safari windows
+#   cua-cleanup restore <file>    # after the run: quit apps / close tabs+windows not in <file>
+#
+# Used by chatgpt-cua (ag) and client-cua (client). Apps are compared by bundle id, so an app that
+# was already open is never quit (even if the run relaunched it); only its new Chrome tabs or
+# Safari windows are closed. Quits are graceful (like Cmd+Q): an app that won't quit (e.g. an
+# unsaved-changes prompt) is left running and reported. Prints a one-line summary on restore.
+# If another run's snapshot is still live, restore skips the sweep so it can't close that run's work.
+set -uo pipefail
+
+cmd=${1:-}; file=${2:-}
+[[ $cmd == (snapshot|restore) && -n $file ]] || { echo "usage: cua-cleanup snapshot|restore <file>" >&2; exit 2; }
+
+runs=${TMPDIR:-/tmp}/cua-runs
+mkdir -p "$runs"
+
+marker=$runs/${file:t}
+if [[ $cmd == snapshot ]]; then
+  print -r -- ${CUA_CLEANUP_OWNER_PID:-$PPID} > $marker
+else
+  rm -f $marker
+  [[ -f $file ]] || { echo "cleanup: no snapshot, skipped"; exit 0; }
+  # Another run still in flight (its owner pid alive)? Then leave everything alone.
+  for m in $runs/*(N); do
+    if kill -0 "$(<$m)" 2>/dev/null; then echo "cleanup: skipped (another computer-use run is active)"; rm -f "$file"; exit 0; fi
+    rm -f $m  # stale
+  done
+fi
+
+# Apple Events to Chrome/Safari can hang on an Automation prompt; cap the whole step.
+/usr/bin/osascript -l JavaScript - "$cmd" "$file" <<'JXA' &
+ObjC.import('AppKit');
+ObjC.import('Foundation');
+ObjC.import('ScriptingBridge');
+
+// Never quit these even if they appear during the run (runtime, terminal, remote access, secrets).
+const KEEP = [/^com\.openai\./, /^com\.apple\.(finder|Terminal|loginwindow|systemevents|dock)$/,
+  /^com\.mitchellh\.ghostty$/, /^org\.hammerspoon\./, /^com\.p5sys\.jump\./, /^io\.tailscale\./,
+  /^com\.1password\./, /^com\.runningwithcrayons\.Alfred$/];
+
+function apps() {
+  const out = {};
+  const list = $.NSWorkspace.sharedWorkspace.runningApplications;
+  for (let i = 0; i < list.count; i++) {
+    const a = list.objectAtIndex(i);
+    if (Number(a.activationPolicy) !== 0) continue;
+    const id = ObjC.unwrap(a.bundleIdentifier);
+    if (id) out[id] = ObjC.unwrap(a.localizedName) || id;
+  }
+  return out;
+}
+const running = (id) => $.NSRunningApplication.runningApplicationsWithBundleIdentifier(id).count > 0;
+// Chrome can run several instances (e.g. a --remote-debugging one), which Apple Events by name
+// can't tell apart, so talk to each by pid via ScriptingBridge. Tabs are keyed "pid:tabId".
+function eachChromeTab(fn) {
+  const l = $.NSRunningApplication.runningApplicationsWithBundleIdentifier('com.google.Chrome');
+  for (let i = 0; i < l.count; i++) {
+    const pid = l.objectAtIndex(i).processIdentifier;
+    const ws = $.SBApplication.applicationWithProcessIdentifier(pid).valueForKey('windows');
+    for (let j = 0; j < ws.count; j++) {
+      const tabs = ws.objectAtIndex(j).valueForKey('tabs');
+      for (let k = tabs.count - 1; k >= 0; k--) fn(`${pid}:${ObjC.unwrap(tabs.objectAtIndex(k).valueForKey('id'))}`, tabs.objectAtIndex(k), pid);
+    }
+  }
+}
+function chromeTabs() {
+  if (!running('com.google.Chrome')) return null;
+  const ids = []; eachChromeTab(id => ids.push(id)); return ids;
+}
+function safariWindows() {
+  if (!running('com.apple.Safari')) return null;
+  return Application('Safari').windows().map(w => w.id());
+}
+const read = (f) => JSON.parse(ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(f, $.NSUTF8StringEncoding, null)));
+const write = (f, o) => $(JSON.stringify(o)).writeToFileAtomicallyEncodingError(f, true, $.NSUTF8StringEncoding, null);
+const tryOr = (fn, fallback) => { try { return fn(); } catch (e) { return fallback(); } };
+
+function run(argv) {
+  const [cmd, file] = argv;
+  if (cmd === 'snapshot') {
+    write(file, { apps: apps(), chrome: tryOr(chromeTabs, () => null), safari: tryOr(safariWindows, () => null) });
+    return '';
+  }
+  const before = read(file), notes = [];
+  // Tabs/windows first, only in browsers that were already open (new browsers get quit below).
+  if (before.chrome) tryOr(() => {
+    // Only instances that existed before; a brand-new instance is left to its launcher.
+    const keep = new Set(before.chrome), pids = new Set(before.chrome.map(t => t.split(':')[0])); let n = 0;
+    eachChromeTab((id, tab, pid) => { if (pids.has(String(pid)) && !keep.has(id)) { tab.performSelector('close'); n++; } });
+    if (n) notes.push(`closed ${n} Chrome tab${n > 1 ? 's' : ''}`);
+  }, () => notes.push('could not read Chrome tabs'));
+  if (before.safari) tryOr(() => {
+    const keep = new Set(before.safari); let n = 0;
+    Application('Safari').windows().forEach(w => { if (!keep.has(w.id())) { w.close(); n++; } });
+    if (n) notes.push(`closed ${n} Safari window${n > 1 ? 's' : ''}`);
+  }, () => notes.push('could not read Safari windows'));
+
+  const fresh = Object.entries(apps()).filter(([id]) => !(id in before.apps) && !KEEP.some(r => r.test(id)));
+  fresh.forEach(([id]) => { const l = $.NSRunningApplication.runningApplicationsWithBundleIdentifier(id);
+    for (let i = 0; i < l.count; i++) l.objectAtIndex(i).terminate; });
+  if (fresh.length) delay(4);
+  const quit = fresh.filter(([id]) => !running(id)).map(([, n]) => n);
+  const stuck = fresh.filter(([id]) => running(id)).map(([, n]) => n);
+  if (quit.length) notes.push(`quit ${quit.join(', ')}`);
+  if (stuck.length) notes.push(`left running (would not quit, maybe unsaved changes): ${stuck.join(', ')}`);
+  return 'cleanup: ' + (notes.join('; ') || 'nothing to close');
+}
+JXA
+job=$!
+( sleep 45; kill $job 2>/dev/null ) &
+watchdog=$!
+wait $job; rc=$?
+kill $watchdog 2>/dev/null
+(( rc == 0 )) || echo "cleanup: $cmd failed or timed out (exit $rc)"
+[[ $cmd == restore ]] && rm -f "$file"
+exit 0

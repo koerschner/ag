@@ -14,6 +14,8 @@
 # into the client's GUI launchd domain with `launchctl submit`, then polls for the result.
 # Submitted jobs are KeepAlive, so the job removes itself when codex finishes.
 # Uses the Codex CLI bundled in ChatGPT.app on the client, via TFY (gpt-6-astra).
+# Afterwards the client's cua-cleanup closes what the run opened (see chatgpt-cua);
+# CHATGPT_CUA_KEEP_OPEN=1 skips it.
 set -euo pipefail
 
 client=${CLIENT_CUA_HOST:-nathan-dev-client}
@@ -36,7 +38,9 @@ fi
 
 id=client-cua-$$-$RANDOM
 dir=/tmp/$id
+keep=${CHATGPT_CUA_KEEP_OPEN:-}
 prompt="You are a computer-use agent operating Nathan's Mac. Use your computer-use tools (cua_repl) to do this task, then reply with a concise final report of what you did and what you observed.
+${keep:+Leave open the apps, windows and tabs the task needs.}${keep:-When you're done, close the apps, windows and tabs you opened (leave anything that was already open).}
 
 Task: $task"
 
@@ -44,11 +48,14 @@ ssh "$client" "mkdir -p $dir && cat > $dir/prompt" <<<"$prompt"
 ssh "$client" "cat > $dir/run && chmod +x $dir/run" <<EOF
 #!/bin/zsh
 source ~/.zshenv.local 2>/dev/null; export TFY_API_KEY=\$TFY_TOKEN; cd ~
+${keep:+# }~/.local/bin/cua-cleanup snapshot $dir/snap
 /Applications/ChatGPT.app/Contents/Resources/codex exec --skip-git-repo-check \\
   --dangerously-bypass-approvals-and-sandbox -c model_provider=tfy \\
   -c model_reasoning_effort=$effort -m gpt-6-astra \\
   --output-last-message $dir/out "\$(cat $dir/prompt)" </dev/null >$dir/log 2>&1
-echo \$? > $dir/done
+rc=\$?
+${keep:+# }{ echo; ~/.local/bin/cua-cleanup restore $dir/snap; } >> $dir/out
+echo \$rc > $dir/done
 launchctl remove $id  # submit jobs are KeepAlive; stop the rerun
 EOF
 ssh "$client" "launchctl submit -l $id -- $dir/run"

@@ -35,6 +35,14 @@
       "transport": "streamable-http",
       "url": "http://127.0.0.1:7384/mcp",
       "lifecycle": "eager"
+    },
+    "tapkit": {
+      "transport": "streamable-http",
+      "url": "https://mcp.tapkit.ai/mcp",
+      "auth": {
+        "type": "oauth"
+      },
+      "lifecycle": "lazy"
     }
   }
 }

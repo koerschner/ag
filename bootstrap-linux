@@ -90,6 +90,7 @@ step "node (mise, Linux-only untracked conf.d so the tracked mise config stays M
 mkdir -p ~/.config/mise/conf.d
 [[ -f ~/.config/mise/conf.d/linux.toml ]] || printf '[tools]\nnode = "lts"\n' > ~/.config/mise/conf.d/linux.toml
 mise install -y >/dev/null 2>&1 && echo "  node $(mise exec -- node --version)" || warn "mise install (node)"
+have uv     || curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null || warn "uv"
 have pi     || mise exec -- npm install -g --prefix "$HOME/.local" @earendil-works/pi-coding-agent >/dev/null || warn "pi"
 
 step "Secrets checklist (move by hand or via op; never commit)"
@@ -98,6 +99,7 @@ check ~/.config/gh/hosts.yml       "gh auth login (GitHub)"
 check ~/.pi/agent/auth.json        "Pi model auth (TrueFoundry)"
 check ~/.pi/agent/mcp.json         "Pi MCP config"
 check ~/.config/ag/op-work.token   "ag-vault 1Password service-account token (op-work on Linux)"
+check ~/.config/ag/op-ag.token     "arcade.school 1Password service-account token (op-ag on Linux)"
 
 if ((${#failed[@]})); then
   printf '\n\033[33m%d item(s) need attention:\033[0m\n' "${#failed[@]}"; printf '  - %s\n' "${failed[@]}"

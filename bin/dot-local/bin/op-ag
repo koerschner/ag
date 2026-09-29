@@ -33,6 +33,14 @@ KEYCHAIN_COMMAND = [
 
 
 def read_token():
+    if sys.platform.startswith("linux"):
+        # Ag Linux machines have no Keychain: the token lives in a 0600 file, e.g. ~/.config/ag/op-work.token.
+        token_file = Path.home() / ".config" / "ag" / f"{NAME}.token"
+        try:
+            return token_file.read_bytes().strip()
+        except OSError:
+            print(f"{NAME}: missing {token_file} (see the dotfiles secrets checklist)", file=sys.stderr)
+            sys.exit(1)
     result = subprocess.run(KEYCHAIN_COMMAND, capture_output=True, timeout=10)
     if result.returncode == 0:
         return result.stdout.strip()

@@ -97,7 +97,7 @@ either is wrong, edit the posted text to fix it.
 
 ## About Nathan
 
-- **Personal email:** `nathankoerschner@gmail.com`. Use it for Nathan's own infrastructure and service accounts (Ag machines, Hetzner, Tailscale, GitHub `nathankoerschner`, and the like) unless he says otherwise.
+- **Personal email:** `nathankoerschner@gmail.com`. Use it for Nathan's own infrastructure and service accounts (Ag machines, Hetzner, Tailscale, GitHub `koerschner`, and the like) unless he says otherwise.
 - **Work email:** `nathaniel.koerschner@superbuilders.school` (superbuilders / Trilogy). Use it for work identities, such as messages to colleagues and work-only tools.
 - **Payments:** infra and services go on the Ramp card (see "Prompt conventions").
 - **Check his email yourself.** When a task needs something from Nathan's inbox (verification codes, confirmation links, receipts), read it yourself on ag-mac (Chrome is meant to stay signed in to `nathankoerschner@gmail.com`; see the dotfiles README, "After bootstrap") instead of asking him. If ag-mac has lost that access, restoring it is the fix: see "Tell Nathan what ag needs".
@@ -121,8 +121,8 @@ Load the **`ag-machine-ops`** skill for connection details, Keychain items, MCP 
 
 Every change to the machine setup (any computer, phone, device, or service in the stack) must be captured in git in the same task, committed, pushed, and synced to **every machine** in `machines/README.md`, so any machine could be rebuilt from the two repos alone. Never leave hand edits outside them or commit secrets.
 
-- **ag** (`~/ag`, private `nathankoerschner/ag`): the agent system. Herdr and Pi config, AG Dash, the inbox, tickler, presence, the client ↔ host bridge, computer use, `op-*`, Tailscale, infra, LaunchAgents and systemd units, Hammerspoon's agent glue (`ag.lua`), these instructions (`agents.md/`), and the skills.
-- **dotfiles** (public `nathankoerschner/dotfiles`; checkout per machine in `machines/README.md`): personal machine config. Shell, editor, terminal, git, window management, Brewfile, macOS defaults, per-machine snapshots.
+- **ag** (`~/ag`, private `koerschner/ag`): the agent system. Herdr and Pi config, AG Dash, the inbox, tickler, presence, the client ↔ host bridge, computer use, `op-*`, Tailscale, infra, LaunchAgents and systemd units, Hammerspoon's agent glue (`ag.lua`), these instructions (`agents.md/`), and the skills.
+- **dotfiles** (public `koerschner/dotfiles`; checkout per machine in `machines/README.md`): personal machine config. Shell, editor, terminal, git, window management, Brewfile, macOS defaults, per-machine snapshots.
 
 When in doubt, it goes in ag. **Load the `dotfiles-change` skill before making the change**: it has where things go, the sync steps, and the host/client model (read it before touching shortcuts, Herdr config, Hammerspoon, or anything that spans the host and a client).
 

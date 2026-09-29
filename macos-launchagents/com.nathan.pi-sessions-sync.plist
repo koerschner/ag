@@ -4,7 +4,7 @@
 <dict>
   <key>Label</key>
   <string>com.nathan.pi-sessions-sync</string>
-  <!-- Hourly: archive Pi sessions (this Mac + the client, pulled over SSH) to nathankoerschner/pi-sessions-NNN,
+  <!-- Hourly: archive Pi sessions (this Mac + the client, pulled over SSH) to koerschner/pi-sessions-NNN,
        redacted and git-crypt encrypted. Only on the host (the client has no vault credentials). docs/ag.md. -->
   <key>ProgramArguments</key>
   <array>

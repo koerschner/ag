@@ -49,7 +49,7 @@ Nothing important may live only on a machine's local disk.
 
 ### pi-sessions archive (decided in the merged "Pi Sync" session, 2026-09-27)
 
-- A private repo on Nathan's personal GitHub (`nathankoerschner`), laid out as
+- A private repo on Nathan's personal GitHub (`koerschner`), laid out as
   `machines/<machine>/<project>/<session>.jsonl`.
 - **Redact, then encrypt.** gitleaks-style patterns replace secrets with `[REDACTED:<type>]`, then
   git-crypt encrypts every file. The originals stay untouched locally. A scan found 473 transcripts

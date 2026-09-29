@@ -1,4 +1,4 @@
-# Archive this machine's Pi sessions to nathankoerschner/pi-sessions-NNN (redacted, git-crypt). docs/ag.md.
+# Archive this machine's Pi sessions to koerschner/pi-sessions-NNN (redacted, git-crypt). docs/ag.md.
 [Unit]
 Description=Archive Pi sessions to GitHub
 

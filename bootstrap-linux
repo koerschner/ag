@@ -11,7 +11,7 @@ set -uo pipefail
 
 AG=${AG:-$(cd "$(dirname "$(readlink -f "$0")")" && pwd)}
 DOTFILES=${DOTFILES:-$HOME/dotfiles}
-REPO=https://github.com/nathankoerschner/dotfiles.git
+REPO=https://github.com/koerschner/dotfiles.git
 # Stow packages that make sense on Linux (no ghostty/hammerspoon/alfred/ag-board/ag-inbox yet), per repo.
 AG_PACKAGES=(agents bin claude codex herdr pi systemd-user)
 DOTFILES_PACKAGES=(bin git mise nvim ssh tmux zsh)
@@ -102,7 +102,7 @@ have pi     || mise exec -- npm install -g --prefix "$HOME/.local" @earendil-wor
 step "~/.gitconfig.local (untracked identity + gh credential helper; ~/.gitconfig is tracked, so never git config --global)"
 [[ -f ~/.gitconfig.local ]] || cat > ~/.gitconfig.local <<'GITLOCAL'
 [user]
-	email = 58815433+nathankoerschner@users.noreply.github.com
+	email = 58815433+koerschner@users.noreply.github.com
 	name = Nathan Koerschner
 [credential "https://github.com"]
 	helper =

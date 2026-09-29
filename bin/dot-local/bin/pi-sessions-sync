@@ -2,7 +2,7 @@
 """pi-sessions-sync: archive every Pi session transcript to Nathan's private GitHub, redacted then encrypted.
 
 Design (docs/ag.md, "pi-sessions archive"):
-  - Repos nathankoerschner/pi-sessions-NNN ("volumes"). The newest unarchived one is current; when it
+  - Repos koerschner/pi-sessions-NNN ("volumes"). The newest unarchived one is current; when it
     passes ROLL_GB, a new volume is created and the old one archived. The newest volume holding a file
     has its latest version.
   - Layout: machines/<machine>/<project dir>/<session>.jsonl
@@ -21,7 +21,7 @@ Sources: this machine's ~/.pi/agent/sessions, plus any `--remote <ssh-alias>` ma
 import argparse, base64, hashlib, json, os, re, shutil, socket, subprocess, sys, tempfile, time
 from pathlib import Path
 
-OWNER = "nathankoerschner"
+OWNER = "koerschner"
 PREFIX = "pi-sessions-"
 VAULT = "c3qkbcqktsxmi6hnpzpltdbose"  # ag-vault
 KEY_ITEM = "pi-sessions git-crypt key"
@@ -104,7 +104,7 @@ def git_crypt_key():
     tmpl = {"title": KEY_ITEM, "category": "PASSWORD", "fields": [
         {"id": "password", "type": "CONCEALED", "purpose": "PASSWORD", "value": base64.b64encode(key).decode()},
         {"id": "notesPlain", "type": "STRING", "purpose": "NOTES",
-         "value": "git-crypt symmetric key (base64) for nathankoerschner/pi-sessions-NNN. Decode: base64 -d > key; git-crypt unlock key"}]}
+         "value": "git-crypt symmetric key (base64) for koerschner/pi-sessions-NNN. Decode: base64 -d > key; git-crypt unlock key"}]}
     r = subprocess.run(["op-work", "item", "create", "--vault", VAULT, "--format", "json", "-"],
                        text=True, input=json.dumps(tmpl), capture_output=True)
     if r.returncode:

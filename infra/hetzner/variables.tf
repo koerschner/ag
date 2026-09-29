@@ -46,7 +46,7 @@ variable "tailscale_auth_key" {
 }
 variable "ag_repo" {
   type    = string
-  default = "git@github.com:nathankoerschner/ag.git"
+  default = "git@github.com:koerschner/ag.git"
 }
 variable "ag_deploy_key" {
   description = "Read-only GitHub deploy key for the private ag repo (from op-work)"
@@ -55,5 +55,5 @@ variable "ag_deploy_key" {
 }
 variable "dotfiles_repo" {
   type    = string
-  default = "https://github.com/nathankoerschner/dotfiles.git"
+  default = "https://github.com/koerschner/dotfiles.git"
 }

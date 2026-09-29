@@ -6,7 +6,7 @@ presence, the client ↔ host bridge, computer use, 1Password and Tailscale acce
 infrastructure, the global agent instructions (`agents.md/`), and the skills.
 
 Personal machine config (shell, editor, terminal, window management, Brewfile) stays in the public
-[dotfiles](https://github.com/nathankoerschner/dotfiles) repo. Its `bootstrap` clones this repo to
+[dotfiles](https://github.com/koerschner/dotfiles) repo. Its `bootstrap` clones this repo to
 `~/ag` and runs `./install`; Linux machines run `./bootstrap-linux`, which installs both.
 
 Design and roadmap: [`docs/ag.md`](docs/ag.md). Machine inventory: [`machines/README.md`](machines/README.md).
@@ -385,7 +385,7 @@ run from Herdr/pi (started over SSH) can drive Chrome with osascript.
 ## Pi sessions archive
 
 `pi-sessions-sync` copies every Pi session transcript to Nathan's private GitHub: repos
-`nathankoerschner/pi-sessions-NNN` ("volumes"), laid out as `machines/<machine>/<project>/<session>.jsonl`.
+`koerschner/pi-sessions-NNN` ("volumes"), laid out as `machines/<machine>/<project>/<session>.jsonl`.
 Design notes: `docs/ag.md` ("pi-sessions archive").
 
 - **Redacted, then encrypted.** Token and key patterns, payment cards (issuer prefix + Luhn) and

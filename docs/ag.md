@@ -98,8 +98,8 @@ Nothing important may live only on a machine's local disk.
 3. ✅ Persistent volume layout (/data bind mounts). ✅ pi-sessions archive: `pi-sessions-sync` (README "Pi sessions archive"), hourly on the host (plus the client over SSH) and on the engine.
 4. ✅ `mac` tool (`bin/dot-local/bin/mac`: run, cua, push/pull, show, status) over the engine's own SSH key (ag-vault "ag-brain → ag-mac SSH key" (id vqpozjumzkuz7sgdcdgvdpaujq; the CLI can't rename SSH-key items), authorized on ag-mac only from tailnet IPs); tested run, files, computer use. ✅ MCP on the engine with zero per-machine auth: `mcp-tunnel` (systemd user unit) forwards 127.0.0.1:7381-7384 to ag-mac's shared gateway; Slack's OAuth file copied. When the engine becomes the host, the gateway moves there and auth lives in exactly one place.
 5. Move arcade dev onto the engine as the real test.
-6. Move Herdr, the inbox, the tickler, `show`, and `presence` to the engine (LaunchAgents become systemd
-   units), and point the client's attach command at it.
+6. ✅ (2026-09-29) Sessions and every Ag service moved to the engine: Herdr replaced by ag-mux on tmux, LaunchAgents became systemd
+   units, links use the Tailscale Service `ag`, and `ag` on the client attaches to the engine. docs/tmux-port.md.
 7. ✅ Renamed `ag` → `ag-mac`, `nathan-dev-client` → `ag-client`, the iPhone → `ag-phone` everywhere
    (Tailscale, SSH aliases, LocalHostNames, `machines/README.md`, docs, AGENTS.md; 2026-09-29). Left: shrink
    ag-mac to the Mac-worker role.

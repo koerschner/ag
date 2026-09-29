@@ -1,10 +1,9 @@
 # Porting Ag from Herdr to tmux
 
-Status (2026-09-29): **built; cutover pending.** Nathan approved the port the same day, and added two
-requirements: links must use a machine-independent address, and every Ag service moves to ag-engine
-(ag-mac keeps only the extremity role). What exists now is in "Build status" at the end; what's left is
-in "Cutover". Machine names follow the rename in progress: **ag-engine** (Hetzner Linux),
-**ag-mac** (today's `ag`), **ag-client** (today's `nathan-dev-client`), **ag-phone** (iPhone, Moshi).
+Status (2026-09-29): **done.** Built the same day, then cut over with `ag-move-host` (the "Cutover"
+section below, as one run): ag-engine hosts every session (ag-mux on tmux) and every Ag service,
+ag-mac is the extremity, and links use the Tailscale Service `ag`. Herdr stays on ag-mac, idle, as a
+fallback for a week.
 
 ## Summary
 
@@ -294,11 +293,12 @@ Why not before the move: porting ag-mac's live Herdr to tmux first means migrati
 Why not after: we'd build restore/import for Herdr-on-engine and then again for tmux; and the engine
 is the one place with no live sessions to disturb right now.
 
-## 5. Open questions for Nathan
-1. Go ahead on this plan and timing (build on the engine during the move)?
-2. Is losing the always-on sidebar acceptable with the two-line status + switcher + AG Dash?
-3. OK for restored sessions to come back hibernated (wake on focus) rather than all running?
-
+## 5. Decisions (Nathan, 2026-09-29)
+1. Go ahead, built on the engine during the move: **yes** ("port should go ahead"; then "run it").
+2. Losing Herdr's always-on sidebar (two-line status bar + switcher + AG Dash instead): **fine**.
+3. Restored sessions come back hibernated and wake when their tab is opened: **yes**.
+4. Links use a machine-independent address, never ag-mac: the Tailscale Service `ag`.
+5. Every Ag service moves to ag-engine; ag-mac keeps only the extremity role.
 
 ## Build status (2026-09-29)
 
@@ -381,8 +381,13 @@ Activity capture (`activity-log.ts`, `ag.jsonl`) moves with the sessions, since 
 
 ## Cutover
 
-Prerequisites: the engine's clones of ag-mac's repos (step 5 in docs/ag.md: 48 of them are cloned into
-ag-engine:~, list in `/tmp/repos.tsv` there), and the engine's MCP auth (below).
+`bin/dot-local/bin/ag-move-host` runs steps 2–7 in one go on ag-mac (it detaches under launchd, since it stops
+the Pi that starts it) and texts Nathan when it's done. Paths from ag-mac keep working on the engine because
+`/Users/natkoersch` is a symlink to `/home/nathan` there (`bootstrap-linux`), so session files, tickler items
+and state need no rewriting. Roles come from `machines/README.md`: `ag-host` prints the session host, and
+`machine-role host` gates every service (LaunchAgents on the Mac, systemd units on Linux), so flipping the
+two rows is what moves them. Before the run: repos copied with dependencies (`ag-move-repos --apply`),
+Pi session files copied, and the services tested on the engine.
 
 1. **Services**: port the "Move" services above to systemd user units; run them on the engine against agd
    on 127.0.0.1 (the ports are free there; svc:ag keeps forwarding to ag-mac meanwhile).

@@ -1,6 +1,6 @@
 # Ag
 
-Status: **in progress** (started 2026-09-28 in the "Cloud VM Setup" session). IaC scaffold: `infra/` + `ag-infra`; first brain = Hetzner CCX53 in Hillsboro. Today everything
+Status: **in progress** (started 2026-09-28 in the "Cloud VM Setup" session). First brain `ag-brain` is up (2026-09-29): Hetzner CCX33 (8 vCPU/32 GB; the account is capped at 8 dedicated vCPUs until Hetzner allows a limit request), Hillsboro, joined to the tailnet, `bootstrap-linux` clean, Pi working. Today everything
 still runs on the Mac called `ag`; this doc is the target and the source of truth for what goes where.
 
 ## What Ag is
@@ -94,7 +94,7 @@ Nothing important may live only on a machine's local disk.
 
 1. Upgrade Tailscale for tagged ephemeral nodes and API/Terraform access (split-out session
    "Upgrade Tailscale Plan").
-2. IaC (`infra/hetzner`, `ag-infra up`; scaffold done, waiting on a Hetzner account + the Ramp card in `ag-vault`), `bootstrap-linux` (written, untested until the first box exists). Bring up one brain.
+2. ✅ IaC (`infra/hetzner`, `ag-infra up`/`down`, verified by a full destroy + rebuild), ✅ `bootstrap-linux` (idempotent, clean run). ✅ One brain up. Left: MCP server auth on the brain, and moving to CCX53 once allowed.
 3. Build the pi-sessions archive and the persistent-volume layout.
 4. Build the `mac` tool (brain → ag-mac, including computer use) and prove it works.
 5. Move arcade dev onto the brain as the real test.

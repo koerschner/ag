@@ -1,0 +1,83 @@
+#!/usr/bin/env bun
+// ag-legacy-forward: on ag-mac after the move, keep its old Ag ports (7373-7376 on its Tailscale IP) working
+// by forwarding them to the Tailscale Service `ag` (ag-svc). For iOS Shortcuts and old links that still use
+// ag-mac's IP; remove once nothing does. Run by com.nathan.ag-legacy-forward (extremity only).
+import { execFileSync } from "node:child_process";
+
+const PORTS = (process.env.AG_LEGACY_PORTS ?? "7373,7374,7375,7376").split(",").map(Number);
+const TARGET = process.env.AG_LEGACY_TARGET ?? "ag.tail44736d.ts.net";
+const OFFSET = Number(process.env.AG_LEGACY_OFFSET ?? 0); // tests: listen on port+OFFSET
+const ts = ["/usr/local/bin/tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale", "tailscale"];
+let ip = "";
+for (const t of ts) {
+	try {
+		ip = execFileSync(t, ["ip", "-4"], { encoding: "utf8" }).trim().split("\n")[0];
+		if (ip) break;
+	} catch {}
+}
+if (!ip) throw new Error("no Tailscale IP");
+
+// Bun sockets can accept less than a full write; keep the rest and flush it on drain.
+type End = { sock?: any; pending: Uint8Array[] };
+const flush = (e: End) => {
+	while (e.sock && e.pending.length) {
+		const b = e.pending[0];
+		const n = e.sock.write(b);
+		if (n < b.length) {
+			e.pending[0] = b.subarray(n);
+			return;
+		}
+		e.pending.shift();
+	}
+};
+const send = (e: End, d: Uint8Array) => (e.pending.push(new Uint8Array(d)), flush(e));
+type Pair = { client: End; up: End };
+
+for (const port of PORTS) {
+	Bun.listen<Pair>({
+		hostname: ip,
+		port: port + OFFSET,
+		socket: {
+			open(client) {
+				const pair: Pair = { client: { sock: client, pending: [] }, up: { pending: [] } };
+				client.data = pair;
+				Bun.connect<Pair>({
+					hostname: TARGET,
+					port,
+					data: pair,
+					socket: {
+						open(up) {
+							pair.up.sock = up;
+							flush(pair.up);
+						},
+						data(_up, d) {
+							send(pair.client, d);
+						},
+						drain() {
+							flush(pair.up);
+						},
+						close() {
+							pair.client.sock?.end();
+						},
+						error() {
+							pair.client.sock?.end();
+						},
+					},
+				}).catch(() => client.end());
+			},
+			data(client, d) {
+				send(client.data.up, d);
+			},
+			drain(client) {
+				flush(client.data.client);
+			},
+			close(client) {
+				client.data.up.sock?.end();
+			},
+			error(client) {
+				client.data.up.sock?.end();
+			},
+		},
+	});
+}
+console.log(`ag-legacy-forward: ${ip}:${PORTS.join(",")} → ${TARGET}`);

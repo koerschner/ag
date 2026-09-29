@@ -4,12 +4,12 @@
 <dict>
   <key>Label</key>
   <string>com.nathan.mcp-gateway</string>
-  <!-- One shared copy of each stdio MCP bridge for all Pi sessions (see bin/dot-local/bin/mcp-gateway). All machines. -->
+  <!-- One shared copy of each stdio MCP bridge for all Pi sessions (see bin/dot-local/bin/mcp-gateway). All machines except the extremity (ag-mac), whose sessions moved to the engine. -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string>
     <string>-lc</string>
-    <string>exec "$HOME/.local/bin/mcp-gateway"</string>
+    <string>"$HOME/.local/bin/machine-role" extremity &amp;&amp; { sleep 3600; exit 0; }; exec "$HOME/.local/bin/mcp-gateway"</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

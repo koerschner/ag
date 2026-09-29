@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- After the move: ag-mac's old Ag ports forward to the Tailscale Service `ag` (bin/dot-local/bin/ag-legacy-forward). Extremity (ag-mac) only. -->
+  <key>Label</key>
+  <string>com.nathan.ag-legacy-forward</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>"$HOME/.local/bin/machine-role" extremity || { sleep 3600; exit 0; }; exec "$HOME/.local/bin/ag-legacy-forward"</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardErrorPath</key>
+  <string>/tmp/ag-legacy-forward.log</string>
+  <key>StandardOutPath</key>
+  <string>/tmp/ag-legacy-forward.log</string>
+</dict>
+</plist>

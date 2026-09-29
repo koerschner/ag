@@ -504,6 +504,19 @@ mp4s with faststart, so they play in QuickTime and inline on iPhone Safari.
   ffmpeg avfoundation, 15 fps, capped at 30 min. Needs macOS **Screen Recording** for the agents'
   TCC identity, `sshd-keygen-wrapper` (see "macOS permissions for agents"); `start` fails fast
   when it's missing. Plain `screencapture -x out.png` works for single frames the same way.
+- **Polished (Screen Studio style)**: `agrec start [-s N] [--fps 30]` … `agrec stop` records a
+  screen *without* the cursor (`-capture_cursor 0`, wall-clock timestamps so `ffmpeg.log`'s
+  `start:` is the first frame's epoch) while `cursorlog` (`share/agrec/cursorlog.swift`, a
+  listen-only CGEvent tap for clicks plus 60 Hz position polling; needs Input Monitoring) writes
+  `cursor.csv` into the session dir (`/tmp/agrec/<time>/`). `agrec export [dir] out.mp4`
+  (`share/agrec/export.py`, a uv script with numpy + OpenCV) then: scores per-frame pixel change
+  on a small gray copy; fast-forwards stretches with no change, cursor motion, or clicks for
+  ≥1.2 s at 8x with a ⏩ badge (capped at 1.5 s of output each; `--drop` cuts them), keeping
+  0.4 s before / 0.6 s after every change; turns instant cursor jumps into eased glides ending at
+  the jump and smooths the rest (zero-lag 30 ms gaussian); draws a 1.5x macOS-style cursor with a
+  press squish and click ripples; and spring-zooms (1.6x) toward click areas, holding through
+  short gaps. `--plain` gives an unpolished reference. A 72 s Finder test exported to 25 s
+  (20 s with `--drop`) in ~30 s.
 - **Showing it**: `show clip.mp4` opens it on the client and publishes a phone player page
   (`phone:` link). In review pages, keep the page self-contained for images (base64) but put videos
   beside it as files, `<video src="flow.mp4" controls playsinline muted>`: `show page.html` copies

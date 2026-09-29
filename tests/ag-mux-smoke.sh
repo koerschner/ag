@@ -7,7 +7,7 @@ set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 bin=$here/../bin/dot-local/bin; export AG_MUX_LIB=$here/../bin/dot-local/lib/ag-mux
 export AG_MUX_TMUX=agsmoke$$ AG_MUX_STATE=${TMPDIR:-/tmp}/agsmoke$$ AG_MUX_BACKEND=tmux
-export AG_MUX_SOCKET=$AG_MUX_STATE/agd.sock AG_MUX_CONF=$here/../tmux/dot-config/ag/ag.tmux.conf AG_MUX_BIN=$bin/ag-mux
+export AG_MUX_SOCKET=$AG_MUX_STATE/agd.sock AG_MUX_CONF=$here/../tmux/dot-config/ag/ag.tmux.conf AG_MUX_BIN=$bin/ag-mux AG_MUX_SLEEP=$bin/ag-mux-sleep
 M() { "$bin/ag-mux" "$@"; }
 pass=0 failed=0
 ok() { pass=$((pass + 1)); printf '  ok   %s\n' "$1"; }

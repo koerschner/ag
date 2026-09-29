@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# ag-move-host: move Ag's session host from this Mac (Herdr) to the engine (ag-mux on tmux).
+# The cutover in docs/tmux-port.md, as one run. Run on ag-mac; it detaches itself under launchd, because it
+# stops every Pi here (including the one that started it) and must keep going.
+#   ag-move-host            start (detached); log: ~/.local/state/cutover/move-host.log
+#   ag-move-host --run      the steps themselves (what the detached job runs)
+set -uo pipefail
+TO=${AG_MOVE_TO:-ag-engine}
+DIR=~/.local/state/cutover
+LOG=$DIR/move-host.log
+AG=~/ag
+H=~/.local/bin/herdr
+mkdir -p "$DIR"
+if [ "${1:-}" != --run ]; then
+	launchctl remove com.nathan.ag-move-host 2>/dev/null
+	launchctl submit -l com.nathan.ag-move-host -o "$LOG" -e "$LOG" -- /bin/zsh -lc "exec $0 --run"
+	echo "ag-move-host: started under launchd; log $LOG"
+	exit 0
+fi
+launchctl remove com.nathan.ag-move-host 2>/dev/null # one shot: don't restart when this exits
+say() { echo "$(date '+%F %T') $*"; }
+fail() { say "FAILED: $*"; ~/.local/bin/ag-text "⚠️ Ag move to $TO stopped: $*. Log: ag-mac:$LOG" || true; exit 1; }
+say "=== moving Ag's session host to $TO"
+
+# 1. Let working agents finish their turn (up to 10 min).
+for _ in $(seq 60); do
+	n=$($H agent list | jq '[.result.agents[] | select(.agent_status == "working")] | length')
+	[ "$n" = 0 ] && break
+	say "waiting for $n working agent(s)"
+	sleep 10
+done
+
+# 2. Layout (every tab, each Pi pane's session file, hibernated ones too) and the pane → pi pid list.
+AG_MUX_BACKEND=herdr ~/.local/bin/ag-mux export-herdr >"$DIR/layout.json" || fail "export-herdr"
+$H api snapshot >"$DIR/herdr-snapshot.json"
+say "exported $(jq '[.workspaces[].tabs[]] | length' "$DIR/layout.json") tabs, $(jq '[.. | objects | select(.agent == "pi")] | length' "$DIR/layout.json") Pi sessions"
+
+# 3. Flip roles: the engine hosts sessions, ag-mac becomes the extremity. Role-gated services follow.
+cd $AG || fail "no ~/ag"
+python3 - <<'PY' || fail "machines/README.md edit"
+import re
+f = "machines/README.md"; s = open(f).read()
+s = s.replace("| `ag-mac` | `ag-mac` | host |", "| `ag-mac` | `ag-mac` | extremity |")
+s = re.sub(r"\| `ag-engine` \| `ag-engine` \(Linux, Hetzner CCX33 in Hillsboro\) \| engine \(Ag; being set up, not yet the Herdr host\) \|",
+           "| `ag-engine` | `ag-engine` | host |", s)
+s = s.replace("- **host**: runs the Herdr server, agents, and repos. Agents act from here.",
+              "- **host**: runs Ag's sessions (ag-mux on tmux), every Ag service, and the repos. Agents act from here. Today: ag-engine (Linux, Hetzner CCX33 in Hillsboro).\n- **extremity**: the always-on Mac Ag drives for computer use and Mac-only apps and CLIs (ag-mac). No sessions or Ag services; it never sleeps.")
+open(f, "w").write(s)
+PY
+git commit -q -m "Move Ag's session host to $TO: ag-engine is the host, ag-mac the extremity (ag-move-host)" machines/README.md &&
+	git pull -q --rebase --autostash && git push -q || fail "push role flip"
+say "roles flipped: host=$(~/.local/bin/ag-host)"
+ssh "$TO" 'cd ~/ag && git pull -q --ff-only && cd ~/dotfiles && git pull -q --ff-only' || fail "pull on $TO"
+
+# 4. Stop every Pi here (hibernated sleep screens too), so no session runs in two places.
+jq -r '.result.snapshot.panes[].pane_id' "$DIR/herdr-snapshot.json" | while read -r p; do
+	$H pane process-info --pane "$p" 2>/dev/null | jq -r '.result.process_info.foreground_processes[] | select(.argv0 == "pi" or (.argv0 | test("python")) ) | .pid'
+done | sort -u >"$DIR/pids.txt"
+for pid in $(cat "$DIR/pids.txt"); do
+	ps -o args= -p "$pid" 2>/dev/null | grep -qE '(^pi( |$)|pi-hibernate wait)' && kill -TERM "$pid" 2>/dev/null
+done
+sleep 8
+left=$(pgrep -x pi | wc -l | tr -d ' ')
+say "stopped Pi sessions ($left pi processes left)"
+
+# 5. Services here: role-gated LaunchAgents go idle; ag-mac's old ports forward to svc:ag.
+for s in ag-board ag-inbox file-inbox ag-private pi-hibernate mcp-gateway; do launchctl kickstart -k "gui/$UID/com.nathan.$s" 2>/dev/null; done
+stow --dotfiles -d $AG -t ~ -R bin 2>/dev/null
+ln -sf $AG/macos-launchagents/com.nathan.ag-legacy-forward.plist ~/Library/LaunchAgents/
+launchctl bootstrap "gui/$UID" ~/Library/LaunchAgents/com.nathan.ag-legacy-forward.plist 2>/dev/null ||
+	launchctl kickstart -k "gui/$UID/com.nathan.ag-legacy-forward"
+
+# 6. Data: sessions, MCP tokens, service state, inbox files; then repos once more (fast, incremental).
+for d in .pi/agent/sessions .pi/agent/mcp-auth .mcp-auth .local/state/tickler .local/state/ag-board .local/state/ag-inbox \
+	.local/state/presence .local/state/activity .local/state/ag-notify .local/state/herdr-tab-name .local/state/herdr-inbox-file \
+	.local/state/client-cua-gate .local/state/pi-hibernate inbox review; do
+	[ -e ~/$d ] && rsync -a ~/$d/ "$TO:$d/" || say "rsync $d failed"
+done
+say "state copied"
+~/.local/bin/ag-move-repos --apply --no-deps >"$DIR/repos-final.log" 2>&1 || say "repo re-sync reported problems ($DIR/repos-final.log)"
+say "repos re-synced: $(grep -c '✓' "$DIR/repos-final.log") ok, $(grep -c '✗' "$DIR/repos-final.log") failed"
+
+# 7. The engine: its own MCP gateway, every service, the sessions, the `ag` address.
+scp -q "$DIR/layout.json" "$TO:.local/state/ag-mux/herdr-layout.json" || fail "copy layout"
+ssh "$TO" 'bash -s' <<'SH' || fail "engine setup"
+set -uo pipefail
+cd ~/ag && stow --dotfiles -d ~/ag -t ~ -R ag-board ag-inbox agents bin pi systemd-user tmux
+systemctl --user daemon-reload
+systemctl --user disable --now mcp-tunnel.service
+for u in mcp-gateway.service ag-board.service ag-inbox.service file-inbox.service ag-private.service pi-hibernate.service \
+	herdr-nav.service tickler.timer presence.timer; do systemctl --user enable "$u" >/dev/null 2>&1; systemctl --user restart "$u"; done
+systemctl --user restart pi-sessions-sync.timer
+~/.local/bin/ag-mux restore --from ~/.local/state/ag-mux/herdr-layout.json
+~/.local/bin/ag-svc local
+SH
+say "engine services up, sessions restored, svc:ag local"
+
+# 8. The client picks up the new host (Hammerspoon reads ag-host at load).
+ssh ag-client 'PATH=/opt/homebrew/bin:$PATH; cd ~/ag && git pull -q --rebase --autostash && stow --dotfiles -d ~/ag -t ~ -R bin hammerspoon; cd ~/dotfiles && git pull -q --rebase --autostash; hs -c "hs.reload()" >/dev/null 2>&1 &' ||
+	say "client update failed"
+
+# 9. Check and report.
+home=$(curl -s -m 10 http://ag:7376/api/config | jq -r .home)
+tabs=$(ssh "$TO" '~/.local/bin/ag-mux api snapshot' | jq '.result.snapshot.tabs | length')
+say "check: AG Dash home=$home, engine tabs=$tabs"
+[ "$home" = /home/nathan ] || fail "AG Dash isn't answering from the engine (home=$home)"
+~/.local/bin/ag-text "✅ Ag moved to ag-engine: $tabs tabs restored (Pi asleep, wakes when you open a tab), AG Dash/inbox/show at http://ag:7376 etc. On ag-client run \`ag\` in a new terminal to attach (tmux). Herdr on ag-mac stays as a fallback for a week. Log: ag-mac:~/.local/state/cutover/move-host.log"
+say "=== done"

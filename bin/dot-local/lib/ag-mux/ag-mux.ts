@@ -31,6 +31,7 @@ const SOCK = process.env.AG_MUX_SOCKET ?? `${STATE_DIR}/agd.sock`;
 const TMUX_L = process.env.AG_MUX_TMUX ?? "ag";
 const CONF = process.env.AG_MUX_CONF ?? `${HOME}/.config/ag/ag.tmux.conf`;
 const SELF = process.env.AG_MUX_BIN ?? `${HOME}/.local/bin/ag-mux`;
+const SLEEP = process.env.AG_MUX_SLEEP ?? `${HOME}/.local/bin/ag-mux-sleep`;
 const STATE_FILE = `${STATE_DIR}/state.json`;
 const LAYOUT_FILE = `${STATE_DIR}/layout.json`;
 const POLL_MS = Number(process.env.AG_MUX_POLL_MS ?? 300);
@@ -1012,7 +1013,7 @@ function restore(layout: Layout, opts: { pathMap: [string, string][]; awake: boo
 				const sess = map(n.session);
 				if (!pid || n.agent !== "pi" || !sess || !existsSync(sess)) return;
 				const pane = PANES.get(pid)!;
-				const cmd = opts.awake ? `pi --session ${q(sess)}` : `${q(SELF)} _sleep ${q(sess)} && pi --session ${q(sess)}`;
+				const cmd = opts.awake ? `pi --session ${q(sess)}` : `${q(SLEEP)} ${q(sess)} && pi --session ${q(sess)}`;
 				if (!opts.awake) tmux(["set-option", "-p", "-t", pane.tp, "@ag_sleep", sess]);
 				pasteText(pane, ` ${cmd}`);
 				sendKeys(pane, ["enter"]);

@@ -198,8 +198,9 @@ const FORM = `<!doctype html><meta name=viewport content="width=device-width">
 <p><textarea name=text rows=4 cols=40 placeholder="message (optional)"></textarea>
 <p><select name=to>OPTIONS</select> <button>Send to ag</button></form>`;
 
-Bun.serve({
-	hostname: HOST,
+// Also on 127.0.0.1: the Tailscale Service svc:ag (ag-svc) proxies there (serve can't reach this machine's own tailnet IP).
+for (const hostname of [HOST, "127.0.0.1"]) Bun.serve({
+	hostname,
 	port: PORT,
 	maxRequestBodySize: 512 * 1024 * 1024,
 	async fetch(req) {

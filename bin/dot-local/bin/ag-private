@@ -124,8 +124,9 @@ $('#f').onsubmit=async e=>{e.preventDefault();const q=$('#t').value.trim();if(!q
 
 const host = execFileSync("/usr/local/bin/tailscale", ["ip", "-4"], { encoding: "utf8" }).trim().split("\n")[0];
 
-Bun.serve({
-	hostname: host,
+// Also on 127.0.0.1: the Tailscale Service svc:ag (ag-svc) proxies there (serve can't reach this machine's own tailnet IP).
+for (const hostname of [host, "127.0.0.1"]) Bun.serve({
+	hostname,
 	port: PORT,
 	idleTimeout: 0, // long replies stream for minutes
 	async fetch(req) {

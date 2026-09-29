@@ -429,8 +429,9 @@ try {
 	}
 } catch {}
 
-Bun.serve({
-	hostname: host,
+// Also on 127.0.0.1: the Tailscale Service svc:ag (ag-svc) proxies there (serve can't reach this machine's own tailnet IP).
+for (const hostname of [host, "127.0.0.1"]) Bun.serve({
+	hostname,
 	maxRequestBodySize: 64 * 1024 * 1024,
 	port: PORT,
 	async fetch(req, server) {

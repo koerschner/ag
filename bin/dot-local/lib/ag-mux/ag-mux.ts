@@ -496,6 +496,18 @@ const resolve = <T,>(m: Map<string, T>, id: string | undefined | null) => (id ? 
 const paneOf = (id?: string | null) => resolve(PANES, id) ?? fail("pane_not_found", `pane ${id} not found`);
 const tabOf = (id?: string | null) => resolve(TABS, id) ?? fail("tab_not_found", `tab ${id} not found`);
 const wsOf = (id?: string | null) => resolve(WS, id) ?? fail("workspace_not_found", `workspace ${id} not found`);
+// A pane restored asleep has no agent until pi starts. Prompting it (AG Dash, the inbox, the tickler) wakes it
+// and waits for pi to report ready, so senders don't hit agent_not_found on a sleeping session.
+async function wakeAgent(target: string): Promise<Pane> {
+	const p = resolve(PANES, target);
+	if (!p?.sleep || S.agents[p.id]) return agentOf(target);
+	tmuxBatch([["set-option", "-p", "-u", "-t", p.tp, "@ag_sleep"], ["send-keys", "-t", p.tp, "Enter"]]);
+	p.sleep = "";
+	const ready = await waitFor(() => ["idle", "done"].includes(S.agents[p.id]?.status ?? ""), 60_000);
+	if (!ready) fail("agent_not_found", `agent in ${p.id} was asleep and didn't start within 60s`);
+	await Bun.sleep(500); // let pi's editor take input
+	return p;
+}
 function agentOf(target: string): Pane {
 	for (const [id, a] of Object.entries(S.agents)) if (a.name === target && PANES.has(id)) return PANES.get(id)!;
 	const p = resolve(PANES, target);
@@ -880,7 +892,7 @@ const H: Record<string, (p: Params, ctx: { sock: net.Socket }) => any> = {
 		return { type: "agent_started", agent: agentInfo(pane), argv };
 	},
 	"agent.prompt": async (p) => {
-		const pane = agentOf(p.target);
+		const pane = await wakeAgent(p.target);
 		const a = S.agents[pane.id];
 		if (a.status === "blocked") fail("agent_blocked", `agent ${p.target} is blocked on a dialog`);
 		const t0 = Date.now();

@@ -93,6 +93,20 @@ mise install -y >/dev/null 2>&1 && echo "  node $(mise exec -- node --version)" 
 have uv     || curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null || warn "uv"
 have pi     || mise exec -- npm install -g --prefix "$HOME/.local" @earendil-works/pi-coding-agent >/dev/null || warn "pi"
 
+step "~/.gitconfig.local (untracked identity + gh credential helper; ~/.gitconfig is tracked, so never git config --global)"
+[[ -f ~/.gitconfig.local ]] || cat > ~/.gitconfig.local <<'GITLOCAL'
+[user]
+	email = 58815433+nathankoerschner@users.noreply.github.com
+	name = Nathan Koerschner
+[credential "https://github.com"]
+	helper =
+	helper = !/usr/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper =
+	helper = !/usr/bin/gh auth git-credential
+GITLOCAL
+echo "  ok"
+
 step "~/.zshenv (untracked; loaded for SSH and persistent agents, like on ag-mac)"
 [[ -f ~/.zshenv ]] || cat > ~/.zshenv <<'ZSHENV'
 export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.local/share/mise/shims:$PATH"

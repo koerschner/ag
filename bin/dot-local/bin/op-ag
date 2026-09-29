@@ -147,7 +147,7 @@ try:
 except subprocess.TimeoutExpired:
     fail(
         f"op did not finish within {TIMEOUT_SECONDS:g}s and was stopped. Check "
-        "ag's network and for pending macOS/1Password prompts on its screen "
+        "ag-mac's network and for pending macOS/1Password prompts on its screen "
         "(set OP_AG_TIMEOUT to change the limit)."
     )
 except KeyboardInterrupt:

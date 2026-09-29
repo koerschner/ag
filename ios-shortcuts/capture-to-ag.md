@@ -25,12 +25,12 @@ voice capture can only be tested on the physical phone.
 
 The screenshot is only handed to the agent when it's needed: Jev judges from the prompt
 (transcript) whether it refers to what was on screen ("what song is this?" → attached; "remind me to
-call mom Sunday" → not). The screenshot is always saved in `ag:~/inbox/capture/` either way, and so
+call mom Sunday" → not). The screenshot is always saved in `ag-mac:~/inbox/capture/` either way, and so
 is the recording. Same gate as the Mac quick capture. If Jev judges the capture to be new context for a session that's already open, it's added to that session instead of opening a new one; see the README's "ag inbox" section.
 
 Every capture is first saved to a queue folder on the phone (prompt as `<stamp>.txt` or
 recording as `<stamp>.m4a`, screenshot as `<stamp>.jpg`, all in `ag-queue/`), then the queue is
-flushed. If ag is unreachable (bad signal, Tailscale down), the items stay queued and are sent on
+flushed. If ag-mac is unreachable (bad signal, Tailscale down), the items stay queued and are sent on
 the next capture or when the phone joins Wi-Fi. No success notification is shown. The server
 ignores a repeated `id`, so resending an item whose response was lost is safe.
 

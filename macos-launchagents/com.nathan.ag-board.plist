@@ -4,12 +4,12 @@
 <dict>
   <key>Label</key>
   <string>com.nathan.ag-board</string>
-  <!-- AG Dash: Kanban dashboard over the Herdr agent sessions (http://ag:7376). Only runs on ag. -->
+  <!-- AG Dash: Kanban dashboard over the Herdr agent sessions (http://ag:7376). Only runs on the host (ag-mac). -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string>
     <string>-lc</string>
-    <string>[[ $(scutil --get LocalHostName) == ag ]] || { sleep 3600; exit 0; }; exec "$HOME/.local/bin/ag-board"</string>
+    <string>"$HOME/.local/bin/machine-role" host || { sleep 3600; exit 0; }; exec "$HOME/.local/bin/ag-board"</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

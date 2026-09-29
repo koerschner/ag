@@ -2,13 +2,13 @@
 
 Anything that must happen **on Nathan's iPhone** (installing or configuring an app,
 reading a token or setting, iOS Shortcuts, pairing) is done from the **client Mac**
-through Apple's **iPhone Mirroring** app, driven with computer use from ag:
+through Apple's **iPhone Mirroring** app, driven with computer use from ag-mac:
 
 ```sh
 client-cua "Open iPhone Mirroring, connect to Nathan's iPhone, then ..."
 ```
 
-- Use `client-cua` (client Mac desktop), not `chatgpt_cua`/`chatgpt-cua` (ag's desktop):
+- Use `client-cua` (client Mac desktop), not `chatgpt_cua`/`chatgpt-cua` (ag-mac's desktop):
   iPhone Mirroring is paired with the client Mac.
 - The phone must be **locked** for Mirroring to connect. If it reports **iPhone in Use**,
   stop and ask Nathan to lock the phone, then retry. That is not a task failure.
@@ -31,11 +31,11 @@ With `cua_repl`, `typeText`, ordinary `pressKey`, and direct `paste` can fail to
 
 If Mirroring reports **iPhone in Use**, ask Nathan to leave the physical phone locked; reconnect after it is available. Do not mistake that disconnection for a text-entry failure. Keep requested onboarding pauses so Nathan can read each screen.
 
-## Shortcuts: build on ag, they sync to the phone
+## Shortcuts: build on ag-mac, they sync to the phone
 
-ag's Shortcuts app is signed into Nathan's Apple ID with **iCloud Sync** on (Shortcuts ›
+ag-mac's Shortcuts app is signed into Nathan's Apple ID with **iCloud Sync** on (Shortcuts ›
 Settings › General, verified 2026-09-27; ag already lists Voice to ag, Capture to ag, Share to ag
-and Flush ag Queue). So a shortcut built on ag (with `chatgpt-cua` in the Shortcuts app) appears on
+and Flush ag Queue). So a shortcut built on ag-mac (with `chatgpt-cua` in the Shortcuts app) appears on
 the iPhone by itself; no second iPhone is needed. (`shortcuts list` on the CLI can show a stale
 list; trust the app.) What does **not** sync and still needs the phone (via Mirroring): Back Tap
 and Action Button assignments, personal automations (e.g. "Wi-Fi joins"), and iOS-only actions

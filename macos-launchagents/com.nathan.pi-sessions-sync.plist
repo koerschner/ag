@@ -10,7 +10,7 @@
   <array>
     <string>/bin/zsh</string>
     <string>-c</string>
-    <string>[ "$(machine-role 2>/dev/null)" = host ] || exit 0; exec pi-sessions-sync --remote nathan-dev-client</string>
+    <string>[ "$(machine-role 2>/dev/null)" = host ] || exit 0; exec pi-sessions-sync --remote ag-client</string>
   </array>
   <key>StartInterval</key>
   <integer>3600</integer>

@@ -1,5 +1,5 @@
 /**
- * Client-CUA guard: agents on ag must not drive the client Mac's desktop unless the thing exists
+ * Client-CUA guard: agents on ag-mac must not drive the client Mac's desktop unless the thing exists
  * only there (a dialog or permission prompt showing on the client, iPhone Mirroring, a client-only
  * setting). Never "because it's already signed in on the client".
  *
@@ -17,7 +17,7 @@ import { isToolCallEventType, type ExtensionAPI } from "@earendil-works/pi-codin
 const GATE = `${homedir()}/.local/bin/client-cua-gate`;
 // client-cua (or CLIENT_CUA_HOST=) in command position, not just mentioned (grep, cat, git diff).
 const CUA = /(?:^|[;&|(\n`'"]|\$\(|\b(?:then|do|else|exec|env|time|nohup|timeout\s+\S+)\s)\s*(?:\w+=(?:"[^"]*"|'[^']*'|\S*)\s+)*(?:\S*\/)?client-cua(?=\s|$|[;&|)'"`])|\bCLIENT_CUA_HOST=/;
-const CLIENT = /\bssh\b[^\n;|&]*?\b(nathan-dev-client|100\.68\.116\.104|nathans-macbook-pro-2)\b/i;
+const CLIENT = /\bssh\b[^\n;|&]*?\b(ag-client|nathan-dev-client|100\.68\.116\.104|nathans-macbook-pro-2)\b/i;
 const UI = /\bosascript\b|System Events|\bcliclick\b|\bhs\b[^\n]*\b(eventtap|keyStroke|application|window|mouse|axuielement)/i;
 
 // Text that is data, not code, must not trip the guard: heredoc bodies fed to non-shell commands
@@ -94,7 +94,7 @@ export default function (pi: ExtensionAPI) {
 			event.input.command = `export CLIENT_CUA_GATE_TOKEN=${verdict.token}\n${command}`;
 			return;
 		}
-		const reason = verdict?.reason ?? `Blocked by the client-CUA guard: the gate failed (${(stderr || stdout).trim().slice(0, 300) || `exit ${code}`}), so it fails closed. Do this on ag instead, or tell Nathan what ag is missing.`;
+		const reason = verdict?.reason ?? `Blocked by the client-CUA guard: the gate failed (${(stderr || stdout).trim().slice(0, 300) || `exit ${code}`}), so it fails closed. Do this on ag-mac instead, or tell Nathan what ag-mac is missing.`;
 		ctx.ui.notify(`Client-CUA guard blocked a client desktop call. ${verdict?.access ?? ""}`, "warning");
 		return { block: true, reason };
 	});

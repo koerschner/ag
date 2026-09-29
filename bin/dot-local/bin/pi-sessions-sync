@@ -16,7 +16,7 @@ Design (docs/ag.md, "pi-sessions archive"):
 Sources: this machine's ~/.pi/agent/sessions, plus any `--remote <ssh-alias>` machines pulled over SSH
 (e.g. ag-mac archives the client Mac, which holds no vault credentials).
 
-  pi-sessions-sync [--remote nathan-dev-client ...] [--dry-run] [--quiet-min N]
+  pi-sessions-sync [--remote ag-client ...] [--dry-run] [--quiet-min N]
 """
 import argparse, base64, hashlib, json, os, re, shutil, socket, subprocess, sys, tempfile, time
 from pathlib import Path
@@ -163,7 +163,7 @@ def ensure_volume(key, dry):
 
 def machine_name():
     n = socket.gethostname().split(".")[0].lower()
-    return {"ag": "ag-mac"}.get(n, n)
+    return {"ag": "ag-mac", "nathans-macbook-pro-2": "ag-client"}.get(n, n)
 
 
 def collect(sources, quiet_s):

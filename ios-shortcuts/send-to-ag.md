@@ -1,7 +1,7 @@
 # iOS Shortcut: Send to ag
 
 Share a screenshot or photo from the iPhone, optionally add a message, and either
-save it on ag or hand it to a pi session. Talks to `file-inbox` on ag
+save it on ag-mac or hand it to a pi session. Talks to `file-inbox` on ag-mac
 (`bin/dot-local/bin/file-inbox`, port 7374, Tailscale only). The iPhone must be on
 the tailnet (Tailscale app connected).
 
@@ -22,7 +22,7 @@ flowchart TD
 ```
 
 Server behaviour for `POST /send`:
-- `to` empty ("Just save"): files saved to `ag:~/inbox/phone/`.
+- `to` empty ("Just save"): files saved to `ag-mac:~/inbox/phone/`.
 - `to=new`: forwarded to the ag inbox (`ag-inbox`), which opens a new Herdr tab running pi.
 - `to=<pane id>`: `herdr agent prompt <pane> "<text> + file paths"`; pi reads the image paths.
 

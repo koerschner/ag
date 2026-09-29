@@ -4,7 +4,7 @@
 #   cua-cleanup snapshot <file>   # before the run: record open apps, Chrome tabs, Safari windows
 #   cua-cleanup restore <file>    # after the run: quit apps / close tabs+windows not in <file>
 #
-# Used by chatgpt-cua (ag) and client-cua (client). Apps are compared by bundle id, so an app that
+# Used by chatgpt-cua (ag-mac) and client-cua (client). Apps are compared by bundle id, so an app that
 # was already open is never quit (even if the run relaunched it); only its new Chrome tabs or
 # Safari windows are closed. Quits are graceful (like Cmd+Q): an app that won't quit (e.g. an
 # unsaved-changes prompt) is left running and reported. Prints a one-line summary on restore.

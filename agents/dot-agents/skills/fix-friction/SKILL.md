@@ -42,14 +42,14 @@ There are two roles. Work out which one you are:
 
 1. **Read the originating transcript** if the brief isn't enough.
 2. **Find the root cause and classify it**, one of:
-   - missing credential or access (a vault item, login, token, account on ag)
+   - missing credential or access (a vault item, login, token, account on ag-mac)
    - missing tool or capability (no CLI/API/script for something agents need)
    - missing knowledge (a fact about Nathan or the setup that should be in AGENTS.md or a skill)
    - bad default or broken tool (something works but in a way that makes agents stop)
    - guard false positive (a safety check blocked something it should allow)
    - external (outside Ag's control; say so, then reduce the damage)
 3. **Fix it at the most central layer**, preferring in this order:
-   access and credentials on ag and the engine machines (vaults, logins, tokens)
+   access and credentials on ag-mac and the engine machines (vaults, logins, tokens)
    → an ag (or dotfiles) tool or config fix → an AGENTS.md rule or profile fact
    (`agents.md/sections/`) → a skill. Change the thing that caused it, not the
    one task. Keep fixes small; don't build a framework. Follow the machine-setup
@@ -81,6 +81,6 @@ There are two roles. Work out which one you are:
 
 Friction usually starts with an unnecessary question. Before asking Nathan for
 something, try: the vaults (`op-ag`, `op-work`, `op-shared`), the "About
-Nathan" profile and the rest of AGENTS.md, his email on ag (Chrome signed in to
+Nathan" profile and the rest of AGENTS.md, his email on ag-mac (Chrome signed in to
 his Gmail), past sessions (`rg` in `~/.pi/agent/sessions`), and the relevant
 skills. Ask only if those come up empty, and say what you checked.

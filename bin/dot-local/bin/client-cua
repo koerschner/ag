@@ -4,7 +4,7 @@
 #   client-cua --why "<why this exists only on the client>" "click Allow on the ... prompt"
 #   echo "task" | CLIENT_CUA_WHY="..." client-cua
 #
-# Gated: driving the client is an antipattern (do the work on ag). Every run is judged by
+# Gated: driving the client is an antipattern (do the work on ag-mac). Every run is judged by
 # client-cua-gate (Jev) and allowed only when the thing exists solely on the client (a dialog or
 # permission prompt showing there, iPhone Mirroring, a client-only setting). Otherwise it exits 3
 # and spins out an Inbox session to get the missing access onto ag. Pi's client-cua-guard
@@ -18,7 +18,7 @@
 # CHATGPT_CUA_KEEP_OPEN=1 skips it.
 set -euo pipefail
 
-client=${CLIENT_CUA_HOST:-nathan-dev-client}
+client=${CLIENT_CUA_HOST:-ag-client}
 effort=${CHATGPT_CUA_EFFORT:-medium}
 why=${CLIENT_CUA_WHY:-}
 [[ ${1:-} == --why ]] && { why=${2:-}; shift 2 || true; }

@@ -11,7 +11,7 @@ To grab the screen and type a prompt in one press, use the Action Button
 (`capture-to-ag.md`), which now attaches a screenshot too.
 
 It posts to the ag inbox (`bin/dot-local/bin/ag-inbox`, port 7373):
-- `file` (repeatable): images/files. Saved to `ag:~/inbox/share/`, always attached. HEIC
+- `file` (repeatable): images/files. Saved to `ag-mac:~/inbox/share/`, always attached. HEIC
   photos are converted to JPEG so pi can read them.
 - `url` + `shared`: a shared link and the shared text.
 - `text`: the optional message. With no message, the agent works out what you most likely want.

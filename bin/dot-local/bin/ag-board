@@ -43,7 +43,7 @@
 //      POST /api/card {tab, hot?, list?, seen?}, /api/lists {lists}, /api/prompt {tab, text, interrupt?},
 //           /api/interrupt {tab}, /api/keys {tab, keys[]}, /api/focus {tab}, /api/close {tab}
 // Page: ~/.local/share/ag-board/index.html (stowed from the ag repo, ag-board/), re-read on every request.
-// Run by the com.nathan.ag-board LaunchAgent (only on ag). Log: /tmp/ag-board.log.
+// Run by the com.nathan.ag-board LaunchAgent (only on ag-mac). Log: /tmp/ag-board.log.
 
 import { execFileSync } from "node:child_process";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
@@ -1005,7 +1005,7 @@ async function handle(req: Request): Promise<Response> {
 
 const serveOpts = { port: PORT, idleTimeout: 0 /* SSE streams stay open */, maxRequestBodySize: 64 * 1024 * 1024, fetch: handle };
 Bun.serve({ ...serveOpts, hostname: host });
-Bun.serve({ ...serveOpts, hostname: "127.0.0.1" }); // tailscale serve proxies here (it can't reach ag's own Tailscale IP)
+Bun.serve({ ...serveOpts, hostname: "127.0.0.1" }); // tailscale serve proxies here (it can't reach ag-mac's own Tailscale IP)
 // HTTPS on the tailnet (idempotent; persists in tailscaled). Voice needs it: browsers only allow the mic on https.
 const HTTPS_URL = (() => {
 	try {

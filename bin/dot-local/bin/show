@@ -1,5 +1,5 @@
 #!/usr/bin/env zsh
-# show — open something from ag on the client Mac's screen.
+# show — open something from ag-mac on the client Mac's screen.
 #
 #   show chart.png              copy to client ~/ag-inbox and open it (default app)
 #   show report.html            also copies the local files it references (img/css/js)
@@ -14,7 +14,7 @@
 # http://<host>:7374/r/<name>/; `show` prints that link. The served page has a Comment button
 # that sends Nathan's note back to the pi session that ran `show`.
 set -euo pipefail
-client=${SHOW_CLIENT:-nathan-dev-client}
+client=${SHOW_CLIENT:-ag-client}
 app=()
 [[ ${1:-} == -a ]] && { app=(-a ${(q)2}); shift 2; }
 [[ $# -ge 1 ]] || { echo "usage: show [-a App] <file|dir|url>..." >&2; exit 2; }

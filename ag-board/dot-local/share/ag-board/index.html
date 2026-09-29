@@ -978,7 +978,7 @@ document.querySelectorAll(".vimtoggle").forEach((cb) => {
   cb.checked = vimOn;
   cb.onchange = () => { vimOn = cb.checked; localStorage.vim = vimOn ? "1" : "0"; document.querySelectorAll(".vimtoggle").forEach((x) => (x.checked = vimOn)); Object.values(editors).forEach((ed) => ed.setVim(vimOn)); };
 });
-// Files: pasted, dropped or picked → saved on ag (~/inbox/clipboard) → their paths go into the prompt.
+// Files: pasted, dropped or picked → saved on ag-mac (~/inbox/clipboard) → their paths go into the prompt.
 async function attach(id, files) {
   const fd = new FormData(); files.forEach((f) => fd.append("file", f, f.name || "paste.png"));
   toast(`Uploading ${files.length} file${files.length > 1 ? "s" : ""}…`);

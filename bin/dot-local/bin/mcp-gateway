@@ -2,7 +2,7 @@
 # mcp-gateway: one shared copy of each stdio MCP bridge for every Pi session on this machine.
 #
 # Without it, every Pi session spawns its own mcp-remote per server (~100 MB/session;
-# 96 sessions used ~9.5 GB on ag). Each server here runs once behind its own
+# 96 sessions used ~9.5 GB on ag-mac). Each server here runs once behind its own
 # mcp-proxy (stdio -> streamable HTTP on 127.0.0.1:<port>/mcp), and pi/dot-pi/agent/mcp.json
 # points at those URLs. One proxy per server so a failing server can't take the others
 # down; each is restarted independently if it exits. --stateless so open Pi sessions keep

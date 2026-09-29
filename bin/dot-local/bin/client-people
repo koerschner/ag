@@ -1,15 +1,15 @@
 #!/bin/zsh
 # client-people: Nathan's Contacts and Messages, driven on the client Mac (where both are signed in
-# and scriptable; ag's own Contacts/iCloud sync isn't reliable). Used by the ag inbox "contact" playbook.
+# and scriptable; ag-mac's own Contacts/iCloud sync isn't reliable). Used by the ag inbox "contact" playbook.
 #
 #   client-people find <name|phone|email>        matching contacts, one per line
 #   client-people add --first F [--last L] [--phone P] [--email E] [--org O] [--note N]
 #   client-people text <phone|email> <message>   send an iMessage/SMS as Nathan
 #
-# Host: $CLIENT_PEOPLE_HOST (default nathan-dev-client). Arguments reach AppleScript as argv, never
+# Host: $CLIENT_PEOPLE_HOST (default ag-client). Arguments reach AppleScript as argv, never
 # spliced into script text, so quotes in names or messages are safe.
 set -euo pipefail
-host=${CLIENT_PEOPLE_HOST:-nathan-dev-client}
+host=${CLIENT_PEOPLE_HOST:-ag-client}
 
 run() { # run <applescript> [args...] on the client
   local script=$1; shift

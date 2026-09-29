@@ -7,7 +7,7 @@
 if os.execute(os.getenv("HOME") .. "/.local/bin/machine-role host") then
 	require("battery_guard")
 else
-	-- Client only: lock/unlock, sleep/wake, app switches for the time review (pulled by ag's presence poll).
+	-- Client only: lock/unlock, sleep/wake, app switches for the time review (pulled by ag-mac's presence poll).
 	activity_log = require("activity_log")
 end
 
@@ -21,7 +21,7 @@ ag_inbox = require("ag_inbox")
 -- Anywhere else the keys pass through untouched, so Ghostty keeps its defaults.
 local HERDR_PREFIX = { mods = { "ctrl" }, key = "b" }
 -- Every shortcut is just a prefix chord, so it works the same locally and
--- through `herdr --remote` (ag): herdr runs any helper script on the server.
+-- through `herdr --remote` (ag-mac): herdr runs any helper script on the server.
 -- The table comes from the canonical spec, ~/.config/herdr/shortcuts.json
 -- (herdr/SHORTCUTS.md): each `key` (e.g. cmd+shift+d) sends prefix + `prefix`.
 local HERDR_KEY_NAMES = { minus = "-" }
@@ -106,14 +106,17 @@ herdr_shortcut_tap = hs.eventtap
 	end)
 	:start()
 
--- ─── Herdr: paste images into remote (ag) agents ────────────────────────────
--- Herdr runs on ag, so an image on this Mac's clipboard can't reach pi there.
+-- ─── Herdr: paste images into remote (ag-mac) agents ────────────────────────
+-- Herdr runs on ag-mac, so an image on this Mac's clipboard can't reach pi there.
 -- Cmd+V in a Herdr window with an image (or copied image files) on the clipboard:
--- upload it to ag:~/inbox/clipboard/ and type the remote path instead. Pi reads
--- image paths as attachments. Plain text pastes are untouched. Skipped on ag itself.
-local PASTE_HOST = "ag"
+-- upload it to ag-mac:~/inbox/clipboard/ and type the remote path instead. Pi reads
+-- image paths as attachments. Plain text pastes are untouched. Skipped on the host itself.
+local PASTE_HOST = "ag-mac"
+-- This Mac's LocalHostName, and whether it is the Herdr host (machines/README.md via machine-role).
+local THIS_HOST = (hs.execute("scutil --get LocalHostName"):gsub("%s", ""))
+local IS_HOST = select(2, hs.execute(os.getenv("HOME") .. "/.local/bin/machine-role host")) == true
 local PASTE_DIR = "inbox/clipboard"
-local PASTE_REMOTE_HOME = "/Users/natkoersch" -- ag's home; pi wants absolute paths
+local PASTE_REMOTE_HOME = "/Users/natkoersch" -- ag-mac's home; pi wants absolute paths
 local IMAGE_EXT = { png = true, jpg = true, jpeg = true, gif = true, webp = true, heic = true }
 
 -- Returns { {src=<local file>, ext=<remote ext>, convert=<bool>} ... } or nil. No image
@@ -248,7 +251,7 @@ herdr_paste_images = function() -- debug/test entry point: same as Cmd+V in herd
 end
 
 -- Keep the ssh master warm so the first paste is fast too.
-if (hs.execute("scutil --get LocalHostName"):gsub("%s", "")) ~= PASTE_HOST then
+if not IS_HOST then
 	herdr_ssh_warm = hs.timer.doEvery(600, function()
 		hs.task.new("/bin/sh", nil, { "-c", "mkdir -p ~/.ssh/sockets && { ssh -O check " .. PASTE_HOST .. " 2>/dev/null || ssh -fN " .. PASTE_HOST .. "; } && ssh " .. PASTE_HOST .. " mkdir -p " .. PASTE_DIR }):start()
 	end)
@@ -275,7 +278,7 @@ if (hs.execute("scutil --get LocalHostName"):gsub("%s", "")) ~= PASTE_HOST then
 	end
 end
 
-if (hs.execute("scutil --get LocalHostName"):gsub("%s", "")) ~= PASTE_HOST then
+if not IS_HOST then
 	herdr_image_paste_tap = hs.eventtap
 		.new({ hs.eventtap.event.types.keyDown }, function(evt)
 			if pastingText or hs.keycodes.map[evt:getKeyCode()] ~= "v" or not flagsMatch(evt:getFlags(), { cmd = true }) then
@@ -300,11 +303,12 @@ end
 -- HerdrLink.app (macos-apps/HerdrLink, the gemini:// handler) → hammerspoon://herdr?tab=&host=
 -- → here: focus that tab over the warm ssh connection. No browser involved.
 hs.urlevent.bind("herdr", function(_, params)
-	local tab, host = params.tab or "", params.host or "ag"
+	local tab, host = params.tab or "", params.host or "ag-mac"
 	if not tab:match("^[%w]+:[%w]+$") or not host:match("^[%w%.%-]+$") then
 		return hs.alert.show("herdr link: bad target")
 	end
-	local here = (hs.execute("scutil --get LocalHostName"):gsub("%s", "")) == host
+	-- "ag" is ag-mac's old name (links printed before the 2026-09-29 rename).
+	local here = host == THIS_HOST or (IS_HOST and (host == "ag" or host == "ag-mac"))
 	local focus = "$HOME/.local/bin/herdr tab focus " .. tab
 	hs.task
 		.new("/bin/sh", function(code, _, err)

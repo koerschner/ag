@@ -10,7 +10,7 @@
 #   -s N     screen number (default 0 = main display; `ffmpeg -f avfoundation -list_devices true -i ""`)
 #   --max S  safety cap in seconds (default 30 min) in case nobody calls stop
 #
-# Needs macOS Screen Recording permission for the process chain that runs it (on ag: herdr, for
+# Needs macOS Screen Recording permission for the process chain that runs it (on ag-mac: herdr, for
 # agents in Herdr panes). Without it screencapture fails and ffmpeg hangs, so start checks first.
 set -euo pipefail
 state=~/.local/state/screen-record
@@ -30,7 +30,7 @@ start)
 	alive && { echo "screen-record: already recording → $(<$state/out) (run: screen-record stop)" >&2; exit 1; }
 	if ! screencapture -x -D $(( screen + 1 )) $state/probe.png 2>/dev/null; then
 		echo "screen-record: no Screen Recording permission for this process (parent: $(ps -o comm= -p $PPID))." >&2
-		echo "  Grant it in System Settings → Privacy & Security → Screen & System Audio Recording (on ag: add ~/.local/bin/herdr)." >&2
+		echo "  Grant it in System Settings → Privacy & Security → Screen & System Audio Recording (on ag-mac: add ~/.local/bin/herdr)." >&2
 		exit 3
 	fi
 	# Pixels per point on this screen, from the probe capture vs the screen's size in points.

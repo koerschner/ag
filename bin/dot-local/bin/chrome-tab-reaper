@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Close Chrome tabs on ag that nobody has looked at for a while (agents leave tabs open).
+"""Close Chrome tabs on ag-mac that nobody has looked at for a while (agents leave tabs open).
 
   chrome-tab-reaper sweep     run one sweep now (via ChromeTabReaper.app; LaunchAgent
                               com.nathan.chrome-tab-reaper runs this every 30 min)

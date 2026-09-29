@@ -1,6 +1,6 @@
 ---
 name: dotfiles-change
-description: Make any machine-setup change the IaC way, in the ag repo (agent system) or dotfiles (personal config) - scripts, configs, LaunchAgents, shortcuts, Hammerspoon, Herdr keybindings, stow packages, new machines - and sync it to every machine. Use before touching ag, dotfiles, or anything outside a repo on ag or a client, and whenever changing keyboard shortcuts or the host/client setup.
+description: Make any machine-setup change the IaC way, in the ag repo (agent system) or dotfiles (personal config) - scripts, configs, LaunchAgents, shortcuts, Hammerspoon, Herdr keybindings, stow packages, new machines - and sync it to every machine. Use before touching ag, dotfiles, or anything outside a repo on ag-mac or a client, and whenever changing keyboard shortcuts or the host/client setup.
 ---
 
 # Changing the machine setup (ag + dotfiles)
@@ -14,7 +14,7 @@ Every change to the machine setup (any computer, phone, device, or service in th
 - **ag** (`~/ag` everywhere; private `nathankoerschner/ag`): the agent system. Herdr and Pi config, AG Dash, ag-inbox, tickler, presence, the bridge (`show`, `shot`, `mac`, `client-cua`), `op-*`, Tailscale, `infra/`, LaunchAgents (`macos-launchagents/`), systemd units, `macos-apps/`, Hammerspoon's agent glue (`hammerspoon/dot-hammerspoon/ag.lua`), `agents.md/`, the skills, `claude/` and `codex/`, and `machines/README.md` (the inventory). Installed by `./install` (Mac) or `./bootstrap-linux`.
 - **dotfiles** (public `nathankoerschner/dotfiles`): personal machine config. zsh, nvim, ghostty, git, tmux, ssh, mise, alfred, Hammerspoon's `init.lua`/window management, `Brewfile`, `macos` defaults, `snapshot` and `machines/<host>/` snapshots. Its `bootstrap` clones ag and runs `~/ag/install`.
 
-When in doubt, it goes in ag. `machines/README.md` (in ag) lists every machine with its role, SSH alias, user, home, and both checkout paths (dotfiles: ag has `~/dotfiles-seen-setup`, others `~/dotfiles`). The bar: if any device or part of the system were replaced, or a new one added, it could be built from zero using only the two repos (`bootstrap` + `install` + READMEs + the secrets checklist). Concretely:
+When in doubt, it goes in ag. `machines/README.md` (in ag) lists every machine with its role, SSH alias, user, home, and both checkout paths (dotfiles: ag-mac has `~/dotfiles-seen-setup`, others `~/dotfiles`). The bar: if any device or part of the system were replaced, or a new one added, it could be built from zero using only the two repos (`bootstrap` + `install` + READMEs + the secrets checklist). Concretely:
 
 - Scripts go in `bin/dot-local/bin` of the right repo, LaunchAgents in ag's `macos-launchagents/`, configs in a stow package (add new packages to `STOW_PACKAGES` in ag's `install` or dotfiles' `bootstrap`, and to `bootstrap-linux` if they apply on Linux).
 - Settings that can't be stowed (app preferences, iOS Shortcuts, GUI-only toggles) get documented in the README or a doc in the repo, precise enough to recreate. Examples: the CleanShot export path; iOS Shortcuts in `ios-shortcuts/`, as a mermaid flowchart plus build steps.
@@ -25,11 +25,11 @@ When in doubt, it goes in ag. `machines/README.md` (in ag) lists every machine w
 
 ## Commit policy
 
-Both repos are fully slop-cannon: commit only the files you changed and push to `main` without asking (`git pull --rebase --autostash origin main` first; ag's dotfiles checkout is on a local branch, so push that one with `git push origin HEAD:main`). ag's pre-commit hook rejects a stale generated AGENTS.md: run `agents.md/build` and stage both. Leave other uncommitted changes alone; another session may own them.
+Both repos are fully slop-cannon: commit only the files you changed and push to `main` without asking (`git pull --rebase --autostash origin main` first; ag-mac's dotfiles checkout is on a local branch, so push that one with `git push origin HEAD:main`). ag-mac's pre-commit hook rejects a stale generated AGENTS.md: run `agents.md/build` and stage both. Leave other uncommitted changes alone; another session may own them.
 
 ## Host/client model (read before changing shortcuts, Herdr, or dotfiles)
 
-The setup is a host/client system. Setup mistakes have come from reasoning about one machine when the behavior spans two. Think in roles, not machine names. `machines/README.md` maps roles to machines (today: host `ag`, client `nathan-dev-client`); everything below applies to whichever machine holds a role.
+The setup is a host/client system. Setup mistakes have come from reasoning about one machine when the behavior spans two. Think in roles, not machine names. `machines/README.md` maps roles to machines (today: host `ag-mac`, client `ag-client`; `ag-engine` is joining); everything below applies to whichever machine holds a role.
 
 **Roles.**
 - **Host:** runs the Herdr server, the agents, and the repos. All session state lives here, and every script that acts on Herdr must run here.
@@ -46,6 +46,6 @@ The setup is a host/client system. Setup mistakes have come from reasoning about
 **Portability (both repos).**
 - Usernames and homes differ per machine (see the inventory). Never commit an absolute home path or username. Use `$HOME`/`~`, or `sh -c '... "$HOME/..."'` where a tool doesn't expand them (pi's `mcp.json`).
 - Tracked configs must be symlinks into the checkout on every machine, never edited copies. A copy stops receiving updates without any error. Settings that only one machine needs go in an untracked include (e.g. `~/.config/ghostty/local.conf`) and are documented in the README.
-- Only known per-machine copy: `~/.codex/config.toml` (the Codex app rewrites it). A machine can hold an old retired checkout (ag has `~/dotfiles`); nothing current should link into it. Everything agent-related links into `~/ag`, nothing into a dotfiles checkout.
+- Only known per-machine copy: `~/.codex/config.toml` (the Codex app rewrites it). A machine can hold an old retired checkout (ag-mac has `~/dotfiles`); nothing current should link into it. Everything agent-related links into `~/ag`, nothing into a dotfiles checkout.
 
 **Verify on the real path.** Unit-testing a script, or synthesizing keys past Ghostty, is not proof. Send the actual Cmd shortcut or prefix chord into the focused Ghostty Herdr window (e.g. `hs.eventtap.keyStroke` after `hs.application.find("Ghostty"):activate(true)`), then confirm the effect on the host with `herdr api snapshot` or `herdr tab list`. Close any test tabs. To test the client path, do the same on the client over `ssh <client>` with `/opt/homebrew/bin/hs`. After a Herdr config change on the host, `herdr server reload-config` updates attached clients live. Reattaching (prefix+d, then `ag`) is only needed when the `ag` command changed. To audit links on a machine, compare every `git ls-files <pkg>` entry to its `$HOME` target; each should be a symlink that resolves into that machine's checkout.

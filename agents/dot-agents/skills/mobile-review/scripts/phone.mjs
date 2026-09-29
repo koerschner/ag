@@ -17,7 +17,7 @@ export const SAFE = { top: 59, bottom: 34, left: 0, right: 0 };
 
 /**
  * launchPhone({ url, device, engine, safeArea, stubWrites, pageFile, allowWrites })
- * - engine: "chromium" (default; works on ag) or "webkit" (closer to Safari, but Playwright's WebKit build
+ * - engine: "chromium" (default; works on ag-mac) or "webkit" (closer to Safari, but Playwright's WebKit build
  *   currently can't start its web process on macOS 26 here; try it, fall back to chromium).
  * - stubWrites (default true): every non-GET request is answered {ok:true} and recorded instead of reaching
  *   the server, so tapping Send / Archive / Interrupt on a real, live app has no side effects.

@@ -4,12 +4,12 @@
 <dict>
   <key>Label</key>
   <string>com.nathan.presence</string>
-  <!-- Presence: every 30s, check whether Nathan is at the client Mac; on arrival, fire "when online" tickler items. Host only (ag). -->
+  <!-- Presence: every 30s, check whether Nathan is at the client Mac; on arrival, fire "when online" tickler items. Host only (ag-mac). -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string>
     <string>-lc</string>
-    <string>[[ $(scutil --get LocalHostName) == ag ]] || exit 0; exec "$HOME/.local/bin/presence" poll</string>
+    <string>"$HOME/.local/bin/machine-role" host || exit 0; exec "$HOME/.local/bin/presence" poll</string>
   </array>
   <key>StartInterval</key>
   <integer>30</integer>

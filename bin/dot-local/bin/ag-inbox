@@ -28,7 +28,7 @@
 // kinds of captures (e.g. a name + phone number) with a set workflow. The router picks at most one and
 // its instructions are prepended to the prompt.
 // Also: POST /tickler/<id> (body = optional note) fires a waiting tickler wake-up (bin/dot-local/bin/tickler).
-// Listens only on ag's Tailscale IP. Never focuses anything, so attached Herdr clients aren't disturbed.
+// Listens only on ag-mac's Tailscale IP. Never focuses anything, so attached Herdr clients aren't disturbed.
 // Run by the com.nathan.ag-inbox LaunchAgent.
 
 import { execFileSync } from "node:child_process";

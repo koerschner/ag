@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// file-inbox: receive files (phone screenshots, photos) and optional text on ag over Tailscale,
+// file-inbox: receive files (phone screenshots, photos) and optional text on ag-mac over Tailscale,
 // and optionally hand them to a pi session. Used by the iOS "Send to ag" Shortcut
 // (see ios-shortcuts/send-to-ag.md in the ag repo).
 //
@@ -21,7 +21,7 @@
 //                    to moshi://herdr?workspace&tab&pane, which resumes Moshi's active card
 //                    there. `session-link` prints these; iMessage won't linkify moshi:// itself.
 //
-// Listens only on ag's Tailscale IP (tailnet-only, like ag-inbox). Run by com.nathan.file-inbox.
+// Listens only on ag-mac's Tailscale IP (tailnet-only, like ag-inbox). Run by com.nathan.file-inbox.
 
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";

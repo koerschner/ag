@@ -4,12 +4,12 @@
 <dict>
   <key>Label</key>
   <string>com.nathan.chrome-tab-reaper</string>
-  <!-- Every 30 min: close Chrome tabs not viewed for 12 h (bin/dot-local/bin/chrome-tab-reaper, via ChromeTabReaper.app). Only runs on ag. -->
+  <!-- Every 30 min: close Chrome tabs not viewed for 12 h (bin/dot-local/bin/chrome-tab-reaper, via ChromeTabReaper.app). Only runs on the host (ag-mac). -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string>
     <string>-lc</string>
-    <string>[[ $(scutil --get LocalHostName) == ag ]] || exit 0; exec "$HOME/.local/bin/chrome-tab-reaper" sweep</string>
+    <string>"$HOME/.local/bin/machine-role" host || exit 0; exec "$HOME/.local/bin/chrome-tab-reaper" sweep</string>
   </array>
   <key>StartInterval</key>
   <integer>1800</integer>

@@ -4,12 +4,12 @@
 <dict>
   <key>Label</key>
   <string>com.nathan.ag-inbox</string>
-  <!-- ag inbox: POST a prompt (optionally a screenshot) → new pi tab in Herdr. Only runs on ag. -->
+  <!-- ag inbox: POST a prompt (optionally a screenshot) → new pi tab in Herdr. Only runs on the host (ag-mac). -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string>
     <string>-lc</string>
-    <string>[[ $(scutil --get LocalHostName) == ag ]] || { sleep 3600; exit 0; }; exec "$HOME/.local/bin/ag-inbox"</string>
+    <string>"$HOME/.local/bin/machine-role" host || { sleep 3600; exit 0; }; exec "$HOME/.local/bin/ag-inbox"</string>
   </array>
   <key>RunAtLoad</key>
   <true/>

@@ -3,10 +3,10 @@
 //
 //   presence            # one-line status (same as `presence status`)
 //   presence status [--json]
-//   presence poll       # run by the com.nathan.presence LaunchAgent every 30s, host (ag) only
+//   presence poll       # run by the com.nathan.presence LaunchAgent every 30s, host (ag-mac) only
 //
 // How: ag polls the client over SSH (ControlMaster, ~0.2s): HID idle time (any real keyboard/mouse/trackpad
-// input), screen lock, and the console user. Polling from ag keeps all state and logic in one place and
+// input), screen lock, and the console user. Polling from ag-mac keeps all state and logic in one place and
 // needs nothing running on the client; a sleeping or offline client simply stops answering.
 // Debounce, so brief wakes don't count:
 //   online   the client has had input within the last minute, unlocked, for ≥ 90s straight
@@ -15,7 +15,7 @@
 // On every offline→online arrival it runs `tickler fire`, which launches tickler items queued with
 // `--when online` ("resume this next time I'm on the client"). Each item fires once.
 // State: ~/.local/state/presence/state.json. Transitions: log.jsonl beside it. Client: $PRESENCE_CLIENT
-// (default nathan-dev-client, the client in machines/README.md).
+// (default ag-client, the client in machines/README.md; renamed from nathan-dev-client 2026-09-29).
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -24,7 +24,7 @@ import { homedir } from "node:os";
 const HOME = homedir();
 const DIR = `${HOME}/.local/state/presence`;
 const STATE = `${DIR}/state.json`;
-const CLIENT = process.env.PRESENCE_CLIENT ?? "nathan-dev-client";
+const CLIENT = process.env.PRESENCE_CLIENT ?? "ag-client";
 const ACTIVE_IDLE_S = 60; // input within this long = active right now
 const ARRIVE_S = 90; // active this long straight = online
 const AWAY_IDLE_S = 15 * 60; // no input this long = offline
@@ -126,7 +126,7 @@ function trackHerdrClients(a: ActState) {
 			if (/ghostty/i.test(c)) { via = "local"; break; }
 		}
 		if (via === "unknown") continue; // mid-startup or exiting; look again next poll
-		const c: HerdrClient = { via, since: new Date().toISOString(), device: via === "local" ? "ag (local)" : undefined };
+		const c: HerdrClient = { via, since: new Date().toISOString(), device: via === "local" ? "ag-mac (local)" : undefined };
 		if (sshd) {
 			const l = spawnSync("lsof", ["-nP", "-a", "-p", sshd, "-iTCP", "-sTCP:ESTABLISHED"], { encoding: "utf8", timeout: 5000 }).stdout ?? "";
 			c.ip = l.match(/->([\d.]+):\d+/)?.[1];
@@ -233,7 +233,7 @@ function describe(s: State): string {
 	if (s.state === "offline") return `Nathan is offline from ${s.client} (since ${local(s.since)}; last input ${ago(s.last_seen)}).`;
 	const fresh = s.last_poll && Date.now() - +new Date(s.last_poll) <= STALE_S * 1000;
 	if (fresh) return `Nathan's presence at ${s.client} is not determined yet (${s.held ?? `unreachable ${s.fails}×`}).`;
-	return `Nathan's presence at ${s.client} is unknown (last poll ${ago(s.last_poll)}; is com.nathan.presence running on ag?).`;
+	return `Nathan's presence at ${s.client} is unknown (last poll ${ago(s.last_poll)}; is com.nathan.presence running on ag-mac?).`;
 }
 
 if (import.meta.main) {

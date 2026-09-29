@@ -1,7 +1,7 @@
 # Ag
 
 Status: **in progress** (started 2026-09-28 in the "Cloud VM Setup" session). First engine `ag-engine` is up (2026-09-29): Hetzner CCX33 (8 vCPU/32 GB; the account is capped at 8 dedicated vCPUs until Hetzner allows a limit request), Hillsboro, joined to the tailnet, `bootstrap-linux` clean, Pi working. Today everything
-still runs on the Mac called `ag`; this doc is the target and the source of truth for what goes where.
+still runs on ag-mac (the Mac formerly called `ag`, renamed 2026-09-29); this doc is the target and the source of truth for what goes where.
 
 ## What Ag is
 
@@ -11,8 +11,8 @@ Ag is Nathan's whole agent system, not one computer. Names: the **engine** (`ag-
 |---|---|---|
 | **Engine** | Rented Linux machine(s), built from zero by IaC | Herdr server, every Pi session, repos and worktrees, builds, tests, Docker, MCP servers, inbox, tickler, `show`, and phone review |
 | **Workers** | More rented Linux machines, created and destroyed on demand | Heavy or parallel jobs sent from the engine (big test suites, many agents at once) |
-| **ag-mac** | The 2024 MacBook, now called `ag` and to be renamed `ag-mac` | Only what needs macOS: computer use, Mac-only apps (Discord, the ChatGPT app), Xcode and macOS/iOS builds, native UI renders, Roblox Studio, Keychain items, macOS permission prompts |
-| **Client** | `nathan-dev-client` (and the iPhone) | Where Nathan sits. It attaches to the engine's Herdr and runs Hammerspoon, CleanShot, and the client side of the bridge. Unchanged. |
+| **ag-mac** | The 2024 MacBook (formerly `ag`) | Only what needs macOS: computer use, Mac-only apps (Discord, the ChatGPT app), Xcode and macOS/iOS builds, native UI renders, Roblox Studio, Keychain items, macOS permission prompts |
+| **Client** | `ag-client` (formerly `nathan-dev-client`) and `ag-phone` (the iPhone) | Where Nathan sits. It attaches to the engine's Herdr and runs Hammerspoon, CleanShot, and the client side of the bridge. Unchanged. |
 
 Everything is joined by one Tailscale tailnet.
 
@@ -100,5 +100,6 @@ Nothing important may live only on a machine's local disk.
 5. Move arcade dev onto the engine as the real test.
 6. Move Herdr, the inbox, the tickler, `show`, and `presence` to the engine (LaunchAgents become systemd
    units), and point the client's attach command at it.
-7. Rename `ag` → `ag-mac` everywhere (Tailscale, SSH aliases, `machines/README.md`, docs, AGENTS.md),
-   and shrink it to the Mac-worker role.
+7. ✅ Renamed `ag` → `ag-mac`, `nathan-dev-client` → `ag-client`, the iPhone → `ag-phone` everywhere
+   (Tailscale, SSH aliases, LocalHostNames, `machines/README.md`, docs, AGENTS.md; 2026-09-29). Left: shrink
+   ag-mac to the Mac-worker role.

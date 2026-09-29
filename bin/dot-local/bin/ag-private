@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
-// ag-private: a private chat page for personal questions, served on ag's Tailscale IP (port 7375).
+// ag-private: a private chat page for personal questions, served on ag-mac's Tailscale IP (port 7375).
 //
 // Inference goes straight to OpenRouter (Nathan's personal account, OPENROUTER_API_KEY in
 // ~/.zshenv.local), never through TrueFoundry, Jev, or the ag inbox. Every request asks OpenRouter
 // to deny provider data collection and to use zero-data-retention endpoints only.
-// Chats are kept only on ag in ~/private-chat (mode 700); nothing about their content is logged.
+// Chats are kept only on ag-mac in ~/private-chat (mode 700); nothing about their content is logged.
 // The phone opens it with a Back Tap (triple tap) shortcut; see ios-shortcuts/private-ag.md.
 //
 //   GET  /                 chat page (a new chat; ?c=<id> reopens one)
@@ -36,7 +36,7 @@ const save = (c: Chat) => writeFileSync(path(c.id), JSON.stringify(c), { mode: 0
 
 async function chat(req: Request): Promise<Response> {
 	const key = process.env.OPENROUTER_API_KEY;
-	if (!key) return new Response("OPENROUTER_API_KEY isn't set on ag yet.", { status: 503 });
+	if (!key) return new Response("OPENROUTER_API_KEY isn't set on ag-mac yet.", { status: 503 });
 	const body = (await req.json()) as { id?: string; model?: string; messages: Msg[] };
 	const model = MODELS.includes(body.model ?? "") ? body.model! : MODELS[0];
 	const messages = body.messages.filter((m) => m.content?.trim());

@@ -6,7 +6,7 @@ One set of shortcuts on every device. The source of truth is
 
 - **Herdr** (`dot-config/herdr/config.toml`) binds each shortcut twice: the Cmd key
   directly, for terminals that forward Cmd (Moshi), and `prefix+<key>`.
-- **Mac clients** (Ghostty + Hammerspoon; the client Mac, and ag's own desktop
+- **Mac clients** (Ghostty + Hammerspoon; the client Mac, and ag-mac's own desktop
   through Jump Desktop): Ghostty grabs Cmd keys itself, so Hammerspoon reads the
   spec and turns each Cmd key into `Ctrl+B` + key while a Herdr window is focused.
   This works the same through `ag` (`herdr --remote`), since helper scripts run

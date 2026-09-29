@@ -5,7 +5,7 @@
 #   1. Telegram bot "ag": token in login Keychain item "ag telegram bot" (account natkoersch),
 #      chat id in "ag telegram chat". Messages come from a separate contact, so they notify.
 #   2. iMessage from the client Mac to Nathan's number (needs the client awake; texts his own
-#      number, so it may arrive silently). $AG_TEXT_CLIENT, default nathan-dev-client.
+#      number, so it may arrive silently). $AG_TEXT_CLIENT, default ag-client.
 set -eu
 msg=${1:-$(cat)}
 [ -n "$msg" ] || { echo "ag-text: empty message" >&2; exit 2; }
@@ -19,7 +19,7 @@ if [ -n "$token" ] && [ -n "$chat" ]; then
   echo "ag-text: telegram failed, falling back to iMessage" >&2
 fi
 
-client=${AG_TEXT_CLIENT:-nathan-dev-client}
+client=${AG_TEXT_CLIENT:-ag-client}
 number=${AG_TEXT_NUMBER:-+18283358117}
 timeout 30 ssh -o ConnectTimeout=8 "$client" \
   "osascript -e 'on run argv' -e 'tell application \"Messages\" to send (item 2 of argv) to participant (item 1 of argv) of (1st account whose service type = iMessage)' -e 'end run' '$number' \"\$(cat)\"" <<EOF

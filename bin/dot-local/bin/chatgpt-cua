@@ -10,6 +10,11 @@
 # (summary appended to the output). CHATGPT_CUA_KEEP_OPEN=1 skips that for tasks meant to
 # leave something open.
 set -euo pipefail
+# Computer use happens on ag-mac (the extremity); from anywhere else, hand the task over with `mac cua`.
+if [[ $OSTYPE != darwin* ]]; then
+  task=${1:-$(cat)}
+  printf '%s' "$task" | exec ~/.local/bin/mac cua "$(cat)"
+fi
 
 effort=${CHATGPT_CUA_EFFORT:-medium}
 out=$(mktemp -t chatgpt-cua)

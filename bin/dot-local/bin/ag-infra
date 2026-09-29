@@ -23,7 +23,11 @@ case $cmd in
   plan)   secrets; init; tf plan -var "worker_count=$(workers)" "$@" ;;
   up)     secrets; init; tf apply -auto-approve -var "worker_count=${AG_WORKERS:-$(workers)}" "$@" ;;
   scale)  secrets; init; tf apply -auto-approve -var "worker_count=${1:?usage: ag-infra scale N}" ;;
-  down)   secrets; init; tf apply -auto-approve -var brain_enabled=false -var worker_count=0 ;;
+  down)   secrets; init
+          # Free the tailnet names first so a rebuilt machine gets the same hostname back.
+          for h in $(tf output -json 2>/dev/null | jq -r '[.brain.value.name?, (.workers.value[]?.name)] | .[] // empty'); do
+            ssh -o ConnectTimeout=5 "$h" sudo tailscale logout 2>/dev/null || true
+          done; tf apply -auto-approve -var brain_enabled=false -var worker_count=0 ;;
   status) init; tf output ;;
   ssh)    exec ssh "${1:-ag-brain}" ;;
   *) sed -n '2,4p' "$0"; exit 2 ;;

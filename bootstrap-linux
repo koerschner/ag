@@ -43,6 +43,14 @@ if ! have op; then
     sudo apt-get update -qq && sudo apt-get install -y -qq 1password-cli >/dev/null || warn "1password-cli"
 fi
 
+step "GNU Stow 2.4 (Ubuntu's 2.3 mishandles --dotfiles with dot-* directories)"
+if ! [[ $(stow --version 2>/dev/null) == *" 2.4"* || $(stow --version 2>/dev/null) == *" 2.5"* ]]; then
+  ( cd /tmp && curl -fsSL https://ftp.gnu.org/gnu/stow/stow-2.4.1.tar.gz | tar xz && cd stow-2.4.1 &&
+    ./configure --prefix=/usr/local >/dev/null && make >/dev/null 2>&1 && sudo make install >/dev/null 2>&1 ) || warn "stow 2.4"
+  hash -r
+fi
+echo "  $(stow --version)"
+
 step "dotfiles repo -> $DOTFILES"
 [[ -d $DOTFILES/.git ]] || git clone "$REPO" "$DOTFILES" || { echo "clone failed"; exit 1; }
 cd "$DOTFILES" || exit 1
@@ -72,7 +80,7 @@ step "stow packages"
 for pkg in "${STOW_PACKAGES[@]}"; do
   # Move aside any real file that would block a symlink, then stow.
   stow --dotfiles --no-folding -d "$DOTFILES" -t "$HOME" -n "$pkg" 2>&1 |
-    sed -nE 's/.* over existing target (.+) since .*/\1/p; s/.*existing target is not owned by stow: (.+)$/\1/p' |
+    sed -nE 's/.* over existing target (.+) since .*/\1/p; s/.*existing target is not owned by stow: (.+)$/\1/p; s/.*existing target is neither a link nor a directory: (.+)$/\1/p' |
     while read -r rel; do
       mkdir -p "$backup/$(dirname "$rel")" && mv "$HOME/$rel" "$backup/$rel" && echo "  backed up ~/$rel"
     done

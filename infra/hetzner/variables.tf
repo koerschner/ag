@@ -13,9 +13,11 @@ variable "brain_enabled" {
   default     = true
 }
 variable "brain_type" {
-  description = "ccx53 = 32 dedicated vCPU / 128 GB (start); ccx63 = 48 / 192"
+  # New Hetzner accounts are capped at 8 dedicated vCPUs and can't request more yet ("account too new"),
+  # so start on ccx33 and move to ccx53 (32 vCPU / 128 GB) once the limit is raised: ag-infra up -var brain_type=ccx53
+  description = "ccx33 = 8 dedicated vCPU / 32 GB; ccx53 = 32 / 128; ccx63 = 48 / 192"
   type        = string
-  default     = "ccx53"
+  default     = "ccx33"
 }
 variable "brain_volume_gb" {
   type    = number

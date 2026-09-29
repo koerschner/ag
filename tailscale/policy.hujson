@@ -4,8 +4,10 @@
 {
 	// Ag machines join with auth keys minted for these tags (see tailscale/README.md).
 	"tagOwners": {
-		"tag:ag-brain":  ["autogroup:admin"],
-		"tag:ag-worker": ["autogroup:admin"],
+		// The OAuth client "ag IaC and auth key minting" carries these tags, and keys it mints are owned
+		// by them, so the tags must own themselves for new machines to be allowed to advertise them.
+		"tag:ag-brain":  ["autogroup:admin", "tag:ag-brain", "tag:ag-worker"],
+		"tag:ag-worker": ["autogroup:admin", "tag:ag-brain", "tag:ag-worker"],
 	},
 
 	"grants": [

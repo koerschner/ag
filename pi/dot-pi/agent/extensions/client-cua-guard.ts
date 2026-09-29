@@ -41,7 +41,9 @@ function stripHeredocs(cmd: string): string {
 	return out.join("\n");
 }
 function stripQuotedData(cmd: string): string {
-	return cmd.replace(/(-c\s+|\bssh\b[^'"\n]*)?('[^']*'|"(?:[^"\\]|\\.)*")/g, (all, exec) => (exec ? all : "''"));
+	// Placeholder is not a quote: a leftover `''` followed by a space looked like command position,
+	// so `sed -i '' … bin/client-cua` or `grep 'x' …/client-cua` (editing the script) got blocked.
+	return cmd.replace(/(-c\s+|\bssh\b[^'"\n]*)?('[^']*'|"(?:[^"\\]|\\.)*")/g, (all, exec) => (exec ? all : "_"));
 }
 
 // The session's goal: its first prompt (the task) plus the latest one, if different. The latest alone

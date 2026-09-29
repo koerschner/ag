@@ -154,6 +154,7 @@ header h1{font-size:15px;margin:0 .4rem 0 0;font-weight:650}
 .msg{margin:0 0 .8rem}
 .msg .who{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin-bottom:.2rem}
 .msg .body{white-space:pre-wrap;word-break:break-word;font-size:13.5px}
+.msg.pending{opacity:.6}
 .msg.user .body{background:var(--card);padding:.5rem .65rem;border-radius:8px}
 .body.md{white-space:normal}
 .md>:first-child{margin-top:0}.md>:last-child{margin-bottom:0}
@@ -417,6 +418,7 @@ const ARCHIVE_MS = 6000;
 const archiving = new Map(); // tab → { timer, el }
 let expanded = new Set(JSON.parse(localStorage.expanded || "[]"));
 let expandAll = localStorage.expandAll === "1";
+let pending = []; // prompts sent from the drawer, shown before the session records them
 let openTab = null, dtab = "tx", lastTxKey = "", screenTimer = null;
 let throbbing = new Set();
 
@@ -665,6 +667,9 @@ async function loadTranscript(q) {
   const atBottom = tx.scrollHeight - tx.scrollTop - tx.clientHeight < 80;
   const openDetails = new Set([...tx.querySelectorAll("details[open]")].map((d) => [...tx.querySelectorAll("details")].indexOf(d)));
   tx.innerHTML = txHtml(msgs);
+  // Sent-but-not-yet-recorded prompts stay visible until the session has them (or 30s pass).
+  pending = pending.filter((x) => Date.now() - x.at < 30000 && !msgs.some((m) => m.role === "user" && (m.text.trim() === x.text || m.ts >= x.at - 2000)));
+  for (const x of pending) if ("tab=" + encodeURIComponent(x.tab) === q) tx.append(x.el);
   [...tx.querySelectorAll("details")].forEach((d, i) => openDetails.has(i) && (d.open = true));
   if (atBottom || !loadTranscript.done) tx.scrollTop = tx.scrollHeight;
   loadTranscript.done = true;
@@ -860,8 +865,13 @@ async function send(interrupt) {
   const text = rted.value.trim(); if (!text || !openTab) return;
   const tab = openTab, c = card(tab);
   rted.setValue(""); saveDraft(tab, "");
+  // Show it in the transcript right away; the next transcript load (once the session has it) replaces it.
+  const tx = $("#tx"), pend = document.createElement("div");
+  pend.className = "msg user pending"; pend.innerHTML = `<div class="who">prompt · sending…</div><div class="body md">${md(text)}</div>`;
+  pending.push({ tab, text, at: Date.now(), el: pend });
+  tx.append(pend); tx.scrollTop = tx.scrollHeight;
   toast(interrupt ? "Interrupting…" : c?.status === "working" ? "Queued as steering" : "Sent");
-  if (!(await api("/api/prompt", { tab, text, interrupt }))) { if (openTab === tab && !rted.value.trim()) rted.setValue(text); else saveDraft(tab, text); return; }
+  if (!(await api("/api/prompt", { tab, text, interrupt }))) { pend.remove(); pending = pending.filter((x) => x.el !== pend); if (openTab === tab && !rted.value.trim()) rted.setValue(text); else saveDraft(tab, text); return; }
   if (interrupt) toast("Interrupted and sent");
 }
 $("#reply").onsubmit = (e) => { e.preventDefault(); send(false); };

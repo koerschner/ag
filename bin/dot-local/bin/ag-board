@@ -49,6 +49,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname } from "node:path";
+import { constants as zc, createGzip } from "node:zlib";
 
 const PORT = 7376;
 const HTTPS_PORT = 7377; // `tailscale serve` → https://ag.<tailnet>.ts.net:7377 (browsers only allow the mic on https)
@@ -509,17 +510,26 @@ type Card = {
 let board: { cards: Card[]; lists: List[]; workspaces: { id: string; label: string }[] } = { cards: [], lists: state.lists, workspaces: [] };
 let boardJson = "";
 const cardKey = new Map<string, string>(); // tab id → board state key (pi session id, else tab id)
-const clients = new Set<ReadableStreamDefaultController>();
+// SSE senders, one per open page. The client Mac reaches ag through a Tailscale relay (~4 Mbps), so each stream is
+// gzipped and flushed per message: the ~400 KB board goes out as ~40 KB.
+const clients = new Set<(msg: string) => void>();
 const broadcast = () => {
 	const msg = `data: ${boardJson}\n\n`;
-	for (const c of clients) {
+	for (const send of clients) {
 		try {
-			c.enqueue(msg);
+			send(msg);
 		} catch {
-			clients.delete(c);
+			clients.delete(send);
 		}
 	}
 };
+// Gzip a response body when the browser accepts it (the relay makes bytes the bottleneck, not CPU).
+const gzipped = (req: Request, body: string | Uint8Array, headers: Record<string, string>, status = 200) =>
+	(req.headers.get("accept-encoding") ?? "").includes("gzip") && body.length > 1024
+		? new Response(Bun.gzipSync(typeof body === "string" ? Buffer.from(body) : body, { level: 5 }), { status, headers: { ...headers, "content-encoding": "gzip", vary: "accept-encoding" } })
+		: new Response(body, { status, headers });
+const jsonRes = (req: Request, v: unknown) => gzipped(req, typeof v === "string" ? v : JSON.stringify(v), { "content-type": "application/json" });
+const pageRes = (req: Request) => gzipped(req, readFileSync(PAGE), { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
 
 function fastLane(card: Card) {
 	const snippet = (card.status === "blocked" ? "is blocked and needs you" : "is ready") + (card.lastAssistant ? `: ${oneLine(card.lastAssistant.text, 160)}` : "");
@@ -786,7 +796,7 @@ async function handle(req: Request): Promise<Response> {
 		const url = new URL(req.url);
 		const p = url.pathname;
 		if (req.method === "GET") {
-			if (p === "/") return new Response(Bun.file(PAGE), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+			if (p === "/") return pageRes(req);
 			const sf = p.match(/^\/static\/([\w.-]+)$/)?.[1];
 			if (sf && STATIC.has(sf)) return staticFile(sf, req);
 			if (p === "/api/file") {
@@ -808,21 +818,21 @@ async function handle(req: Request): Promise<Response> {
 			}
 			if (p === "/api/config") return Response.json({ httpsUrl: HTTPS_URL, home: HOME, fileInbox: `http://${host}:7374` });
 			if (p === "/api/stats") return Response.json(clickStats(Number(url.searchParams.get("days")) || 0));
-			if (p === "/api/state") return new Response(boardJson, { headers: { "content-type": "application/json" } });
+			if (p === "/api/state") return jsonRes(req, boardJson);
 			if (p === "/api/transcript") {
 				const sid = url.searchParams.get("sid");
 				const file = sid ? await fileForSid(sid) : board.cards.find((c) => c.tab === url.searchParams.get("tab"))?.sessionFile;
 				if (!file) return Response.json([]);
-				return Response.json(transcript(file, sid ? `sid=${sid}` : `tab=${encodeURIComponent(url.searchParams.get("tab")!)}`));
+				return jsonRes(req, transcript(file, sid ? `sid=${sid}` : `tab=${encodeURIComponent(url.searchParams.get("tab")!)}`));
 			}
 			const sp = p.match(/^\/api\/session\/([0-9a-f-]{36})$/)?.[1];
 			if (sp) {
 				const r = SID_RE.test(sp) ? await resolveSession(sp) : null;
-				return r ? Response.json(r) : bad("no such session", 404);
+				return r ? jsonRes(req, r) : bad("no such session", 404);
 			}
 			// Page URLs (the page routes itself; back/forward walk through them): /<session id>[/live], /t/<tab>[/live],
 			// /state|lists|workspaces[/<column>], /new, /help.
-			if (SID_RE.test(p.slice(1).replace(/\/live$/, "")) || /^\/(?:(?:state|lists|workspaces)(?:\/[^/]+)?|new|help|t\/[^/]+(?:\/live)?)\/?$/.test(p)) return new Response(Bun.file(PAGE), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+			if (SID_RE.test(p.slice(1).replace(/\/live$/, "")) || /^\/(?:(?:state|lists|workspaces)(?:\/[^/]+)?|new|help|t\/[^/]+(?:\/live)?)\/?$/.test(p)) return pageRes(req);
 			if (p === "/api/screen") {
 				const card = board.cards.find((c) => c.tab === url.searchParams.get("tab"));
 				if (!card) return bad("no such card", 404);
@@ -830,28 +840,38 @@ async function handle(req: Request): Promise<Response> {
 				return new Response(r.code === 0 ? r.out : r.err, { status: r.code === 0 ? 200 : 409, headers: { "content-type": "text/plain; charset=utf-8" } });
 			}
 			if (p === "/events") {
-				let ctl: ReadableStreamDefaultController;
+				const gz = (req.headers.get("accept-encoding") ?? "").includes("gzip");
+				let send: (msg: string) => void;
 				let ping: Timer;
+				const z = gz ? createGzip({ level: 5 }) : null;
+				const stop = () => (clients.delete(send), clearInterval(ping), z?.destroy());
 				return new Response(
 					new ReadableStream({
 						start(c) {
-							ctl = c;
-							clients.add(c);
-							c.enqueue(`data: ${boardJson}\n\n`);
+							if (z) {
+								z.on("data", (chunk: Buffer) => {
+									try {
+										c.enqueue(new Uint8Array(chunk));
+									} catch {
+										stop();
+									}
+								});
+								// Sync-flush after every message so the browser gets it now, not when the gzip buffer fills.
+								send = (msg) => (z.write(msg), z.flush(zc.Z_SYNC_FLUSH));
+							} else send = (msg) => c.enqueue(msg);
+							clients.add(send);
+							send(`data: ${boardJson}\n\n`);
 							ping = setInterval(() => {
 								try {
-									c.enqueue(": ping\n\n");
+									send(": ping\n\n");
 								} catch {
-									clearInterval(ping);
+									stop();
 								}
 							}, 20_000);
 						},
-						cancel() {
-							clients.delete(ctl);
-							clearInterval(ping);
-						},
+						cancel: stop,
 					}),
-					{ headers: { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" } },
+					{ headers: { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive", ...(gz ? { "content-encoding": "gzip", vary: "accept-encoding" } : {}) } },
 				);
 			}
 			return bad("not found", 404);

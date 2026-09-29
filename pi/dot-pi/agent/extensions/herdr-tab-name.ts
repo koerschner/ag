@@ -20,7 +20,7 @@ const NAMERS: [string, string][] = [
 const LOG_DIR = `${homedir()}/.local/state/herdr-tab-name`;
 
 function herdr(args: string[]): any {
-	return JSON.parse(execFileSync("herdr", args, { encoding: "utf8", timeout: 3000 })).result;
+	return JSON.parse(execFileSync("ag-mux", args, { encoding: "utf8", timeout: 3000 })).result;
 }
 
 // Herdr appends " ●" to labels of tabs with unread output; that's not part of the name.

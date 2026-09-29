@@ -9,7 +9,7 @@ import json
 import os
 import subprocess
 
-HERDR = os.path.expanduser("~/.local/bin/herdr")
+HERDR = os.path.expanduser("~/.local/bin/ag-mux")
 
 
 def herdr(*args):

@@ -18,7 +18,7 @@ set -euo pipefail
 host=${HERDR_LINK_HOST:-$(scutil --get LocalHostName)}
 board=${HERDR_LINK_BOARD:-http://ag-mac:7376}
 hib=$("$HOME/.local/bin/pi-hibernate" status 2>/dev/null || true)
-herdr api snapshot | python3 -c "$(cat <<'PY'
+"$HOME/.local/bin/ag-mux" api snapshot | python3 -c "$(cat <<'PY'
 
 import json, os, re, sys
 host, board, hib, args = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]

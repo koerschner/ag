@@ -1,0 +1,11 @@
+#!/bin/sh
+# default-command of Ag's tmux server: make sure this pane knows its Ag IDs (HERDR_* env; agd sets them
+# for panes it creates, this covers splits and windows made with plain tmux keys), then start the shell.
+if [ -n "$TMUX_PANE" ]; then
+	mine=$(tmux display-message -p -t "$TMUX_PANE" '#{@ag_pane}' 2>/dev/null)
+	if [ -z "$mine" ] || [ "$mine" != "$HERDR_PANE_ID" ]; then
+		eval "$("$HOME/.local/bin/ag-mux" pane register "$TMUX_PANE" 2>/dev/null |
+			jq -r '.result.env // {} | to_entries[] | "export \(.key)=\(.value | @sh)"')"
+	fi
+fi
+exec "${SHELL:-/bin/sh}" -l

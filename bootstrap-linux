@@ -13,9 +13,9 @@ AG=${AG:-$(cd "$(dirname "$(readlink -f "$0")")" && pwd)}
 DOTFILES=${DOTFILES:-$HOME/dotfiles}
 REPO=https://github.com/koerschner/dotfiles.git
 # Stow packages that make sense on Linux (no ghostty/hammerspoon/alfred/ag-board/ag-inbox yet), per repo.
-AG_PACKAGES=(agents bin claude codex herdr pi systemd-user)
+AG_PACKAGES=(agents bin claude codex pi systemd-user tmux)
 DOTFILES_PACKAGES=(bin git mise nvim ssh tmux zsh)
-APT=(git git-crypt curl jq unzip zsh stow ripgrep fd-find fzf build-essential docker.io ca-certificates gnupg neovim tmux python3 htop)
+APT=(git git-crypt curl jq unzip zsh stow ripgrep fd-find fzf build-essential docker.io ca-certificates gnupg neovim tmux mosh python3 htop)
 backup=$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)
 failed=()
 export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.local/share/mise/shims:$PATH"
@@ -69,7 +69,8 @@ have mise || curl -fsSL https://mise.run | sh || warn "mise"
 
 step "Standalone CLIs (vendor installers)"
 [[ -x ~/.bun/bin/bun ]] || curl -fsSL https://bun.sh/install | bash >/dev/null || warn "bun"
-have herdr  || curl -fsSL https://herdr.dev/install.sh | sh             || warn "herdr"
+# Sessions run on tmux via ag-mux (docs/tmux-port.md); no Herdr here, so `herdr` never talks to agd.
+rm -f "$HOME/.local/bin/herdr"
 have claude || curl -fsSL https://claude.ai/install.sh | bash           || warn "claude"
 have codex  || curl -fsSL https://chatgpt.com/codex/install.sh | sh     || warn "codex"
 
@@ -134,6 +135,7 @@ fi
 sudo loginctl enable-linger "$USER" >/dev/null 2>&1 || true
 systemctl --user daemon-reload 2>/dev/null && systemctl --user enable --now mcp-tunnel.service >/dev/null 2>&1 && echo "  mcp-tunnel on" || warn "mcp-tunnel (needs ~/.ssh/ag-mac)"
 systemctl --user enable --now pi-sessions-sync.timer >/dev/null 2>&1 && echo "  pi-sessions-sync timer on" || warn "pi-sessions-sync timer"
+systemctl --user enable --now ag-mux.service >/dev/null 2>&1 && echo "  ag-mux (agd, tmux -L ag) on" || warn "ag-mux.service"
 
 step "Secrets checklist (move by hand or via op; never commit)"
 check() { [[ -e $1 ]] && echo "  ok   $2" || { echo "  TODO $2"; failed+=("secret: $2"); }; }

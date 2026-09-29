@@ -45,7 +45,7 @@ const injected = (by: string, text: string, extra: object = {}) => {
 	} catch {}
 };
 const DIR = `${HOME}/.local/state/tickler`;
-const HERDR = `${HOME}/.local/bin/herdr`;
+const HERDR = `${HOME}/.local/bin/ag-mux`; // tmux (agd) or Herdr, whichever this host runs
 const FALLBACK_WORKSPACE = "Inbox";
 const PRESENCE = `${HOME}/.local/state/presence/state.json`;
 const PRESENCE_STALE_MS = 5 * 60_000;

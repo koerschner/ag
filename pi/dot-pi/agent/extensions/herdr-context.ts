@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 function herdr(args: string[]): any {
-	return JSON.parse(execFileSync("herdr", args, { encoding: "utf8", timeout: 3000 })).result;
+	return JSON.parse(execFileSync("ag-mux", args, { encoding: "utf8", timeout: 3000 })).result;
 }
 
 function herdrContext(): string | undefined {

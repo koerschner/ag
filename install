@@ -8,7 +8,7 @@
 set -uo pipefail
 
 AG=${AG:-${0:A:h}}
-STOW_PACKAGES=(ag-board ag-inbox agents bin claude codex hammerspoon herdr pi)
+STOW_PACKAGES=(ag-board ag-inbox agents bin claude codex hammerspoon herdr pi tmux)
 backup=$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)
 failed=()
 STOW=(stow --dotfiles --no-folding -d $AG -t $HOME)

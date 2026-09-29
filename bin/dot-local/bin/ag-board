@@ -2,7 +2,7 @@
 // ag-board (AG Dash): a Kanban dashboard over every agent session in Herdr. http://ag-mac:7376/ (Tailscale only).
 //
 // Herdr stays the runtime; this is a view on it plus a little metadata Herdr doesn't keep.
-//   - Polls `herdr api snapshot` (~15 ms) every POLL_MS; each tab hosting an agent is a card.
+//   - Polls `ag-mux api snapshot` (~15 ms) every POLL_MS; each tab hosting an agent is a card.
 //   - Reads each card's Pi session file incrementally (only appended bytes) for the latest ask/answer,
 //     live activity (thinking / running a tool since when), recent tools, thinking, cost and context size.
 //   - Keeps its own state in ~/.local/state/ag-board/state.json: hotpath flag, list, seenAt, status timing, lists.
@@ -55,7 +55,7 @@ const PORT = 7376;
 const HTTPS_PORT = 7377; // `tailscale serve` → https://ag-mac.<tailnet>.ts.net:7377 (browsers only allow the mic on https)
 const POLL_MS = 1500;
 const HOME = homedir();
-const HERDR = `${HOME}/.local/bin/herdr`;
+const HERDR = `${HOME}/.local/bin/ag-mux`; // tmux (agd) or Herdr, whichever this host runs
 const AG_TEXT = `${HOME}/.local/bin/ag-text`;
 const STATE_DIR = `${HOME}/.local/state/ag-board`;
 const STATE_FILE = `${STATE_DIR}/state.json`;

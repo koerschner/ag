@@ -41,7 +41,7 @@ const injected = (by: string, text: string, extra: object = {}) => {
 	} catch {}
 };
 const DIR = `${HOME}/inbox/phone`;
-const HERDR = `${HOME}/.local/bin/herdr`;
+const HERDR = `${HOME}/.local/bin/ag-mux`; // tmux (agd) or Herdr, whichever this host runs
 const AG_INBOX = (host: string) => `http://${host}:7373/prompt`;
 const HOST = Bun.spawnSync(["/usr/local/bin/tailscale", "ip", "-4"]).stdout.toString().trim();
 if (!HOST) throw new Error("no Tailscale IP yet");

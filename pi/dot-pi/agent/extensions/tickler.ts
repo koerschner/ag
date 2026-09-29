@@ -15,8 +15,8 @@ function herdrWorkspaceLabel(): string | undefined {
 	if (!pane) return undefined;
 	try {
 		// Resolve live: HERDR_WORKSPACE_ID goes stale if the pane moves (e.g. auto-filed out of Inbox).
-		const ws = JSON.parse(execFileSync("herdr", ["pane", "get", pane], { encoding: "utf8", timeout: 3000 })).result.pane.workspace_id;
-		const r = JSON.parse(execFileSync("herdr", ["workspace", "get", ws], { encoding: "utf8", timeout: 3000 })).result;
+		const ws = JSON.parse(execFileSync("ag-mux", ["pane", "get", pane], { encoding: "utf8", timeout: 3000 })).result.pane.workspace_id;
+		const r = JSON.parse(execFileSync("ag-mux", ["workspace", "get", ws], { encoding: "utf8", timeout: 3000 })).result;
 		return (r.workspace ?? r).label;
 	} catch {
 		return undefined;

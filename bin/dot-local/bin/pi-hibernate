@@ -29,7 +29,16 @@ import sys
 import threading
 import time
 
-HERDR_SOCK = os.path.expanduser(os.environ.get("HERDR_SOCKET", "~/.config/herdr/herdr.sock"))
+def _socket_path():
+    """agd (ag-mux on tmux) or Herdr, whichever this host runs; env overrides first."""
+    for p in (os.environ.get("HERDR_SOCKET"), os.environ.get("AG_MUX_SOCKET"), os.environ.get("HERDR_SOCKET_PATH"),
+              "~/.local/state/ag-mux/agd.sock", "~/.config/herdr/herdr.sock"):
+        if p and os.path.exists(os.path.expanduser(p)):
+            return os.path.expanduser(p)
+    return os.path.expanduser("~/.config/herdr/herdr.sock")
+
+
+HERDR_SOCK = _socket_path()
 STATE = os.path.expanduser("~/.local/state/pi-hibernate")
 WAITING = os.path.join(STATE, "waiting")  # <pid> -> session file, one per sleep screen
 LOG = os.path.join(STATE, "log")

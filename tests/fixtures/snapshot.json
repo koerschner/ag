@@ -1,0 +1,116 @@
+{
+  "id": "cli:api:snapshot",
+  "result": {
+    "snapshot": {
+      "agents": [
+        {
+          "agent": "pi",
+          "agent_session": {
+            "agent": "pi",
+            "kind": "path",
+            "source": "herdr:pi",
+            "value": "/Users/natkoersch/.pi/agent/sessions/--Users-natkoersch--/2026-09-27T21-17-44-918Z_01a0e4bb-2456-77ef-a356-a25a7b158683.jsonl"
+          },
+          "agent_status": "done",
+          "cwd": "/Users/natkoersch",
+          "focused": false,
+          "foreground_cwd": "/Users/natkoersch",
+          "interactive_ready": true,
+          "name": "inbox-cee1ecfc",
+          "pane_id": "w2K:pE",
+          "revision": 6,
+          "screen_detection_skipped": true,
+          "state_change_seq": 874,
+          "tab_id": "w2K:tE",
+          "terminal_id": "term_65c7d7afc075d129",
+          "terminal_title": "π - natkoersch",
+          "terminal_title_stripped": "π - natkoersch",
+          "workspace_id": "w2K"
+        }
+      ],
+      "focused_pane_id": "w8:pY",
+      "focused_tab_id": "w8:tV",
+      "focused_workspace_id": "w8",
+      "layouts": [
+        {
+          "area": {
+            "height": 60,
+            "width": 189,
+            "x": 0,
+            "y": 0
+          },
+          "focused_pane_id": "w2K:pE",
+          "panes": [
+            {
+              "focused": true,
+              "pane_id": "w2K:pE",
+              "rect": {
+                "height": 60,
+                "width": 189,
+                "x": 0,
+                "y": 0
+              }
+            }
+          ],
+          "splits": [],
+          "tab_id": "w2K:tE",
+          "workspace_id": "w2K",
+          "zoomed": false
+        }
+      ],
+      "panes": [
+        {
+          "agent": "pi",
+          "agent_session": {
+            "agent": "pi",
+            "kind": "path",
+            "source": "herdr:pi",
+            "value": "/Users/natkoersch/.pi/agent/sessions/--Users-natkoersch--/2026-09-27T21-17-44-918Z_01a0e4bb-2456-77ef-a356-a25a7b158683.jsonl"
+          },
+          "agent_status": "done",
+          "cwd": "/Users/natkoersch",
+          "focused": false,
+          "foreground_cwd": "/Users/natkoersch",
+          "pane_id": "w2K:pE",
+          "revision": 6,
+          "scroll": {
+            "max_offset_from_bottom": 1343,
+            "offset_from_bottom": 0,
+            "viewport_rows": 60
+          },
+          "tab_id": "w2K:tE",
+          "terminal_id": "term_65c7d7afc075d129",
+          "terminal_title": "π - natkoersch",
+          "terminal_title_stripped": "π - natkoersch",
+          "workspace_id": "w2K"
+        }
+      ],
+      "protocol": 22,
+      "tabs": [
+        {
+          "agent_status": "done",
+          "focused": false,
+          "label": "Mobile Share Sheet ●",
+          "number": 14,
+          "pane_count": 1,
+          "tab_id": "w2K:tE",
+          "workspace_id": "w2K"
+        }
+      ],
+      "version": "0.9.1",
+      "workspaces": [
+        {
+          "active_tab_id": "w2K:t2V",
+          "agent_status": "done",
+          "focused": false,
+          "label": "Inbox",
+          "number": 1,
+          "pane_count": 53,
+          "tab_count": 53,
+          "workspace_id": "w2K"
+        }
+      ]
+    },
+    "type": "session_snapshot"
+  }
+}

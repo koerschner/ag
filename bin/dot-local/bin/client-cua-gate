@@ -129,7 +129,7 @@ Your job: make sure this never needs the client again, by getting the right acce
 2. Fix what you can safely yourself, preferring programmatic access: an API/CLI/MCP credential (store a scoped key in the canonical vault with op-ag, or op-shared for Nathan's personal services, never printing it), install the tool or app on ag-mac (Brewfile), start the app's sign-in flow on ag-mac with chatgpt-cua, grant ag-mac's permission dialogs.
 3. For a login only Nathan can do, ask him clearly and politely: exactly what to sign in to on ag-mac, and why (message him with ag-text as well as here).
 4. Record the fix in the ag repo (~/ag: README, secrets checklist, docs) or dotfiles (Brewfile), commit, push, and sync every machine in machines/README.md.
-5. Once ag-mac has the access, tell the blocked agent${pane ? ` (\`herdr agent prompt ${pane} "..."\`, starting with a line saying it's from the access session)` : ""} so it can finish its task on ag-mac.
+5. Once ag-mac has the access, tell the blocked agent${pane ? ` (\`ag-mux agent prompt ${pane} "..."\`, starting with a line saying it's from the access session)` : ""} so it can finish its task on ag-mac.
 Don't use client-cua or drive the client desktop yourself; the guard blocks that too.`;
 }
 

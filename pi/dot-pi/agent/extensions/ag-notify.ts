@@ -44,8 +44,8 @@ function away(): boolean {
 
 function tabLabel(): string {
 	try {
-		const pane = JSON.parse(run(`${BIN}/herdr`, ["pane", "get", process.env.HERDR_PANE_ID ?? ""])).result.pane;
-		return JSON.parse(run(`${BIN}/herdr`, ["tab", "get", pane.tab_id])).result.tab.label.replace(/\s*●$/, "");
+		const pane = JSON.parse(run(`${BIN}/ag-mux`, ["pane", "get", process.env.HERDR_PANE_ID ?? ""])).result.pane;
+		return JSON.parse(run(`${BIN}/ag-mux`, ["tab", "get", pane.tab_id])).result.tab.label.replace(/\s*●$/, "");
 	} catch {
 		return "pi";
 	}

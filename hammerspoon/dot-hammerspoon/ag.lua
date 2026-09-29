@@ -309,7 +309,7 @@ hs.urlevent.bind("herdr", function(_, params)
 	end
 	-- "ag" is ag-mac's old name (links printed before the 2026-09-29 rename).
 	local here = host == THIS_HOST or (IS_HOST and (host == "ag" or host == "ag-mac"))
-	local focus = "$HOME/.local/bin/herdr tab focus " .. tab
+	local focus = "$HOME/.local/bin/ag-mux tab focus " .. tab
 	hs.task
 		.new("/bin/sh", function(code, _, err)
 			if code ~= 0 then

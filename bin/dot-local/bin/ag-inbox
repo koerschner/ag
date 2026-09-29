@@ -47,7 +47,7 @@ const injected = (by: string, text: string, extra: object = {}) => {
 		appendFileSync(`${HOME}/.local/state/activity/injections.jsonl`, JSON.stringify({ ts: new Date().toISOString(), by, sha, ...extra }) + "\n");
 	} catch {}
 };
-const HERDR = `${HOME}/.local/bin/herdr`;
+const HERDR = `${HOME}/.local/bin/ag-mux`; // tmux (agd) or Herdr, whichever this host runs
 const LOG_DIR = `${HOME}/.local/state/ag-inbox`;
 const CAPTURE_DIR = `${HOME}/inbox/capture`;
 const SHARE_DIR = `${HOME}/inbox/share`;

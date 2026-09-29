@@ -19,7 +19,7 @@ const MODELS: [string, string][] = [
 const LOG_DIR = `${homedir()}/.local/state/herdr-inbox-file`;
 
 function herdr(args: string[]): any {
-	return JSON.parse(execFileSync("herdr", args, { encoding: "utf8", timeout: 5000 })).result;
+	return JSON.parse(execFileSync("ag-mux", args, { encoding: "utf8", timeout: 5000 })).result;
 }
 
 function log(data: Record<string, unknown>) {

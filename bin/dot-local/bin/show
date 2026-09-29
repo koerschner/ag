@@ -4,7 +4,7 @@
 #   show chart.png              copy to client ~/ag-inbox and open it (default app)
 #   show report.html            also copies the local files it references (img/css/js)
 #   show site/                  copy the folder, open site/index.html
-#   show http://ag:8080         open a URL in the client's default browser
+#   show http://ag-mac:8080         open a URL in the client's default browser
 #   show -a "Google Chrome" x   open with a specific app
 #   show notes.md               Markdown is never opened on the desktop; only the phone link is printed
 #   show flow.mp4               videos (mp4/mov/m4v/webm) open on the desktop and get a phone player page

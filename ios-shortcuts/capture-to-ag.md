@@ -122,12 +122,12 @@ The flush sends every queued file as the form field `text` with type **File**: a
 
 Offline, the flush step shows iOS's own "could not connect" error; the item is still
 queued. Test without the phone:
-`curl -X POST http://ag:7373/prompt --data-urlencode 'text=hello' -d id=test1` → redirect/`202`;
+`curl -X POST http://ag-mac:7373/prompt --data-urlencode 'text=hello' -d id=test1` → redirect/`202`;
 repeating it with the same `id` within 24 h logs `duplicate` and opens nothing.
 Voice without opening anything:
-`say -o /tmp/v.m4a --data-format=aac 'what song is this'; curl -F dry=1 -F text=@/tmp/v.m4a http://ag:7373/prompt`.
+`say -o /tmp/v.m4a --data-format=aac 'what song is this'; curl -F dry=1 -F text=@/tmp/v.m4a http://ag-mac:7373/prompt`.
 Screenshot gate without opening anything:
-`curl -F dry=1 -F 'text=what song is this' -F screenshot=@shot.png -F source=iphone http://ag:7373/prompt | jq -r .prompt`.
+`curl -F dry=1 -F 'text=what song is this' -F screenshot=@shot.png -F source=iphone http://ag-mac:7373/prompt | jq -r .prompt`.
 
 ## Status
 

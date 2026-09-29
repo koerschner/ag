@@ -327,7 +327,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
       <button class="btn" id="dfocus">Open in Herdr</button>
       <button class="btn" id="dunread">Mark unread</button>
       <a class="btn" id="dmoshi" style="display:none;text-decoration:none" title="Open this session's terminal in Moshi (via file-inbox)">📱 Moshi</a>
-      <button class="btn" id="dlink" title="Copy a stable link to this session (http://ag:7376/&lt;session id&gt;)">🔗 Link</button>
+      <button class="btn" id="dlink" title="Copy a stable link to this session (http://ag-mac:7376/&lt;session id&gt;)">🔗 Link</button>
       <select class="btn" id="dlist"></select>
       <button class="btn" id="dkill" title="Archive: closes the Herdr tab after a few seconds, with Undo (e)">🗄 Archive</button>
     </div>
@@ -715,8 +715,8 @@ function renderDrawer() {
   if (c.needsYou && c.status !== "blocked") api("/api/card", { tab: c.tab, seen: true });
   tick();
 }
-// Stable session links: http://ag:7376/<pi session id> (tab ids change when tabs move).
-const sessionLink = (sid) => `http://ag:7376/${sid}`;
+// Stable session links: http://ag-mac:7376/<pi session id> (tab ids change when tabs move).
+const sessionLink = (sid) => `http://ag-mac:7376/${sid}`;
 let openSid = null; // read-only drawer: a hibernated or closed session
 function openDrawer(tab) {
   if (openTab !== tab) { if (openTab) saveDraft(openTab, rted.value); rted.setValue(localStorage[draftKey(tab)] || ""); }

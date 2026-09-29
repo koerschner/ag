@@ -48,8 +48,8 @@ First run: allow the shortcut to connect to `100.107.192.32` ("Always Allow").
 ## Test without the phone
 
 ```sh
-curl http://ag:7374/sessions
-curl -F f=@shot.png -F "text=what's wrong here?" -F to= http://ag:7374/send
+curl http://ag-mac:7374/sessions
+curl -F f=@shot.png -F "text=what's wrong here?" -F to= http://ag-mac:7374/send
 ```
 
 Browser fallback (same form, any device on the tailnet): http://100.107.192.32:7374/

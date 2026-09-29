@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// ag-board (AG Dash): a Kanban dashboard over every agent session in Herdr. http://ag:7376/ (Tailscale only).
+// ag-board (AG Dash): a Kanban dashboard over every agent session in Herdr. http://ag-mac:7376/ (Tailscale only).
 //
 // Herdr stays the runtime; this is a view on it plus a little metadata Herdr doesn't keep.
 //   - Polls `herdr api snapshot` (~15 ms) every POLL_MS; each tab hosting an agent is a card.
@@ -15,7 +15,7 @@
 //   hotpath   = 🔥 top priority (shift+click / long-press). Pinned to the top everywhere; its siren ring runs
 //               whenever the agent isn't working (throb). Becoming needsYou fires the fast lane: ag-text + a Herdr toast.
 // Every page is a URL (views, columns, /new, /help, /<session id>[/live]); the page's router handles back/forward.
-// Deep links: http://ag:7376/<pi session id> (the UUID in the session filename; stable, unlike tab ids) serves the
+// Deep links: http://ag-mac:7376/<pi session id> (the UUID in the session filename; stable, unlike tab ids) serves the
 // board with that session open: the live card's drawer, or, for a hibernated pane or a closed session, its
 // transcript read-only with Wake in Herdr / Resume (POST /api/resume: new tab running `pi --session <file>`).
 // GET /api/session/<id> resolves an id; GET /api/transcript?sid=<id> reads any session file.
@@ -23,8 +23,8 @@
 // (base64 images inside the session, e.g. pasted screenshots and read-tool images).
 // Also: voice (POST /api/transcribe, Whisper via TrueFoundry like ag-inbox), pasted files (POST /api/upload →
 // ~/inbox/clipboard), new sessions (POST /api/new: tab in any workspace, pi, first prompt; the herdr-tab-name
-// extension names it), renaming tabs (POST /api/rename). Served on the Tailscale IP (http://ag:7376), on
-// 127.0.0.1 (for tailscale serve), and at https://ag.<tailnet>.ts.net:7377 (set up at startup), where voice works.
+// extension names it), renaming tabs (POST /api/rename). Served on the Tailscale IP (http://ag-mac:7376), on
+// 127.0.0.1 (for tailscale serve), and at https://ag-mac.<tailnet>.ts.net:7377 (set up at startup), where voice works.
 // Waiting for: a session with a live tickler item (a wake-up on CI / a condition / an event, a presence item, a
 // scheduled time, or a GTD waiting-for on a person; ~/.local/state/tickler/*.json, matched by session file), or
 // marked by hand (POST /api/card {waiting}). Waiting cards sit in their own column, aren't "needs you", never ping
@@ -52,7 +52,7 @@ import { dirname } from "node:path";
 import { constants as zc, createGzip } from "node:zlib";
 
 const PORT = 7376;
-const HTTPS_PORT = 7377; // `tailscale serve` → https://ag.<tailnet>.ts.net:7377 (browsers only allow the mic on https)
+const HTTPS_PORT = 7377; // `tailscale serve` → https://ag-mac.<tailnet>.ts.net:7377 (browsers only allow the mic on https)
 const POLL_MS = 1500;
 const HOME = homedir();
 const HERDR = `${HOME}/.local/bin/herdr`;
@@ -533,7 +533,7 @@ const pageRes = (req: Request) => gzipped(req, readFileSync(PAGE), { "content-ty
 
 function fastLane(card: Card) {
 	const snippet = (card.status === "blocked" ? "is blocked and needs you" : "is ready") + (card.lastAssistant ? `: ${oneLine(card.lastAssistant.text, 160)}` : "");
-	void run([AG_TEXT, `🔥 ${card.title} (${card.workspaceLabel}) ${snippet}\n${card.sid ? `http://ag:${PORT}/${card.sid}` : `${HTTPS_URL}/#${card.tab}`}`]);
+	void run([AG_TEXT, `🔥 ${card.title} (${card.workspaceLabel}) ${snippet}\n${card.sid ? `http://ag-mac:${PORT}/${card.sid}` : `${HTTPS_URL}/#${card.tab}`}`]);
 	void herdr("notification", "show", `🔥 ${card.title}`, "--body", snippet.slice(0, 120), "--sound", "request");
 	console.log(new Date().toISOString(), "fast-lane", card.tab, card.title);
 }
@@ -1014,7 +1014,7 @@ const HTTPS_URL = (() => {
 		return `https://${dns}:${HTTPS_PORT}`;
 	} catch (e) {
 		console.error("tailscale serve failed", e);
-		return `http://ag:${PORT}`;
+		return `http://ag-mac:${PORT}`;
 	}
 })();
 console.log(`ag-board listening on http://${host}:${PORT}, http://127.0.0.1:${PORT}, ${HTTPS_URL}`);

@@ -25,7 +25,7 @@ There are two roles. Work out which one you are:
 2. POST a self-contained brief to the ag inbox as a new session:
 
    ```bash
-   curl -sS -H 'content-type: text/plain' --data-binary @/tmp/friction-brief.md 'http://ag:7373/prompt?new=1'
+   curl -sS -H 'content-type: text/plain' --data-binary @/tmp/friction-brief.md 'http://ag-mac:7373/prompt?new=1'
    ```
 
    The brief starts with `Fix friction: <one-line summary>`, then includes:

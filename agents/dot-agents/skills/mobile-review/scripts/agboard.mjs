@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// Adversarial mobile review of AG Dash (http://ag:7376) on a simulated iPhone 15 Pro.
+// Adversarial mobile review of AG Dash (http://ag-mac:7376) on a simulated iPhone 15 Pro.
 // Every write is stubbed (recorded, never sent), so it's safe against the live board.
 //   node agboard.mjs                 # live page
 //   PAGE=path/to/index.html node agboard.mjs   # test a local edit of the page before it goes live
 //   OUT=/tmp/mobile-review/agboard (screenshots), URL=... (default: the https board)
 import { launchPhone, alive, tapCheck, hitInfo, sweep, withKeyboard, kbVisible, reporter } from "./phone.mjs";
 
-const URL = process.env.URL || "https://ag.tail44736d.ts.net:7377/";
+const URL = process.env.URL || "https://ag-mac.tail44736d.ts.net:7377/";
 const OUT = process.env.OUT || "/tmp/mobile-review/agboard";
 const t = reporter();
 const stubReply = (w) => (w.path === "/api/upload" ? { ok: true, paths: ["/Users/you/inbox/clipboard/test.png"] } : { ok: true });

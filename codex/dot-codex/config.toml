@@ -16,6 +16,9 @@ name = "TrueFoundry"
 base_url = "https://tfy.promptlens.trilogy.com"
 env_key = "TFY_API_KEY"
 wire_api = "responses"
+# Makes Codex app-server hand the ChatGPT login token to cua_repl (Sky Computer Use);
+# without it CUA fails with "Codex auth token is unavailable". Requests still use TFY_API_KEY.
+requires_openai_auth = true
 
 [marketplaces.openai-bundled]
 source_type = "local"

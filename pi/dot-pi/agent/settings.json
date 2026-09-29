@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.85.1",
+  "lastChangelogVersion": "0.87.1",
   "defaultProvider": "truefoundry",
   "defaultModel": "anthropic-primary/claude-opus-5-5",
   "defaultThinkingLevel": "medium",

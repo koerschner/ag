@@ -3,7 +3,20 @@
     "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1"
   },
   "model": "claude-fable-5-1[1m]",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "bash \"$HOME/.claude/hooks/herdr-agent-state.sh\" session",
+            "timeout": 10,
+            "type": "command"
+          }
+        ],
+        "matcher": "^(startup|resume|clear|compact|fork)$"
+      }
+    ]
+  },
   "skipDangerousModePermissionPrompt": true,
-  "theme": "auto",
-  "hooks": {"SessionStart":[{"matcher":"^(startup|resume|clear|compact|fork)$","hooks":[{"type":"command","command":"bash \"$HOME/.claude/hooks/herdr-agent-state.sh\" session","timeout":10}]}]}
+  "theme": "auto"
 }

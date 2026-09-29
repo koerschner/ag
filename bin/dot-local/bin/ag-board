@@ -67,6 +67,7 @@ const HERDR = `${HOME}/.local/bin/ag-mux`; // tmux (agd) or Herdr, whichever thi
 const AG_TEXT = `${HOME}/.local/bin/ag-text`;
 const STATE_DIR = `${HOME}/.local/state/ag-board`;
 const STATE_FILE = `${STATE_DIR}/state.json`;
+const GONE_KEEP_MS = 7 * 24 * 3600_000;
 const CLICKS_FILE = `${STATE_DIR}/clicks.jsonl`;
 const PAGE = `${HOME}/.local/share/ag-board/index.html`;
 // Static assets sit next to the page in the ag checkout (the page itself is a symlink into it).
@@ -85,7 +86,7 @@ const WAKE_PROMPT = `${WAKE_PREFIX} Per "Waiting always wakes up" (AGENTS.md →
 const BIG_LINE = 256 * 1024; // tool results this big (screenshots) are summarised by regex, not parsed
 const KEYS = new Set(["esc", "enter", "up", "down", "left", "right", "tab", "backspace", "ctrl+u", "y", "n", "1", "2", "3"]);
 
-type CardState = { waiting?: boolean /* marked by hand */; wakeAskedAt?: number; wakeAsks?: number; hot?: boolean; red?: boolean /* pre-rename name of hot */; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
+type CardState = { goneAt?: number /* tab missing since; forgotten after GONE_KEEP_MS */; waiting?: boolean /* marked by hand */; wakeAskedAt?: number; wakeAsks?: number; hot?: boolean; red?: boolean /* pre-rename name of hot */; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
 type List = { id: string; name: string };
 type State = { cards: Record<string, CardState>; lists: List[] };
 type Msg = { role: "user" | "assistant"; text: string; ts: number };
@@ -666,8 +667,14 @@ async function poll() {
 		}
 		cards.push(card);
 	}
-	// Forget cards whose tabs are gone.
-	for (const id of Object.keys(state.cards)) if (!keys.has(id)) (delete state.cards[id], (dirty = true));
+	// Forget cards whose tabs have been gone a week. Not at once: a stopped session layer or a host move
+	// briefly shows no agents, and forgetting right away wiped every hotpath and list on 2026-09-29.
+	for (const [id, cs] of Object.entries(state.cards)) {
+		if (keys.has(id)) {
+			if (cs.goneAt) (delete cs.goneAt, (dirty = true));
+		} else if (!cs.goneAt) (cs.goneAt = now), (dirty = true);
+		else if (now - cs.goneAt > GONE_KEEP_MS) (delete state.cards[id], (dirty = true));
+	}
 	save();
 	// page: the served index.html's mtime, so open tabs (desktop and the phone PWA) reload themselves onto a new
 	// version instead of rendering with stale code until someone refreshes by hand.

@@ -10,8 +10,8 @@
 #   -s N     screen number (default 0 = main display; `ffmpeg -f avfoundation -list_devices true -i ""`)
 #   --max S  safety cap in seconds (default 30 min) in case nobody calls stop
 #
-# Needs macOS Screen Recording permission for the process chain that runs it (on ag-mac: herdr, for
-# agents in Herdr panes). Without it screencapture fails and ffmpeg hangs, so start checks first.
+# Needs Screen Recording for the TCC identity running it (on ag-mac: sshd-keygen-wrapper, see
+# `ag-access`). Without it screencapture fails and ffmpeg hangs, so start checks first.
 set -euo pipefail
 state=~/.local/state/screen-record
 mkdir -p $state
@@ -30,8 +30,7 @@ start)
 	alive && { echo "screen-record: already recording → $(<$state/out) (run: screen-record stop)" >&2; exit 1; }
 	if ! screencapture -x -D $(( screen + 1 )) $state/probe.png 2>/dev/null; then
 		echo "screen-record: no Screen Recording permission for this process (parent: $(ps -o comm= -p $PPID))." >&2
-		echo "  Grant it in System Settings → Privacy & Security → Screen & System Audio Recording (on ag-mac: add ~/.local/bin/herdr)." >&2
-		echo "  A new grant only applies after that app restarts. Meanwhile, launching via Ghostty works: open -na Ghostty.app --args -e /bin/zsh -lc \"screen-record start …\"" >&2
+		echo "  Run ag-access, and see the ag README, \"macOS permissions for agents\"." >&2
 		exit 3
 	fi
 	# Pixels per point on this screen, from the probe capture vs the screen's size in points.
@@ -55,6 +54,8 @@ start)
 		-c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -movflags +faststart $out \
 		> $state/ffmpeg.log 2>&1 &
 	print $! > $state/pid; print -r -- ${out:A} > $state/out
+	# An idle display keeps "recording" duplicate frames; keep it awake for the recording.
+	caffeinate -u -t $max >/dev/null 2>&1 & print $! > $state/caffeinate
 	sleep 2
 	alive || { echo "screen-record: ffmpeg exited:" >&2; cat $state/ffmpeg.log >&2; exit 1; }
 	echo "recording → ${out:A}"
@@ -65,6 +66,7 @@ stop)
 	kill -INT $pid   # ffmpeg finalizes the mp4 on SIGINT
 	for _ in {1..100}; do kill -0 $pid 2>/dev/null || break; sleep 0.1; done
 	kill -0 $pid 2>/dev/null && kill -9 $pid
+	[[ -f $state/caffeinate ]] && kill $(<$state/caffeinate) 2>/dev/null; rm -f $state/caffeinate
 	rm -f $state/pid
 	cat $state/out
 	;;

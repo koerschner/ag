@@ -24,3 +24,10 @@ say "friction"). An entry that comes back means its fix didn't hold.
 - Cause: the card lived only in accounts ag can't read.
 - Fix: Nathan moved it into the Trilogy `ag-vault` vault, read with `op-work`.
 - Check: `op-work item list --vault ag-vault | grep -i ramp`.
+
+## macOS permission prompts block agents (screen capture, Automation, re-consent)
+- Seen: 2026-09-29 (Roblox testing: screen recording on ag-mac)
+- Class: missing knowledge + missing tool
+- Cause: agents granted Screen Recording to herdr and to ffmpeg's Cellar path and ran ffmpeg through `launchctl submit`, but every agent command on ag-mac is attributed to `/usr/libexec/sshd-keygen-wrapper` (Herdr starts over SSH), so those grants never applied or broke on upgrade. TCC prompts and the monthly macOS 15+ "bypass the private window picker" alert live in UserNotificationCenter, which CUA refuses to click, so Nathan had to click by hand.
+- Fix: grant everything to sshd-keygen-wrapper (stable, Apple-signed); `ag-access` checks grants and `ag-access allow` answers agent prompts through Accessibility; `ag-screen-approvals` pushes replayd's re-consent dates to 2100; README "macOS permissions for agents", ag-machine-ops skill.
+- Check: `ag-access` exits 0, and `screencapture -x /tmp/t.png` works from any Herdr pane.

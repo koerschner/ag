@@ -501,14 +501,51 @@ mp4s with faststart, so they play in QuickTime and inline on iPhone Safari.
   independent of any repo. If the flow throws, the video up to the failure is still saved.
 - **Desktop**: `screen-record start [-w "Google Chrome"]` … `screen-record stop` (prints the mp4)
   records ag's main screen, or crops to one app's front window, while `chatgpt-cua` drives it.
-  ffmpeg avfoundation, 15 fps, capped at 30 min. Needs macOS **Screen Recording** permission for the
-  process chain running it: on ag that's `~/.local/bin/herdr` (System Settings → Privacy & Security →
-  Screen & System Audio Recording → +). GUI-only, so re-grant it on a new host (granted on ag 2026-09-29; takes effect once the herdr server restarts; until then launch `start` through Ghostty, which has the permission: `open -na Ghostty.app --args -e /bin/zsh -lc 'screen-record start …'`, and `stop` from anywhere); `start` fails fast
-  with that hint when it's missing. Admin prompts on ag are answered with `ag-login-password type`.
+  ffmpeg avfoundation, 15 fps, capped at 30 min. Needs macOS **Screen Recording** for the agents'
+  TCC identity, `sshd-keygen-wrapper` (see "macOS permissions for agents"); `start` fails fast
+  when it's missing. Plain `screencapture -x out.png` works for single frames the same way.
 - **Showing it**: `show clip.mp4` opens it on the client and publishes a phone player page
   (`phone:` link). In review pages, keep the page self-contained for images (base64) but put videos
   beside it as files, `<video src="flow.mp4" controls playsinline muted>`: `show page.html` copies
   referenced `src`/`poster` files along. `file-inbox` serves byte ranges, which iPhone Safari needs.
+
+## macOS permissions for agents (TCC)
+
+macOS attributes a process's privacy access (TCC) to its *responsible* process. On ag-mac
+the Herdr server is started over SSH (`ag` from the client), and `mac run` from ag-engine is
+SSH too, so **every agent command on ag-mac runs as `/usr/libexec/sshd-keygen-wrapper`**:
+not Ghostty, herdr, pi, ffmpeg, or osascript. Grant things to that one Apple-signed binary;
+its identity survives macOS and Homebrew updates (a grant to a Homebrew Cellar path or the
+ad-hoc-signed herdr binary breaks on every upgrade). Launchd jobs (`launchctl submit`,
+LaunchAgents) are their own responsible process and inherit none of it.
+
+- `ag-access` shows what agents may do (Screen Recording, Accessibility, event posting,
+  Input Monitoring, Full Disk Access, Automation targets, screen re-consent dates) and any
+  permission prompt on screen. Exit 1 if a core grant is missing.
+- `ag-access allow` clicks Allow on pending prompts raised for an agent identity. Codex computer
+  use refuses UserNotificationCenter (where TCC prompts live) and the prompt swallows synthetic
+  mouse clicks, but an Accessibility click on its button works. While a prompt is up, mouse
+  input to other apps is blocked, so answer it first.
+- `ag-screen-approvals` stops the monthly "X is requesting to bypass the system private window
+  picker" re-consent (macOS 15+) by pushing every client's next alert in replayd's
+  `ScreenCaptureApprovals.plist` to 2100, and seeds sshd-keygen-wrapper and Codex Computer Use.
+  It isn't TCC.db. `install` runs it; re-run it after granting a new capture app. A first capture by
+  a new identity still alerts once (it may name the process, e.g. "herdr", while the approval is
+  stored under sshd-keygen-wrapper): `ag-access allow`, then `ag-screen-approvals`.
+- An idle display keeps recording but serves duplicate frames: wake it with `caffeinate -u -t <s>`
+  before recording (headless-display keeps a virtual display, not an awake one).
+- Grants on ag-mac (2026-09-29), all to `sshd-keygen-wrapper`: Full Disk Access, Accessibility,
+  Screen & System Audio Recording (System Settings → Privacy & Security → the list → + →
+  Cmd+Shift+G `/usr/libexec/sshd-keygen-wrapper`), plus Automation for System Events, Finder,
+  Messages, Chrome (Contacts stays denied: its toggle ignores clicks; fixing it needs
+  `tccutil reset AppleEvents com.apple.sshd-keygen-wrapper` and re-allowing each target). There's no MDM (checked `profiles status`), so a PPPC profile
+  can't pre-grant these; MDM couldn't pre-allow Screen Recording or Input Monitoring anyway.
+  New Automation targets prompt on first use: `ag-access allow`.
+- If the Herdr server is ever started from a local Ghostty on ag-mac instead of over SSH, agents
+  inherit Ghostty's grants (Screen Recording and Accessibility, no Full Disk Access). Restart it
+  over SSH to get the full set.
+- Keychain "Allow" prompts are per item: create items agents read with
+  `security add-generic-password -T /usr/bin/security …` so the CLI is on the item's ACL.
 
 ## Client ↔ ag bridge
 

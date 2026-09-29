@@ -1,0 +1,91 @@
+#!/usr/bin/env zsh
+# ag-access — macOS permissions (TCC) for agents on ag-mac: check them, and answer consent prompts.
+#
+#   ag-access              what this process chain may do (Screen Recording, Accessibility, events,
+#                          Full Disk Access, Automation targets) and the screen-approval dates
+#   ag-access dialogs      list permission prompts on screen right now (text + buttons)
+#   ag-access allow        click Allow/OK on every prompt raised for an agent identity (see below)
+#
+# Who macOS asks about: TCC judges the *responsible* process. Everything agents run on ag-mac is
+# attributed to /usr/libexec/sshd-keygen-wrapper (Herdr's server is started over SSH, and `mac run`
+# from ag-engine is SSH too), not Ghostty, herdr, pi, or ffmpeg. Grants belong to sshd-keygen-wrapper.
+# Launchd jobs (launchctl submit, LaunchAgents) are their own responsible process and get none of it.
+#
+# Why `allow` exists: Codex computer use refuses to touch UserNotificationCenter (TCC prompts) and
+# the prompt swallows synthetic mouse clicks, but an Accessibility click on its button works.
+# It only clicks prompts naming an agent identity; anything else is listed for Nathan instead.
+set -euo pipefail
+agents='sshd-keygen-wrapper|ffmpeg|osascript|cliclick|screencapture|herdr|node|bun|python|Codex|Terminal|Ghostty'
+hosts=(UserNotificationCenter universalAccessAuthWarn CoreServicesUIAgent)
+
+probe() {  # CGPreflight*/AXIsProcessTrusted for this process chain (compiled once)
+	local bin=~/.cache/ag-access/probe
+	if [[ ! -x $bin ]]; then
+		mkdir -p ${bin:h}
+		print 'import ApplicationServices; import CoreGraphics
+print(CGPreflightScreenCaptureAccess(), AXIsProcessTrusted(), CGPreflightPostEventAccess(), CGPreflightListenEventAccess())' > $bin.swift
+		swiftc -O $bin.swift -o $bin 2>/dev/null
+	fi
+	$bin
+}
+
+dialogs() {  # prints "host<TAB>window text<TAB>buttons" per prompt window
+	for h in $hosts; do
+		timeout 10 osascript - $h <<'EOF' 2>/dev/null || true
+on run {h}
+	set out to ""
+	tell application "System Events"
+		if not (exists process h) then return ""
+		repeat with w in windows of process h
+			set t to ""
+			repeat with s in (static texts of w)
+				set t to t & (value of s) & " "
+			end repeat
+			set b to ""
+			repeat with x in (buttons of w)
+				set b to b & (name of x) & "|"
+			end repeat
+			set out to out & h & tab & t & tab & b & linefeed
+		end repeat
+	end tell
+	return out
+end run
+EOF
+	done | sed '/^$/d'
+}
+
+case ${1:-status} in
+status)
+	read scr ax post listen < <(probe)
+	fda=false; sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" 'select 1 limit 1' >/dev/null 2>&1 && fda=true
+	yn() { [[ $1 == true ]] && print ok || print MISSING; }
+	print "Screen Recording  $(yn $scr)"
+	print "Accessibility     $(yn $ax)"
+	print "Post events       $(yn $post)"
+	print "Input Monitoring  $(yn $listen)"
+	print "Full Disk Access  $(yn $fda)"
+	if [[ $fda == true ]]; then
+		print "Automation (sshd-keygen-wrapper → app):"
+		sqlite3 ~/Library/Application\ Support/com.apple.TCC/TCC.db \
+			"select '  '||indirect_object_identifier||'  '||case auth_value when 2 then 'allowed' when 0 then 'DENIED' else auth_value end from access where service='kTCCServiceAppleEvents' and client='/usr/libexec/sshd-keygen-wrapper' order by 1"
+		print "Screen-capture re-consent (next alert):"
+		ag-screen-approvals --list | grep -E 'sshd-keygen|codex|Computer%20Use' | sed 's/^/  /'
+	fi
+	pending=$(dialogs); [[ -n $pending ]] && { print "Pending prompts:"; print -r -- $pending | sed 's/^/  /'; }
+	[[ $scr == true && $ax == true && $fda == true ]] || { print "Fix: see ag README, \"macOS permissions for agents\""; exit 1; }
+	;;
+dialogs) dialogs ;;
+allow)
+	# Answer one prompt at a time: window indexes shift as each one closes.
+	for _ in {1..10}; do
+		IFS=$'\t' read -r h text buttons < <(dialogs | head -1) || break
+		btn=$(print -r -- $buttons | tr '|' '\n' | grep -m1 -xE 'Allow|OK|Always Allow' || true)
+		if [[ -z $btn ]] || ! print -r -- $text | grep -qE $agents; then
+			print "left for Nathan: [$h] $text [$buttons]"; break
+		fi
+		timeout 10 osascript -e "tell application \"System Events\" to tell process \"$h\" to click button \"$btn\" of window 1" >/dev/null
+		print "allowed ($btn): $text"; sleep 1
+	done
+	;;
+*) sed -n '2,17p' $0 | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+esac

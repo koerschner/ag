@@ -11,7 +11,6 @@ import plistlib
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 import uuid
 from pathlib import Path
@@ -101,12 +100,13 @@ def read_token():
                 os.close(descriptor)
 
 
-# Fail fast instead of hanging forever. `op` opens 1Password's Group Container at
-# startup; while macOS shows an unanswered "... would like to access data from
-# other apps" prompt, that open() blocks with no timeout (2026-09-28: agents hung
-# ~1h). The wrapper shares op's TCC attribution, so probe the same path first.
-GROUP_CONTAINER = Path.home() / "Library/Group Containers/2BUA8C4S2C.com.1password"
-PROBE_SECONDS = 5
+# Keep op away from 1Password's Group Container. At startup op looks under
+# $HOME/Library/Group Containers/2BUA8C4S2C.com.1password for desktop-app
+# integration; on macOS that access raises the TCC prompt "“bun” would like to
+# access data from other apps" (attributed to Pi's bun), which blocks op and
+# isn't remembered when denied (2026-09-28/29). Service accounts never need the
+# app, so op runs with HOME pointed at a private, empty directory.
+PRIVATE_HOME = Path.home() / ".local/state/op-wrapper/home"
 # Whole-command cap (not for `op run`, which wraps arbitrary long commands).
 TIMEOUT_SECONDS = float(os.environ.get("OP_AG_TIMEOUT", "120"))
 
@@ -114,30 +114,10 @@ TIMEOUT_SECONDS = float(os.environ.get("OP_AG_TIMEOUT", "120"))
 def fail(message):
     print(f"{NAME}: {message}", file=sys.stderr)
     sys.stderr.flush()
-    os._exit(1)  # a probe thread may still be blocked in the kernel
-
-
-def probe_group_container():
-    def touch():
-        try:
-            os.listdir(GROUP_CONTAINER)
-        except OSError:
-            pass  # missing or denied is fine: op then just skips app integration
-
-    probe = threading.Thread(target=touch, daemon=True)
-    probe.start()
-    probe.join(PROBE_SECONDS)
-    if probe.is_alive():
-        fail(
-            "macOS is blocking access to 1Password's app data, most likely an "
-            "unanswered privacy prompt ('\u2026 would like to access data from "
-            "other apps', often shown as \"bun\") on ag's screen. Answer it "
-            "(Don't Allow is enough), then retry."
-        )
+    os._exit(1)
 
 
 os.umask(0o077)
-probe_group_container()
 try:
     token = read_token().decode("ascii")
     if not token:
@@ -151,7 +131,15 @@ environment = os.environ.copy()
 environment.pop("OP_CONNECT_HOST", None)
 environment.pop("OP_CONNECT_TOKEN", None)
 environment["OP_SERVICE_ACCOUNT_TOKEN"] = token
-command = ["op", *sys.argv[1:]]
+arguments = sys.argv[1:]
+if sys.platform == "darwin":
+    PRIVATE_HOME.mkdir(parents=True, exist_ok=True)
+    environment["HOME"] = str(PRIVATE_HOME)
+    if arguments[:1] == ["run"] and "--" in arguments:
+        # The command op run wraps gets the real HOME back.
+        split = arguments.index("--") + 1
+        arguments[split:split] = ["/usr/bin/env", f"HOME={Path.home()}"]
+command = ["op", *arguments]
 if sys.argv[1:2] == ["run"] or TIMEOUT_SECONDS <= 0:
     os.execvpe("op", command, environment)
 try:

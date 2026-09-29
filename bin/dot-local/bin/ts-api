@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# ts-api <METHOD> <path> [curl args...]: call the Tailscale API as the "Tailscale OAuth client (ag)"
+# (ag-vault, read with op-work). Path is relative to https://api.tailscale.com/api/v2/, e.g.
+#   ts-api GET tailnet/-/devices
+# The client secret goes to curl on stdin, never on the command line.
+set -euo pipefail
+vault=c3qkbcqktsxmi6hnpzpltdbose item="Tailscale OAuth client (ag)"
+field() { op-work item get "$item" --vault "$vault" --fields "$1" --reveal; }
+method=${1:?method}; path=${2:?path}; shift 2
+cid=$(field username)
+token=$(field credential | tr -d '\n' |
+	curl -fsS -d "client_id=$cid" --data-urlencode "client_secret@-" https://api.tailscale.com/api/v2/oauth/token | jq -r .access_token)
+curl -fsS -X "$method" -H @<(printf 'Authorization: Bearer %s\n' "$token") "https://api.tailscale.com/api/v2/$path" "$@"

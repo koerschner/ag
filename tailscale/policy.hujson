@@ -1,0 +1,62 @@
+// Tailscale policy for tailnet nathankoerschner@gmail.com (tail44736d.ts.net).
+// Source of truth: dotfiles tailscale/policy.hujson. Apply with `tailscale/apply-policy`
+// (needs the "Tailscale OAuth client (ag)" item in ag-vault via op-work). Don't edit it in the admin console.
+{
+	// Ag machines join with auth keys minted for these tags (see tailscale/README.md).
+	"tagOwners": {
+		"tag:ag-brain":  ["autogroup:admin"],
+		"tag:ag-worker": ["autogroup:admin"],
+	},
+
+	"grants": [
+		// Nathan's own devices (ag-mac, the client Mac, the phone) reach everything.
+		{"src": ["autogroup:member"], "dst": ["*"], "ip": ["*"]},
+		// The brain drives everything too: ag-mac for computer use, workers, Nathan's devices.
+		{"src": ["tag:ag-brain"], "dst": ["*"], "ip": ["*"]},
+		// Workers only talk to the brain and each other, never to Nathan's personal devices.
+		{"src": ["tag:ag-worker"], "dst": ["tag:ag-brain", "tag:ag-worker"], "ip": ["*"]},
+	],
+
+	"ssh": [
+		// Nathan's devices (including ag) SSH into Ag machines with no browser check,
+		// so scripts and Herdr can connect unattended.
+		{
+			"action": "accept",
+			"src":    ["autogroup:member"],
+			"dst":    ["tag:ag-brain", "tag:ag-worker"],
+			"users":  ["autogroup:nonroot", "root"],
+		},
+		// The brain SSHes into workers it spins up.
+		{
+			"action": "accept",
+			"src":    ["tag:ag-brain"],
+			"dst":    ["tag:ag-worker"],
+			"users":  ["autogroup:nonroot", "root"],
+		},
+		// Default: members SSH into their own devices in check mode.
+		{
+			"action": "check",
+			"src":    ["autogroup:member"],
+			"dst":    ["autogroup:self"],
+			"users":  ["autogroup:nonroot", "root"],
+		},
+	],
+
+	"nodeAttrs": [
+		{
+			// Funnel for Nathan's own devices.
+			"target": ["autogroup:member"],
+			"attr":   ["funnel"],
+		},
+	],
+
+	"tests": [
+		{"src": "nathankoerschner@gmail.com", "accept": ["tag:ag-brain:22", "tag:ag-worker:22"]},
+		{"src": "tag:ag-brain", "accept": ["tag:ag-worker:22", "nathankoerschner@gmail.com:22"]},
+		{"src": "tag:ag-worker", "accept": ["tag:ag-brain:22"], "deny": ["nathankoerschner@gmail.com:22"]},
+	],
+	"sshTests": [
+		{"src": "nathankoerschner@gmail.com", "dst": ["tag:ag-brain", "tag:ag-worker"], "accept": ["root", "natkoersch"]},
+		{"src": "tag:ag-brain", "dst": ["tag:ag-worker"], "accept": ["root"]},
+	],
+}

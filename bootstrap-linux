@@ -46,6 +46,14 @@ if ! have op; then
     sudo apt-get update -qq && sudo apt-get install -y -qq 1password-cli >/dev/null || warn "1password-cli"
 fi
 
+step "cloudflared (arcade's scripts/db tunnels to the production database through it)"
+if ! have cloudflared; then
+  curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null &&
+    echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" |
+      sudo tee /etc/apt/sources.list.d/cloudflared.list >/dev/null &&
+    sudo apt-get update -qq && sudo apt-get install -y -qq cloudflared >/dev/null || warn "cloudflared"
+fi
+
 step "GNU Stow 2.4 (Ubuntu's 2.3 mishandles --dotfiles with dot-* directories)"
 if ! [[ $(stow --version 2>/dev/null) == *" 2.4"* || $(stow --version 2>/dev/null) == *" 2.5"* ]]; then
   ( cd /tmp && curl -fsSL https://ftp.gnu.org/gnu/stow/stow-2.4.1.tar.gz | tar xz && cd stow-2.4.1 &&

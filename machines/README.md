@@ -20,6 +20,10 @@ Roles:
 | `nathan-dev-client` | `nathans-MacBook-Pro-2` | client | `nathan` | `/Users/nathan` | `~/ag` | `~/dotfiles` | `100.68.116.104` |
 | `ag-brain` | `ag-brain` (Linux, Hetzner CCX33 in Hillsboro) | brain (Ag; being set up, not yet the Herdr host) | `nathan` | `/home/nathan` | `~/ag` | `~/dotfiles` | changes on rebuild; use MagicDNS `ag-brain` |
 
+The ag repo is private. Machines where agents don't push (the client, Linux machines) clone it read-only with
+the `ag repo deploy key` from ag-vault (`~/.ssh/ag-deploy`, set as the checkout's `core.sshCommand`); the
+host pushes with Nathan's normal GitHub credentials.
+
 `machine-role` prints this Mac's role from the table (unlisted = client); role-specific
 setup uses it, e.g. sleep: hosts never sleep, clients sleep normally (`macos`, Hammerspoon's battery guard).
 

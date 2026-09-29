@@ -1,5 +1,7 @@
 # ag
 
+*Always Going*
+
 Ag is Nathan's agent system: Herdr as the runtime, Pi as the harness, and everything around them
 that makes it one system across his machines. It covers AG Dash, the ag inbox, the tickler,
 presence, the client ↔ host bridge, computer use, 1Password and Tailscale access, the Linux engine's

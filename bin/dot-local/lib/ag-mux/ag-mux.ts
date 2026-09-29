@@ -864,7 +864,7 @@ const H: Record<string, (p: Params, ctx: { sock: net.Socket }) => any> = {
 		// The pane's shell may still be starting: wait for it to own the foreground.
 		while (!atShell(pane)) {
 			if (S.agents[pane.id]) fail("pane_not_available", `pane ${pane.id} already hosts an agent`);
-			if (Date.now() - t0 > Math.min(timeout, 10000)) fail("pane_not_available", `pane ${pane.id} is not at a shell prompt`);
+			if (Date.now() - t0 > Math.min(timeout, 10000)) fail("agent_pane_busy", `pane ${pane.id} is not at a shell prompt`);
 			await Bun.sleep(100);
 		}
 		pendingNames.set(pane.id, p.name);

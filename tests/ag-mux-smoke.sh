@@ -5,7 +5,7 @@
 # Shape checks compare key sets against Herdr fixtures captured from a real Herdr (tests/fixtures).
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
-bin=$here/../bin/dot-local/bin
+bin=$here/../bin/dot-local/bin; export AG_MUX_LIB=$here/../bin/dot-local/lib/ag-mux
 export AG_MUX_TMUX=agsmoke$$ AG_MUX_STATE=${TMPDIR:-/tmp}/agsmoke$$ AG_MUX_BACKEND=tmux
 export AG_MUX_SOCKET=$AG_MUX_STATE/agd.sock AG_MUX_CONF=$here/../tmux/dot-config/ag/ag.tmux.conf AG_MUX_BIN=$bin/ag-mux
 M() { "$bin/ag-mux" "$@"; }

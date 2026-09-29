@@ -42,7 +42,7 @@
       "auth": {
         "type": "oauth"
       },
-      "lifecycle": "lazy"
+      "lifecycle": "eager"
     }
   }
 }

@@ -95,7 +95,7 @@ Nothing important may live only on a machine's local disk.
 1. Upgrade Tailscale for tagged ephemeral nodes and API/Terraform access (split-out session
    "Upgrade Tailscale Plan").
 2. ✅ IaC (`infra/hetzner`, `ag-infra up`/`down`, verified by a full destroy + rebuild), ✅ `bootstrap-linux` (idempotent, clean run). ✅ One brain up. Left: MCP server auth on the brain, and moving to CCX53 once allowed.
-3. Build the pi-sessions archive and the persistent-volume layout.
+3. ✅ Persistent volume layout (/data bind mounts). ✅ pi-sessions archive: `pi-sessions-sync` (README "Pi sessions archive"), hourly on the host (plus the client over SSH) and on the brain.
 4. ✅ `mac` tool (`bin/dot-local/bin/mac`: run, cua, push/pull, show, status) over the brain's own SSH key (ag-vault "ag-brain → ag-mac SSH key", authorized on ag-mac only from tailnet IPs); tested run, files, computer use. ✅ MCP on the brain with zero per-machine auth: `mcp-tunnel` (systemd user unit) forwards 127.0.0.1:7381-7384 to ag-mac's shared gateway; Slack's OAuth file copied. When the brain becomes the host, the gateway moves there and auth lives in exactly one place.
 5. Move arcade dev onto the brain as the real test.
 6. Move Herdr, the inbox, the tickler, `show`, and `presence` to the brain (LaunchAgents become systemd

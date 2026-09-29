@@ -79,6 +79,10 @@ done
 say "state copied"
 ~/.local/bin/ag-move-repos --apply --no-deps >"$DIR/repos-final.log" 2>&1 || say "repo re-sync reported problems ($DIR/repos-final.log)"
 say "repos re-synced: $(grep -c '✓' "$DIR/repos-final.log") ok, $(grep -c '✗' "$DIR/repos-final.log") failed"
+# Prove the data moved: every session file, service state and inbox file identical (sha256), before the
+# engine's services start changing their own state.
+~/.local/bin/ag-verify-move post --no-tabs --no-archive --html "$DIR/check/data.html" >"$DIR/verify-data.txt" 2>&1; vdata=$?
+say "data check: $([ $vdata = 0 ] && echo clean || echo "$(grep -c '^  - ' "$DIR/verify-data.txt") mismatch(es)")"
 
 # 7. The engine: its own MCP gateway, every service, the sessions, the `ag` address.
 scp -q "$DIR/layout.json" "$TO:.local/state/ag-mux/herdr-layout.json" || fail "copy layout"
@@ -95,6 +99,12 @@ systemctl --user restart pi-sessions-sync.timer
 SH
 say "engine services up, sessions restored, svc:ag local"
 
+# Tabs → sessions after the restore, and the pi-sessions archive from the engine.
+~/.local/bin/ag-verify-move post --no-hashes --html "$DIR/check/index.html" >"$DIR/verify-tabs.txt" 2>&1; vtabs=$?
+say "tab check: $([ $vtabs = 0 ] && echo clean || echo "$(grep -c '^  - ' "$DIR/verify-tabs.txt") mismatch(es)")"
+rsync -a "$DIR/check/" "$TO:review/ag-move-check/"
+check="http://ag.tail44736d.ts.net:7374/r/ag-move-check/ (data: data.html)"
+
 # 8. The client picks up the new host (Hammerspoon reads ag-host at load).
 ssh ag-client 'PATH=/opt/homebrew/bin:$PATH; cd ~/ag && git pull -q --rebase --autostash && stow --dotfiles -d ~/ag -t ~ -R bin hammerspoon; cd ~/dotfiles && git pull -q --rebase --autostash; hs -c "hs.reload()" >/dev/null 2>&1 &' ||
 	say "client update failed"
@@ -104,5 +114,9 @@ home=$(curl -s -m 10 http://ag:7376/api/config | jq -r .home)
 tabs=$(ssh "$TO" '~/.local/bin/ag-mux api snapshot' | jq '.result.snapshot.tabs | length')
 say "check: AG Dash home=$home, engine tabs=$tabs"
 [ "$home" = /home/nathan ] || fail "AG Dash isn't answering from the engine (home=$home)"
-~/.local/bin/ag-text "✅ Ag moved to ag-engine: $tabs tabs restored (Pi asleep, wakes when you open a tab), AG Dash/inbox/show at http://ag:7376 etc. On ag-client run \`ag\` in a new terminal to attach (tmux). Herdr on ag-mac stays as a fallback for a week. Log: ag-mac:~/.local/state/cutover/move-host.log"
+if [ $vdata != 0 ] || [ $vtabs != 0 ]; then
+	~/.local/bin/ag-text "⚠️ Ag moved to ag-engine, but the data check found mismatches; nothing on ag-mac is retired. Report: $check"
+	say "=== done with mismatches"; exit 1
+fi
+~/.local/bin/ag-text "✅ Ag moved to ag-engine: $tabs tabs restored (Pi asleep, wakes when you open a tab), AG Dash/inbox/show at http://ag:7376 etc. On ag-client run \`ag\` in a new terminal to attach (tmux). Herdr on ag-mac stays as a fallback for a week. Data check clean (every session file identical): $check"
 say "=== done"

@@ -431,6 +431,8 @@ function connect() {
   clearTimeout(esRetry); es?.close();
   es = new EventSource("/events");
   es.onmessage = (e) => { B = JSON.parse(e.data); if (!staleReload()) onData(); };
+  // Deltas: unchanged cards arrive as {tab, same: 1}; keep our copy of those.
+  es.addEventListener("delta", (e) => { const d = JSON.parse(e.data), old = new Map(B.cards.map((c) => [c.tab, c])); d.cards = d.cards.map((c) => (c.same ? old.get(c.tab) : c)).filter(Boolean); B = d; if (!staleReload()) onData(); });
   es.onerror = () => { es.close(); esRetry = setTimeout(connect, 2000); };
 }
 // Reload onto a newly deployed page version (the server sends index.html's mtime as B.page), but never while

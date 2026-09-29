@@ -204,7 +204,10 @@ function mediaIn(text?: string): Media[] {
 function serveFile(path: string, req: Request): Response {
 	const file = Bun.file(path);
 	const size = file.size;
-	const headers: Record<string, string> = { "content-type": mediaType(path), "accept-ranges": "bytes", "cache-control": "private, max-age=300" };
+	// ETag from size+mtime: after max-age the browser revalidates and gets a 304 instead of the whole file again.
+	const etag = `"${size.toString(36)}-${Math.floor(file.lastModified).toString(36)}"`;
+	const headers: Record<string, string> = { "content-type": mediaType(path), "accept-ranges": "bytes", "cache-control": "private, max-age=300", etag };
+	if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
 	const range = req.headers.get("range")?.match(/bytes=(\d*)-(\d*)/);
 	if (!range) return new Response(file, { headers: { ...headers, "content-length": String(size) } });
 	const start = range[1] ? +range[1] : Math.max(0, size - +range[2]);
@@ -515,14 +518,23 @@ type Card = {
 	sessionFile?: string;
 	sid?: string;
 };
-let board: { cards: Card[]; lists: List[]; workspaces: { id: string; label: string }[] } = { cards: [], lists: state.lists, workspaces: [] };
+let board: { cards: Card[]; lists: List[]; workspaces: { id: string; label: string }[]; page: number } = { cards: [], lists: state.lists, workspaces: [], page: 0 };
 let boardJson = "";
 const cardKey = new Map<string, string>(); // tab id → board state key (pi session id, else tab id)
 // SSE senders, one per open page. The client Mac reaches ag through a Tailscale relay (~4 Mbps), so each stream is
 // gzipped and flushed per message: the ~400 KB board goes out as ~40 KB.
 const clients = new Set<(msg: string) => void>();
+// Updates after the first go out as a named "delta" event: cards unchanged since the last broadcast are sent as
+// {tab, same: 1} and the page reuses its copy (usually only the few working cards change: ~126 KB → a few KB).
+// A new page version goes out whole, as a plain message, so pages too old to know deltas still see it and reload.
+let cardJson = new Map<string, string>();
+let lastPage = 0;
 const broadcast = () => {
-	const msg = `data: ${boardJson}\n\n`;
+	const next = new Map(board.cards.map((c) => [c.tab, JSON.stringify(c)]));
+	const full = board.page !== lastPage;
+	const msg = full ? `data: ${boardJson}\n\n` : `event: delta\ndata: ${JSON.stringify({ ...board, cards: board.cards.map((c) => (cardJson.get(c.tab) === next.get(c.tab) ? { tab: c.tab, same: 1 } : c)) })}\n\n`;
+	cardJson = next;
+	lastPage = board.page;
 	for (const send of clients) {
 		try {
 			send(msg);

@@ -11,7 +11,7 @@ set -uo pipefail
 DOTFILES=${DOTFILES:-$HOME/dotfiles}
 REPO=https://github.com/nathankoerschner/dotfiles.git
 # Stow packages that make sense on Linux (no ghostty/hammerspoon/alfred/ag-board/ag-inbox yet).
-STOW_PACKAGES=(agents bin claude codex git herdr mise nvim pi ssh tmux zsh)
+STOW_PACKAGES=(agents bin claude codex git herdr mise nvim pi ssh systemd-user tmux zsh)
 APT=(git curl jq unzip zsh stow ripgrep fd-find fzf build-essential docker.io ca-certificates gnupg neovim tmux python3 htop)
 backup=$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)
 failed=()
@@ -105,6 +105,15 @@ fi
 ZSHENV
 echo "  ok"
 
+step "brain → ag-mac SSH key + MCP tunnel"
+mkdir -p ~/.ssh/sockets
+if [[ ! -f ~/.ssh/ag-mac && -f ~/.config/ag/op-work.token ]]; then
+  ( umask 077; op-work item get "ag-brain → ag-mac SSH key" --vault c3qkbcqktsxmi6hnpzpltdbose --fields "private key" --reveal --format json |
+      jq -r '.ssh_formats.openssh.value // .value' > ~/.ssh/ag-mac ) || warn "ag-mac SSH key"
+fi
+sudo loginctl enable-linger "$USER" >/dev/null 2>&1 || true
+systemctl --user daemon-reload 2>/dev/null && systemctl --user enable --now mcp-tunnel.service >/dev/null 2>&1 && echo "  mcp-tunnel on" || warn "mcp-tunnel (needs ~/.ssh/ag-mac)"
+
 step "Secrets checklist (move by hand or via op; never commit)"
 check() { [[ -e $1 ]] && echo "  ok   $2" || { echo "  TODO $2"; failed+=("secret: $2"); }; }
 check ~/.config/gh/hosts.yml       "gh auth login (GitHub)"
@@ -112,6 +121,7 @@ check ~/.zshenv.local              "model keys (TFY_TOKEN, OPENROUTER_API_KEY) i
 check ~/.pi/agent/auth.json        "Pi OAuth logins (anthropic, openai-codex, openrouter)"
 check ~/.pi/agent/mcp.json         "Pi MCP config"
 check ~/.config/ag/op-work.token   "ag-vault 1Password service-account token (op-work on Linux)"
+check ~/.ssh/ag-mac                "brain → ag-mac SSH key (fetched from ag-vault once op-work.token exists)"
 check ~/.config/ag/op-ag.token     "arcade.school 1Password service-account token (op-ag on Linux)"
 
 if ((${#failed[@]})); then

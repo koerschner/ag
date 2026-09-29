@@ -1,0 +1,14 @@
+# Ag brain: reach ag-mac's shared MCP gateway (bin/dot-local/bin/mcp-gateway, 127.0.0.1:7381-7384)
+# through SSH, so Pi's mcp.json (which points at 127.0.0.1:738x) works here with no per-machine
+# OAuth. When the brain takes over as the Ag host, the gateway moves here and this unit goes away.
+[Unit]
+Description=Tunnel to ag-mac's shared MCP gateway
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ControlMaster=no -o ControlPath=none -L 7381:127.0.0.1:7381 -L 7382:127.0.0.1:7382 -L 7383:127.0.0.1:7383 -L 7384:127.0.0.1:7384 ag-mac
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

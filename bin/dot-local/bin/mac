@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# mac: reach into ag-mac (the Mac half of Ag) from the brain or any Linux Ag machine.
+# Use it when a task needs macOS: computer use, Mac-only apps and CLIs (Xcode, Discord, the Keychain),
+# native UI renders, iPhone Mirroring via the client, anything whose files only exist on the Mac.
+#
+#   mac run <cmd...>           run a shell command on ag-mac (login env; exit code passes through)
+#   mac cua "<task>"           computer use on ag-mac's desktop (chatgpt-cua); prints its report
+#   mac push <local> [remote]  copy a file/dir to ag-mac (default: ~/inbox/from-brain/)
+#   mac pull <remote> [local]  copy a file/dir from ag-mac (default: ./)
+#   mac show <file|url>        open it on Nathan's screen via ag-mac's `show` (pushes local files first)
+#   mac status                 is ag-mac reachable, and is Nathan at his client?
+#
+# SSH alias `ag-mac` (ssh/dot-ssh/config) with the brain's own key (~/.ssh/ag-mac).
+set -euo pipefail
+HOST=${MAC_HOST:-ag-mac}
+ssh_() { ssh -o ConnectTimeout=10 -o BatchMode=yes "$HOST" "$@"; }
+q() { printf '%q ' "$@"; }
+
+cmd=${1:-help}; shift || true
+case $cmd in
+  run)
+    [[ $# -gt 0 ]] || { echo "usage: mac run <cmd...>" >&2; exit 2; }
+    # One argument = a shell snippet; several = argv, quoted for the remote shell.
+    if [[ $# -eq 1 ]]; then ssh_ "$1"; else ssh_ "$(q "$@")"; fi ;;
+  cua)
+    [[ $# -ge 1 ]] || { echo 'usage: mac cua "<task>"' >&2; exit 2; }
+    # The task travels on stdin so quoting can't mangle it.
+    printf '%s' "$*" | ssh_ 'chatgpt-cua "$(cat)"' ;;
+  push)
+    src=${1:?usage: mac push <local> [remote]}; dst=${2:-inbox/from-brain/}
+    ssh_ "mkdir -p $(q "$(dirname "$dst/x")")" && rsync -az "$src" "$HOST:$dst" && echo "$HOST:$dst" ;;
+  pull)
+    src=${1:?usage: mac pull <remote> [local]}; rsync -az "$HOST:$src" "${2:-./}" ;;
+  show)
+    t=${1:?usage: mac show <file|url>}
+    if [[ -e $t ]]; then
+      d="inbox/from-brain/show-$(date +%s)"; ssh_ "mkdir -p $d"; rsync -az "$t" "$HOST:$d/"
+      t="$d/$(basename "$t")"
+    fi
+    ssh_ "show $(q "$t")" ;;
+  status)
+    if ssh_ true 2>/dev/null; then echo "ag-mac: reachable"; ssh_ 'presence 2>/dev/null | tail -1' || true
+    else echo "ag-mac: UNREACHABLE"; exit 1; fi ;;
+  *) sed -n '2,13p' "$0"; [[ $cmd == help ]] || exit 2 ;;
+esac

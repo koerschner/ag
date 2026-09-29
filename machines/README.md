@@ -16,15 +16,16 @@ Roles:
 
 | SSH alias | LocalHostName | Role | User | Home | ag checkout | Dotfiles checkout | Tailscale IP |
 |---|---|---|---|---|---|---|---|
-| `ag-mac` | `ag-mac`, `ag` | host | `natkoersch` | `/Users/natkoersch` | `~/ag` | `~/dotfiles-seen-setup` | `100.107.192.32` |
-| `ag-client` | `ag-client`, `nathans-MacBook-Pro-2` | client | `nathan` | `/Users/nathan` | `~/ag` | `~/dotfiles` | `100.68.116.104` |
+| `ag-mac` | `ag-mac` | host | `natkoersch` | `/Users/natkoersch` | `~/ag` | `~/dotfiles-seen-setup` | `100.107.192.32` |
+| `ag-client` | `ag-client` | client | `nathan` | `/Users/nathan` | `~/ag` | `~/dotfiles` | `100.68.116.104` |
 | `ag-engine` | `ag-engine` (Linux, Hetzner CCX33 in Hillsboro) | engine (Ag; being set up, not yet the Herdr host) | `nathan` | `/home/nathan` | `~/ag` | `~/dotfiles` | changes on rebuild; use MagicDNS `ag-engine` |
 
 Names (settled 2026-09-29; Tailscale device name = SSH alias = LocalHostName): **ag-engine** (rented Linux),
 **ag-mac** (the 2024 MacBook, formerly `ag`), **ag-client** (the Mac Nathan sits at, formerly `nathan-dev-client`),
 and **ag-phone** (Nathan's iPhone, Tailscale `ag-phone`, formerly `iphone-15-pro-max`; it runs neither repo, so
-it has no row). The old names stay as extra SSH aliases, and as extra LocalHostNames in the table
-(`machine-role` accepts a comma-separated list), until nothing uses them.
+it has no row). The old names stay as extra SSH aliases, and `ag` stays in both Macs' `/etc/hosts` (dotfiles
+`macos`) so old `http://ag:…` links still open, until nothing uses them. (`machine-role` accepts a
+comma-separated LocalHostName list for future renames.)
 
 The ag repo is private. Machines where agents don't push (the client, Linux machines) clone it read-only with
 the `ag repo deploy key` from ag-vault (`~/.ssh/ag-deploy`, set as the checkout's `core.sshCommand`); the

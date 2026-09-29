@@ -54,7 +54,14 @@ for plist in $AG/macos-launchagents/*.plist; do
   # Repoint links that still go to an old checkout (e.g. from before ag had its own repo).
   [[ -L $dest && $(readlink $dest) != $plist ]] && rm $dest
   [[ -L $dest ]] || { [[ -e $dest ]] && mkdir -p $backup && mv $dest $backup/; ln -s $plist $dest; }
+  # bootstrap is a no-op for a loaded agent, so reload it when the plist changed since the last install
+  # (otherwise launchd keeps running the old definition). Hashes: ~/.local/state/ag-launchagents/.
+  mkdir -p ~/.local/state/ag-launchagents; sum=$(shasum $plist | cut -d' ' -f1) seen=~/.local/state/ag-launchagents/${plist:t}
+  if [[ -f $seen && $(<$seen) != $sum ]] && launchctl print gui/$UID/${plist:t:r} >/dev/null 2>&1; then
+    launchctl bootout gui/$UID/${plist:t:r} 2>/dev/null; echo "  reloading ${plist:t} (changed)"
+  fi
   launchctl bootstrap gui/$UID $dest 2>/dev/null || true   # already loaded is fine
+  print -r -- $sum >$seen
   echo "  ${plist:t}"
 done
 

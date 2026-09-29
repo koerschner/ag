@@ -13,7 +13,7 @@ set -u
 SWAP_GB=${MEMWATCH_SWAP_GB:-8}
 PROC_GB=${MEMWATCH_PROC_GB:-3}
 CLIENT=${MEMWATCH_CLIENT:-ag-client}
-MACHINES=(ag-mac:ag-mac,ag ag-client:ag-client,nathans-MacBook-Pro-2)   # ssh-alias:LocalHostName[,old name]; keep in sync with machines/README.md
+MACHINES=(ag-mac:ag-mac ag-client:ag-client)   # ssh-alias:LocalHostName[,other names]; keep in sync with machines/README.md
 LOG=~/Library/Logs/mem-watch.log
 STATE=~/.local/state/mem-watch; mkdir -p $STATE
 

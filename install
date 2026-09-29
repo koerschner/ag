@@ -34,13 +34,17 @@ git -C $AG config core.hooksPath .githooks && echo "  core.hooksPath=.githooks"
 step "stow packages"
 for pkg in $STOW_PACKAGES; do
   # Move aside any real file that would block a symlink, then stow.
-  $STOW -n $pkg 2>&1 |
+  [[ $pkg == codex ]] && ign=(--ignore='(^|/)config\.toml$') || ign=()
+  $STOW $ign -n $pkg 2>&1 |
     sed -nE 's/.* over existing target (.+) since .*/\1/p; s/.*existing target is not owned by stow: (.+)$/\1/p' |
     while read -r rel; do
       mkdir -p "$backup/${rel:h}" && mv "$HOME/$rel" "$backup/$rel" && echo "  backed up ~/$rel"
     done
-  $STOW $pkg && echo "  $pkg" || warn "stow $pkg"
+  $STOW $ign $pkg && echo "  $pkg" || warn "stow $pkg"
 done
+# ~/.codex/config.toml is a per-machine copy (the Codex app rewrites it with absolute paths), so it is
+# ignored above; a new machine starts from the tracked one.
+[[ -e ~/.codex/config.toml ]] || { mkdir -p ~/.codex && cp $AG/codex/dot-codex/config.toml ~/.codex/config.toml && echo "  copied ~/.codex/config.toml"; }
 [[ -d $backup ]] && echo "  pre-existing files moved to $backup"
 
 step "LaunchAgents"

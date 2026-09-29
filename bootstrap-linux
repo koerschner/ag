@@ -79,15 +79,17 @@ git -C "$AG" config core.hooksPath .githooks
 
 step "stow packages"
 stow_pkg() { # <repo dir> <package>: move aside any real file that would block a symlink, then stow.
-  stow --dotfiles --no-folding -d "$1" -t "$HOME" -n "$2" 2>&1 |
+  local ign=(); [[ $2 == codex ]] && ign=(--ignore='(^|/)config\.toml$')   # per-machine copy; see install
+  stow --dotfiles --no-folding "${ign[@]}" -d "$1" -t "$HOME" -n "$2" 2>&1 |
     sed -nE 's/.* over existing target (.+) since .*/\1/p; s/.*existing target is not owned by stow: (.+)$/\1/p; s/.*existing target is neither a link nor a directory: (.+)$/\1/p' |
     while read -r rel; do
       mkdir -p "$backup/$(dirname "$rel")" && mv "$HOME/$rel" "$backup/$rel" && echo "  backed up ~/$rel"
     done
-  stow --dotfiles --no-folding -d "$1" -t "$HOME" "$2" && echo "  $(basename "$1")/$2" || warn "stow $(basename "$1")/$2"
+  stow --dotfiles --no-folding "${ign[@]}" -d "$1" -t "$HOME" "$2" && echo "  $(basename "$1")/$2" || warn "stow $(basename "$1")/$2"
 }
 for pkg in "${DOTFILES_PACKAGES[@]}"; do stow_pkg "$DOTFILES" "$pkg"; done
 for pkg in "${AG_PACKAGES[@]}"; do stow_pkg "$AG" "$pkg"; done
+[[ -e ~/.codex/config.toml ]] || { mkdir -p ~/.codex && cp "$AG/codex/dot-codex/config.toml" ~/.codex/config.toml; }
 [[ -d $backup ]] && echo "  pre-existing files moved to $backup"
 
 step "node (mise, Linux-only untracked conf.d so the tracked mise config stays Mac-compatible)"

@@ -7,7 +7,8 @@ delete it when one is retired. Per-machine snapshots live in `machines/<LocalHos
 
 Roles:
 - **engine** (Ag, Linux): rented, rebuilt from zero by `ag-infra` (infra/hetzner) + `bootstrap-linux`; persistent state on a volume at /data. Design: `docs/ag.md`. Sync it like the others (`git pull --ff-only` in `~/ag` and `~/dotfiles`, re-run `~/ag/bootstrap-linux` if it changed).
-- **host**: runs the Herdr server, agents, and repos. Agents act from here.
+- **host**: runs Ag's sessions (ag-mux on tmux), every Ag service, and the repos. Agents act from here. Today: ag-engine (Linux, Hetzner CCX33 in Hillsboro).
+- **extremity**: the always-on Mac Ag drives for computer use and Mac-only apps and CLIs (ag-mac). No sessions or Ag services; it never sleeps.
 - **client**: where Nathan sits; runs no Herdr server. Attaches to a host's Herdr
   (`ag` command, host keybindings), runs Hammerspoon, CleanShot, and the client side
   of the bridge (`shot`, `show`, `client-cua`). Client shortcuts only translate keys
@@ -16,9 +17,9 @@ Roles:
 
 | SSH alias | LocalHostName | Role | User | Home | ag checkout | Dotfiles checkout | Tailscale IP |
 |---|---|---|---|---|---|---|---|
-| `ag-mac` | `ag-mac` | host | `natkoersch` | `/Users/natkoersch` | `~/ag` | `~/dotfiles-seen-setup` | `100.107.192.32` |
+| `ag-mac` | `ag-mac` | extremity | `natkoersch` | `/Users/natkoersch` | `~/ag` | `~/dotfiles-seen-setup` | `100.107.192.32` |
 | `ag-client` | `ag-client` | client | `nathan` | `/Users/nathan` | `~/ag` | `~/dotfiles` | `100.68.116.104` |
-| `ag-engine` | `ag-engine` (Linux, Hetzner CCX33 in Hillsboro) | engine (Ag; being set up, not yet the Herdr host) | `nathan` | `/home/nathan` | `~/ag` | `~/dotfiles` | changes on rebuild; use MagicDNS `ag-engine` |
+| `ag-engine` | `ag-engine` | host | `nathan` | `/home/nathan` | `~/ag` | `~/dotfiles` | changes on rebuild; use MagicDNS `ag-engine` |
 
 Names (settled 2026-09-29; Tailscale device name = SSH alias = LocalHostName): **ag-engine** (rented Linux),
 **ag-mac** (the 2024 MacBook, formerly `ag`), **ag-client** (the Mac Nathan sits at, formerly `nathan-dev-client`),

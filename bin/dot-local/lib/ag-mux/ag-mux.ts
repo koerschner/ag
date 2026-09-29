@@ -503,9 +503,12 @@ async function wakeAgent(target: string): Promise<Pane> {
 	if (!p?.sleep || S.agents[p.id]) return agentOf(target);
 	tmuxBatch([["set-option", "-p", "-u", "-t", p.tp, "@ag_sleep"], ["send-keys", "-t", p.tp, "Enter"]]);
 	p.sleep = "";
-	const ready = await waitFor(() => ["idle", "done"].includes(S.agents[p.id]?.status ?? ""), 60_000);
-	if (!ready) fail("agent_not_found", `agent in ${p.id} was asleep and didn't start within 60s`);
-	await Bun.sleep(500); // let pi's editor take input
+	// pi reports itself before its TUI can take input, so also wait for the editor (its border rules) on screen.
+	const editorUp = () => (tmux(["capture-pane", "-p", "-t", p.tp]).match(/^─{20,}/gm) ?? []).length >= 2;
+	const t0 = Date.now();
+	while (Date.now() - t0 < 60_000 && !(["idle", "done"].includes(S.agents[p.id]?.status ?? "") && editorUp())) await Bun.sleep(250);
+	if (!S.agents[p.id]) fail("agent_not_found", `agent in ${p.id} was asleep and didn't start within 60s`);
+	await Bun.sleep(700); // settle: extensions finish loading after the first paint
 	return p;
 }
 function agentOf(target: string): Pane {

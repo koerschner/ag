@@ -57,9 +57,10 @@ for n in $NAMES; do
 	[ -f "$n/package.json" ] || continue
 	if ls "$n"/bun.lock* >/dev/null 2>&1; then c="bun install"
 	elif [ -f "$n/pnpm-lock.yaml" ]; then c="pnpm install"
-	elif [ -f "$n/package-lock.json" ]; then c="npm ci"
+	elif [ -f "$n/package-lock.json" ]; then c="npm ci" # falls back to npm install --legacy-peer-deps below
 	elif [ -f "$n/yarn.lock" ]; then c="yarn install"
 	else continue; fi
-	(cd "$n" && $c >/tmp/ag-move-repos-$n.log 2>&1) && echo "  deps $n ($c)" || echo "  ✗ deps $n ($c): /tmp/ag-move-repos-$n.log"
+	(cd "$n" && { $c >/tmp/ag-move-repos-$n.log 2>&1 || { [ "$c" = "npm ci" ] && c="npm install --legacy-peer-deps" && $c >>/tmp/ag-move-repos-$n.log 2>&1; }; }) &&
+		echo "  deps $n ($c)" || echo "  ✗ deps $n ($c): /tmp/ag-move-repos-$n.log"
 done
 SH

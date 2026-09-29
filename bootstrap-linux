@@ -72,6 +72,7 @@ step "Standalone CLIs (vendor installers)"
 # Sessions run on tmux via ag-mux (docs/tmux-port.md); no Herdr here, so `herdr` never talks to agd.
 # Sessions, tickler items and state moved from ag-mac name /Users/natkoersch/...; keep those paths valid.
 [ -e /Users/natkoersch ] || { sudo mkdir -p /Users && sudo ln -sfn "$HOME" /Users/natkoersch; }
+command -v pnpm >/dev/null || npm install -g pnpm >/dev/null 2>&1 || warn "pnpm"
 # Ghostty's terminfo, so `ssh ag-engine` from Ghostty (TERM=xterm-ghostty) can run tmux.
 infocmp xterm-ghostty >/dev/null 2>&1 || tic -x "$AG/tmux/terminfo/xterm-ghostty.src" 2>/dev/null || warn "ghostty terminfo"
 rm -f "$HOME/.local/bin/herdr"

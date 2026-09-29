@@ -15,7 +15,7 @@
 # for a hibernated or closed session, its transcript with Wake / Resume. Plain http because Herdr strips OSC 8
 # hyperlinks and Ghostty only auto-links standard schemes; the board redirects itself to https.
 set -euo pipefail
-host=${HERDR_LINK_HOST:-$(scutil --get LocalHostName)}
+host=${HERDR_LINK_HOST:-$(scutil --get LocalHostName 2>/dev/null || hostname -s)}
 board=${HERDR_LINK_BOARD:-http://ag:7376}
 hib=$("$HOME/.local/bin/pi-hibernate" status 2>/dev/null || true)
 "$HOME/.local/bin/ag-mux" api snapshot | python3 -c "$(cat <<'PY'
@@ -50,7 +50,7 @@ if args[:1] == ["--session"]:
 # tab → session id: its live pi session, else a hibernated pane's session (pi-hibernate status: pane tab file)
 by_tab = {}
 for p in snap["panes"]:
-    s = sid_of((p.get("agent_session") or {}).get("value"))
+    s = sid_of((p.get("agent_session") or {}).get("value") or p.get("sleeping_session"))
     if s:
         by_tab.setdefault(p["tab_id"], s)
 for line in hib.splitlines():

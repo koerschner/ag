@@ -1,5 +1,10 @@
 #!/bin/sh
-# Open the persistent Herdr session on the host (ag-mac) through its SSH alias.
-# Server keybindings: herdr never sends local custom-command bindings
-# (prefix+f, prefix+L) over --remote, so use the host's own config instead.
-exec "$HOME/.local/bin/herdr" --remote ag-mac --remote-keybindings server "$@"
+# ag: attach this terminal to Ag's sessions on the session host (ag-host; machines/README.md).
+#   tmux host (ag-mux): ssh -t <host> ag-mux attach [workspace]
+#   Herdr host: herdr --remote <host> --remote-keybindings server (herdr never sends local
+#   custom-command bindings over --remote, so the host's own config is used)
+host=$("$HOME/.local/bin/ag-host")
+if ssh -o ConnectTimeout=5 "$host" 'test -S ~/.local/state/ag-mux/agd.sock' 2>/dev/null; then
+	exec ssh -t "$host" '~/.local/bin/ag-mux attach' "$@"
+fi
+exec "$HOME/.local/bin/herdr" --remote "$host" --remote-keybindings server "$@"

@@ -9,7 +9,7 @@
   <array>
     <string>/bin/zsh</string>
     <string>-lc</string>
-    <string>"$HOME/.local/bin/machine-role" host || exit 0; exec "$HOME/.local/bin/chrome-tab-reaper" sweep</string>
+    <string>"$HOME/.local/bin/machine-role" host extremity || exit 0; exec "$HOME/.local/bin/chrome-tab-reaper" sweep</string>
   </array>
   <key>StartInterval</key>
   <integer>1800</integer>

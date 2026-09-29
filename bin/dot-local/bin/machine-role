@@ -1,11 +1,13 @@
 #!/bin/zsh
-# Print this Mac's role ("host" or "client") from machines/README.md, matched
+# Print this machine's role ("host", "extremity", "client") from machines/README.md, matched
 # by LocalHostName (a row may list several, comma-separated, e.g. during a rename).
 # Unlisted machines count as clients.
 #   machine-role            # -> host | client
-#   machine-role host && …  # exit 0 if this Mac has that role
+#   machine-role host && …  # exit 0 if this machine has that role (several roles: any of them)
+# host = runs Ag's sessions and services; extremity = the always-on Mac Ag drives (computer use,
+# Mac-only apps); client = where Nathan sits.
 repo=${0:A:h:h:h:h}
 name=$(scutil --get LocalHostName 2>/dev/null || hostname -s)
 role=$(awk -F'|' -v n="$name" '{gsub(/[ `]/,"",$3); gsub(/ /,"",$4); k=split($3,names,","); for (i=1;i<=k;i++) if (names[i]==n) {print $4; exit}}' "$repo/machines/README.md")
 role=${role:-client}
-if (( $# )); then [[ $role == $1 ]]; else print $role; fi
+if (( $# )); then (( ${@[(Ie)$role]} )); else print $role; fi

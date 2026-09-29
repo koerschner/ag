@@ -3,8 +3,8 @@
 -- Everything here serves the agent system: role-specific power/activity, the ag inbox capture,
 -- Ghostty → Herdr shortcut forwarding, image paste into remote agents, and herdr:// tab links.
 
--- Host only: clients sleep normally (see the Power section of dotfiles' macos).
-if os.execute(os.getenv("HOME") .. "/.local/bin/machine-role host") then
+-- Always-on Macs only (host or extremity): clients sleep normally (see the Power section of dotfiles' macos).
+if os.execute(os.getenv("HOME") .. "/.local/bin/machine-role host extremity") then
 	require("battery_guard")
 else
 	-- Client only: lock/unlock, sleep/wake, app switches for the time review (pulled by ag-mac's presence poll).
@@ -106,17 +106,19 @@ herdr_shortcut_tap = hs.eventtap
 	end)
 	:start()
 
--- ─── Herdr: paste images into remote (ag-mac) agents ────────────────────────
--- Herdr runs on ag-mac, so an image on this Mac's clipboard can't reach pi there.
--- Cmd+V in a Herdr window with an image (or copied image files) on the clipboard:
--- upload it to ag-mac:~/inbox/clipboard/ and type the remote path instead. Pi reads
+-- ─── Paste images into remote agents ────────────────────────────────────────
+-- Sessions run on the session host (ag-host), so an image on this Mac's clipboard can't reach pi there.
+-- Cmd+V in an Ag terminal window with an image (or copied image files) on the clipboard:
+-- upload it to <host>:~/inbox/clipboard/ and type the remote path instead. Pi reads
 -- image paths as attachments. Plain text pastes are untouched. Skipped on the host itself.
-local PASTE_HOST = "ag-mac"
+local AG_HOST_BIN = os.getenv("HOME") .. "/.local/bin/ag-host"
+local PASTE_HOST = (hs.execute(AG_HOST_BIN):gsub("%s", ""))
+if PASTE_HOST == "" then PASTE_HOST = "ag-engine" end
 -- This Mac's LocalHostName, and whether it is the Herdr host (machines/README.md via machine-role).
 local THIS_HOST = (hs.execute("scutil --get LocalHostName"):gsub("%s", ""))
 local IS_HOST = select(2, hs.execute(os.getenv("HOME") .. "/.local/bin/machine-role host")) == true
 local PASTE_DIR = "inbox/clipboard"
-local PASTE_REMOTE_HOME = "/Users/natkoersch" -- ag-mac's home; pi wants absolute paths
+local PASTE_REMOTE_HOME = (hs.execute(AG_HOST_BIN .. " --home"):gsub("%s", "")) -- pi wants absolute paths
 local IMAGE_EXT = { png = true, jpg = true, jpeg = true, gif = true, webp = true, heic = true }
 
 -- Returns { {src=<local file>, ext=<remote ext>, convert=<bool>} ... } or nil. No image
@@ -303,7 +305,7 @@ end
 -- HerdrLink.app (macos-apps/HerdrLink, the gemini:// handler) → hammerspoon://herdr?tab=&host=
 -- → here: focus that tab over the warm ssh connection. No browser involved.
 hs.urlevent.bind("herdr", function(_, params)
-	local tab, host = params.tab or "", params.host or "ag-mac"
+	local tab, host = params.tab or "", params.host or PASTE_HOST
 	if not tab:match("^[%w]+:[%w]+$") or not host:match("^[%w%.%-]+$") then
 		return hs.alert.show("herdr link: bad target")
 	end

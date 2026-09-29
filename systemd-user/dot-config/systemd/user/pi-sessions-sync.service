@@ -4,4 +4,5 @@ Description=Archive Pi sessions to GitHub
 
 [Service]
 Type=oneshot
-ExecStart=/bin/zsh -c 'exec pi-sessions-sync'
+# The session host also pulls the client's sessions, as ag-mac's LaunchAgent did.
+ExecStart=/bin/zsh -c 'if %h/.local/bin/machine-role host; then exec pi-sessions-sync --remote ag-client; else exec pi-sessions-sync; fi'

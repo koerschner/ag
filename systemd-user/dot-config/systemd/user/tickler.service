@@ -1,0 +1,8 @@
+# tickler: see bin/dot-local/bin/tickler. Session host only.
+[Unit]
+Description=tickler fire
+
+[Service]
+Type=oneshot
+ExecCondition=%h/.local/bin/machine-role host
+ExecStart=/usr/bin/zsh -lc 'exec %h/.local/bin/tickler fire'

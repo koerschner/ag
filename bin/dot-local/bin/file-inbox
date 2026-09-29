@@ -221,9 +221,16 @@ Bun.serve({
 			}
 			const m = url.pathname.match(/^\/m\/([0-9a-f-]{8,36})$/);
 			if (req.method === "GET" && m) {
-				const pane = herdr("pane", "list").panes.find((p: any) => String(p.agent_session?.value ?? "").includes(m[1]));
+				const pane = herdr("pane", "list").panes.find((p: any) => String(p.agent_session?.value ?? p.sleeping_session ?? "").includes(m[1]));
 				log({ moshi: m[1], pane: pane?.pane_id ?? null });
-				if (!pane) return new Response("That session isn't open in Herdr anymore.\n", { status: 404 });
+				if (!pane) return new Response("That session isn't open anymore.\n", { status: 404 });
+				if (pane.tmux_pane) {
+					// ag-mux (tmux): select the tab server-side (Moshi's tmux link only picks windows 0-9), then reopen
+					// Moshi's card on that tmux session.
+					herdr("tab", "focus", pane.tab_id);
+					const session = herdr("workspace", "get", pane.workspace_id).workspace?.tmux_session ?? "";
+					return new Response(null, { status: 302, headers: { location: `moshi://tmux?${new URLSearchParams({ session })}` } });
+				}
 				const q = new URLSearchParams({ workspace: pane.workspace_id, tab: pane.tab_id, pane: pane.pane_id });
 				return new Response(null, { status: 302, headers: { location: `moshi://herdr?${q}` } });
 			}

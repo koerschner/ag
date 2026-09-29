@@ -1,0 +1,13 @@
+# show, phone review and file inbox (http://ag:7374). Runs on the session host only (machines/README.md role host); ported from macos-launchagents.
+[Unit]
+Description=show, phone review and file inbox (http://ag:7374)
+After=network-online.target ag-mux.service
+
+[Service]
+ExecCondition=%h/.local/bin/machine-role host
+ExecStart=/usr/bin/zsh -lc 'exec %h/.local/bin/file-inbox'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

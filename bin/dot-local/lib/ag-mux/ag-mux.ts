@@ -374,6 +374,7 @@ function paneInfo(p: Pane) {
 	return {
 		pane_id: p.id, tab_id: p.tab, workspace_id: p.ws, focused: focus.pane === p.id, cwd: p.cwd, foreground_cwd: p.cwd,
 		...(a ? { agent: a.agent, agent_session: a.session ?? null, name: a.name ?? null } : {}),
+		...(p.sleep ? { sleeping_session: p.sleep } : {}),
 		agent_status: a?.status ?? "unknown", terminal_id: `tmux${p.tp}`, terminal_title: title, terminal_title_stripped: title, revision: 0, tmux_pane: p.tp,
 	};
 }

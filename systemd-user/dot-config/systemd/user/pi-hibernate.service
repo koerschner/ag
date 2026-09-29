@@ -1,0 +1,13 @@
+# Hibernate idle Pi sessions, wake them when viewed. Runs on the session host only (machines/README.md role host); ported from macos-launchagents.
+[Unit]
+Description=Hibernate idle Pi sessions, wake them when viewed
+After=network-online.target ag-mux.service
+
+[Service]
+ExecCondition=%h/.local/bin/machine-role host
+ExecStart=/usr/bin/zsh -lc 'exec %h/.local/bin/pi-hibernate daemon'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

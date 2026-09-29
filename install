@@ -83,7 +83,7 @@ else
   warn "herdr server not running: open Ghostty (starts herdr), then run herdr/setup.sh"
 fi
 
-if $AG/bin/dot-local/bin/machine-role host; then
+if $AG/bin/dot-local/bin/machine-role host extremity; then
   step "ag host secrets (Keychain)"
   for svc in "ag 1Password service account" "ag machine-shared service account" "ag-shared 1Password service account"; do
     security find-generic-password -a $USER -s "$svc" >/dev/null 2>&1 && echo "  ok      Keychain '$svc'" || { echo "  MISSING Keychain '$svc'  - 1Password service-account token for op-ag / op-shared / op-work (README \"Secrets\")"; failed+=("secret $svc"); }

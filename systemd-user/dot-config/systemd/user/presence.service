@@ -1,0 +1,8 @@
+# presence: see bin/dot-local/bin/presence. Session host only.
+[Unit]
+Description=presence poll
+
+[Service]
+Type=oneshot
+ExecCondition=%h/.local/bin/machine-role host
+ExecStart=/usr/bin/zsh -lc 'exec %h/.local/bin/presence poll'

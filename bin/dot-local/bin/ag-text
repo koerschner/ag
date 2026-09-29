@@ -4,14 +4,17 @@
 # Transport, first that works:
 #   1. Telegram bot "ag": token in login Keychain item "ag telegram bot" (account natkoersch),
 #      chat id in "ag telegram chat". Messages come from a separate contact, so they notify.
+#      On Linux (no Keychain): ~/.config/ag/telegram (mode 600), lines `token=…` and `chat=…`.
 #   2. iMessage from the client Mac to Nathan's number (needs the client awake; texts his own
 #      number, so it may arrive silently). $AG_TEXT_CLIENT, default ag-client.
 set -eu
 msg=${1:-$(cat)}
 [ -n "$msg" ] || { echo "ag-text: empty message" >&2; exit 2; }
 kc() { security find-generic-password -a natkoersch -s "$1" -w 2>/dev/null || true; }
+tg() { sed -n "s/^$1=//p" ~/.config/ag/telegram 2>/dev/null; }
 
-token=$(kc "ag telegram bot"); chat=$(kc "ag telegram chat")
+if command -v security >/dev/null; then token=$(kc "ag telegram bot"); chat=$(kc "ag telegram chat")
+else token=$(tg token); chat=$(tg chat); fi
 if [ -n "$token" ] && [ -n "$chat" ]; then
   curl -fsS -m 15 "https://api.telegram.org/bot$token/sendMessage" \
     --data-urlencode "chat_id=$chat" --data-urlencode "text=$msg" \

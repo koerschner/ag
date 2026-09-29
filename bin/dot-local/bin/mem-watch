@@ -28,7 +28,7 @@ sample() {  # prints: host pressure(1/2/4) swap_used_gb free_mb top_proc_mb top_
 notify() {  # title body
   local host=$(scutil --get LocalHostName)
   local script="display notification \"$2\" with title \"$1\" sound name \"Glass\""
-  if ~/.local/bin/machine-role host; then   # host: Nathan isn't looking at this screen
+  if ~/.local/bin/machine-role host extremity; then   # host: Nathan isn't looking at this screen
     ssh -o BatchMode=yes -o ConnectTimeout=5 $CLIENT "osascript -e '$script'" 2>/dev/null || osascript -e $script
     command -v ag-mux >/dev/null && ag-mux notification show "$1" --body "$2" --sound request >/dev/null 2>&1
   else

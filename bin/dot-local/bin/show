@@ -34,7 +34,7 @@ phone_publish() {
 		*.htm(l|)|*.md|*.markdown|*.mp4|*.mov|*.m4v|*.webm) [[ -f $t ]] || return 0 ;;
 		*) [[ -d $t ]] || return 0 ;;
 	esac
-	launchctl print gui/$UID/com.nathan.file-inbox >/dev/null 2>&1 || return 0
+	launchctl print gui/$UID/com.nathan.file-inbox >/dev/null 2>&1 || systemctl --user is-active -q file-inbox 2>/dev/null || return 0
 	if [[ -d $t ]]; then
 		slot=${t:A:t}; dest=~/review/$slot
 		mkdir -p $dest && rsync -a --delete "${t%/}/" "$dest/"

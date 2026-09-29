@@ -2,7 +2,7 @@
 # Build ChromeTabReaper.app into ~/Applications (only on the host, ag-mac). Idempotent: skips the rebuild when the
 # source is unchanged, because a rebuilt ad-hoc app loses its Automation grant for Google Chrome.
 set -euo pipefail
-${0:A:h:h:h}/bin/dot-local/bin/machine-role host || { echo "ChromeTabReaper: host (ag-mac) only, skipped"; exit 0; }
+${0:A:h:h:h}/bin/dot-local/bin/machine-role host extremity || { echo "ChromeTabReaper: host (ag-mac) only, skipped"; exit 0; }
 src=${0:A:h}/main.applescript
 app=~/Applications/ChromeTabReaper.app
 if [[ -f $app/Contents/Resources/main.applescript ]] && cmp -s $src $app/Contents/Resources/main.applescript; then

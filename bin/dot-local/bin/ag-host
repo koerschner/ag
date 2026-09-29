@@ -1,0 +1,8 @@
+#!/bin/sh
+# ag-host: the machine that hosts Ag's sessions (its row with role `host` in machines/README.md).
+#   ag-host          SSH alias, e.g. ag-engine
+#   ag-host --home   its home directory, e.g. /home/nathan
+# Clients use it to attach (`ag`), paste images, and ask about the focused pane; nothing hard-codes a machine.
+repo=$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || perl -MCwd -e 'print Cwd::abs_path shift' "$0")")/../../.." && pwd)
+col=2; [ "${1:-}" = --home ] && col=6
+awk -F'|' -v c="$col" '{r=$4; gsub(/[ `]/,"",r)} r=="host" {v=$(c+0); gsub(/[ `]/,"",v); print v; exit}' "$repo/machines/README.md"

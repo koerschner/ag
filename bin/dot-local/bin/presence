@@ -110,7 +110,8 @@ function trackHerdrClients(a: ActState) {
 		if (m) procs.set(m[1], { ppid: m[2], cmd: m[3] });
 	}
 	const isClient = (cmd: string) =>
-		!/^\/usr\/bin\/login /.test(cmd) && (/herdr remote-client-bridge/.test(cmd) || /(^|\/|-)herdr( --remote\b.*)?$/.test(cmd));
+		!/^\/usr\/bin\/login /.test(cmd) &&
+		(/herdr remote-client-bridge/.test(cmd) || /(^|\/|-)herdr( --remote\b.*)?$/.test(cmd) || /^tmux -L ag attach-session\b/.test(cmd));
 	const now: Record<string, HerdrClient> = {};
 	for (const [pid, p] of procs) {
 		if (!isClient(p.cmd)) continue;

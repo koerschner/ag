@@ -8,4 +8,10 @@ if [ -n "$TMUX_PANE" ]; then
 			jq -r '.result.env // {} | to_entries[] | "export \(.key)=\(.value | @sh)"')"
 	fi
 fi
-exec "${SHELL:-/bin/sh}" -l
+# The account's login shell, not $SHELL: systemd's user manager can carry a stale SHELL=/bin/bash, and
+# bash never reads ~/.zshenv.local (TFY_TOKEN), so pi fell back to an expired Anthropic login.
+sh=$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7)
+[ -n "$sh" ] || sh=$(dscl . -read "/Users/$(id -un)" UserShell 2>/dev/null | awk '{print $2}')
+[ -x "$sh" ] || sh=${SHELL:-/bin/sh}
+export SHELL="$sh"
+exec "$sh" -l

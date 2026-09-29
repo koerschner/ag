@@ -127,6 +127,8 @@ Nathan sits at a client machine (and sometimes his iPhone); you run on a host (c
 
 Whenever work changes something people see (UI screens, dialogs, native alerts, emails, dashboards, copy), give Nathan a review page before asking him to approve it: load the **`visual-review-page`** skill and follow it. Screenshots in chat alone aren't enough.
 
+For flows, record video too: `record-flow` (headless Playwright) or `screen-record start|stop` (ag's desktop during a CUA run); see the skill.
+
 ## Worktrees
 
 Always do new work in a git worktree so multiple things can be worked on at once. Never create or switch branches in the main checkout (e.g. `~/arcade.school`); leave it on its current branch.

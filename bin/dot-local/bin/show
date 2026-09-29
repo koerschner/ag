@@ -7,9 +7,10 @@
 #   show http://ag:8080         open a URL in the client's default browser
 #   show -a "Google Chrome" x   open with a specific app
 #   show notes.md               Markdown is never opened on the desktop; only the phone link is printed
+#   show flow.mp4               videos (mp4/mov/m4v/webm) open on the desktop and get a phone player page
 #
 # On the host (where file-inbox runs), HTML pages, folders, and Markdown (rendered with pandoc)
-# are also published to ~/review/<name>/ and served to the phone over Tailscale at
+# videos (wrapped in a <video> page) are also published to ~/review/<name>/ and served to the phone over Tailscale at
 # http://<host>:7374/r/<name>/; `show` prints that link. The served page has a Comment button
 # that sends Nathan's note back to the pi session that ran `show`.
 set -euo pipefail
@@ -21,7 +22,7 @@ app=()
 # Relative src/href targets in an HTML file that exist next to it.
 html_assets() {
 	local dir=${1:h}
-	grep -oE '(src|href)="[^"#?]+"' $1 2>/dev/null | sed -E 's/^[a-z]+="//; s/"$//' |
+	grep -oE '(src|href|poster)="[^"#?]+"' $1 2>/dev/null | sed -E 's/^[a-z]+="//; s/"$//' |
 		grep -vE '^([a-z]+:|/|#)' | while read -r rel; do [[ -f $dir/$rel ]] && print -r -- $rel; done; true
 }
 
@@ -30,7 +31,7 @@ phone_publish() {
 	local t=$1 slot page= dest
 	case $t in
 		*://*) return 0 ;;
-		*.htm(l|)|*.md|*.markdown) [[ -f $t ]] || return 0 ;;
+		*.htm(l|)|*.md|*.markdown|*.mp4|*.mov|*.m4v|*.webm) [[ -f $t ]] || return 0 ;;
 		*) [[ -d $t ]] || return 0 ;;
 	esac
 	launchctl print gui/$UID/com.nathan.file-inbox >/dev/null 2>&1 || return 0
@@ -43,6 +44,10 @@ phone_publish() {
 		if [[ $t == *.htm(l|) ]]; then
 			(cd ${t:h} && assets=(${(f)"$(html_assets ${t:t})"}) && rsync -aR -- ${t:t} $assets "$dest/")
 			[[ ${t:t} == index.html ]] || page=${t:t}
+		elif [[ $t == *.(mp4|mov|m4v|webm) ]]; then
+			cp $t $dest/
+			print -r -- "<!doctype html><head><meta charset=utf-8><title>${t:t}</title></head><body style=\"margin:0;background:#111;color:#aaa;font:14px system-ui\">
+<video src=\"${t:t}\" controls playsinline autoplay muted style=\"width:100%;max-height:92vh;display:block\"></video><p style=\"padding:0 12px\">${t:t}</p>" > $dest/index.html
 		else
 			pandoc -s --embed-resources -f gfm --resource-path=${t:A:h} \
 				--metadata pagetitle=${t:t} -V mainfont=system-ui,-apple-system,sans-serif -o $dest/index.html $t
@@ -74,6 +79,8 @@ for t in "$@"; do
 			ssh "$client" open $app "ag-inbox/${(q)slot}/${(q)name}"
 		else
 			rsync -a "$t" "${client}:ag-inbox/"
+			# QuickTime can't play WebM; Chrome can.
+			[[ $t == *.webm && -z $app ]] && app=(-a ${(q):-Google Chrome})
 			ssh "$client" open $app "ag-inbox/${(q)name}"
 		fi
 	fi

@@ -14,6 +14,7 @@
 //   resolved  = the latest answer ends with a DONE line (the global "signal completion" convention).
 //   hotpath   = 🔥 top priority (shift+click / long-press). Pinned to the top everywhere; its siren ring runs
 //               whenever the agent isn't working (throb). Becoming needsYou fires the fast lane: ag-text + a Herdr toast.
+// Every page is a URL (views, columns, /new, /help, /<session id>[/live]); the page's router handles back/forward.
 // Deep links: http://ag:7376/<pi session id> (the UUID in the session filename; stable, unlike tab ids) serves the
 // board with that session open: the live card's drawer, or, for a hibernated pane or a closed session, its
 // transcript read-only with Wake in Herdr / Resume (POST /api/resume: new tab running `pi --session <file>`).
@@ -813,8 +814,9 @@ async function handle(req: Request): Promise<Response> {
 				const r = SID_RE.test(sp) ? await resolveSession(sp) : null;
 				return r ? Response.json(r) : bad("no such session", 404);
 			}
-			// Deep link: /<session id> is the board with that session open (the page reads the id from the path).
-			if (SID_RE.test(p.slice(1))) return new Response(Bun.file(PAGE), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+			// Page URLs (the page routes itself; back/forward walk through them): /<session id>[/live], /t/<tab>[/live],
+			// /state|lists|workspaces[/<column>], /new, /help.
+			if (SID_RE.test(p.slice(1).replace(/\/live$/, "")) || /^\/(?:(?:state|lists|workspaces)(?:\/[^/]+)?|new|help|t\/[^/]+(?:\/live)?)\/?$/.test(p)) return new Response(Bun.file(PAGE), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 			if (p === "/api/screen") {
 				const card = board.cards.find((c) => c.tab === url.searchParams.get("tab"));
 				if (!card) return bad("no such card", 404);

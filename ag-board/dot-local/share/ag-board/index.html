@@ -410,7 +410,7 @@ let view = localStorage.view || "state";
 let hotOnly = localStorage.hotOnly === "1";
 let collapsed = new Set(JSON.parse(localStorage.collapsed || '["s:resolved"]'));
 let sel = null; // keyboard-selected card
-let deepSid = location.pathname.match(/^\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/)?.[1] ?? null; // /<pi session id> deep link
+let routed = false; // the first board data applies the URL (see "routing")
 // Archive = close the Herdr tab, undoably: the card hides at once, the tab is closed only when the Undo toast
 // expires (or the page is left), so Undo just cancels it and the session is untouched.
 const ARCHIVE_MS = 6000;
@@ -633,7 +633,7 @@ function onData() {
   render();
   if (openTab) renderDrawer();
   else if (openSid) { const c = B.cards.find((x) => x.sid === openSid); if (c) openDrawer(c.tab); } // it came back to life
-  if (deepSid && B.cards.length) { const sid = deepSid; deepSid = null; openBySid(sid); }
+  if (!routed && B.cards.length) { routed = true; applyRoute(true); }
 }
 
 // ---------- drawer ----------
@@ -674,6 +674,7 @@ function setTab(t) {
   $("#live").style.display = t === "live" ? "flex" : "none";
   clearInterval(screenTimer);
   if (t === "live") { loadScreen(); screenTimer = setInterval(loadScreen, 1000); }
+  sync();
 }
 function renderDrawer() {
   const c = card(openTab);
@@ -705,7 +706,6 @@ function openDrawer(tab) {
   openTab = tab; openSid = null; lastTxKey = ""; loadTranscript.done = false;
   $("#drawer").classList.remove("ro");
   const c0 = card(tab);
-  history.replaceState(null, "", c0?.sid ? "/" + c0.sid : "#" + tab);
   // On the phone, a straight hop into the terminal: file-inbox /m/<sid> → moshi://herdr (resumes Moshi's ag card on that pane).
   const moshi = $("#dmoshi"); moshi.style.display = c0?.sid && matchMedia("(pointer:coarse)").matches ? "" : "none";
   if (c0?.sid) moshi.href = `${agConfig.fileInbox || ""}/m/${c0.sid}`;
@@ -718,7 +718,6 @@ function openDrawer(tab) {
 // A session with no live card (hibernated pane, or closed): its transcript, read-only, with Wake / Resume.
 function openSession(info) {
   openTab = null; openSid = info.sid; loadTranscript.done = false; clearInterval(screenTimer);
-  history.replaceState(null, "", "/" + info.sid);
   const d = $("#drawer"); d.classList.add("open", "ro"); $("#scrim").classList.add("open"); d.setAttribute("aria-hidden", "false");
   setTab("tx");
   $("#dt").textContent = info.title;
@@ -747,7 +746,7 @@ async function openBySid(sid) {
   const live = B.cards.find((c) => c.sid === sid);
   if (live) return openDrawer(live.tab);
   const r = await fetch("/api/session/" + sid);
-  if (!r.ok) { history.replaceState(null, "", "/"); return toast("No session with that id"); }
+  if (!r.ok) { history.replaceState(null, "", "/" + VIEW_PATH[view]); return toast("No session with that id"); }
   const info = await r.json();
   if (info.state === "live") openDrawer(info.tab); else openSession(info);
 }
@@ -755,8 +754,8 @@ function closeDrawer() {
   if (openTab) saveDraft(openTab, rted.value);
   openTab = null; openSid = null; clearInterval(screenTimer);
   $("#drawer").classList.remove("ro");
-  history.replaceState(null, "", "/");
   $("#drawer").classList.remove("open"); $("#scrim").classList.remove("open"); $("#drawer").setAttribute("aria-hidden", "true");
+  sync();
 }
 function toggleWait(tab) {
   const c = card(tab); if (!c) return;
@@ -824,7 +823,7 @@ $("#board").addEventListener("click", (e) => {
   collapsed.has(key) ? collapsed.delete(key) : collapsed.add(key);
   localStorage.collapsed = JSON.stringify([...collapsed]); render();
 }, true);
-$("#helpbtn").onclick = () => $("#help").showModal();
+$("#helpbtn").onclick = () => openHelp();
 $("#dt").onclick = async () => {
   const c = card(openTab); if (!c) return;
   const label = prompt("Rename this Herdr tab:", c.title);
@@ -919,13 +918,13 @@ document.addEventListener("keydown", (e) => {
     h: () => moveSel(0, -1), ArrowLeft: () => moveSel(0, -1), l: () => moveSel(0, 1), ArrowRight: () => moveSel(0, 1),
     o: () => sel && openDrawer(sel), Enter: () => sel && openDrawer(sel), " ": () => sel && toggleOpen(sel),
     f: () => sel && toggleHot(sel), g: () => sel && api("/api/focus", { tab: sel }).then((ok) => ok && toast("Focused in Herdr")),
-    u: () => sel && api("/api/card", { tab: sel, seen: false }), e: () => sel && archive(sel), w: () => sel && toggleWait(sel), n: () => openNew(), "?": () => $("#help").showModal(),
+    u: () => sel && api("/api/card", { tab: sel, seen: false }), e: () => sel && archive(sel), w: () => sel && toggleWait(sel), n: () => openNew(), "?": () => openHelp(),
     "/": () => $("#q").focus(), 1: () => setView("state"), 2: () => setView("lists"), 3: () => setView("ws"),
     x: () => { if (!sel) return; if (Date.now() - lastX < 1500) { lastX = 0; stop(sel); } else { lastX = Date.now(); toast("Press x again to interrupt"); } },
   };
   if (map[k]) { e.preventDefault(); map[k](); }
 });
-function setView(v) { view = localStorage.view = v; render(); }
+function setView(v) { view = localStorage.view = v; render(); sync(); }
 function listRow(l) { return `<div class="row" data-id="${esc(l.id)}"><input value="${esc(l.name)}"><button type="button" class="btn" data-del>✕</button></div>`; }
 $("#editlists").onclick = () => { $("#lrows").innerHTML = B.lists.map(listRow).join(""); $("#ldlg").showModal(); };
 $("#ladd").onclick = () => $("#lrows").insertAdjacentHTML("beforeend", listRow({ id: "l" + Date.now().toString(36), name: "" }));
@@ -1010,7 +1009,8 @@ function openNew() {
   $("#ncwd").value = localStorage.newCwd || "~";
   $("#nfocus").checked = localStorage.newFocus === "1";
   if (!ned.value.trim() && localStorage.newDraft) ned.setValue(localStorage.newDraft);
-  $("#ndlg").showModal();
+  if (!$("#ndlg").open) $("#ndlg").showModal();
+  sync();
   setTimeout(() => ned.focus(), 60);
 }
 async function startNew() {
@@ -1032,7 +1032,63 @@ setInterval(tick, 1000);
 setInterval(render, 60_000);
 connect();
 $("#dlink").onclick = () => copyLink(card(openTab)?.sid);
-if (location.hash.length > 1) { const t = decodeURIComponent(location.hash.slice(1)); const wait = setInterval(() => { if (card(t)) { clearInterval(wait); openDrawer(t); } }, 200); setTimeout(() => clearInterval(wait), 5000); }
+
+// ---------- routing: every page is a URL, so back/forward walk through them ----------
+//   /state /lists /workspaces   board views (/ = last view)     /<view>/<column>   a column (phone)
+//   /<session id>[/live]         a session: transcript / live   /t/<tab id>[/live]  a card with no pi session yet
+//   /new  /help                  the new-session and keyboard dialogs
+// Navigating pushes a history entry (sync); back/forward re-applies the URL (applyRoute). The server serves the page
+// for all of these.
+const VIEW_OF = { state: "state", lists: "lists", workspaces: "ws" };
+const VIEW_PATH = { state: "state", lists: "lists", ws: "workspaces" };
+const COL_PREFIX = { state: "s:", lists: "l:", ws: "w:" };
+const SID_PATH = /^\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(\/live)?$/;
+let applying = 0; // >0 while applying a URL: don't push
+let phoneCol = null; // the phone's current column key (set by the phone block)
+const isPhone = () => matchMedia("(max-width:700px),(pointer:coarse) and (max-height:500px)").matches;
+function currentPath() {
+  if ($("#ndlg").open) return "/new";
+  if ($("#help").open) return "/help";
+  const live = dtab === "live" ? "/live" : "";
+  if (openTab) { const c = card(openTab); return (c?.sid ? "/" + c.sid : "/t/" + encodeURIComponent(openTab)) + live; }
+  if (openSid) return "/" + openSid;
+  const col = isPhone() && phoneCol?.startsWith(COL_PREFIX[view]) ? "/" + encodeURIComponent(phoneCol.slice(2) || "unsorted") : "";
+  return "/" + VIEW_PATH[view] + col;
+}
+function sync(replace = false) {
+  if (applying || !routed) return;
+  const p = currentPath();
+  if (p !== location.pathname) history[replace ? "replaceState" : "pushState"](null, "", p + location.search);
+}
+function openHelp() { if (!$("#help").open) $("#help").showModal(); sync(); }
+$("#help").addEventListener("close", () => sync());
+$("#ndlg").addEventListener("close", () => sync());
+async function applyRoute(initial = false) {
+  applying++;
+  try {
+    let p = location.pathname, m;
+    if (initial && location.hash.length > 1 && p === "/") p = "/t/" + location.hash.slice(1); // old #<tab> links
+    if (p !== "/new" && $("#ndlg").open) $("#ndlg").close();
+    if (p !== "/help" && $("#help").open) $("#help").close();
+    if (p === "/new") { if (openTab || openSid) closeDrawer(); openNew(); }
+    else if (p === "/help") openHelp();
+    else if ((m = p.match(SID_PATH)) || (m = p.match(/^\/t\/([^/]+)(\/live)?$/))) {
+      const tab = m[0].startsWith("/t/") ? decodeURIComponent(m[1]) : B.cards.find((c) => c.sid === m[1])?.tab;
+      if (tab && card(tab)) { if (openTab !== tab) openDrawer(tab); }
+      else if (!m[0].startsWith("/t/")) { if (openSid !== m[1]) await openBySid(m[1]); }
+      else toast("That tab is gone");
+      if (openTab && m[2] && dtab !== "live") setTab("live");
+      else if (openTab && !m[2] && dtab === "live") setTab("tx");
+    } else {
+      const [, v, col] = p.match(/^\/(state|lists|workspaces)?(?:\/([^/]+))?\/?$/) || [];
+      if (openTab || openSid) closeDrawer();
+      if (v && VIEW_OF[v] !== view) setView(VIEW_OF[v]);
+      if (col && v) { phoneCol = COL_PREFIX[VIEW_OF[v]] + (col === "unsorted" && v === "lists" ? "" : decodeURIComponent(col)); window.agPhoneGo?.(phoneCol); }
+    }
+  } finally { applying--; }
+  if (initial) history.replaceState(null, "", currentPath() + location.search); // canonical URL for the first page (/ → /state …)
+}
+addEventListener("popstate", () => applyRoute());
 
 // ---------- phone: column tabs + swipe, drawer above the keyboard ----------
 {
@@ -1041,6 +1097,15 @@ if (location.hash.length > 1) { const t = decodeURIComponent(location.hash.slice
   const cols = () => [...board.querySelectorAll(":scope > .col")];
   const cur = () => Math.round(board.scrollLeft / Math.max(1, board.clientWidth));
   let want = localStorage.phoneCol || "", sig = "", marked = -1;
+  phoneCol = want;
+  // Routing: each column is a page (/state/waiting …). The URL moves with the column; back/forward call agPhoneGo.
+  // Settling from a bare view URL (/lists right after a view switch) replaces instead of adding a second entry.
+  const settle = () => { phoneCol = want; sync(!/^\/(state|lists|workspaces)\/./.test(location.pathname)); };
+  window.agPhoneGo = (key) => {
+    want = key; localStorage.phoneCol = key;
+    const i = cols().findIndex((c) => c.dataset.key === key);
+    if (i >= 0 && phone.matches) board.scrollTo({ left: i * board.clientWidth });
+  };
   // Only reveal the active tab when the active column changes: build() runs on every board mutation
   // (including the 1 s "since" ticks), and scrolling the strip each time snapped it back while you swiped it.
   function mark() {
@@ -1065,7 +1130,7 @@ if (location.hash.length > 1) { const t = decodeURIComponent(location.hash.slice
   }
   new MutationObserver(() => requestAnimationFrame(build)).observe(board, { childList: true, subtree: true, characterData: true });
   let st;
-  board.addEventListener("scroll", () => { if (!phone.matches) return; mark(); clearTimeout(st); st = setTimeout(() => { want = cols()[cur()]?.dataset.key || want; localStorage.phoneCol = want; }, 120); }, { passive: true });
+  board.addEventListener("scroll", () => { if (!phone.matches) return; mark(); clearTimeout(st); st = setTimeout(() => { want = cols()[cur()]?.dataset.key || want; localStorage.phoneCol = want; settle(); }, 120); }, { passive: true });
   tabs.addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b) return;
     const i = [...tabs.children].indexOf(b); want = b.dataset.k; localStorage.phoneCol = want;

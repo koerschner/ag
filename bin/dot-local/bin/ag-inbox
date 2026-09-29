@@ -279,7 +279,7 @@ async function matchThread(text: string): Promise<Thread> {
 }
 
 function withHint(text: string, s: Session): string {
-	return `${text}\n\n---\nThe ag inbox thinks this may be new context for an existing session, "${s.title}" (tab ${s.tab}, pi session ${s.file}), but wasn't sure enough to add it there. If that looks right, check with me once; if I confirm, send it there with \`herdr agent prompt ${s.pane} "<my message, prefixed with a line saying it was forwarded from the Inbox>"\`, link the tab with \`herdr-link ${s.tab}\`, and this session can be closed. Otherwise just handle it here.`;
+	return `${text}\n\n---\nThe ag inbox thinks this may be new context for an existing session, "${s.title}" (tab ${s.tab}, pi session ${s.file}), but wasn't sure enough to add it there. If it clearly fits, don't ask: forward it with \`herdr agent prompt ${s.pane} "<my message plus any context you gathered, prefixed with a line saying it was forwarded from the Inbox>"\`, give me the link from \`herdr-link ${s.tab}\`, and close this session. Ask first only if it's genuinely ambiguous; otherwise handle it here.`;
 }
 
 // Deliver into the matched session instead of opening a new one. Throws (→ new session) if it can't take input.

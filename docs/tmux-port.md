@@ -381,17 +381,32 @@ Activity capture (`activity-log.ts`, `ag.jsonl`) moves with the sessions, since 
 
 ## Cutover
 
-Prerequisites: repos and worktrees exist on the engine (docs/ag.md step 5, arcade dev), because resumed
-sessions need their working directories, and the engine's MCP auth is finished.
+Prerequisites: the engine's clones of ag-mac's repos (step 5 in docs/ag.md: 48 of them are cloned into
+ag-engine:~, list in `/tmp/repos.tsv` there), and the engine's MCP auth (below).
 
-1. Port the "Move" services above to systemd user units; run them on the engine against agd on
-   127.0.0.1 (ports free there; svc:ag still forwards to ag-mac meanwhile).
-2. On ag-mac: `ag-mux export-herdr > /tmp/herdr-layout.json` (every workspace/tab and each Pi pane's
-   session file, including hibernated ones). Copy it and the Pi session files (pi-sessions archive) to
-   the engine.
-3. On the engine: `ag-mux restore --from herdr-layout.json --path-map /Users/natkoersch=/home/nathan`.
-   Tabs come back in place with Pi asleep; each resumes when opened.
-4. `ag-svc local` on the engine, stop the moved LaunchAgents on ag-mac, point `bin/ag` at
-   `ssh -t ag-engine ag-mux attach` (mosh for the phone), and update the iOS Shortcuts.
-5. After a quiet week: retire Herdr (above) and rename the `herdr-*` helpers and `HERDR_*` env (keeping
+1. **Services**: port the "Move" services above to systemd user units; run them on the engine against agd
+   on 127.0.0.1 (the ports are free there; svc:ag keeps forwarding to ag-mac meanwhile).
+2. **Freeze ag-mac**: stop the moved LaunchAgents, so nothing new starts there.
+3. **Repos** (`ag-move-repos`, run on ag-mac; a dry run lists sizes): rsyncs every `~/<repo>` and
+   `~/<repo>-<topic>` worktree onto the engine's clone of the same name, mirror-style, excluding
+   `node_modules`, `.next`, `dist`, `.turbo` and `build`. That carries uncommitted work, local branches,
+   stashes, and untracked files such as `.env`. `ag` and `dotfiles` are skipped (they sync through git).
+   Then, on the engine, it rewrites each worktree's `/Users/natkoersch` paths and runs
+   `git worktree repair`, switches GitHub remotes to https (gh's credentials), and reinstalls dependencies
+   (`bun install`, or pnpm/npm/yarn by lockfile; `--no-deps` skips that). `ag-unsaved` on ag-mac beforehand
+   shows what only exists there. Repos with no clone on the engine (deleted or renamed on GitHub, no
+   access, GitLab over SSH) are copied too, so their local history isn't lost.
+4. **MCP**: move ag-mac's mcp-remote token cache (`~/.mcp-auth`) and the gateway to the engine, stop
+   ag-mac's gateway, and retire the engine's `mcp-tunnel`, so refresh tokens live in one place.
+5. **Sessions**: on ag-mac, `ag-mux export-herdr > /tmp/herdr-layout.json` (every workspace/tab and each Pi
+   pane's session file, including hibernated ones). Copy it and the Pi session files (pi-sessions
+   archive) to the engine, then `ag-mux restore --from herdr-layout.json --path-map
+   /Users/natkoersch=/home/nathan`. Tabs come back in place with Pi asleep; each resumes when opened.
+6. **Address and clients**: `ag-svc local` on the engine; point `bin/ag` at `ssh -t ag-engine ag-mux attach`
+   (mosh for the phone); update the iOS Shortcuts to `ag.tail44736d.ts.net`; re-pair Moshi.
+7. **After a quiet week**: retire Herdr (above), and rename the `herdr-*` helpers and `HERDR_*` env (keeping
    the old names exported for the agent hooks).
+
+**Safety**: repos live on the engine's local NVMe, not `/data`. `ag-infra down` runs `ag-unsaved` on the
+engine first and refuses while any checkout has uncommitted or untracked changes, unpushed commits on its
+branch, or stashes (`AG_INFRA_FORCE=1` overrides). If it can't reach the engine to check, it refuses too.

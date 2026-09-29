@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# ag-move-repos: copy this Mac's git checkouts onto the engine at cutover (docs/tmux-port.md), so the
+# engine has exactly the work that exists here: uncommitted changes, local branches, stashes, untracked
+# files such as .env. Build output and dependencies are left out and reinstalled there.
+#   ag-move-repos                 dry run: what would copy, for every ~/<repo> and ~/<repo>-<topic>
+#   ag-move-repos --apply [name…] copy, fix worktree links and remotes, reinstall dependencies
+#   options: --host H (default ag-engine), --no-deps
+# Rsync is mirror-style (--delete) into the engine's clones of the same name; excluded dirs are kept.
+# ag and dotfiles are skipped (they sync through git).
+set -euo pipefail
+host=ag-engine apply= deps=1 names=()
+while [ $# -gt 0 ]; do
+	case $1 in
+	--apply) apply=1 ;; --host) host=$2; shift ;; --no-deps) deps= ;;
+	-h | --help) sed -n '2,9p' "$0"; exit 0 ;;
+	*) names+=("$1") ;;
+	esac
+	shift
+done
+EXCL=(--exclude node_modules --exclude .next --exclude dist --exclude .turbo --exclude build)
+dst=$(ssh "$host" 'echo $HOME')
+# ag and dotfiles (and their worktrees) reach the engine through git, not this.
+skip() { case $1 in ag | dotfiles | dotfiles-*) return 0 ;; esac; [ -f "$HOME/$1/.git" ] && grep -qE "gitdir: $HOME/(ag|dotfiles[^/]*)/\.git/" "$HOME/$1/.git"; }
+[ ${#names[@]} -gt 0 ] || for d in "$HOME"/*/; do n=$(basename "$d"); [ -e "$d.git" ] && ! skip "$n" && names+=("$n"); done
+echo "$([ -n "$apply" ] && echo Copying || echo 'Dry run:') ${#names[@]} checkouts $HOME → $host:$dst"
+for n in "${names[@]}"; do
+	[ -e "$HOME/$n/.git" ] || { echo "  skip $n (not a git checkout)"; continue; }
+	if [ -n "$apply" ]; then
+		rsync -a --delete "${EXCL[@]}" -e ssh "$HOME/$n/" "$host:$dst/$n/" && echo "  ✓ $n" || echo "  ✗ $n"
+	else
+		sz=$(rsync -an --delete --stats "${EXCL[@]}" -e ssh "$HOME/$n/" "$host:$dst/$n/" 2>/dev/null | awk -F': ' '/Total transferred file size/ {print $2}')
+		echo "  $n: ${sz:-?}"
+	fi
+done
+[ -n "$apply" ] || { echo "(dry run; add --apply)"; exit 0; }
+
+# On the engine: point worktrees at their new paths, make GitHub remotes https (gh's credentials), and
+# reinstall dependencies.
+ssh "$host" OLD="$HOME" DEPS="$deps" NAMES="'${names[*]}'" bash -s <<'SH'
+set -uo pipefail
+cd ~
+for n in $NAMES; do
+	[ -f "$n/.git" ] || continue
+	sed -i "s#$OLD/#$HOME/#" "$n/.git"
+	main=$(sed -n 's#^gitdir: \(.*\)/\.git/worktrees/.*#\1#p' "$n/.git")
+	[ -d "$main/.git" ] && git -C "$main" worktree repair "$HOME/$n" >/dev/null 2>&1 && echo "  worktree $n → $(basename "$main")"
+done
+for n in $NAMES; do
+	[ -d "$n/.git" ] || continue
+	for r in $(git -C "$n" remote); do
+		u=$(git -C "$n" remote get-url "$r")
+		case $u in git@github.com:*) git -C "$n" remote set-url "$r" "https://github.com/${u#git@github.com:}" && echo "  $n: $r → https" ;; esac
+	done
+done
+[ "$DEPS" = 1 ] || exit 0
+for n in $NAMES; do
+	[ -f "$n/package.json" ] || continue
+	if ls "$n"/bun.lock* >/dev/null 2>&1; then c="bun install"
+	elif [ -f "$n/pnpm-lock.yaml" ]; then c="pnpm install"
+	elif [ -f "$n/package-lock.json" ]; then c="npm ci"
+	elif [ -f "$n/yarn.lock" ]; then c="yarn install"
+	else continue; fi
+	(cd "$n" && $c >/tmp/ag-move-repos-$n.log 2>&1) && echo "  deps $n ($c)" || echo "  ✗ deps $n ($c): /tmp/ag-move-repos-$n.log"
+done
+SH

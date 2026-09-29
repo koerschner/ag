@@ -95,6 +95,12 @@ After publishing, read back what was posted (for example
 is the attribution line, unquoted, and that the body renders as a quote. If
 either is wrong, edit the posted text to fix it.
 
+## About Nathan
+
+- **Personal email:** `nathankoerschner@gmail.com`. Use it for Nathan's own infrastructure and service accounts (Ag machines, Hetzner, Tailscale, GitHub `nathankoerschner`, and the like) unless he says otherwise.
+- **Work email:** `nathaniel.koerschner@superbuilders.school` (superbuilders / Trilogy). Use it for work identities, such as messages to colleagues and work-only tools.
+- **Payments:** infra and services go on the Ramp card (see "Prompt conventions").
+
 ## Working directory
 
 You are usually started in `~` (the home directory), not inside a project. Assume that unless the cwd says otherwise. Project checkouts live directly under `~` (e.g. `~/arcade.school`), and worktrees sit beside them as siblings (e.g. `~/arcade-<topic>`). Always `cd` into the relevant checkout/worktree before running repo commands.

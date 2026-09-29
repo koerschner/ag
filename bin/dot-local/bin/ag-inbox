@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // ag-inbox: the ag inbox, the top-level endpoint that starts a new pi session on ag.
 //
-// POST a prompt to http://ag-mac:7373/prompt (or use the test page at /). Every capture path uses it:
+// POST a prompt to http://ag:7373/prompt (or use the test page at /). Every capture path uses it:
 // the Mac quick capture (Hammerspoon), the iPhone Action Button, file-inbox's "New session".
 // Pipeline, one function per step, one JSON log line per step (~/.local/state/ag-inbox/log.jsonl):
 //   receive → route (cheap multimodal model names the tab and picks a playbook) + screenshot gate (Jev)

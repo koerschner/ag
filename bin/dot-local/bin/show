@@ -53,7 +53,8 @@ phone_publish() {
 				--metadata pagetitle=${t:t} -V mainfont=system-ui,-apple-system,sans-serif -o $dest/index.html $t
 		fi
 	fi
-	local host=${SHOW_PHONE_HOST:-$(/usr/local/bin/tailscale ip -4 2>/dev/null || tailscale ip -4)}
+	# The Tailscale Service svc:ag (ag-svc): same link whichever machine hosts sessions.
+	local host=${SHOW_PHONE_HOST:-ag.$( (/usr/local/bin/tailscale status --json 2>/dev/null || tailscale status --json) | jq -r .MagicDNSSuffix 2>/dev/null || echo tail44736d.ts.net)}
 	local url="http://$host:7374/r/$slot/$page"
 	jq -n --arg session "${PI_SESSION_FILE:-}" --arg pane "${HERDR_PANE_ID:-}" --arg source ${t:A} --arg url $url \
 		'{session: $session, pane: $pane, source: $source, url: $url}' > $dest/.meta.json

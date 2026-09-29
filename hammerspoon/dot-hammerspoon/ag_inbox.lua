@@ -4,7 +4,7 @@
 -- Enter to send (Shift+Enter = newline), Esc to cancel. Click the screenshot to
 -- annotate it in CleanShot; Cmd+S there saves it back and the form picks it up.
 --
--- Send POSTs the prompt + screenshot to the ag inbox (ag-inbox, http://ag-mac:7373/prompt),
+-- Send POSTs the prompt + screenshot to the ag inbox (ag-inbox, http://ag:7373/prompt),
 -- which opens a new pi session in Herdr's Inbox workspace. The ag inbox asks Jev
 -- whether the prompt needs the screenshot; an annotated screenshot is always attached.
 -- If Jev judges it new context for an open session, it goes to that session instead.
@@ -13,7 +13,7 @@
 -- WebKit startup cost. The screenshot is written to disk only on send/annotate.
 local M = {}
 
-local URL = "http://ag-mac:7373/prompt"
+local URL = "http://ag:7373/prompt"
 local DIR = os.getenv("HOME") .. "/Library/Caches/ag-inbox"
 local W, H, THUMB_W = 560, 330, 480
 hs.fs.mkdir(DIR)

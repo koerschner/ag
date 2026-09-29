@@ -22,7 +22,7 @@ import { homedir } from "node:os";
 const HOME = homedir();
 const STATE = `${HOME}/.local/state/client-cua-gate`;
 const JEV_URL = "https://tfy.promptlens.trilogy.com/proxy-api/jev-account/jev-endpoint/v1/systemone";
-const INBOX_URL = process.env.CLIENT_CUA_GATE_INBOX ?? "http://ag-mac:7373/prompt?new=1";
+const INBOX_URL = process.env.CLIENT_CUA_GATE_INBOX ?? "http://ag:7373/prompt?new=1";
 // Block unless Jev is confident the action is client-only. Commands the regex only suspects
 // (ssh + osascript etc.) also have to actually drive the desktop to be judged at all.
 const JUSTIFIED_MIN = 0.7;

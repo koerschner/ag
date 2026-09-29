@@ -4,7 +4,7 @@
 <dict>
   <key>Label</key>
   <string>com.nathan.ag-board</string>
-  <!-- AG Dash: Kanban dashboard over the Herdr agent sessions (http://ag-mac:7376). Only runs on the host (ag-mac). -->
+  <!-- AG Dash: Kanban dashboard over the Herdr agent sessions (http://ag:7376). Only runs on the host (ag-mac). -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string>

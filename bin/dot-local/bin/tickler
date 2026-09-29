@@ -7,7 +7,7 @@
 //   tickler add --when event --task <text> [--expires ISO] ...                     # fire only via `tickler trigger`
 //   tickler add --at <ISO> --waiting-for <person> [--attempt N] [--check '<sh>'] --task <text> ...
 //                            # GTD "waiting for": check whether <person> replied; if not, follow up and requeue with backoff
-//   tickler trigger <id> [--note text]   # the webhook: fire a waiting item now (also POST http://ag-mac:7373/tickler/<id>)
+//   tickler trigger <id> [--note text]   # the webhook: fire a waiting item now (also POST http://ag:7373/tickler/<id>)
 //   tickler list [--all]
 //   tickler cancel <id>
 //   tickler fire            # run by the com.nathan.tickler LaunchAgent every minute
@@ -145,7 +145,7 @@ function add(f: Record<string, string>) {
 		: online
 		? ` ${presenceLine()} It fires on his next arrival after now.`
 		: wake
-			? ` Resumes this session in place if it's still open and ready, else a forked tab. Webhook: curl -X POST http://ag-mac:7373/tickler/${item.id} (or \`tickler trigger ${item.id}\`).`
+			? ` Resumes this session in place if it's still open and ready, else a forked tab. Webhook: curl -X POST http://ag:7373/tickler/${item.id} (or \`tickler trigger ${item.id}\`).`
 			: "";
 	console.log(`Scheduled ${item.id} "${item.title}" for ${whenText(item)}${late}, in workspace ${item.workspace ?? FALLBACK_WORKSPACE}, mode ${item.mode}.${p}`);
 }

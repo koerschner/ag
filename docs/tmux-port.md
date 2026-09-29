@@ -1,7 +1,9 @@
 # Porting Ag from Herdr to tmux
 
-Status: **design, awaiting Nathan's go-ahead** (2026-09-29, split out from "Cloud VM Setup").
-Nothing is built yet. Machine names follow the rename in progress: **ag-engine** (Hetzner Linux),
+Status (2026-09-29): **built; cutover pending.** Nathan approved the port the same day, and added two
+requirements: links must use a machine-independent address, and every Ag service moves to ag-engine
+(ag-mac keeps only the extremity role). What exists now is in "Build status" at the end; what's left is
+in "Cutover". Machine names follow the rename in progress: **ag-engine** (Hetzner Linux),
 **ag-mac** (today's `ag`), **ag-client** (today's `nathan-dev-client`), **ag-phone** (iPhone, Moshi).
 
 ## Summary
@@ -296,3 +298,100 @@ is the one place with no live sessions to disturb right now.
 1. Go ahead on this plan and timing (build on the engine during the move)?
 2. Is losing the always-on sidebar acceptable with the two-line status + switcher + AG Dash?
 3. OK for restored sessions to come back hibernated (wake on focus) rather than all running?
+
+
+## Build status (2026-09-29)
+
+Built and on `main`, running:
+
+- **`ag-mux`** (`bin/dot-local/bin/ag-mux`, a sh launcher; implementation in
+  `bin/dot-local/lib/ag-mux/ag-mux.ts`): agd plus the Herdr-compatible CLI (the ~45 socket methods and CLI
+  commands Ag uses), layout save/restore with sleeping Pi panes, crash recovery (agd restarts a dead tmux
+  server and restores the layout), status bar, switcher, `export-herdr`. On a host that still runs Herdr,
+  the launcher execs `herdr` directly, so the mac is unchanged until cutover.
+- **Callers switched to `ag-mux`**: ag-board, ag-inbox, tickler, file-inbox, herdr-new-pi-tab,
+  herdr-focus-agent, herdr-link, mem-watch, client-cua-gate, the Pi extensions (herdr-context,
+  herdr-inbox-file, herdr-tab-name, tickler, ag-notify), Hammerspoon's focus links, and the agent
+  instructions (`agents.md/includes/herdr.md`). Direct socket clients (pi-hibernate, herdr-nav,
+  herdr-find) find agd's or Herdr's socket automatically.
+- **tmux config** `tmux/dot-config/ag/ag.tmux.conf` (sources `~/.tmux.conf` first), **`ag-mux-shell`**
+  (gives panes made with plain tmux keys their IDs).
+- **ag-engine**: `ag-mux.service` (systemd user unit, `KillMode=process` so restarting agd never kills
+  sessions) is enabled and running with an Inbox; real Herdr removed; mosh installed.
+  `bootstrap-linux` stows `tmux` and enables the unit.
+- **Tests**: `tests/ag-mux-smoke.sh` (23 checks: topology, pane I/O, moves, events, shapes against Herdr
+  fixtures in `tests/fixtures`, restore, crash recovery; `AG_MUX_TEST_PI=1` adds a live Pi start/prompt).
+  Green on ag-mac (tmux 3.7) and ag-engine (tmux 3.4).
+- Found on the way: tmux 3.7 crashes on `break-pane` with no client attached, so ag-mux moves panes with
+  a placeholder window and `swap-pane`. Pi on the engine spends its first ~60 s retrying Slack/TapKit MCP
+  OAuth (no browser there), and ignores prompts until it's done; that's the engine's MCP auth, not ag-mux.
+
+## The `ag` address (Tailscale Service `svc:ag`)
+
+User-facing links never name a machine. `ag` is the Tailscale Service **`svc:ag`**
+(`ag.tail44736d.ts.net`, VIP `100.115.69.33`, short name `ag` via MagicDNS), advertised by whichever
+machine hosts sessions:
+
+| URL | What |
+|---|---|
+| `http://ag:7373` | ag inbox (and the tickler webhook) |
+| `http://ag:7374` | show / phone review / file inbox (`http://ag.tail44736d.ts.net:7374/r/<name>/` for the phone) |
+| `http://ag:7375` | private chat |
+| `http://ag:7376/<pi session id>` | AG Dash deep links |
+| `https://ag.tail44736d.ts.net:7377` | AG Dash over HTTPS (voice needs it) |
+
+- Defined in `tailscale/policy.hujson` (autoApprover: `tag:ag-engine`) and via the API
+  (`ts-api PUT tailnet/-/vip-services/svc:ag`, ports 7373–7377). Hosts must be tagged, so ag-engine hosts
+  it; `ag-svc local` / `ag-svc forward <host>` / `ag-svc status` switch what it serves.
+- **Now**: ag-engine serves it with `ag-svc forward ag-mac` (socat units `ag-forward@PORT` on
+  127.0.0.1:1PORT, because `tailscale serve` can't proxy to another tailnet IP). **At cutover**:
+  `ag-svc local`. No link changes.
+- Switched to it: herdr-link, session-link, show's phone links, AG Dash (HTTPS URL, copy-link, 🔥 texts,
+  file-inbox URL), tickler and ag-inbox texts, Hammerspoon's inbox capture, client-cua-gate, the skills,
+  and `agents.md`. The dotfiles `/etc/hosts` `ag` → ag-mac alias is gone.
+- Not yet: README.md (Nathan is editing it) and the iOS Shortcuts, which still post to ag-mac's IP
+  `100.107.192.32` (docs in `ios-shortcuts/`); they switch to `ag.tail44736d.ts.net` at cutover.
+
+## Where every service goes
+
+ag-mac keeps only the extremity role: computer use, Mac-only apps and CLIs. Everything else moves to
+ag-engine as a systemd user unit.
+
+| ag-mac LaunchAgent | Fate | Notes for the move |
+|---|---|---|
+| `ag-board` (AG Dash, 7376/7377) | **Move** | Listen on 127.0.0.1 (svc:ag fronts it); drop its own `tailscale serve --https` (svc:ag does TLS); `/usr/local/bin/tailscale` path; Linux `open`-free. |
+| `ag-inbox` (7373) | **Move** | Needs Jev/LLM keys on the engine (op-ag); tab creation already goes through ag-mux. |
+| `file-inbox` (7374: show, phone review, Send to ag) | **Move** | Moshi deep link becomes `moshi://tmux?session=<workspace>` after agd selects the pane for the phone's client. |
+| `ag-private` (7375) | **Move** | OpenRouter key on the engine. |
+| `tickler` | **Move** | Items and logs to the engine's persistent volume. |
+| `presence` | **Move** | Polls ag-client over SSH from the engine (needs an engine → client SSH key, like `mac`'s); detects `ag-mux attach` instead of the Herdr bridge. |
+| `pi-hibernate` | **Move** | Memory pressure from `/proc/pressure/memory` instead of `sysctl`. |
+| `herdr-nav` (back/forward, reopen) | **Move** | Works against agd's events already; rename to `ag-nav` later. |
+| `mcp-gateway` | **Move** | The engine runs the gateway; `mcp-tunnel` retires; ag-mac points at the engine only if it still needs MCP. |
+| `pi-sessions-sync` | **Move** | The engine's timer already runs; retire the Mac copy once no sessions live there (it also pulls ag-client). |
+| `moshi-hook` | **Move** | Runs where the agents run; re-pair Moshi with ag-engine (needs Nathan's phone once). |
+| `mem-watch` | **Keep + add** | Keep on ag-mac (CUA memory), add a Linux version on the engine. |
+| `nessie` (agent-trace sync app) | **Keep, open question** | Mac app; sessions on the engine need a Linux way to sync traces. |
+| `headless-display` | **Keep** | Computer use on a closed MacBook. |
+| `chrome-tab-reaper` | **Keep** | Chrome is used for CUA. |
+| `tfy-env` | **Keep** | TrueFoundry key for Mac GUI apps (ChatGPT/Codex desktop). |
+| Herdr itself | **Retire** | After a quiet week on the engine; then drop the `herdr/` package, HerdrLink.app, and the Herdr plugins. |
+
+Activity capture (`activity-log.ts`, `ag.jsonl`) moves with the sessions, since it runs inside Pi.
+
+## Cutover
+
+Prerequisites: repos and worktrees exist on the engine (docs/ag.md step 5, arcade dev), because resumed
+sessions need their working directories, and the engine's MCP auth is finished.
+
+1. Port the "Move" services above to systemd user units; run them on the engine against agd on
+   127.0.0.1 (ports free there; svc:ag still forwards to ag-mac meanwhile).
+2. On ag-mac: `ag-mux export-herdr > /tmp/herdr-layout.json` (every workspace/tab and each Pi pane's
+   session file, including hibernated ones). Copy it and the Pi session files (pi-sessions archive) to
+   the engine.
+3. On the engine: `ag-mux restore --from herdr-layout.json --path-map /Users/natkoersch=/home/nathan`.
+   Tabs come back in place with Pi asleep; each resumes when opened.
+4. `ag-svc local` on the engine, stop the moved LaunchAgents on ag-mac, point `bin/ag` at
+   `ssh -t ag-engine ag-mux attach` (mosh for the phone), and update the iOS Shortcuts.
+5. After a quiet week: retire Herdr (above) and rename the `herdr-*` helpers and `HERDR_*` env (keeping
+   the old names exported for the agent hooks).

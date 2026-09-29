@@ -1,7 +1,7 @@
 #!/usr/bin/env zsh
 # herdr-link — print clickable links to agent sessions, via AG Dash (bin/dot-local/bin/ag-board).
 #
-#   herdr-link wN:tX              one tab            → "<Workspace> › <Tab>  http://ag-mac:7376/<session id>"
+#   herdr-link wN:tX              one tab            → "<Workspace> › <Tab>  http://ag:7376/<session id>"
 #   herdr-link wN:tX w8:tP        several
 #   herdr-link --grep capture     every tab whose label matches (case-insensitive)
 #   herdr-link --session [f|id]   a pi session by file or id, even with no tab (default: $PI_SESSION_FILE)
@@ -16,7 +16,7 @@
 # hyperlinks and Ghostty only auto-links standard schemes; the board redirects itself to https.
 set -euo pipefail
 host=${HERDR_LINK_HOST:-$(scutil --get LocalHostName)}
-board=${HERDR_LINK_BOARD:-http://ag-mac:7376}
+board=${HERDR_LINK_BOARD:-http://ag:7376}
 hib=$("$HOME/.local/bin/pi-hibernate" status 2>/dev/null || true)
 "$HOME/.local/bin/ag-mux" api snapshot | python3 -c "$(cat <<'PY'
 

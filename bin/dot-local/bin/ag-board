@@ -42,7 +42,7 @@
 // API: GET /api/state, /api/transcript?tab=, /api/screen?tab=, /api/stats?days=
 //      POST /api/card {tab, hot?, list?, seen?}, /api/lists {lists}, /api/prompt {tab, text, interrupt?},
 //           /api/interrupt {tab}, /api/keys {tab, keys[]}, /api/focus {tab}, /api/close {tab}
-// Page: ~/.local/share/ag-board/index.html (stowed from dotfiles ag-board/), re-read on every request.
+// Page: ~/.local/share/ag-board/index.html (stowed from the ag repo, ag-board/), re-read on every request.
 // Run by the com.nathan.ag-board LaunchAgent (only on ag). Log: /tmp/ag-board.log.
 
 import { execFileSync } from "node:child_process";
@@ -61,7 +61,7 @@ const STATE_DIR = `${HOME}/.local/state/ag-board`;
 const STATE_FILE = `${STATE_DIR}/state.json`;
 const CLICKS_FILE = `${STATE_DIR}/clicks.jsonl`;
 const PAGE = `${HOME}/.local/share/ag-board/index.html`;
-// Static assets sit next to the page in the dotfiles checkout (the page itself is a symlink into it).
+// Static assets sit next to the page in the ag checkout (the page itself is a symlink into it).
 const STATIC_DIR = dirname(realpathSync(PAGE));
 const STATIC = new Set(["editor.js", "marked.umd.js", "purify.min.js", "manifest.json", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"]);
 const UPLOAD_DIR = `${HOME}/inbox/clipboard`;

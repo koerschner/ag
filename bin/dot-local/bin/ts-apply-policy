@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Validate, then apply dotfiles tailscale/policy.hujson to the tailnet (the policy's source of truth).
+# Validate, then apply ag tailscale/policy.hujson to the tailnet (the policy's source of truth).
 set -euo pipefail
 policy="$(cd "$(dirname "$(readlink -f "$0")")/../../.." && pwd)/tailscale/policy.hujson"
 out=$(ts-api POST tailnet/-/acl/validate -H 'Content-Type: application/hujson' --data-binary @"$policy")

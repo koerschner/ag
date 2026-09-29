@@ -24,7 +24,7 @@
 //   dry         "1" = route and gate only; responds with the label, playbook and prompt, opens nothing
 //   new         "1" (form field or ?new=1) = always open a new session, never a follow-on (e.g. client-cua-gate's
 //               access sessions)
-// Playbooks (~/.config/ag-inbox/playbooks/*.md, stowed from dotfiles, re-read per request): typical
+// Playbooks (~/.config/ag-inbox/playbooks/*.md, stowed from the ag repo, re-read per request): typical
 // kinds of captures (e.g. a name + phone number) with a set workflow. The router picks at most one and
 // its instructions are prepended to the prompt.
 // Also: POST /tickler/<id> (body = optional note) fires a waiting tickler wake-up (bin/dot-local/bin/tickler).

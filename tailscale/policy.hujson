@@ -1,5 +1,5 @@
 // Tailscale policy for tailnet nathankoerschner@gmail.com (tail44736d.ts.net).
-// Source of truth: dotfiles tailscale/policy.hujson. Apply with `tailscale/apply-policy`
+// Source of truth: ag repo tailscale/policy.hujson. Apply with `tailscale/apply-policy`
 // (needs the "Tailscale OAuth client (ag)" item in ag-vault via op-work). Don't edit it in the admin console.
 {
 	// Ag machines join with auth keys minted for these tags (see tailscale/README.md).

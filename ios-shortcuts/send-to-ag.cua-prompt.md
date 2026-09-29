@@ -1,8 +1,8 @@
 Use computer use to build an iOS Shortcut on my iPhone through the iPhone Mirroring app on this Mac.
 
 Build it exactly as specified in this doc (read it first; it's the source of truth):
-https://github.com/nathankoerschner/dotfiles/blob/main/ios-shortcuts/send-to-ag.md
-(also at ~/dotfiles/ios-shortcuts/send-to-ag.md on this Mac)
+https://github.com/nathankoerschner/ag/blob/main/ios-shortcuts/send-to-ag.md (private)
+(also at ~/ag/ios-shortcuts/send-to-ag.md on this Mac)
 
 Summary: a share-sheet Shortcut named "Send to ag" that fetches http://100.107.192.32:7374/sessions (a
 dictionary of label → id), lets me choose a destination from its keys, asks for an optional message,

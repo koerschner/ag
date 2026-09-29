@@ -1,3 +1,0 @@
-## Machine setup lives in dotfiles (infrastructure as code)
-
-Every change to the machine setup (any computer, phone, device, or service in the stack) must be captured in dotfiles in the same task, committed, pushed, and synced to **every machine** in `machines/README.md`, so any machine could be rebuilt from the dotfiles alone. Never leave hand edits outside the repo or commit secrets. **Load the `dotfiles-change` skill before making the change**: it has where things go, the sync steps, and the host/client model (read it before touching shortcuts, Herdr config, Hammerspoon, or anything that spans the host and a client).

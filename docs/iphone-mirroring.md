@@ -17,7 +17,7 @@ client-cua "Open iPhone Mirroring, connect to Nathan's iPhone, then ..."
 - Secrets seen on the phone (tokens, pairing codes) go straight into a `chmod 600` file on
   the client (then `scp` to where they're used and delete). Never put them in reports,
   chat, or autosaving scratch documents.
-- Record any resulting phone setting in dotfiles (README or `ios-shortcuts/`) so the phone
+- Record any resulting phone setting in the ag repo (README or `ios-shortcuts/`) so the phone
   can be rebuilt.
 
 ## Text entry

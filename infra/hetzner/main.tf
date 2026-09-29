@@ -51,14 +51,16 @@ resource "hcloud_server" "brain" {
   firewall_ids = [hcloud_firewall.tailnet_only.id]
   labels       = { system = "ag", role = "brain" }
   user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", {
-    hostname       = "ag-brain"
-    role           = "brain"
-    user           = var.user
-    ssh_public_key = var.ssh_public_key
-    ts_auth_key    = var.tailscale_auth_key
-    ts_tags        = "tag:ag-brain"
-    dotfiles_repo  = var.dotfiles_repo
-    volume_device  = "/dev/disk/by-id/scsi-0HC_Volume_${hcloud_volume.brain_data.id}"
+    hostname          = "ag-brain"
+    role              = "brain"
+    user              = var.user
+    ssh_public_key    = var.ssh_public_key
+    ts_auth_key       = var.tailscale_auth_key
+    ts_tags           = "tag:ag-brain"
+    dotfiles_repo     = var.dotfiles_repo
+    ag_repo           = var.ag_repo
+    ag_deploy_key_b64 = base64encode(var.ag_deploy_key)
+    volume_device     = "/dev/disk/by-id/scsi-0HC_Volume_${hcloud_volume.brain_data.id}"
   })
   public_net {
     ipv4_enabled = true # outbound IPv4 (GitHub, npm); inbound is blocked by the firewall
@@ -84,14 +86,16 @@ resource "hcloud_server" "worker" {
   firewall_ids = [hcloud_firewall.tailnet_only.id]
   labels       = { system = "ag", role = "worker" }
   user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", {
-    hostname       = "ag-worker-${count.index + 1}"
-    role           = "worker"
-    user           = var.user
-    ssh_public_key = var.ssh_public_key
-    ts_auth_key    = var.tailscale_auth_key
-    ts_tags        = "tag:ag-worker"
-    dotfiles_repo  = var.dotfiles_repo
-    volume_device  = ""
+    hostname          = "ag-worker-${count.index + 1}"
+    role              = "worker"
+    user              = var.user
+    ssh_public_key    = var.ssh_public_key
+    ts_auth_key       = var.tailscale_auth_key
+    ts_tags           = "tag:ag-worker"
+    dotfiles_repo     = var.dotfiles_repo
+    ag_repo           = var.ag_repo
+    ag_deploy_key_b64 = base64encode(var.ag_deploy_key)
+    volume_device     = ""
   })
   lifecycle { ignore_changes = [user_data, ssh_keys] }
 }

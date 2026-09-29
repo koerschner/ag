@@ -1,5 +1,5 @@
 #!/usr/bin/env zsh
-# Register dotfiles-managed Herdr plugins (the registry, plugins.json, holds
+# Register ag-managed Herdr plugins (the registry, plugins.json, holds
 # absolute paths so it isn't tracked) and verify agent integrations.
 # Integration files themselves are stowed from pi/, claude/, codex/.
 set -e

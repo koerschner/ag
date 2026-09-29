@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // file-inbox: receive files (phone screenshots, photos) and optional text on ag over Tailscale,
 // and optionally hand them to a pi session. Used by the iOS "Send to ag" Shortcut
-// (see ios-shortcuts/send-to-ag.md in dotfiles).
+// (see ios-shortcuts/send-to-ag.md in the ag repo).
 //
 //   GET  /sessions   JSON {"<label>": "<pane id>"}: "Just save", "New session", then the
 //                    3 most recently active pi sessions (by session-file mtime).

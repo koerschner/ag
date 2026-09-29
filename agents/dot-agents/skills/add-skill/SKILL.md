@@ -6,7 +6,7 @@ argument-hint: "[skill-name] [optional: short purpose]"
 
 Help me add a skill correctly in my setup. Always distinguish between:
 
-1. **Global skills (dotfiles-managed)**: shared across Claude, Codex, and Agents on any machine after stowing dotfiles.
+1. **Global skills (ag-managed)**: shared across Pi, Claude, and Codex on every machine after stowing the ag repo.
 2. **Repo skills (project-local)**: only available inside the current repo for Pi/Agents to use.
 
 ## First: Determine scope (default to global)
@@ -21,33 +21,21 @@ If the user explicitly requests repo-local behavior, follow the repo workflow be
 
 ---
 
-## A) Global skill workflow (dotfiles)
+## A) Global skill workflow (ag repo)
 
 ### Architecture to follow
 
-Global skills live in:
-- `~/dotfiles/agent-skills/_shared-skills/<skill-name>/SKILL.md`
-
-Agent entry points:
-- `~/.codex/skills` -> stowed from `~/dotfiles/codex/dot-codex/skills` (symlink to shared skills)
-- `~/.agents/skills` -> stowed from `~/dotfiles/codex/dot-agents/skills` (symlink to shared skills)
-- `~/.claude/commands` -> stowed from `~/dotfiles/claude/dot-claude/commands` (single symlink to `~/dotfiles/agent-skills/_claude-commands`)
-- `~/.claude/commands/<skill-name>.md` -> `~/dotfiles/agent-skills/_claude-commands/<skill-name>.md` -> shared `SKILL.md`
+Global skills live in the ag repo (`~/ag`):
+- `~/ag/agents/dot-agents/skills/<skill-name>/SKILL.md`, stowed (package `agents`) to `~/.agents/skills/<skill-name>/SKILL.md`, which Pi loads (`"skills": ["~/.agents/skills"]` in its `settings.json`).
+- Claude and Codex get a skill through a relative symlink in their packages: `~/ag/claude/dot-claude/skills/<skill-name>` and `~/ag/codex/dot-codex/skills/<skill-name>` -> `../../../agents/dot-agents/skills/<skill-name>`.
 
 ### Steps
 
-1. Create skill directory and file:
-   - `~/dotfiles/agent-skills/_shared-skills/<skill-name>/SKILL.md`
-2. Add frontmatter with at least:
-   - `name`, `description` (and optional `argument-hint`, `allowed-tools`)
-3. If Claude should have it, add shim symlink in:
-   - `~/dotfiles/agent-skills/_claude-commands/<skill-name>.md` -> `../_shared-skills/<skill-name>/SKILL.md`
-4. Re-stow packages from `~/dotfiles`:
-   - `stow claude codex`
-5. Verify resolution:
-   - `~/.claude/commands/<skill-name>.md` exists
-   - `~/.codex/skills/<skill-name>/SKILL.md` exists
-   - `~/.agents/skills/<skill-name>/SKILL.md` exists
+1. Create `~/ag/agents/dot-agents/skills/<skill-name>/SKILL.md` with frontmatter: at least `name` and `description` (optional `argument-hint`, `allowed-tools`).
+2. If Claude/Codex should have it, add the two symlinks above.
+3. Restow: `stow --dotfiles --no-folding -d ~/ag -t ~ agents claude codex`.
+4. Verify `~/.agents/skills/<skill-name>/SKILL.md` (and `~/.claude/skills/…`, `~/.codex/skills/…`) resolve.
+5. Commit and push ag, then sync every machine (see the `dotfiles-change` skill).
 
 ---
 
@@ -58,9 +46,8 @@ Use this when a skill should only exist for one repository.
 1. Create skill file in the repo’s local skills area (typically):
    - `<repo>/skills/<skill-name>/SKILL.md`
 2. Add frontmatter and instructions specific to that project.
-3. Do **not** add a dotfiles Claude shim.
-4. Do **not** stow dotfiles for repo-only skills.
-5. Verify Pi can discover it from the repo context.
+3. Do **not** add anything to the ag repo for repo-only skills.
+4. Verify Pi can discover it from the repo context.
 
 ---
 

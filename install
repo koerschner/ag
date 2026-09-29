@@ -1,0 +1,88 @@
+#!/usr/bin/env zsh
+# Install ag (the agent system) on a Mac. Idempotent: safe to re-run any time.
+# dotfiles' `bootstrap` clones this repo to ~/ag and runs it; it can also run on its own:
+#   ~/ag/install
+# Linux machines use ./bootstrap-linux instead.
+#
+# Files that would block a stow symlink are moved to ~/.dotfiles-backup/<ts>/.
+set -uo pipefail
+
+AG=${AG:-${0:A:h}}
+STOW_PACKAGES=(ag-board ag-inbox agents bin claude codex hammerspoon herdr pi)
+backup=$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)
+failed=()
+STOW=(stow --dotfiles --no-folding -d $AG -t $HOME)
+
+step() { print -P "\n%F{cyan}==> [ag] $*%f"; }
+warn() { print -P "%F{yellow}  ! $*%f"; failed+=("$*"); }
+have() { command -v $1 >/dev/null 2>&1; }
+[[ -x /opt/homebrew/bin/brew ]] && eval "$(/opt/homebrew/bin/brew shellenv)"
+have stow || brew install stow || { echo "ag install needs GNU stow"; exit 1; }
+
+step "Agent CLIs (vendor installers)"
+[[ -x ~/.bun/bin/bun ]]   || curl -fsSL https://bun.sh/install | bash               || warn "bun"
+have herdr                || curl -fsSL https://herdr.dev/install.sh | sh            || warn "herdr"
+have claude               || curl -fsSL https://claude.ai/install.sh | bash          || warn "claude"
+have codex                || curl -fsSL https://chatgpt.com/codex/install.sh | sh    || warn "codex"
+have amp                  || curl -fsSL https://ampcode.com/install.sh | bash        || warn "amp"
+[[ -f ~/.bun/install/global/package.json ]] || ~/.bun/bin/bun add -g @oh-my-pi/pi-coding-agent || warn "omp"
+
+step "agent instructions + git hooks"
+"$AG/agents.md/build" || warn "agents.md/build"
+git -C $AG config core.hooksPath .githooks && echo "  core.hooksPath=.githooks"
+
+step "stow packages"
+for pkg in $STOW_PACKAGES; do
+  # Move aside any real file that would block a symlink, then stow.
+  $STOW -n $pkg 2>&1 |
+    sed -nE 's/.* over existing target (.+) since .*/\1/p; s/.*existing target is not owned by stow: (.+)$/\1/p' |
+    while read -r rel; do
+      mkdir -p "$backup/${rel:h}" && mv "$HOME/$rel" "$backup/$rel" && echo "  backed up ~/$rel"
+    done
+  $STOW $pkg && echo "  $pkg" || warn "stow $pkg"
+done
+[[ -d $backup ]] && echo "  pre-existing files moved to $backup"
+
+step "LaunchAgents"
+mkdir -p ~/Library/LaunchAgents
+for plist in $AG/macos-launchagents/*.plist; do
+  dest=~/Library/LaunchAgents/${plist:t}
+  # Repoint links that still go to an old checkout (e.g. from before ag had its own repo).
+  [[ -L $dest && $(readlink $dest) != $plist ]] && rm $dest
+  [[ -L $dest ]] || { [[ -e $dest ]] && mkdir -p $backup && mv $dest $backup/; ln -s $plist $dest; }
+  launchctl bootstrap gui/$UID $dest 2>/dev/null || true   # already loaded is fine
+  echo "  ${plist:t}"
+done
+
+step "macOS helper apps"
+zsh $AG/macos-apps/HerdrLink/install.sh || warn "HerdrLink (needs Command Line Tools)"
+zsh $AG/macos-apps/ChromeTabReaper/install.sh || warn "ChromeTabReaper"
+
+step "Tool setup"
+# Moshi (iPhone terminal) hook daemon + Pi hook; the LaunchAgent runs it.
+$AG/bin/dot-local/bin/moshi-hook-install >/dev/null && ~/.local/bin/moshi-hook install --target pi >/dev/null \
+  && echo "  moshi-hook" || warn "moshi-hook-install"
+# DiscordChatExporter for the discord-export skill (pinned, checksum-verified).
+bash $AG/agents/dot-agents/skills/discord-export/scripts/install.sh >/dev/null \
+  && echo "  DiscordChatExporter" || warn "discord-export install.sh"
+if have herdr && [[ $(herdr status 2>/dev/null) == *'status: running'* ]]; then
+  zsh $AG/herdr/setup.sh || warn "herdr/setup.sh"
+  $AG/bin/dot-local/bin/herdr-shortcuts-check || warn "herdr shortcuts drifted (herdr/SHORTCUTS.md)"
+else
+  warn "herdr server not running: open Ghostty (starts herdr), then run herdr/setup.sh"
+fi
+
+if [[ $(hostname -s) == ag ]]; then
+  step "ag host secrets (Keychain)"
+  for svc in "ag 1Password service account" "ag machine-shared service account" "ag-shared 1Password service account"; do
+    security find-generic-password -a $USER -s "$svc" >/dev/null 2>&1 && echo "  ok      Keychain '$svc'" || { echo "  MISSING Keychain '$svc'  - 1Password service-account token for op-ag / op-shared / op-work (README \"Secrets\")"; failed+=("secret $svc"); }
+  done
+  ag-login-password check >/dev/null 2>&1 && echo "  ok      Keychain 'ag Mac login'" || echo "  MISSING Keychain 'ag Mac login'  - ag's own login password so agents can answer ag's password prompts: run ag-login-password set"
+  security find-generic-password -a $USER -s "ag telegram bot" >/dev/null 2>&1 && echo "  ok      ag telegram bot" || echo "  MISSING Keychain 'ag telegram bot' + 'ag telegram chat'  - Telegram bot for ag-text (optional; falls back to iMessage)"
+fi
+
+if (( ${#failed} )); then
+  print -P "%F{yellow}[ag] needs attention:%f"; printf '  - %s\n' $failed
+  exit 1
+fi
+echo "[ag] all steps succeeded."

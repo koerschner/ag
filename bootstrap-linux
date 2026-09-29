@@ -2,16 +2,19 @@
 # Bring an Ag Linux machine (Ubuntu 24.04; brain or worker) to parity. Idempotent: safe to re-run.
 # Run as the normal user (sudo without password). Cloud-init runs it on first boot (infra/hetzner).
 #
-#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/nathankoerschner/dotfiles/main/bootstrap-linux)"
+#   ~/ag/bootstrap-linux     (cloud-init clones ~/ag first; the ag repo is private, so a bare curl won't work)
 #
-# The Mac-only parts of `bootstrap` (Homebrew casks, Hammerspoon, LaunchAgents, macOS defaults) don't apply.
+# Installs both repos: ~/ag (the agent system) and ~/dotfiles (Nathan's personal shell/editor config).
+# The Mac-only parts (Homebrew casks, Hammerspoon, LaunchAgents, macOS defaults) don't apply.
 # Secrets are never fetched; the final checklist says what's still missing.
 set -uo pipefail
 
+AG=${AG:-$(cd "$(dirname "$(readlink -f "$0")")" && pwd)}
 DOTFILES=${DOTFILES:-$HOME/dotfiles}
 REPO=https://github.com/nathankoerschner/dotfiles.git
-# Stow packages that make sense on Linux (no ghostty/hammerspoon/alfred/ag-board/ag-inbox yet).
-STOW_PACKAGES=(agents bin claude codex git herdr mise nvim pi ssh systemd-user tmux zsh)
+# Stow packages that make sense on Linux (no ghostty/hammerspoon/alfred/ag-board/ag-inbox yet), per repo.
+AG_PACKAGES=(agents bin claude codex herdr pi systemd-user)
+DOTFILES_PACKAGES=(bin git mise nvim ssh tmux zsh)
 APT=(git git-crypt curl jq unzip zsh stow ripgrep fd-find fzf build-essential docker.io ca-certificates gnupg neovim tmux python3 htop)
 backup=$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)
 failed=()
@@ -71,19 +74,20 @@ have claude || curl -fsSL https://claude.ai/install.sh | bash           || warn 
 have codex  || curl -fsSL https://chatgpt.com/codex/install.sh | sh     || warn "codex"
 
 step "agent instructions"
-"$DOTFILES/agents.md/build" || warn "agents.md/build"
-git -C "$DOTFILES" config core.hooksPath .githooks
+"$AG/agents.md/build" || warn "agents.md/build"
+git -C "$AG" config core.hooksPath .githooks
 
 step "stow packages"
-for pkg in "${STOW_PACKAGES[@]}"; do
-  # Move aside any real file that would block a symlink, then stow.
-  stow --dotfiles --no-folding -d "$DOTFILES" -t "$HOME" -n "$pkg" 2>&1 |
+stow_pkg() { # <repo dir> <package>: move aside any real file that would block a symlink, then stow.
+  stow --dotfiles --no-folding -d "$1" -t "$HOME" -n "$2" 2>&1 |
     sed -nE 's/.* over existing target (.+) since .*/\1/p; s/.*existing target is not owned by stow: (.+)$/\1/p; s/.*existing target is neither a link nor a directory: (.+)$/\1/p' |
     while read -r rel; do
       mkdir -p "$backup/$(dirname "$rel")" && mv "$HOME/$rel" "$backup/$rel" && echo "  backed up ~/$rel"
     done
-  stow --dotfiles --no-folding -d "$DOTFILES" -t "$HOME" "$pkg" && echo "  $pkg" || warn "stow $pkg"
-done
+  stow --dotfiles --no-folding -d "$1" -t "$HOME" "$2" && echo "  $(basename "$1")/$2" || warn "stow $(basename "$1")/$2"
+}
+for pkg in "${DOTFILES_PACKAGES[@]}"; do stow_pkg "$DOTFILES" "$pkg"; done
+for pkg in "${AG_PACKAGES[@]}"; do stow_pkg "$AG" "$pkg"; done
 [[ -d $backup ]] && echo "  pre-existing files moved to $backup"
 
 step "node (mise, Linux-only untracked conf.d so the tracked mise config stays Mac-compatible)"

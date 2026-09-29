@@ -1,0 +1,3 @@
+--dotfiles
+--no-folding
+--ignore=(^|/)node_modules($|/)

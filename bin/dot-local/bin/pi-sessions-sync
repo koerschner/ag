@@ -128,7 +128,7 @@ def ensure_volume(key, dry):
         if dry:
             print(f"(dry run) would create {name}"); return name, None
         sh("gh", "repo", "create", f"{OWNER}/{name}", "--private", "--description",
-           "Pi session transcripts (redacted, git-crypt encrypted). See dotfiles docs/ag.md.")
+           "Pi session transcripts (redacted, git-crypt encrypted). See docs/ag.md in the ag repo.")
         if vols:  # roll over: archive the full volume
             sh("gh", "repo", "archive", f"{OWNER}/{vols[-1]['name']}", "--yes")
     repo = STATE / name
@@ -154,7 +154,7 @@ def ensure_volume(key, dry):
         (repo / ".gitattributes").write_text("machines/** filter=git-crypt diff=git-crypt\n")
         (repo / "README.md").write_text("# Pi session transcripts\n\nRedacted, then encrypted with git-crypt "
                                         "(key: 1Password ag-vault \"pi-sessions git-crypt key\"). Written by "
-                                        "`pi-sessions-sync` in Nathan's dotfiles.\n")
+                                        "`pi-sessions-sync` in Nathan's ag repo.\n")
         sh("git", "add", ".gitattributes", "README.md", cwd=repo)
         sh("git", "commit", "-qm", "init", cwd=repo)
         sh("git", "push", "-q", "-u", "origin", "HEAD:main", cwd=repo)

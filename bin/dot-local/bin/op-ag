@@ -38,7 +38,7 @@ def read_token():
         try:
             return token_file.read_bytes().strip()
         except OSError:
-            print(f"{NAME}: missing {token_file} (see the dotfiles secrets checklist)", file=sys.stderr)
+            print(f"{NAME}: missing {token_file} (see the secrets checklist in the ag README)", file=sys.stderr)
             sys.exit(1)
     result = subprocess.run(KEYCHAIN_COMMAND, capture_output=True, timeout=10)
     if result.returncode == 0:

@@ -9,10 +9,11 @@ state="$HOME/.local/state/ag-infra"; mkdir -p "$state"
 VAULT=${AG_INFRA_VAULT:-c3qkbcqktsxmi6hnpzpltdbose} # ag-vault (by id, so renames never break it)
 
 secrets() {
-  export HCLOUD_TOKEN TF_VAR_tailscale_auth_key TF_VAR_ssh_public_key
+  export HCLOUD_TOKEN TF_VAR_tailscale_auth_key TF_VAR_ssh_public_key TF_VAR_ag_deploy_key
   HCLOUD_TOKEN=$(op-work read "op://$VAULT/Hetzner Cloud/credential")
   TF_VAR_tailscale_auth_key=$(op-work read "op://$VAULT/Tailscale ag auth key/credential")
   TF_VAR_ssh_public_key=$(cat "$HOME/.ssh/id_ed25519.pub")
+  TF_VAR_ag_deploy_key=$(op-work read "op://$VAULT/ag repo deploy key/private key")
 }
 tf() { tofu -chdir="$dir" "$@"; }
 init() { tf init -input=false -upgrade=false -backend-config="path=$state/terraform.tfstate" >/dev/null; }

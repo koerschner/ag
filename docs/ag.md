@@ -30,7 +30,7 @@ Everything is joined by one Tailscale tailnet.
   only from the tailnet and limited to the `mac` entry points.
 - **Ephemeral and IaC.** One command (`ag-infra up`) builds a brain or worker from nothing: Terraform/OpenTofu
   creates the machine, cloud-init joins Tailscale with an ephemeral, pre-authorized tagged key, and it
-  runs dotfiles `bootstrap` (Linux support needed) and pulls secrets through the 1Password service account.
+  clones the ag repo (read-only deploy key) and runs its `bootstrap-linux`, which also installs the public dotfiles, and pulls secrets through the 1Password service account.
   `ag-infra scale N` adds or removes workers, and `ag-infra down` destroys machines but keeps the brain's data volume. Any machine can be thrown away
   and rebuilt.
 
@@ -45,7 +45,7 @@ Nothing important may live only on a machine's local disk.
 | Herdr layout (workspaces, tabs, and which session each tab resumes) | Snapshotted regularly with `herdr api snapshot` and restored on a new brain, so tabs come back and resume their Pi sessions |
 | Tickler items, inbox and tickler logs, `~/inbox` files | The brain's persistent volume, also backed up to the archive |
 | Secrets | The 1Password service account only (never in a repo or image) |
-| Machine setup | Dotfiles plus the IaC repo |
+| Machine setup | The ag repo (agent system + IaC) plus dotfiles (personal config) |
 
 ### pi-sessions archive (decided in the merged "Pi Sync" session, 2026-09-27)
 

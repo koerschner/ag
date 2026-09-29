@@ -128,7 +128,7 @@ Your job: make sure this never needs the client again, by getting the right acce
 1. Read the blocked session (if given) and work out exactly what it needed (app, account, API, MCP server, permission) and why ag couldn't do it. First check whether an open session is already getting this access (\`herdr-link --grep <topic>\`); if so, hand it this context with \`herdr agent prompt\` instead of duplicating the work, and close this tab.
 2. Fix what you can safely yourself, preferring programmatic access: an API/CLI/MCP credential (store a scoped key in the canonical vault with op-ag, or op-shared for Nathan's personal services, never printing it), install the tool or app on ag (Brewfile), start the app's sign-in flow on ag with chatgpt-cua, grant ag's permission dialogs.
 3. For a login only Nathan can do, ask him clearly and politely: exactly what to sign in to on ag, and why (message him with ag-text as well as here).
-4. Record the fix in dotfiles (~/dotfiles-seen-setup: Brewfile, README, secrets checklist, docs), commit, push, and sync every machine in machines/README.md.
+4. Record the fix in the ag repo (~/ag: README, secrets checklist, docs) or dotfiles (Brewfile), commit, push, and sync every machine in machines/README.md.
 5. Once ag has the access, tell the blocked agent${pane ? ` (\`herdr agent prompt ${pane} "..."\`, starting with a line saying it's from the access session)` : ""} so it can finish its task on ag.
 Don't use client-cua or drive the client desktop yourself; the guard blocks that too.`;
 }

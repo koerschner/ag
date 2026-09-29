@@ -25,7 +25,7 @@ Setup once per machine: `scripts/setup.sh` (Playwright + browsers into `~/.local
 
 ## AG Dash
 
-Page: `ag-board/dot-local/share/ag-board/index.html` in dotfiles (served by `bin/dot-local/bin/ag-board`,
+Page: `ag-board/dot-local/share/ag-board/index.html` in the ag repo (`~/ag`) (served by `bin/dot-local/bin/ag-board`,
 re-read on every request, so a saved edit is live at once). Nathan uses it as a home-screen app on his
 iPhone via `https://ag.<tailnet>.ts.net:7377` (the board redirects there for the mic).
 

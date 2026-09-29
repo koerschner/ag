@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Verify Herdr shortcuts on this machine match the canonical spec.
 
-Spec: ~/.config/herdr/shortcuts.json (dotfiles herdr/dot-config/herdr/).
+Spec: ~/.config/herdr/shortcuts.json (ag repo herdr/dot-config/herdr/).
 Checks, per shortcut:
   - herdr config.toml binds both the direct key (Moshi forwards Cmd) and
     prefix+<key> (Mac Hammerspoon chord / universal fallback) to the action;

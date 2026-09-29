@@ -155,7 +155,17 @@ header h1{font-size:15px;margin:0 .4rem 0 0;font-weight:650}
 .msg .who{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin-bottom:.2rem}
 .msg .body{white-space:pre-wrap;word-break:break-word;font-size:13.5px}
 .msg.user .body{background:var(--card);padding:.5rem .65rem;border-radius:8px}
-table.md{border-collapse:collapse;margin:.35rem 0;white-space:normal;font-size:.95em}table.md th,table.md td{border:1px solid var(--line);padding:.25rem .6rem;text-align:left;vertical-align:top}table.md th{background:var(--card)}
+.body.md{white-space:normal}
+.md>:first-child{margin-top:0}.md>:last-child{margin-bottom:0}
+.md p,.md ul,.md ol,.md blockquote,.md pre,.md table{margin:.45em 0}
+.md ul,.md ol{padding-left:1.4em}.md li+li{margin-top:.15em}.md li>p{margin:.2em 0}
+.md h1,.md h2,.md h3,.md h4,.md h5,.md h6{margin:.8em 0 .35em;line-height:1.25}.md h1{font-size:1.3em}.md h2{font-size:1.18em}.md h3{font-size:1.06em}.md h4,.md h5,.md h6{font-size:1em}
+.md a{color:#7ab4ff}.md hr{border:0;border-top:1px solid var(--line);margin:.8em 0}
+.md blockquote{border-left:3px solid var(--line);padding-left:.7em;color:#c3c7cf}
+.md code{background:#0c0d10;padding:.05em .3em;border-radius:4px;font-size:.92em}.md pre code{background:none;padding:0}
+.md pre{background:#0c0d10;padding:.5rem;border-radius:6px;overflow-x:auto;white-space:pre}
+.md table{border-collapse:collapse;display:block;overflow-x:auto;font-size:.95em}.md th,.md td{border:1px solid var(--line);padding:.25rem .6rem;text-align:left;vertical-align:top}.md th{background:var(--card)}
+.md img{max-width:100%}.md input[type=checkbox]{margin-right:.35em}
 .msg pre{background:#0c0d10;padding:.5rem;border-radius:6px;overflow-x:auto;white-space:pre}
 details.tl{margin:0 0 .45rem;background:#181b20;border:1px solid #252a31;border-radius:7px}
 details.tl summary{cursor:pointer;padding:.3rem .55rem;font-size:12.5px;list-style:none;display:flex;gap:.4rem;align-items:baseline;overflow:hidden}
@@ -384,6 +394,8 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
 <div id="undos"></div>
 <div id="lb" role="dialog" aria-label="Media viewer"></div>
 
+<script src="/static/marked.umd.js"></script>
+<script src="/static/purify.min.js"></script>
 <script type="module">
 import { createEditor } from "/static/editor.js";
 const $ = (s) => document.querySelector(s);
@@ -447,18 +459,14 @@ function beep() {
     [880, 1175].forEach((f, i) => { const o = a.createOscillator(), g = a.createGain(); o.frequency.value = f; o.connect(g); g.connect(a.destination); const t = a.currentTime + i * 0.16; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14); o.start(t); o.stop(t + 0.15); });
   } catch {}
 }
-// GitHub-style pipe tables (header row, separator row, body rows) → <table>. Runs outside code fences only.
-function mdTables(h) {
-  return h.replace(/(?:^|\n)(\|[^\n]*\|[ \t]*\n\|(?:[ \t]*:?-+:?[ \t]*\|)+[ \t]*(?:\n\|[^\n]*\|[ \t]*)*)(?:\n|$)/g, (_, blk) => {
-    const [head, , ...body] = blk.split("\n").map((r) => r.trim().slice(1, -1).split("|").map((c) => c.trim()));
-    return `<table class="md"><thead><tr>${head.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${body.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
-  });
+// Full Markdown (GFM: tables, lists, headings, links, quotes, task lists…) via vendored marked + DOMPurify.
+// Single newlines stay line breaks, as in the terminal. Falls back to escaped text if the libraries failed to load.
+function md(s) {
+  if (!window.marked || !window.DOMPurify) return esc(s);
+  return DOMPurify.sanitize(marked.parse(String(s ?? ""), { gfm: true, breaks: true }), { ADD_ATTR: ["target"] });
 }
-function mdLite(s) {
-  return esc(s).split(/(```[\w-]*\n[\s\S]*?```)/g).map((p, i) => i % 2
-    ? `<pre>${p.replace(/^```[\w-]*\n/, "").slice(0, -3)}</pre>`
-    : mdTables(p).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")).join("");
-}
+// Links open in a new tab so the board stays put.
+if (window.DOMPurify) DOMPurify.addHook("afterSanitizeAttributes", (n) => { if (n.tagName === "A" && n.getAttribute("href")) { n.setAttribute("target", "_blank"); n.setAttribute("rel", "noopener"); } });
 // Images and videos: thumbnails (click → full-size viewer) and inline video players.
 function mediaHtml(list, small) {
   if (!list?.length) return "";
@@ -515,9 +523,9 @@ const WAIT_ICON = { check: "🔁", event: "📡", online: "🟢", at: "⏰", per
 function details(c) {
   const working = c.status === "working";
   return `<div class="det">
-    ${c.lastUser ? `<div class="sec"><label>Latest prompt · ${since(c.lastUser.ts)} ago</label><div class="body">${esc(c.lastUser.text)}</div></div>` : ""}
+    ${c.lastUser ? `<div class="sec"><label>Latest prompt · ${since(c.lastUser.ts)} ago</label><div class="body md">${md(c.lastUser.text)}</div></div>` : ""}
     ${c.thinking && (c.thinkingTs || 0) >= (c.lastUser?.ts || 0) ? `<div class="sec"><label>Latest thinking</label><div class="body think">${esc(c.thinking)}</div></div>` : ""}
-    ${c.lastAssistant ? `<div class="sec"><label>Latest answer · ${since(c.lastAssistant.ts)} ago</label><div class="body">${mdLite(c.lastAssistant.text)}</div></div>` : ""}
+    ${c.lastAssistant ? `<div class="sec"><label>Latest answer · ${since(c.lastAssistant.ts)} ago</label><div class="body md">${md(c.lastAssistant.text)}</div></div>` : ""}
     ${c.waiting?.length ? `<div class="sec"><label>Waiting for</label>${c.waiting.map((w) => `<div class="body">${WAIT_ICON[w.kind] || "⏳"} <b>${esc(w.title)}</b> · ${esc(w.detail)}${w.due ? ` · ${w.due > Date.now() ? "due in" : "overdue by"} ${esc(ago(Date.now() - Math.abs(w.due - Date.now())).replace(/ .*/, ""))}` : ""}</div>`).join("")}</div>` : ""}
     ${c.tools?.length ? `<div class="sec"><label>Recent tools</label>${toolsList(c.tools)}</div>` : ""}
     <div class="stats">${statsHtml(c)}</div>
@@ -631,8 +639,8 @@ function onData() {
 // ---------- drawer ----------
 function txHtml(msgs) {
   return msgs.map((m) => {
-    if (m.role === "user") return `<div class="msg user"><div class="who">prompt · ${since(m.ts)} ago${m.images ? ` · ${m.images} image${m.images > 1 ? "s" : ""}` : ""}</div><div class="body">${mdLite(m.text)}</div>${mediaHtml(m.media)}</div>`;
-    if (m.role === "assistant") return `<div class="msg"><div class="who">agent · ${since(m.ts)} ago</div><div class="body">${mdLite(m.text)}</div>${mediaHtml(m.media)}</div>`;
+    if (m.role === "user") return `<div class="msg user"><div class="who">prompt · ${since(m.ts)} ago${m.images ? ` · ${m.images} image${m.images > 1 ? "s" : ""}` : ""}</div><div class="body md">${md(m.text)}</div>${mediaHtml(m.media)}</div>`;
+    if (m.role === "assistant") return `<div class="msg"><div class="who">agent · ${since(m.ts)} ago</div><div class="body md">${md(m.text)}</div>${mediaHtml(m.media)}</div>`;
     if (m.role === "thinking") return `<details class="tl think"><summary>💭 <span class="dd">${esc(m.text.replace(/\s+/g, " ").slice(0, 140))}</span></summary><div class="inner">${esc(m.text)}</div></details>`;
     if (m.role === "error") return `<div class="msg error"><div class="body">✖ ${esc(m.text)}</div></div>`;
     const st = !m.result ? '<span class="run">⟳</span>' : m.result.error ? '<span class="err">✗</span>' : '<span class="ok">✓</span>';

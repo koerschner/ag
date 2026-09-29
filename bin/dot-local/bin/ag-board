@@ -61,7 +61,7 @@ const CLICKS_FILE = `${STATE_DIR}/clicks.jsonl`;
 const PAGE = `${HOME}/.local/share/ag-board/index.html`;
 // Static assets sit next to the page in the dotfiles checkout (the page itself is a symlink into it).
 const STATIC_DIR = dirname(realpathSync(PAGE));
-const STATIC = new Set(["editor.js", "manifest.json", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"]);
+const STATIC = new Set(["editor.js", "marked.umd.js", "purify.min.js", "manifest.json", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"]);
 const UPLOAD_DIR = `${HOME}/inbox/clipboard`;
 const STT_URL = "https://tfy.promptlens.trilogy.com/audio/transcriptions";
 const STT_MODELS = ["whisper-1", "openai-esw/whisper-1"]; // second is the fallback route

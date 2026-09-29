@@ -39,7 +39,7 @@ case $cmd in
     fi
     ssh_ "show $(q "$t")" ;;
   status)
-    if ssh_ true 2>/dev/null; then echo "ag-mac: reachable"; ssh_ 'presence 2>/dev/null | tail -1' || true
+    if ssh_ true 2>/dev/null; then echo "ag-mac: reachable"; presence 2>/dev/null | tail -1 || true # presence polls from the host
     else echo "ag-mac: UNREACHABLE"; exit 1; fi ;;
   *) sed -n '2,13p' "$0"; [[ $cmd == help ]] || exit 2 ;;
 esac

@@ -93,10 +93,23 @@ mise install -y >/dev/null 2>&1 && echo "  node $(mise exec -- node --version)" 
 have uv     || curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null || warn "uv"
 have pi     || mise exec -- npm install -g --prefix "$HOME/.local" @earendil-works/pi-coding-agent >/dev/null || warn "pi"
 
+step "~/.zshenv (untracked; loaded for SSH and persistent agents, like on ag-mac)"
+[[ -f ~/.zshenv ]] || cat > ~/.zshenv <<'ZSHENV'
+export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.local/share/mise/shims:$PATH"
+[[ -f "$HOME/.zshenv.local" ]] && source "$HOME/.zshenv.local"   # secrets: TFY_TOKEN, OPENROUTER_API_KEY
+if [[ -n ${TFY_TOKEN:-} ]]; then
+  export TFY_API_KEY="$TFY_TOKEN"
+  export ANTHROPIC_BASE_URL="https://tfy.promptlens.trilogy.com"
+  export ANTHROPIC_AUTH_TOKEN="$TFY_TOKEN"
+fi
+ZSHENV
+echo "  ok"
+
 step "Secrets checklist (move by hand or via op; never commit)"
 check() { [[ -e $1 ]] && echo "  ok   $2" || { echo "  TODO $2"; failed+=("secret: $2"); }; }
 check ~/.config/gh/hosts.yml       "gh auth login (GitHub)"
-check ~/.pi/agent/auth.json        "Pi model auth (TrueFoundry)"
+check ~/.zshenv.local              "model keys (TFY_TOKEN, OPENROUTER_API_KEY) in ~/.zshenv.local, 0600"
+check ~/.pi/agent/auth.json        "Pi OAuth logins (anthropic, openai-codex, openrouter)"
 check ~/.pi/agent/mcp.json         "Pi MCP config"
 check ~/.config/ag/op-work.token   "ag-vault 1Password service-account token (op-work on Linux)"
 check ~/.config/ag/op-ag.token     "arcade.school 1Password service-account token (op-ag on Linux)"

@@ -61,16 +61,14 @@ step "oh-my-zsh"
   warn "oh-my-zsh"
 [[ $(getent passwd "$USER" | cut -d: -f7) == */zsh ]] || sudo chsh -s "$(command -v zsh)" "$USER" || warn "chsh zsh"
 
-step "mise + node"
+step "mise"
 have mise || curl -fsSL https://mise.run | sh || warn "mise"
-have mise && { mise use -g node@lts >/dev/null && echo "  node $(mise exec -- node --version)"; } || warn "node"
 
 step "Standalone CLIs (vendor installers)"
 [[ -x ~/.bun/bin/bun ]] || curl -fsSL https://bun.sh/install | bash >/dev/null || warn "bun"
 have herdr  || curl -fsSL https://herdr.dev/install.sh | sh             || warn "herdr"
 have claude || curl -fsSL https://claude.ai/install.sh | bash           || warn "claude"
 have codex  || curl -fsSL https://chatgpt.com/codex/install.sh | sh     || warn "codex"
-have pi     || mise exec -- npm install -g --prefix "$HOME/.local" @earendil-works/pi-coding-agent >/dev/null || warn "pi"
 
 step "agent instructions"
 "$DOTFILES/agents.md/build" || warn "agents.md/build"
@@ -87,6 +85,12 @@ for pkg in "${STOW_PACKAGES[@]}"; do
   stow --dotfiles --no-folding -d "$DOTFILES" -t "$HOME" "$pkg" && echo "  $pkg" || warn "stow $pkg"
 done
 [[ -d $backup ]] && echo "  pre-existing files moved to $backup"
+
+step "node (mise, Linux-only untracked conf.d so the tracked mise config stays Mac-compatible)"
+mkdir -p ~/.config/mise/conf.d
+[[ -f ~/.config/mise/conf.d/linux.toml ]] || printf '[tools]\nnode = "lts"\n' > ~/.config/mise/conf.d/linux.toml
+mise install -y >/dev/null 2>&1 && echo "  node $(mise exec -- node --version)" || warn "mise install (node)"
+have pi     || mise exec -- npm install -g --prefix "$HOME/.local" @earendil-works/pi-coding-agent >/dev/null || warn "pi"
 
 step "Secrets checklist (move by hand or via op; never commit)"
 check() { [[ -e $1 ]] && echo "  ok   $2" || { echo "  TODO $2"; failed+=("secret: $2"); }; }

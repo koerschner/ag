@@ -146,7 +146,7 @@ async function spawnAccessSession(verdict: string): Promise<string> {
 		method: "POST",
 		headers: { "content-type": "text/plain" },
 		body: accessPrompt(verdict),
-		signal: AbortSignal.timeout(15_000),
+		signal: AbortSignal.timeout(40_000), // the inbox answers once pi has the prompt (the guard allows 60s total)
 	});
 	if (!res.ok) throw new Error(`ag inbox ${res.status}`);
 	spawned[key] = Date.now();

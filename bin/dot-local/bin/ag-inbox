@@ -8,6 +8,9 @@
 //   + follow-on match (Jev: is this new context for an open session?)
 //   → follow (sure: prompt that session, toast) or launch (new tab in Inbox, start pi, send; when the
 //     match is plausible but unsure, the prompt names the likely session so the agent can confirm and forward)
+// Response: a form (phone, Hammerspoon, test page) gets an immediate 303, send-only (failures are toasted).
+// A raw-text body (curl, agents, scripts) waits until pi has the prompt: 200 + JSON {id, action ("new" or
+// "follow"), label, tab, pane}, or 502 + a plain-text error (e.g. pi wouldn't start; the empty tab is closed).
 // Body: raw text, or a form with `text` and optional fields:
 //   id          the phone's queue file name: a repeat id within 24h is acknowledged but not relaunched,
 //               so the iOS offline queue can safely resend an item whose first response was lost.
@@ -78,9 +81,16 @@ function log(id: string, step: string, data: Record<string, unknown> = {}) {
 }
 
 function herdr(...args: string[]): any {
-	const out = execFileSync(HERDR, args, { encoding: "utf8", timeout: 60_000 });
+	return herdrT(60_000, ...args);
+}
+function herdrT(timeout: number, ...args: string[]): any {
+	const out = execFileSync(HERDR, args, { encoding: "utf8", timeout, stdio: ["ignore", "pipe", "pipe"] });
 	return out.trim() ? JSON.parse(out).result : null;
 }
+// Error code from a failed ag-mux call (JSON on stderr), e.g. "agent_pane_busy".
+const herdrCode = (e: any): string | undefined => {
+	try { return JSON.parse(String(e?.stderr ?? "")).error?.code; } catch { return String(e?.stderr ?? e).match(/"code":"(\w+)"/)?.[1]; }
+};
 
 // launchd doesn't source zsh files; read the token the same way tfy-env does.
 function tfyToken(): string {
@@ -299,26 +309,48 @@ function withShot(text: string, shot: Shot): string {
 }
 
 // Step 3: new tab in Inbox (created if missing, no focus), start pi in it, send the text.
-function launch(id: string, text: string, label: string) {
+// A fresh tab's shell may still be starting up (zsh init running a child), so ag-mux refuses with
+// agent_pane_busy for a moment; retry until it's an available shell. If pi can't start, close the
+// empty tab and throw, so the caller gets an error instead of a bare shell with no prompt in it.
+const SHELL_READY_MS = 30_000;
+async function launch(id: string, text: string, label: string): Promise<Launched> {
 	const inbox = herdr("workspace", "list").workspaces.find((w: any) => w.label.toLowerCase() === INBOX.toLowerCase());
-	let pane: string;
+	let pane: string, tab: string;
 	if (inbox) {
-		pane = herdr("tab", "create", "--workspace", inbox.workspace_id, "--cwd", HOME, "--label", label, "--no-focus").root_pane.pane_id;
+		const t = herdr("tab", "create", "--workspace", inbox.workspace_id, "--cwd", HOME, "--label", label, "--no-focus");
+		pane = t.root_pane.pane_id;
+		tab = t.tab.tab_id;
 	} else {
 		const w = herdr("workspace", "create", "--cwd", HOME, "--label", INBOX, "--no-focus");
 		pane = w.root_pane.pane_id;
-		herdr("tab", "rename", w.tab.tab_id, label);
+		tab = w.tab.tab_id;
+		herdr("tab", "rename", tab, label);
 	}
-	log(id, "tab", { pane, label });
+	log(id, "tab", { pane, tab, label });
 
 	const agent = `inbox-${id}`;
-	herdr("agent", "start", agent, "--kind", "pi", "--pane", pane, "--timeout", "60000");
-	log(id, "pi_started", { agent });
-
-	injected("ag-inbox", text, { id, action: "new" });
-	herdr("agent", "prompt", agent, text);
-	log(id, "sent");
+	try {
+		const deadline = Date.now() + SHELL_READY_MS;
+		for (let tries = 1; ; tries++) {
+			try {
+				herdrT(75_000, "agent", "start", agent, "--kind", "pi", "--pane", pane, "--timeout", "60000");
+				log(id, "pi_started", { agent, tries });
+				break;
+			} catch (e) {
+				if (herdrCode(e) !== "agent_pane_busy" || Date.now() > deadline) throw e;
+				await Bun.sleep(250);
+			}
+		}
+		injected("ag-inbox", text, { id, action: "new" });
+		herdr("agent", "prompt", agent, text);
+		log(id, "sent");
+	} catch (e) {
+		try { herdr("tab", "close", tab); } catch {}
+		throw new Error(`couldn't start pi in the new Inbox tab "${label}" (closed it): ${String((e as any)?.stderr || e).trim()}`);
+	}
+	return { action: "new", label, tab, pane, agent };
 }
+type Launched = { action: "new" | "follow"; label: string; tab: string; pane: string; agent?: string };
 
 async function attachDecision(id: string, text: string, shot: Shot | null): Promise<string> {
 	if (!shot) return text;
@@ -380,15 +412,22 @@ async function prepare(id: string, typed: string, shot: Shot | null, share: Shar
 	};
 }
 
-async function handle(id: string, text: string, shot: Shot | null, share: Share | null, audio: string | null, fresh: boolean) {
+// Throws when the prompt couldn't be delivered anywhere (logged, and toasted for fire-and-forget callers).
+async function handle(id: string, text: string, shot: Shot | null, share: Share | null, audio: string | null, fresh: boolean): Promise<Launched> {
 	try {
 		const { label, prompt, thread, session } = await prepare(id, text, shot, share, audio, fresh);
 		if (thread.action === "follow" && session) {
-			try { return follow(id, prompt, session, thread.p); } catch (e) { log(id, "follow_failed", { error: String(e) }); }
+			try {
+				follow(id, prompt, session, thread.p);
+				return { action: "follow", label: session.title, tab: session.tab, pane: session.pane };
+			} catch (e) { log(id, "follow_failed", { error: String(e) }); }
 		}
-		launch(id, prompt, label);
+		return await launch(id, prompt, label);
 	} catch (e) {
-		log(id, "failed", { error: String(e) });
+		const error = e instanceof Error ? e.message : String(e);
+		log(id, "failed", { error });
+		try { execFileSync(HERDR, ["notification", "show", "ag inbox failed", "--body", error.slice(0, 200)], { timeout: 10_000 }); } catch {}
+		throw new Error(error);
 	}
 }
 
@@ -499,9 +538,18 @@ for (const hostname of [host, "127.0.0.1"]) Bun.serve({
 			const { session: _, ...dry } = await prepare(id, text, shot, share, audio, fresh);
 			return Response.json(dry);
 		}
-		void handle(id, text, shot, share, audio, fresh);
-		// Send-only: no result. The form just lands back on a blank page.
-		return type.includes("form") ? new Response(null, { status: 303, headers: { location: "/" } }) : new Response(null, { status: 202 });
+		// Forms (phone, Hammerspoon, test page) are send-only and must answer fast: no result, the form lands
+		// back on a blank page, and a failure is toasted. Raw-body callers (curl, agents, scripts) wait for
+		// the session to start: 200 + JSON {action, label, tab, pane}, or 502 + the error.
+		if (type.includes("form")) {
+			handle(id, text, shot, share, audio, fresh).catch(() => {});
+			return new Response(null, { status: 303, headers: { location: "/" } });
+		}
+		try {
+			return Response.json({ id, ...(await handle(id, text, shot, share, audio, fresh)) });
+		} catch (e) {
+			return new Response(`ag-inbox: ${e instanceof Error ? e.message : e}\n`, { status: 502, headers: { "content-type": "text/plain" } });
+		}
 	},
 });
 console.log(`ag-inbox listening on http://${host}:${PORT}`);

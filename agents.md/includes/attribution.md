@@ -85,6 +85,6 @@ quote block.
 ## Verify before finishing
 
 After publishing, read back what was posted (for example
-`gh issue view <n> --json body --jq .body | head -1`) and confirm the first line
+`gh issue view <n> --json body --jq .body`) and confirm the first line
 is the attribution line, unquoted, and that the body renders as a quote. If
 either is wrong, edit the posted text to fix it.

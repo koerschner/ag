@@ -43,6 +43,11 @@
         "type": "oauth"
       },
       "lifecycle": "eager"
+    },
+    "slack_alpha": {
+      "transport": "streamable-http",
+      "url": "http://127.0.0.1:7385/mcp",
+      "lifecycle": "eager"
     }
   }
 }

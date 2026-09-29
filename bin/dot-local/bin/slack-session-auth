@@ -1,0 +1,179 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# dependencies = ["cryptography"]
+# ///
+"""Copy a Slack workspace session from ag's Slack desktop app into ag's login Keychain,
+for the browser-session Slack MCP (korotovsky/slack-mcp-server, run by mcp-gateway).
+
+    slack-session-auth store [TEAM_ID]   # default T8E6M88BS (Alpha, go-alpha.slack.com)
+    slack-session-auth check [TEAM_ID]   # exit 0 if the stored session still works
+
+Needs the Slack desktop app on ag signed into that workspace. Reads the app's xoxc token
+(Local Storage) and its encrypted `d` cookie (Keychain item "Slack Safe Storage"; macOS may
+ask once to allow `security` to read it), keeps the token whose auth.test matches TEAM_ID,
+and stores both as Keychain items "ag Slack <TEAM_ID> xoxc" / "... xoxd" (account
+natkoersch). Never prints either secret. If the app signs out, run `store` again.
+
+From a shell without Keychain access (SSH, Herdr panes), it reruns itself as a one-shot
+job in the logged-in GUI session, like op-ag does.
+"""
+import glob
+import hashlib
+import json
+import os
+import plistlib
+import re
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.parse
+import urllib.request
+import uuid
+from pathlib import Path
+
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+
+ACCOUNT = "natkoersch"
+SLACK_DIR = Path.home() / "Library/Containers/com.tinyspeck.slackmacgap/Data/Library/Application Support/Slack"
+if not SLACK_DIR.exists():  # direct-download build
+    SLACK_DIR = Path.home() / "Library/Application Support/Slack"
+
+
+def service(team, kind):
+    return f"ag Slack {team} {kind}"
+
+
+def keychain(svc, acct=None):
+    cmd = ["/usr/bin/security", "find-generic-password", "-s", svc, "-w"] + (["-a", acct] if acct else [])
+    r = subprocess.run(cmd, capture_output=True, timeout=170)
+    if r.returncode != 0:
+        print(f"security: {r.stderr.decode().strip()} (exit {r.returncode})", file=sys.stderr)
+        return None
+    return r.stdout.decode().strip()
+
+
+def keychain_store(svc, value):
+    hexval = value.encode().hex()
+    # via `security -i` on stdin so the secret never appears in argv
+    cmd = f'add-generic-password -U -a {ACCOUNT} -s "{svc}" -l "{svc}" -T /usr/bin/security -X {hexval}\n'
+    r = subprocess.run(["/usr/bin/security", "-i"], input=cmd.encode(), capture_output=True, timeout=30)
+    if r.returncode != 0 or r.stderr.strip():
+        raise SystemExit(f"could not store {svc!r} in the Keychain")
+
+
+def auth_test(xoxc, xoxd):
+    req = urllib.request.Request(
+        "https://slack.com/api/auth.test", data=b"", method="POST",
+        headers={"Authorization": f"Bearer {xoxc}", "Cookie": f"d={urllib.parse.quote(xoxd, safe='')}"},
+    )
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return json.load(resp)
+
+
+def d_cookie():
+    password = keychain("Slack Safe Storage")
+    if not password:
+        raise SystemExit("could not read 'Slack Safe Storage' from the Keychain (denied, or Slack never signed in)")
+    key = hashlib.pbkdf2_hmac("sha1", password.encode(), b"saltysalt", 1003, 16)
+    with tempfile.TemporaryDirectory() as tmp:  # copy: Slack keeps the DB locked
+        db = Path(tmp) / "Cookies"
+        db.write_bytes((SLACK_DIR / "Cookies").read_bytes())
+        con = sqlite3.connect(db)
+        version = int((con.execute("select value from meta where key='version'").fetchone() or [0])[0])
+        row = con.execute("select encrypted_value from cookies where host_key='.slack.com' and name='d'").fetchone()
+    if not row:
+        raise SystemExit("no Slack 'd' cookie; is the desktop app signed in?")
+    enc = row[0]
+    if enc[:3] not in (b"v10", b"v11"):
+        raise SystemExit("unexpected cookie encryption format")
+    dec = Cipher(algorithms.AES(key), modes.CBC(b" " * 16)).decryptor()
+    plain = dec.update(enc[3:]) + dec.finalize()
+    plain = plain[: -plain[-1]]
+    if version >= 24:  # Chromium prefixes SHA-256(host_key)
+        plain = plain[32:]
+    value = urllib.parse.unquote(plain.decode())
+    if not value.startswith("xoxd-"):
+        raise SystemExit("decrypted cookie doesn't look like a Slack session")
+    return value
+
+
+def xoxc_candidates():
+    found = []
+    for f in sorted(glob.glob(str(SLACK_DIR / "Local Storage/leveldb/*")), key=os.path.getmtime, reverse=True):
+        try:
+            data = Path(f).read_bytes()
+        except OSError:
+            continue
+        for m in re.finditer(rb"xoxc-[0-9]+-[0-9]+-[0-9]+-[0-9a-f]{64}", data):
+            t = m.group().decode()
+            if t not in found:
+                found.append(t)
+    return found
+
+
+def in_gui_session():
+    return subprocess.run(["/usr/bin/security", "show-keychain-info", str(Path.home() / "Library/Keychains/login.keychain-db")], capture_output=True).returncode == 0
+
+
+def rerun_in_gui(args):
+    """Run this script as a one-shot LaunchAgent job in the GUI session; relay its exit/status."""
+    label = "com.nathan.slack-session-auth." + uuid.uuid4().hex
+    with tempfile.TemporaryDirectory(prefix="slack-session-auth-") as d:
+        out = Path(d) / "out"
+        job = Path(d) / "job.plist"
+        job.write_bytes(plistlib.dumps({
+            "Label": label, "RunAtLoad": True,
+            "ProgramArguments": ["/bin/sh", "-c", f'"$0" "$@"; echo "EXIT=$?"', str(Path(__file__).resolve()), *args],
+            "EnvironmentVariables": {"PATH": "/opt/homebrew/bin:/usr/bin:/bin", "HOME": str(Path.home()), "SLACK_SESSION_AUTH_GUI": "1"},
+            "StandardOutPath": str(out), "StandardErrorPath": str(out),
+        }))
+        target = f"gui/{os.getuid()}"
+        subprocess.run(["/bin/launchctl", "bootstrap", target, str(job)], check=True, timeout=15)
+        try:
+            deadline = time.monotonic() + 200  # time for a Keychain "Allow" dialog
+            while time.monotonic() < deadline:
+                text = out.read_text() if out.exists() else ""
+                m = re.search(r"EXIT=(\d+)", text)
+                if m:
+                    sys.stdout.write(text[: m.start()])
+                    return int(m.group(1))
+                time.sleep(0.5)
+            print("timed out (is a Keychain dialog waiting on ag's screen?)", file=sys.stderr)
+            return 1
+        finally:
+            subprocess.run(["/bin/launchctl", "bootout", f"{target}/{label}"], capture_output=True)
+
+
+def main():
+    args = sys.argv[1:]
+    cmd = args[0] if args else ""
+    team = args[1] if len(args) > 1 else "T8E6M88BS"
+    if cmd not in ("store", "check"):
+        print(__doc__.split("\n\n")[1])
+        return 2
+    if not in_gui_session() and not os.environ.get("SLACK_SESSION_AUTH_GUI"):
+        return rerun_in_gui(args)
+    if cmd == "check":
+        xoxc, xoxd = keychain(service(team, "xoxc"), ACCOUNT), keychain(service(team, "xoxd"), ACCOUNT)
+        if not (xoxc and xoxd):
+            print(f"missing: run 'slack-session-auth store {team}'")
+            return 1
+        r = auth_test(xoxc, xoxd)
+        ok = r.get("ok") and r.get("team_id") == team
+        print(f"ok: {r.get('user')} in {r.get('team')} ({r.get('url')})" if ok else f"stale ({r.get('error')}): run 'slack-session-auth store {team}'")
+        return 0 if ok else 1
+    xoxd = d_cookie()
+    for xoxc in xoxc_candidates():
+        r = auth_test(xoxc, xoxd)
+        if r.get("ok") and r.get("team_id") == team:
+            keychain_store(service(team, "xoxc"), xoxc)
+            keychain_store(service(team, "xoxd"), xoxd)
+            print(f"stored session for {r.get('user')} in {r.get('team')} ({r.get('url')})")
+            return 0
+    print(f"no working session for {team} in the Slack desktop app; sign it in first", file=sys.stderr)
+    return 1
+
+
+sys.exit(main())

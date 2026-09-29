@@ -63,6 +63,10 @@ read only by the wrappers, never printed or put in files/args):
 | `ag machine-shared service account` | `op-shared` | `ag machine-shared agents` → Nathan's personal `machine-shared` (`qxomga2s2ppd3agns74jhfz7yi`) | Nathan's personal account → Personal → `ag machine-shared service account` |
 | `ag-shared 1Password service account` | `op-work` | `ag-shared agents` → Trilogy `ag-vault` (formerly `ag-shared`; `c3qkbcqktsxmi6hnpzpltdbose`; Keychain item keeps its old name): non-super-secret work items (Ramp card, infra API tokens) | Trilogy → Employee → `ag-shared 1Password service account` |
 
+Alpha Slack session (login Keychain on ag, account `natkoersch`, written by `slack-session-auth store`;
+no recovery copy, recreate by signing Slack in again): `ag Slack T8E6M88BS xoxc`, `ag Slack T8E6M88BS xoxd`.
+See *Slack MCPs*.
+
 ag's own macOS login password lives in ag's login Keychain (service `ag Mac login`, account
 `natkoersch`), so agents answer ag's admin/password prompts (e.g. adding an app under Privacy &
 Security) on ag without touching the client. Nathan stores or refreshes it once with
@@ -411,12 +415,31 @@ Pi's stdio MCP bridges (`linear`, `arcade_school`, `honeycomb`, `tsa_courses`) r
 **once per machine** instead of once per Pi session: `bin/dot-local/bin/mcp-gateway`
 (LaunchAgent `com.nathan.mcp-gateway`, KeepAlive, all machines) runs each server's
 `mcp-remote` behind its own pinned `mcp-proxy` (via `uvx`) on
-`127.0.0.1:7381`–`7384/mcp`, and `pi/dot-pi/agent/mcp.json` points at those URLs
+`127.0.0.1:7381`–`7385/mcp`, and `pi/dot-pi/agent/mcp.json` points at those URLs
 (`slack` stays direct HTTP). Per-session bridges cost ~100 MB each (96 sessions used
 ~9.5 GB on ag). Server commands and ports live in the script; logs in
 `$TMPDIR/mcp-gateway/<server>.log`. Check with `mcp-gateway status`. After editing
 it, `launchctl kickstart -k gui/$UID/com.nathan.mcp-gateway`; open Pi sessions
 reconnect on their own.
+
+## Slack MCPs (Superbuilders and Alpha)
+
+- `slack` is Slack's official MCP (`https://mcp.slack.com/mcp`, OAuth) in the **Superbuilders**
+  workspace (`superbuilding.slack.com`), as `nathaniel.koerschner@superbuilders.school`.
+- `slack_alpha` reaches the **Alpha** workspace (`go-alpha.slack.com`, team `T8E6M88BS`), which hosts
+  the Texas Sports Academy channel `#arcade2026825`. Slack's official MCP app isn't installed there, so
+  it runs [`slack-mcp-server`](https://github.com/korotovsky/slack-mcp-server) `@1.3.0` in the shared
+  MCP gateway (port 7385) on the Slack desktop app's own session on ag (Nathan's user `U0BEES3UT3P`).
+  Tools include `conversations_history` / `_replies` / `_search_messages` and
+  `conversations_add_message` (posting as Nathan).
+- Setup on ag: sign the Slack desktop app into Alpha (Nathan: email + password or Rippling), then run
+  `slack-session-auth store`. It reads the app's `xoxc` token and decrypts its `d` cookie (Keychain item
+  `Slack Safe Storage`; first time, macOS asks for ag's login password, which agents fill from
+  `ag Mac login`; `security` was given Always Allow), keeps the token whose `auth.test` is Alpha, and
+  stores Keychain items `ag Slack T8E6M88BS xoxc` / `xoxd`. Then
+  `launchctl kickstart -k gui/$UID/com.nathan.mcp-gateway`. `slack-session-auth check` tests them.
+  If the desktop app signs out of Alpha, the session dies: sign in again and rerun `store`.
+- Only ag has the session; on other machines `slack_alpha` idles (no Keychain items).
 
 ## Texas Sports Academy MCP (arcade.school)
 

@@ -1,0 +1,14 @@
+# Forward 127.0.0.1:1<port> to the same port on AG_FORWARD_HOST (~/.config/ag/forward.env), so the
+# Tailscale Service svc:ag hosted here can reach Ag services that still run on another machine. ag-svc.
+[Unit]
+Description=Forward Ag port %i to the session host
+After=network-online.target
+
+[Service]
+EnvironmentFile=%h/.config/ag/forward.env
+ExecStart=/usr/bin/socat TCP-LISTEN:1%i,bind=127.0.0.1,fork,reuseaddr TCP:${AG_FORWARD_HOST}:%i
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

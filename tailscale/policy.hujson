@@ -44,6 +44,15 @@
 		},
 	],
 
+	// Tailscale Service `svc:ag` (ag.tail44736d.ts.net, short name `ag`): Ag's machine-independent address
+	// for AG Dash, the inbox, show/phone review and the private chat. Whichever machine hosts sessions
+	// advertises it (ag-engine; until the move it forwards to ag-mac). See docs/tmux-port.md.
+	"autoApprovers": {
+		"services": {
+			"svc:ag": ["tag:ag-engine"],
+		},
+	},
+
 	"nodeAttrs": [
 		{
 			// Funnel for Nathan's own devices.

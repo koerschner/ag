@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ag-move-host: move Ag's session host from this Mac (Herdr) to the engine (ag-mux on tmux).
-# The cutover in docs/tmux-port.md, as one run. Run on ag-mac; it detaches itself under launchd, because it
+# The cutover in docs/tmux-port.md, as one run. Run on ag-mac; it detaches itself (own session), because it
 # stops every Pi here (including the one that started it) and must keep going.
 #   ag-move-host            start (detached); log: ~/.local/state/cutover/move-host.log
 #   ag-move-host --run      the steps themselves (what the detached job runs)
@@ -12,12 +12,11 @@ AG=~/ag
 H=~/.local/bin/herdr
 mkdir -p "$DIR"
 if [ "${1:-}" != --run ]; then
-	launchctl remove com.nathan.ag-move-host 2>/dev/null
-	launchctl submit -l com.nathan.ag-move-host -o "$LOG" -e "$LOG" -- /bin/zsh -lc "exec $0 --run"
-	echo "ag-move-host: started under launchd; log $LOG"
+	# Its own session (setsid) with no terminal, so stopping the Pi that launched it doesn't stop it.
+	nohup perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' /bin/zsh -lc "exec $0 --run" >>"$LOG" 2>&1 </dev/null &
+	echo "ag-move-host: started (detached); log $LOG"
 	exit 0
 fi
-launchctl remove com.nathan.ag-move-host 2>/dev/null # one shot: don't restart when this exits
 say() { echo "$(date '+%F %T') $*"; }
 fail() { say "FAILED: $*"; ~/.local/bin/ag-text "⚠️ Ag move to $TO stopped: $*. Log: ag-mac:$LOG" || true; exit 1; }
 say "=== moving Ag's session host to $TO"

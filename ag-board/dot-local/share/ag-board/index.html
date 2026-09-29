@@ -155,6 +155,7 @@ header h1{font-size:15px;margin:0 .4rem 0 0;font-weight:650}
 .msg .who{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin-bottom:.2rem}
 .msg .body{white-space:pre-wrap;word-break:break-word;font-size:13.5px}
 .msg.user .body{background:var(--card);padding:.5rem .65rem;border-radius:8px}
+table.md{border-collapse:collapse;margin:.35rem 0;white-space:normal;font-size:.95em}table.md th,table.md td{border:1px solid var(--line);padding:.25rem .6rem;text-align:left;vertical-align:top}table.md th{background:var(--card)}
 .msg pre{background:#0c0d10;padding:.5rem;border-radius:6px;overflow-x:auto;white-space:pre}
 details.tl{margin:0 0 .45rem;background:#181b20;border:1px solid #252a31;border-radius:7px}
 details.tl summary{cursor:pointer;padding:.3rem .55rem;font-size:12.5px;list-style:none;display:flex;gap:.4rem;align-items:baseline;overflow:hidden}
@@ -446,8 +447,17 @@ function beep() {
     [880, 1175].forEach((f, i) => { const o = a.createOscillator(), g = a.createGain(); o.frequency.value = f; o.connect(g); g.connect(a.destination); const t = a.currentTime + i * 0.16; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14); o.start(t); o.stop(t + 0.15); });
   } catch {}
 }
+// GitHub-style pipe tables (header row, separator row, body rows) → <table>. Runs outside code fences only.
+function mdTables(h) {
+  return h.replace(/(?:^|\n)(\|[^\n]*\|[ \t]*\n\|(?:[ \t]*:?-+:?[ \t]*\|)+[ \t]*(?:\n\|[^\n]*\|[ \t]*)*)(?:\n|$)/g, (_, blk) => {
+    const [head, , ...body] = blk.split("\n").map((r) => r.trim().slice(1, -1).split("|").map((c) => c.trim()));
+    return `<table class="md"><thead><tr>${head.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${body.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  });
+}
 function mdLite(s) {
-  return esc(s).replace(/```[\w-]*\n([\s\S]*?)```/g, (_, c) => `<pre>${c}</pre>`).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+  return esc(s).split(/(```[\w-]*\n[\s\S]*?```)/g).map((p, i) => i % 2
+    ? `<pre>${p.replace(/^```[\w-]*\n/, "").slice(0, -3)}</pre>`
+    : mdTables(p).replace(/`([^`\n]+)`/g, "<code>$1</code>").replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")).join("");
 }
 // Images and videos: thumbnails (click → full-size viewer) and inline video players.
 function mediaHtml(list, small) {

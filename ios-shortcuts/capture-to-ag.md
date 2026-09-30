@@ -1,11 +1,11 @@
 # iOS Shortcuts: Voice to ag (Action Button) and Capture to ag (Home Screen)
 
-Two separate shortcuts, both grabbing a screenshot of whatever is on screen first:
-- **Voice to ag** is on the **Action Button**: press it and recording starts right away. Tap the screen
+Two separate shortcuts:
+- **Voice to ag** is on the **Action Button**: it grabs a screenshot of whatever is on screen, then recording starts right away. Tap the screen
   to finish; the recording is sent to ag, transcribed with Whisper (TrueFoundry), and the transcript
   becomes the prompt.
 - **Capture to ag** is an icon on the **Home Screen** (page 2, top left): tap it, type in the
-  "Capture" text box, tap Done.
+  "Capture" text box, tap Done. No screenshot.
 
 Either way the capture becomes a new pi session in the **Inbox** workspace via the ag inbox
 (`ag-inbox`, port 7373, Tailscale only). This is the GTD inbox capture point.
@@ -37,9 +37,8 @@ flowchart TD
     V7 -- no --> V9["Save Date.m4a and Date.jpg → ag-queue/"]
     V9 --> F["Run Shortcut: Flush ag Queue"]
 
-    H[Home Screen icon → Capture to ag] --> S["Take Screenshot → JPEG"]
-    S --> B["Ask for Input (Text) 'Capture'"]
-    B --> D["Save Date.txt and Date.jpg → ag-queue/"]
+    H[Home Screen icon → Capture to ag] --> B["Ask for Input (Text) 'Capture'"]
+    B --> D["Save Date.txt → ag-queue/"]
     D --> F
 
     W["Automation: Wi-Fi joins any network<br/>(Run Immediately)"] --> F
@@ -73,12 +72,10 @@ The flush sends every queued file as the form field `text` with type **File**: a
       - **If** *Shot* › **File Extension** is `jpg` → **Delete Files**: *Shot* (Delete Immediately off).
         **End If**. (Testing the extension, not "has any value", so a failed lookup can never delete a folder.)
 3. Shortcut **Capture to ag** (Home Screen):
-   1. **Take Screenshot** (Full Screen) → **Convert Image**: JPEG.
-   2. **Ask for Input**: Text, prompt "Capture", multiple lines.
-   3. **Format Date**: Current Date, Custom `yyyyMMdd-HHmmss-SSS`.
-   4. **Set Name**: Provided Input → `<Formatted Date>.txt` → **Save File**: subpath `ag-queue/`, Ask off, Overwrite on.
-   5. **Set Name**: Converted Image → `<Formatted Date>.jpg` → **Save File**: subpath `ag-queue/`, Ask off, Overwrite on.
-   6. **Run Shortcut**: Flush ag Queue. No Show Notification action.
+   1. **Ask for Input**: Text, prompt "Capture", multiple lines.
+   2. **Format Date**: Current Date, Custom `yyyyMMdd-HHmmss-SSS`.
+   3. **Set Name**: Provided Input → `<Formatted Date>.txt` → **Save File**: subpath `ag-queue/`, Ask off, Overwrite on.
+   4. **Run Shortcut**: Flush ag Queue. No Show Notification action.
    On the phone: Shortcuts app → long-press the tile → Share → **Add to Home Screen**.
 4. Shortcut **Voice to ag** (Action Button; also accepts an image as input to use as the screenshot):
    1. **If** Shortcut Input has any value → **Set Variable** *Shot* = Shortcut Input; **Otherwise** →
@@ -132,3 +129,4 @@ Claude (anthropic-primary/claude-opus-5-5), assisting Nathan:
   Nathan to two shortcuts: Voice to ag on the Action Button, Capture to ag on the Home Screen (page 2).
   ag Button deleted; Capture to ag's ag-state logic removed. Home Screen capture verified through
   Mirroring (request `ff84f981`).
+- 2026-09-30: Capture to ag no longer takes a screenshot (text only), per Nathan.

@@ -368,7 +368,7 @@ ag-engine as a systemd user unit.
 | `pi-sessions-sync` | **Move** | The engine's timer already runs; retire the Mac copy once no sessions live there (it also pulls ag-client). |
 | `moshi-hook` | **Move** | Runs where the agents run; re-pair Moshi with ag-engine (needs Nathan's phone once). |
 | `mem-watch` | **Keep + add** | Keep on ag-mac (CUA memory), add a Linux version on the engine. |
-| `nessie` (agent-trace sync app) | **Keep, open question** | Mac app; sessions on the engine need a Linux way to sync traces. |
+| `nessie` (agent-trace sync app) | **Keep + add** | Mac app stays; the engine runs the headless daemon (`nessie.service`, README "Nessie"), done 2026-09-30. |
 | `headless-display` | **Keep** | Computer use on a closed MacBook. |
 | `chrome-tab-reaper` | **Keep** | Chrome is used for CUA. |
 | `tfy-env` | **Keep** | TrueFoundry key for Mac GUI apps (ChatGPT/Codex desktop). |

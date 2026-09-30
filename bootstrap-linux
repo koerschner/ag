@@ -112,6 +112,7 @@ mkdir -p ~/.config/mise/conf.d
 mise install -y >/dev/null 2>&1 && echo "  node $(mise exec -- node --version)" || warn "mise install (node)"
 have uv     || curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null || warn "uv"
 have pi     || mise exec -- npm install -g --prefix "$HOME/.local" @earendil-works/pi-coding-agent >/dev/null || warn "pi"
+have nessie-daemon || mise exec -- npm install -g --prefix "$HOME/.local" @nessielabs/daemon@latest >/dev/null || warn "nessie-daemon"
 
 step "~/.gitconfig.local (untracked identity + gh credential helper; ~/.gitconfig is tracked, so never git config --global)"
 [[ -f ~/.gitconfig.local ]] || cat > ~/.gitconfig.local <<'GITLOCAL'
@@ -149,6 +150,7 @@ sudo loginctl enable-linger "$USER" >/dev/null 2>&1 || true
 systemctl --user daemon-reload 2>/dev/null && systemctl --user enable --now mcp-tunnel.service >/dev/null 2>&1 && echo "  mcp-tunnel on" || warn "mcp-tunnel (needs ~/.ssh/ag-mac)"
 systemctl --user enable --now pi-sessions-sync.timer >/dev/null 2>&1 && echo "  pi-sessions-sync timer on" || warn "pi-sessions-sync timer"
 systemctl --user enable --now ag-mux.service >/dev/null 2>&1 && echo "  ag-mux (agd, tmux -L ag) on" || warn "ag-mux.service"
+systemctl --user enable --now nessie.service >/dev/null 2>&1 && echo "  nessie (trace sync) on" || warn "nessie.service"
 
 step "Secrets checklist (move by hand or via op; never commit)"
 check() { [[ -e $1 ]] && echo "  ok   $2" || { echo "  TODO $2"; failed+=("secret: $2"); }; }
@@ -157,6 +159,7 @@ check ~/.zshenv.local              "model keys (TFY_TOKEN, OPENROUTER_API_KEY) i
 check ~/.pi/agent/auth.json        "Pi OAuth logins (anthropic, openai-codex, openrouter)"
 check ~/.pi/agent/mcp.json         "Pi MCP config"
 check ~/.config/ag/op-work.token   "ag-vault 1Password service-account token (op-work on Linux)"
+check ~/.local/share/nessie/credentials.json "Nessie sign-in (README \"Nessie\": nessie-daemon auth login --pair, then add integrations)"
 check ~/.ssh/ag-mac                "engine → ag-mac SSH key (fetched from ag-vault once op-work.token exists)"
 check ~/.config/ag/op-ag.token     "arcade.school 1Password service-account token (op-ag on Linux)"
 

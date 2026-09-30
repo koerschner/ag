@@ -664,8 +664,14 @@ function txHtml(msgs) {
     return `<details class="tl"><summary>${st}<span class="n">${esc(m.name)}</span><span class="dd mono">${esc(m.detail)}</span>${m.result?.media?.length ? `<span class="mbadge">🖼 ${m.result.media.length}</span>` : ""}</summary><div class="inner">${mediaHtml(m.result?.media)}<pre>${esc(m.args)}</pre>${m.result ? `<pre>${esc(m.result.text)}</pre>` : '<div class="empty">running…</div>'}</div></details>`;
   }).join("") || '<div class="empty">No messages yet.</div>';
 }
+// The query the drawer is showing now ("tab=…" / "sid=…"). A reply for any other query is stale (a slow fetch
+// for the session you just left, e.g. on the phone) and is dropped instead of painting over the new one.
+let txQuery = "", txSeq = 0;
+function resetTranscript(q) { txQuery = q; txSeq++; loadTranscript.done = false; $("#tx").innerHTML = '<div class="empty">Loading…</div>'; }
 async function loadTranscript(q) {
-  const msgs = await (await fetch("/api/transcript?" + q)).json();
+  const seq = ++txSeq;
+  const msgs = await (await fetch("/api/transcript?" + q, { cache: "no-store" })).json();
+  if (q !== txQuery || seq !== txSeq) return;
   const tx = $("#tx");
   const atBottom = tx.scrollHeight - tx.scrollTop - tx.clientHeight < 80;
   const openDetails = new Set([...tx.querySelectorAll("details[open]")].map((d) => [...tx.querySelectorAll("details")].indexOf(d)));
@@ -680,8 +686,10 @@ async function loadTranscript(q) {
 }
 async function loadScreen() {
   if (!openTab || dtab !== "live") return;
-  const r = await fetch("/api/screen?tab=" + encodeURIComponent(openTab));
+  const tab = openTab;
+  const r = await fetch("/api/screen?tab=" + encodeURIComponent(tab), { cache: "no-store" });
   const text = await r.text();
+  if (tab !== openTab) return; // switched sessions while it loaded
   const el = $("#screen");
   const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
   el.textContent = text.replace(/\n+$/, "");
@@ -723,7 +731,7 @@ const sessionLink = (sid) => `http://ag:7376/${sid}`;
 let openSid = null; // read-only drawer: a hibernated or closed session
 function openDrawer(tab) {
   if (openTab !== tab) { if (openTab) saveDraft(openTab, rted.value); rted.setValue(localStorage[draftKey(tab)] || ""); }
-  openTab = tab; openSid = null; lastTxKey = ""; loadTranscript.done = false;
+  openTab = tab; openSid = null; lastTxKey = ""; resetTranscript("tab=" + encodeURIComponent(tab));
   $("#drawer").classList.remove("ro");
   const c0 = card(tab);
   // On the phone, a straight hop into the terminal: file-inbox /m/<sid> → moshi://herdr (resumes Moshi's ag card on that pane).
@@ -737,7 +745,7 @@ function openDrawer(tab) {
 }
 // A session with no live card (hibernated pane, or closed): its transcript, read-only, with Wake / Resume.
 function openSession(info) {
-  openTab = null; openSid = info.sid; loadTranscript.done = false; clearInterval(screenTimer);
+  openTab = null; openSid = info.sid; lastTxKey = ""; resetTranscript("sid=" + info.sid); clearInterval(screenTimer);
   const d = $("#drawer"); d.classList.add("open", "ro"); $("#scrim").classList.add("open"); d.setAttribute("aria-hidden", "false");
   setTab("tx");
   $("#dt").textContent = info.title;
@@ -772,7 +780,7 @@ async function openBySid(sid) {
 }
 function closeDrawer() {
   if (openTab) saveDraft(openTab, rted.value);
-  openTab = null; openSid = null; clearInterval(screenTimer);
+  openTab = null; openSid = null; txQuery = ""; clearInterval(screenTimer);
   $("#drawer").classList.remove("ro");
   $("#drawer").classList.remove("open"); $("#scrim").classList.remove("open"); $("#drawer").setAttribute("aria-hidden", "true");
   sync();

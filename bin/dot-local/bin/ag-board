@@ -549,7 +549,7 @@ const gzipped = (req: Request, body: string | Uint8Array, headers: Record<string
 	(req.headers.get("accept-encoding") ?? "").includes("gzip") && body.length > 1024
 		? new Response(Bun.gzipSync(typeof body === "string" ? Buffer.from(body) : body, { level: 5 }), { status, headers: { ...headers, "content-encoding": "gzip", vary: "accept-encoding" } })
 		: new Response(body, { status, headers });
-const jsonRes = (req: Request, v: unknown) => gzipped(req, typeof v === "string" ? v : JSON.stringify(v), { "content-type": "application/json" });
+const jsonRes = (req: Request, v: unknown) => gzipped(req, typeof v === "string" ? v : JSON.stringify(v), { "content-type": "application/json", "cache-control": "no-store" });
 const pageRes = (req: Request) => gzipped(req, readFileSync(PAGE), { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
 
 function fastLane(card: Card) {

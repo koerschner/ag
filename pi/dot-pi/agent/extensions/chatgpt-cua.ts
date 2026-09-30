@@ -22,6 +22,8 @@ export default function (pi: ExtensionAPI) {
 			return await new Promise((resolve) => {
 				const child = spawn(bin, [params.task], {
 					signal,
+					// No stdin: a script that falls back to reading it would otherwise hang forever on Pi's open pipe.
+					stdio: ["ignore", "pipe", "pipe"],
 					env: params.keepOpen ? { ...process.env, CHATGPT_CUA_KEEP_OPEN: "1" } : process.env,
 				});
 				let stdout = "";

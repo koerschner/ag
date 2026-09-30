@@ -5,7 +5,7 @@
 sock=${AG_MUX_SOCKET:-$HOME/.local/state/ag-mux/agd.sock}
 herdr=$HOME/.local/bin/herdr
 [ -x "$herdr" ] || herdr=$(command -v herdr 2>/dev/null)
-case $1 in daemon | attach | switch | save | restore | export-herdr | backend | --skill | _*) own=1 ;; *) own= ;; esac
+case $1 in daemon | attach | switch | save | restore | backend | --skill | _*) own=1 ;; *) own= ;; esac
 if [ -z "$own" ] && [ -n "$herdr" ] && [ "${AG_MUX_BACKEND:-}" != tmux ]; then
 	if [ "${AG_MUX_BACKEND:-}" = herdr ] || { [ "${AG_MUX:-}" != 1 ] && { [ "${HERDR_ENV:-}" = 1 ] || [ ! -S "$sock" ]; }; }; then
 		[ $# -gt 0 ] && exec "$herdr" "$@"

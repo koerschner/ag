@@ -1,9 +1,8 @@
 # Porting Ag from Herdr to tmux
 
-Status (2026-09-29): **done.** Built the same day, then cut over with `ag-move-host` (the "Cutover"
-section below, as one run): ag-engine hosts every session (ag-mux on tmux) and every Ag service,
-ag-mac is the extremity, and links use the Tailscale Service `ag`. Herdr stays on ag-mac, idle, as a
-fallback for a week.
+Status (2026-09-29): **done.** Built and cut over the same day: ag-engine hosts every session (ag-mux on
+tmux) and every Ag service, ag-mac is the extremity, and links use the Tailscale Service `ag`. The one-off
+migration scripts were deleted after the move; "The move" at the end records what was done and verified.
 
 ## Summary
 
@@ -201,7 +200,7 @@ tmux-sidebar approach: fragile, and it breaks `pane_count`-based logic like the 
 ### 2.7 Persistence and restore (our own session.json)
 agd writes `~/.local/state/agd/layout.json` on every structural change (debounced): workspaces with
 labels/order, tabs with labels, each window's `window_layout`, and per pane its cwd, agent kind, and
-session file. `ag-mux restore [--from file] [--path-map /Users/natkoersch=/home/nathan]` rebuilds it:
+session file. `ag-mux restore [--from file]` rebuilds it:
 creates sessions/windows, applies layouts, and for agent panes starts **the hibernation sleep
 screen** (`pi-hibernate wait <file> && pi --session <file>`) rather than 96 Pis at once; focusing a
 tab wakes it, as hibernation does today. This one mechanism covers tmux server restarts, reboots,
@@ -307,7 +306,7 @@ Built and on `main`, running:
 - **`ag-mux`** (`bin/dot-local/bin/ag-mux`, a sh launcher; implementation in
   `bin/dot-local/lib/ag-mux/ag-mux.ts`): agd plus the Herdr-compatible CLI (the ~45 socket methods and CLI
   commands Ag uses), layout save/restore with sleeping Pi panes, crash recovery (agd restarts a dead tmux
-  server and restores the layout), status bar, switcher, `export-herdr`. On a host that still runs Herdr,
+  server and restores the layout), status bar, switcher. On a host that still runs Herdr,
   the launcher execs `herdr` directly, so the mac is unchanged until cutover.
 - **Callers switched to `ag-mux`**: ag-board, ag-inbox, tickler, file-inbox, herdr-new-pi-tab,
   herdr-focus-agent, herdr-link, mem-watch, client-cua-gate, the Pi extensions (herdr-context,
@@ -342,10 +341,8 @@ machine hosts sessions:
 
 - Defined in `tailscale/policy.hujson` (autoApprover: `tag:ag-engine`) and via the API
   (`ts-api PUT tailnet/-/vip-services/svc:ag`, ports 7373–7377). Hosts must be tagged, so ag-engine hosts
-  it; `ag-svc local` / `ag-svc forward <host>` / `ag-svc status` switch what it serves.
-- **Now**: ag-engine serves it with `ag-svc forward ag-mac` (socat units `ag-forward@PORT` on
-  127.0.0.1:1PORT, because `tailscale serve` can't proxy to another tailnet IP). **At cutover**:
-  `ag-svc local`. No link changes.
+  it; `ag-svc local` / `ag-svc status`.
+- ag-engine serves it with `ag-svc local`.
 - Switched to it: herdr-link, session-link, show's phone links, AG Dash (HTTPS URL, copy-link, 🔥 texts,
   file-inbox URL), tickler and ag-inbox texts, Hammerspoon's inbox capture, client-cua-gate, the skills,
   and `agents.md`. The dotfiles `/etc/hosts` `ag` → ag-mac alias is gone.
@@ -379,39 +376,23 @@ ag-engine as a systemd user unit.
 
 Activity capture (`activity-log.ts`, `ag.jsonl`) moves with the sessions, since it runs inside Pi.
 
-## Cutover
+## The move (2026-09-29)
 
-`bin/dot-local/bin/ag-move-host` runs steps 2–7 in one go on ag-mac (it detaches under launchd, since it stops
-the Pi that starts it) and texts Nathan when it's done. Paths from ag-mac keep working on the engine because
-`/Users/natkoersch` is a symlink to `/home/nathan` there (`bootstrap-linux`), so session files, tickler items
-and state need no rewriting. Roles come from `machines/README.md`: `ag-host` prints the session host, and
-`machine-role host` gates every service (LaunchAgents on the Mac, systemd units on Linux), so flipping the
-two rows is what moves them. Before the run: repos copied with dependencies (`ag-move-repos --apply`),
-Pi session files copied, and the services tested on the engine.
+Done by one-off scripts, deleted afterwards (in git history before commit "Remove cutover scripts"):
+checkouts rsynced to the engine (99, uncommitted work, stashes and `.env` files included, worktrees
+repaired, dependencies reinstalled), Pi session files and service state copied, every Pi on ag-mac
+stopped, Herdr's layout exported and restored on the engine with Pi asleep, roles flipped in
+`machines/README.md`, and `ag-svc local`.
 
-1. **Services**: port the "Move" services above to systemd user units; run them on the engine against agd
-   on 127.0.0.1 (the ports are free there; svc:ag keeps forwarding to ag-mac meanwhile).
-2. **Freeze ag-mac**: stop the moved LaunchAgents, so nothing new starts there.
-3. **Repos** (`ag-move-repos`, run on ag-mac; a dry run lists sizes): rsyncs every `~/<repo>` and
-   `~/<repo>-<topic>` worktree onto the engine's clone of the same name, mirror-style, excluding
-   `node_modules`, `.next`, `dist`, `.turbo` and `build`. That carries uncommitted work, local branches,
-   stashes, and untracked files such as `.env`. `ag` and `dotfiles` are skipped (they sync through git).
-   Then, on the engine, it rewrites each worktree's `/Users/natkoersch` paths and runs
-   `git worktree repair`, switches GitHub remotes to https (gh's credentials), and reinstalls dependencies
-   (`bun install`, or pnpm/npm/yarn by lockfile; `--no-deps` skips that). `ag-unsaved` on ag-mac beforehand
-   shows what only exists there. Repos with no clone on the engine (deleted or renamed on GitHub, no
-   access, GitLab over SSH) are copied too, so their local history isn't lost.
-4. **MCP**: move ag-mac's mcp-remote token cache (`~/.mcp-auth`) and the gateway to the engine, stop
-   ag-mac's gateway, and retire the engine's `mcp-tunnel`, so refresh tokens live in one place.
-5. **Sessions**: on ag-mac, `ag-mux export-herdr > /tmp/herdr-layout.json` (every workspace/tab and each Pi
-   pane's session file, including hibernated ones). Copy it and the Pi session files (pi-sessions
-   archive) to the engine, then `ag-mux restore --from herdr-layout.json --path-map
-   /Users/natkoersch=/home/nathan`. Tabs come back in place with Pi asleep; each resumes when opened.
-6. **Address and clients**: `ag-svc local` on the engine; point `bin/ag` at `ssh -t ag-engine ag-mux attach`
-   (mosh for the phone); update the iOS Shortcuts to `ag.tail44736d.ts.net`; re-pair Moshi.
-7. **After a quiet week**: retire Herdr (above), and rename the `herdr-*` helpers and `HERDR_*` env (keeping
-   the old names exported for the agent hooks).
+Verified with sha256 per file: 3,202 Pi session files, 173 service-state files and 1,335 `~/inbox`/`~/review`
+files identical; all 163 tabs back with the same workspace, label and session file; random woken tabs
+resumed their own conversation; the pi-sessions archive runs from the engine. Two sessions Nathan started
+on ag-mac during the move, and the prompt/tab-name log lines they wrote, were copied over afterwards.
 
-**Safety**: repos live on the engine's local NVMe, not `/data`. `ag-infra down` runs `ag-unsaved` on the
-engine first and refuses while any checkout has uncommitted or untracked changes, unpushed commits on its
-branch, or stashes (`AG_INFRA_FORCE=1` overrides). If it can't reach the engine to check, it refuses too.
+Paths from ag-mac keep working on the engine: `/Users/natkoersch` is a symlink to `/home/nathan`
+(`bootstrap-linux`). `ag-infra down` still refuses while the engine has unsaved git work (`ag-unsaved`).
+
+Left over: `ag-legacy-forward` on ag-mac forwards its old ports to `ag` because the iOS Shortcuts still post
+to ag-mac's IP (`ios-shortcuts/`); remove it once they point at `ag.tail44736d.ts.net`. Herdr on ag-mac is an
+idle fallback; retiring it (and the `herdr/` package, HerdrLink.app, and ag-mux's Herdr pass-through) is the
+last step.

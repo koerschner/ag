@@ -4,33 +4,21 @@
 #   https://ag.tail44736d.ts.net:7377 AG Dash over HTTPS (the mic needs a secure context)
 # The session host advertises it. Links never name a machine, so moving hosts changes nothing user-facing.
 #
-#   ag-svc local           serve this machine's own Ag ports (the session host, after the move)
-#   ag-svc forward <host>  serve <host>'s ports through local socat forwarders (ag-forward@PORT units);
-#                          before the move the engine does this for ag-mac
+#   ag-svc local           serve this machine's own Ag ports (run on the session host)
 #   ag-svc status | off
 # Needs sudo (tailscale serve) and the svc:ag service + autoApprover in tailscale/policy.hujson.
 set -euo pipefail
 PORTS=(7373 7374 7375 7376)
 svc=svc:ag
 ts() { sudo tailscale "$@"; }
-apply() { # $1 = port offset (0 local, 10000 forwarders)
+apply() { # $1 = port offset
 	ts serve clear "$svc" >/dev/null 2>&1 || true
 	for p in "${PORTS[@]}"; do ts serve --bg --service="$svc" --http="$p" "http://127.0.0.1:$(($1 + p))" >/dev/null; done
 	ts serve --bg --service="$svc" --https=7377 "http://127.0.0.1:$(($1 + 7376))" >/dev/null
 	ts serve advertise "$svc" >/dev/null
 }
 case ${1:-status} in
-local)
-	for p in "${PORTS[@]}"; do systemctl --user disable --now "ag-forward@$p" >/dev/null 2>&1 || true; done
-	apply 0
-	;;
-forward)
-	host=${2:?usage: ag-svc forward <host>}
-	mkdir -p ~/.config/ag && printf 'AG_FORWARD_HOST=%s\n' "$host" >~/.config/ag/forward.env
-	systemctl --user daemon-reload
-	for p in "${PORTS[@]}"; do systemctl --user enable "ag-forward@$p" >/dev/null 2>&1; systemctl --user restart "ag-forward@$p"; done
-	apply 10000
-	;;
+local) apply 0 ;;
 off) ts serve drain "$svc" >/dev/null 2>&1 || true; ts serve clear "$svc" ;;
 status) ts serve status ;;
 *) sed -n '2,13p' "$0"; exit 2 ;;

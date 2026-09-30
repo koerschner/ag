@@ -9,8 +9,7 @@
 //   ag-mux attach [workspace]      attach this terminal to the Ag tmux server (tmux -L ag)
 //   ag-mux daemon                  run agd (systemd user unit ag-mux.service)
 //   ag-mux switch [--client C]     fuzzy tab switcher (bound to prefix+s)
-//   ag-mux save | restore [--from FILE] [--path-map FROM=TO]... [--awake]
-//   ag-mux export-herdr            print a running Herdr's layout in ag-mux's layout format (migration)
+//   ag-mux save | restore [--from FILE] [--awake]
 //   ag-mux backend                 print which backend CLI calls go to (tmux or herdr)
 //
 // Backend: tmux when agd's socket is up (or AG_MUX_BACKEND=tmux); otherwise calls pass straight through
@@ -927,8 +926,7 @@ const H: Record<string, (p: Params, ctx: { sock: net.Socket }) => any> = {
 	"layout.save": () => (saveLayout(true), { type: "ok", file: LAYOUT_FILE }),
 	"layout.restore": (p) => {
 		const layout = JSON.parse(readFileSync(p.from ?? LAYOUT_FILE, "utf8"));
-		const pathMap = (p.path_map ?? []).map((m: string) => m.split("=", 2) as [string, string]);
-		return { type: "ok", restored: restore(layout, { pathMap, awake: !!p.awake }) };
+		return { type: "ok", restored: restore(layout, { awake: !!p.awake }) };
 	},
 };
 const pendingNames = new Map<string, string>();
@@ -989,12 +987,8 @@ function saveLayout(force = false) {
 
 // Recreate a saved layout. Agent panes come back asleep (`ag-mux _sleep … && pi --session …`) and wake
 // when a client looks at them, so a restore doesn't start every Pi at once.
-function restore(layout: Layout, opts: { pathMap: [string, string][]; awake: boolean }) {
-	const map = (s?: string) => {
-		if (!s) return s;
-		for (const [a, b] of opts.pathMap) if (s.startsWith(a)) return b + s.slice(a.length);
-		return s;
-	};
+function restore(layout: Layout, opts: { awake: boolean }) {
+
 	const known = (id?: string) => !!id && (WS.has(id) || TABS.has(id) || PANES.has(id));
 	let made = { ws: 0, tabs: 0, agents: 0 };
 	for (const sw of layout.workspaces) {
@@ -1005,17 +999,17 @@ function restore(layout: Layout, opts: { pathMap: [string, string][]; awake: boo
 			const first = nodes[0];
 			const firstPane = first?.pane_id && !known(first.pane_id) ? first.pane_id : undefined;
 			if (!w) {
-				const r = createWorkspace({ label: sw.label, cwd: map(first?.cwd), focus: false, ids: { ws: known(sw.id) ? undefined : sw.id, tab: st.id, pane: firstPane }, tabLabel: st.label });
+				const r = createWorkspace({ label: sw.label, cwd: first?.cwd, focus: false, ids: { ws: known(sw.id) ? undefined : sw.id, tab: st.id, pane: firstPane }, tabLabel: st.label });
 				w = WS.get(r.workspace.workspace_id)!;
 				made.ws++;
-			} else createTab({ workspace_id: w.id, cwd: map(first?.cwd), label: st.label, focus: false, ids: { tab: st.id, pane: firstPane } });
+			} else createTab({ workspace_id: w.id, cwd: first?.cwd, label: st.label, focus: false, ids: { tab: st.id, pane: firstPane } });
 			made.tabs++;
 			const t = TABS.get(st.id)!;
 			const panes: string[] = [t.panes[0]];
 			const build = (n: Node, pane: string) => {
 				if (n.type === "pane") return;
 				const l2 = leaves(n.second)[0];
-				const second = splitPane({ target_pane_id: pane, direction: n.direction, ratio: n.ratio, cwd: map(l2?.cwd), focus: false, ids: { pane: l2?.pane_id && !known(l2.pane_id) ? l2.pane_id : undefined } });
+				const second = splitPane({ target_pane_id: pane, direction: n.direction, ratio: n.ratio, cwd: l2?.cwd, focus: false, ids: { pane: l2?.pane_id && !known(l2.pane_id) ? l2.pane_id : undefined } });
 				build(n.first, pane);
 				panes.push(second.id);
 				build(n.second, second.id);
@@ -1025,7 +1019,7 @@ function restore(layout: Layout, opts: { pathMap: [string, string][]; awake: boo
 			const rebuilt = leaves(layoutTree(TABS.get(st.id)!).root);
 			nodes.forEach((n, i) => {
 				const pid = rebuilt[i]?.pane_id;
-				const sess = map(n.session);
+				const sess = n.session;
 				if (!pid || n.agent !== "pi" || !sess || !existsSync(sess)) return;
 				const pane = PANES.get(pid)!;
 				const cmd = opts.awake ? `pi --session ${q(sess)}` : `${q(SLEEP)} ${q(sess)} && pi --session ${q(sess)}`;
@@ -1049,7 +1043,7 @@ function restoreOrInbox(fresh: boolean) {
 	let restored = false;
 	if (fresh && existsSync(LAYOUT_FILE) && process.env.AG_MUX_NO_RESTORE !== "1") {
 		try {
-			const r = restore(JSON.parse(readFileSync(LAYOUT_FILE, "utf8")), { pathMap: [], awake: false });
+			const r = restore(JSON.parse(readFileSync(LAYOUT_FILE, "utf8")), { awake: false });
 			console.log(new Date().toISOString(), "restored", JSON.stringify(r));
 			restored = r.tabs > 0;
 		} catch (e) {
@@ -1338,46 +1332,6 @@ function sleepScreen(sess: string) {
 	process.stdin.once("data", (d) => process.exit(d.includes(3) ? 130 : 0));
 }
 
-// Convert a running Herdr's layout (on ag-mac) into ag-mux's layout.json format.
-function exportHerdr() {
-	const h = herdrBin() ?? fail("no_herdr", "herdr not found");
-	const run = (...a: string[]) => JSON.parse(Bun.spawnSync([h, ...a]).stdout.toString()).result;
-	const snap = run("api", "snapshot").snapshot;
-	// Hibernated panes (pi-hibernate) have no agent; their sleep screens record the session by pid.
-	const sleeping = new Map<number, string>();
-	const dir = `${HOME}/.local/state/pi-hibernate/waiting`;
-	try {
-		for (const f of require("node:fs").readdirSync(dir)) sleeping.set(Number(f), readFileSync(`${dir}/${f}`, "utf8").trim());
-	} catch {}
-	const leaf = (p: any): Node => {
-		let session = p.agent === "pi" ? p.agent_session?.value : undefined;
-		if (!session && sleeping.size) {
-			try {
-				const info = run("pane", "process-info", "--pane", p.pane_id).process_info;
-				session = info.foreground_processes.map((f: any) => sleeping.get(f.pid)).find(Boolean);
-			} catch {}
-		}
-		return { type: "pane", pane_id: p.pane_id, cwd: p.foreground_cwd ?? p.cwd, ...(session ? { agent: "pi", session } : {}) };
-	};
-	const panesByTab = new Map<string, any[]>();
-	for (const p of snap.panes) (panesByTab.get(p.tab_id) ?? panesByTab.set(p.tab_id, []).get(p.tab_id)!).push(p);
-	const layout: Layout = {
-		version: 1, saved_at: new Date().toISOString(), source: "herdr",
-		workspaces: snap.workspaces.map((w: any) => ({
-			id: w.workspace_id, label: w.label, order: w.number, active_tab: w.active_tab_id,
-			tabs: snap.tabs
-				.filter((t: any) => t.workspace_id === w.workspace_id)
-				.sort((a: any, b: any) => a.number - b.number)
-				.map((t: any) => {
-					const ps = (panesByTab.get(t.tab_id) ?? []).map(leaf);
-					const root = ps.reduceRight((acc: Node | undefined, n: Node) => (acc ? { type: "split", direction: "right", ratio: 0.5, first: n, second: acc } : n), undefined) ?? { type: "pane" };
-					return { id: t.tab_id, label: t.label.replace(/\s*●+$/, ""), root };
-				}),
-		})),
-	};
-	console.log(JSON.stringify(layout, null, 1));
-}
-
 const SKILL = `# ag-mux (Ag on tmux)
 
 ag-mux is Ag's session layer: tmux (\`tmux -L ag\`) runs the terminals and agd adds workspaces, tabs, panes
@@ -1411,7 +1365,6 @@ else if (top === "_raw") {
 	console.log(JSON.stringify(await call(req.method, req.params ?? {}, req.id ?? "raw")));
 }
 else if (top === "backend") console.log(backend());
-else if (top === "export-herdr") exportHerdr();
 else if (top === "attach" || top === undefined) {
 	if (backend() === "herdr" && top === undefined) fail("usage", "run `herdr` to attach to Herdr");
 	await attach(argv[1]);
@@ -1421,7 +1374,7 @@ else if (top === "save") {
 	console.log(JSON.stringify(r));
 } else if (top === "restore") {
 	const { fl, multi } = parse(argv.slice(1));
-	const r = await call("layout.restore", { from: fl["--from"], path_map: multi["--path-map"] ?? [], awake: !!fl["--awake"] });
+	const r = await call("layout.restore", { from: fl["--from"], awake: !!fl["--awake"] });
 	console.log(JSON.stringify(r));
 	if (r.error) process.exit(1);
 } else if (backend() === "herdr") {

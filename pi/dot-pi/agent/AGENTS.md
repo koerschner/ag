@@ -158,6 +158,8 @@ Always do new work in a git worktree so multiple things can be worked on at once
 
 ## Arcade (arcade.school, `~/arcade.school`)
 
+**Legal is Adam Paul's.** Never edit legal material yourself, even under "Run it": anything under `docs/research/legal/`, the notices in `apps/arcade/src/lib/assets/notices/` (privacy, consent), legal protocols and policies (retention, escalation, incident response), counsel correspondence, or issues and comments in the Linear **Legal** project (e.g. ARC-512, ARC-492, ARC-507). When a task needs a legal change or answer, message Adam Paul instead (attributed, brief, with the file or issue and the question) and carry on with the rest. Implementing copy counsel already gave, verbatim, is fine.
+
 Never call the product "Playcademy Arcade" (or "Playcademy arcade") in anything you write. It is "the Arcade" or "arcade.school". Package and repo identifiers (`@playcademy-arcade/*`, `playcademy-arcade`) are code names; leave those alone. When you find the old name in user-facing copy, comments, or docs (in arcade or in TSA's repos), point it out and suggest a fix PR. Don't silently widen the current change to fix it.
 
 For Arcade usage questions (who played, play sessions, DAU, sign-ins), always query the Arcade's own production database: `bun scripts/db query --stage production arcade "<sql>"` from an arcade checkout (e.g. `play_sessions`). Don't use the `mcp_arcade_school_*` tools for this; that database is TSA's, not the Arcade's.

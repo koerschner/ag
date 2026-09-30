@@ -12,8 +12,8 @@
 set -euo pipefail
 # Computer use happens on ag-mac (the extremity); from anywhere else, hand the task over with `mac cua`.
 if [[ $OSTYPE != darwin* ]]; then
-  task=${1:-$(cat)}
-  printf '%s' "$task" | exec ~/.local/bin/mac cua "$(cat)"
+  task=${*:-$(cat)}
+  exec ~/.local/bin/mac cua "$task"
 fi
 
 effort=${CHATGPT_CUA_EFFORT:-medium}

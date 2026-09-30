@@ -28,9 +28,9 @@ it has no row). The old names stay as extra SSH aliases, and `ag` stays in both 
 `macos`) so old `http://ag:…` links still open, until nothing uses them. (`machine-role` accepts a
 comma-separated LocalHostName list for future renames.)
 
-The ag repo is private. Machines where agents don't push (the client, Linux machines) clone it read-only with
+The ag repo is private. Machines where agents don't push (the client, workers) clone it read-only with
 the `ag repo deploy key` from ag-vault (`~/.ssh/ag-deploy`, set as the checkout's `core.sshCommand`); the
-host pushes with Nathan's normal GitHub credentials.
+session host pushes with Nathan's GitHub credentials (on ag-engine: https remote + `gh auth setup-git`, no `core.sshCommand`).
 
 `machine-role` prints this Mac's role from the table (unlisted = client); role-specific
 setup uses it, e.g. sleep: hosts never sleep, clients sleep normally (`macos`, Hammerspoon's battery guard).

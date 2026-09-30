@@ -56,7 +56,7 @@ The flush sends every queued file as the form field `text` with type **File**: a
 
 ## Build steps
 
-1. In Files, create the folders **iCloud Drive › Shortcuts › ag-queue** and **Shortcuts › ag-state**.
+1. In Files, create the folder **iCloud Drive › Shortcuts › ag-queue**.
    (The older `ag-queue/shots` folder is no longer used.)
 2. Shortcut **Flush ag Queue**:
    1. **Get Contents of Folder**: ag-queue (Recursive off).

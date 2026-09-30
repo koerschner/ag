@@ -9,11 +9,22 @@
 # Afterwards cua-cleanup quits apps and closes Chrome tabs / Safari windows the run opened
 # (summary appended to the output). CHATGPT_CUA_KEEP_OPEN=1 skips that for tasks meant to
 # leave something open.
+#
+# Runs are queued (cua-queue): one at a time on ag-mac's desktop, later callers wait their turn.
+#   chatgpt-cua --status     the running job and the queue (same as `cua-queue list`)
+# CUA_CALLER labels the job in the queue; CUA_JOB_ID picks its id (so a caller can cancel/attach).
 set -euo pipefail
+if [[ ${1:-} == (--status|--list) ]]; then exec ${0:A:h}/cua-queue list; fi
 # Computer use happens on ag-mac (the extremity); from anywhere else, hand the task over with `mac cua`.
 if [[ $OSTYPE != darwin* ]]; then
   task=${*:-$(cat)}
   exec ~/.local/bin/mac cua "$task"
+fi
+# On ag-mac every run goes through the queue; the queue's runner calls back in with CUA_QUEUE_INNER=1.
+if [[ -z ${CUA_QUEUE_INNER:-} ]]; then
+  task=${*:-$(cat)}
+  [[ -n $task ]] || { echo "usage: chatgpt-cua <task>" >&2; exit 2; }
+  exec ${0:A:h}/cua-queue run ${CUA_JOB_ID:+--id} ${CUA_JOB_ID:-} --caller "${CUA_CALLER:-$(hostname -s) pid $PPID}" -- "$task"
 fi
 
 effort=${CHATGPT_CUA_EFFORT:-medium}

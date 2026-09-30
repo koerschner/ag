@@ -4,7 +4,8 @@
 # native UI renders, iPhone Mirroring via the client, anything whose files only exist on the Mac.
 #
 #   mac run <cmd...>           run a shell command on ag-mac (login env; exit code passes through)
-#   mac cua "<task>"           computer use on ag-mac's desktop (chatgpt-cua); prints its report
+#   mac cua "<task>"           computer use on ag-mac's desktop (chatgpt-cua, queued); prints its report
+#   mac cua --status           the running computer-use job and the queue on ag-mac (cua-queue list)
 #   mac push <local> [remote]  copy a file/dir to ag-mac (default: ~/inbox/from-engine/)
 #   mac pull <remote> [local]  copy a file/dir from ag-mac (default: ./)
 #   mac show <file|url>        open it on Nathan's screen via ag-mac's `show` (pushes local files first)
@@ -23,9 +24,18 @@ case $cmd in
     # One argument = a shell snippet; several = argv, quoted for the remote shell.
     if [[ $# -eq 1 ]]; then ssh_ "$1"; else ssh_ "$(q "$@")"; fi ;;
   cua)
-    [[ $# -ge 1 ]] || { echo 'usage: mac cua "<task>"' >&2; exit 2; }
-    # The task travels on stdin so quoting can't mangle it.
-    printf '%s' "$*" | ssh_ 'chatgpt-cua "$(cat)"' ;;
+    [[ $# -ge 1 ]] || { echo 'usage: mac cua "<task>" | --status' >&2; exit 2; }
+    if [[ $1 == --status || $1 == --list ]]; then ssh_ 'cua-queue list'; exit; fi
+    # Queued on ag-mac (cua-queue). The task travels base64-encoded so quoting can't mangle it.
+    id=${CUA_JOB_ID:-$(date +%Y%m%d-%H%M%S)-$(hostname -s)-$$}
+    caller=${CUA_CALLER:-$(hostname -s) pid $PPID}
+    b64=$(printf '%s' "$*" | base64 -w0)
+    ssh_ "cua-queue run --id $(q "$id") --caller $(q "$caller") ${CHATGPT_CUA_KEEP_OPEN:+--keep-open} --b64 $b64" </dev/null &
+    pid=$!
+    # Stopped (e.g. the Pi tool aborted): cancel the job on ag-mac too, so no run is left orphaned there.
+    trap 'echo "mac cua: stopped, cancelling job $id on ag-mac" >&2; ssh_ "cua-queue cancel $(q "$id")" >&2; kill $pid 2>/dev/null; exit 130' TERM INT HUP
+    rc=0; wait $pid || rc=$?
+    exit $rc ;;
   push)
     src=${1:?usage: mac push <local> [remote]}; dst=${2:-inbox/from-engine/}
     ssh_ "mkdir -p $(q "$(dirname "$dst/x")")" && rsync -az "$src" "$HOST:$dst" && echo "$HOST:$dst" ;;
@@ -41,5 +51,5 @@ case $cmd in
   status)
     if ssh_ true 2>/dev/null; then echo "ag-mac: reachable"; presence 2>/dev/null | tail -1 || true # presence polls from the host
     else echo "ag-mac: UNREACHABLE"; exit 1; fi ;;
-  *) sed -n '2,13p' "$0"; [[ $cmd == help ]] || exit 2 ;;
+  *) sed -n '2,14p' "$0"; [[ $cmd == help ]] || exit 2 ;;
 esac

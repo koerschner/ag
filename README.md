@@ -593,6 +593,19 @@ Nathan sits at a client machine; agents run on a host (ag). Every machine stows 
   (matched by `$PI_SESSION_FILE` in `~/review/<name>/.meta.json`, so it survives pane moves), with
   the section heading he was reading. If that session is gone, it opens a new Inbox session.
   Nothing is exposed beyond Tailscale. Old pages in `~/review` can be deleted anytime.
+- **Computer use on ag-mac is queued** (`cua-queue`): only one run drives ag-mac's desktop at a time.
+  Every `chatgpt-cua` run on ag-mac (the `chatgpt_cua` Pi tool, `mac cua` from the engine, local
+  calls) is a job in `~/.local/state/cua-queue/jobs/<id>/` (task, caller, status, log, report, rc).
+  A detached runner per job waits for its turn (FIFO, one `zsystem flock` lock), then runs
+  `chatgpt-cua` with `CUA_QUEUE_INNER=1`; the caller only watches and streams "queued behind
+  <caller>, N ahead" / "running (Xs)" to stderr. `cua-queue list` (`mac cua --status`,
+  `chatgpt-cua --status`; works from the engine too) shows the running job, the queue, and recent
+  results. `cua-queue cancel <id>` drops a queued job or stops a running one (its cleanup still runs);
+  `cua-queue attach <id>` waits for a job and prints its report. A caller that is stopped
+  (SIGTERM/INT/HUP: the Pi tool aborting, Ctrl-C on `mac cua`) cancels its own job; one that vanishes
+  silently (SSH dropped) abandons its job if it hadn't started, while a started job finishes and stays
+  attachable. Jobs whose runner died are marked `lost` so they never block the queue. Pi's tool labels
+  jobs with the session name and its AG Dash link (`CUA_CALLER`) and picks the id (`CUA_JOB_ID`).
 - **Client desktop automation**: `client-cua --why "<reason>" "<task>"` runs Codex computer use on the
   client's GUI session (via `launchctl submit`; plain ssh can't see the screen). It's an antipattern,
   so it's gated: `client-cua-gate` asks Jev (TrueFoundry, `TFY_TOKEN`) whether the thing exists only

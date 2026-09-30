@@ -1,0 +1,206 @@
+#!/usr/bin/env zsh
+# cua-queue — FIFO queue so only one computer-use run drives ag-mac's desktop at a time.
+#
+#   cua-queue list                  the running job and the queue (alias: status)
+#   cua-queue cancel <id>           cancel a job: drop it if queued, stop it (and clean up) if running
+#   cua-queue attach <id>           wait for a job and print its report (e.g. after the caller died)
+#   cua-queue run [--id ID] [--caller LABEL] [--keep-open] (--b64 B64 | <task>)
+#                                   submit a task and wait for it (what chatgpt-cua does on ag-mac)
+#
+# Every chatgpt-cua run on ag-mac (local, or from the engine via `mac cua`) goes through `run`.
+# Jobs live in ~/.local/state/cua-queue/jobs/<id>/. Each job gets a detached runner that waits for
+# its turn (oldest live job first, one global lock), runs chatgpt-cua with CUA_QUEUE_INNER=1, and
+# records the report, log and exit code. The waiter (`run`/`attach`) only watches: it streams status
+# ("queued behind <caller>") and the run's log to stderr and prints the report on stdout.
+#   - Nothing running is ever interrupted by another caller; later callers wait their turn.
+#   - Waiter killed (SIGTERM/SIGINT/SIGHUP, e.g. the Pi tool aborting): it cancels its own job.
+#   - Waiter vanished silently (SSH dropped): a queued job is abandoned; a running job finishes and
+#     its report stays available to `cua-queue attach <id>`.
+# Off ag-mac, list/cancel/attach are forwarded to ag-mac and `run` becomes `mac cua`.
+set -uo pipefail
+zmodload zsh/system zsh/datetime
+
+if [[ $OSTYPE != darwin* ]]; then
+  case ${1:-} in
+    run) shift; exec ~/.local/bin/mac cua "$@" ;;
+    *) exec ~/.local/bin/mac run "cua-queue ${(j: :)${(q)@}}" ;;
+  esac
+fi
+
+state=${CUA_QUEUE_DIR:-$HOME/.local/state/cua-queue}
+jobs=$state/jobs
+lockfile=$state/lock
+mkdir -p $jobs; [[ -e $lockfile ]] || : > $lockfile
+self=${0:A}
+
+get() { [[ -f $jobs/$1/$2 ]] && print -r -- "$(<$jobs/$1/$2)"; }
+put() { print -r -- $3 > $jobs/$1/$2.tmp && mv -f $jobs/$1/$2.tmp $jobs/$1/$2; }
+alive() { [[ -n ${1:-} ]] && kill -0 $1 2>/dev/null; }
+now() { print -r -- ${EPOCHREALTIME%.*}; }
+dur() { local s=$(( $(now) - ${1:-$(now)} )); (( s >= 60 )) && print -r -- "$((s/60))m$((s%60))s" || print -r -- "${s}s"; }
+finished() { [[ $1 == (done|failed|cancelled|abandoned|lost) ]]; }
+caller_of() { print -r -- "$(get $1 caller)${$(get $1 caller):+ }(job $1)"; }
+
+# Live jobs (queued/running, runner alive) in FIFO order. Marks jobs whose runner died as lost.
+live_jobs() {
+  local d id st
+  for d in $jobs/*(N/); do
+    id=${d:t}; st=$(get $id status)
+    finished $st && continue
+    # Runner died, or never started within 30s: the job can't run, so it must not block the queue.
+    if { [[ -f $d/runner.pid ]] && ! alive "$(get $id runner.pid)" } ||
+       { [[ ! -f $d/runner.pid ]] && (( $(now) - ${$(get $id created):-0} > 30 )) }; then
+      put $id status lost; [[ -f $d/rc ]] || put $id rc 1; continue
+    fi
+    print -r -- "$(get $id ticket) $id"
+  done | sort -n | awk '{print $2}'
+}
+
+# Kill a pid and all its descendants (children first).
+kill_tree() {
+  local p
+  for p in $(pgrep -P $1 2>/dev/null); do kill_tree $p; done
+  kill -TERM $1 2>/dev/null
+}
+
+cmd=${1:-list}; shift 2>/dev/null
+case $cmd in
+list|status)
+  local -a live=(${(f)"$(live_jobs)"})
+  if (( ! $#live )); then print "cua-queue: idle (no running or queued computer-use jobs)"; fi
+  local n=0 id st
+  for id in $live; do
+    st=$(get $id status)
+    if [[ $st == running ]]; then
+      print -r -- "running   $id  $(dur $(get $id started))  $(get $id caller)  — ${$(get $id task)[1,80]//$'\n'/ }"
+    else
+      n=$((n+1))
+      print -r -- "queued #$n $id  waiting $(dur $(get $id created))  $(get $id caller)  — ${$(get $id task)[1,80]//$'\n'/ }"
+    fi
+  done
+  local -a recent=($jobs/*(N/om[1,5]))
+  local d; local shown=0
+  for d in $recent; do
+    st=$(get ${d:t} status); finished $st || continue
+    (( shown++ )) || print "recent:"
+    print -r -- "  $st${$(get ${d:t} rc):+ (rc $(get ${d:t} rc))}  ${d:t}  $(get ${d:t} caller)  — ${$(get ${d:t} task)[1,60]//$'\n'/ }"
+  done
+  ;;
+
+cancel)
+  id=${1:?usage: cua-queue cancel <id>}
+  [[ -d $jobs/$id ]] || { print -u2 "cua-queue: no job $id"; exit 1; }
+  st=$(get $id status)
+  if finished $st; then print "cua-queue: job $id already $st"; exit 0; fi
+  put $id cancel 1
+  if [[ $st == running ]] && alive "$(get $id inner.pid)"; then
+    # Stop codex (the inner chatgpt-cua then runs its cleanup and exits); the runner records "cancelled".
+    for p in $(pgrep -P "$(get $id inner.pid)" 2>/dev/null); do kill_tree $p; done
+  fi
+  for i in {1..40}; do finished "$(get $id status)" && break; sleep 0.5; done
+  print "cua-queue: job $id $(get $id status)"
+  ;;
+
+attach)
+  id=${1:?usage: cua-queue attach <id>}
+  [[ -d $jobs/$id ]] || { print -u2 "cua-queue: no job $id"; exit 1; }
+  exec $self _wait $id
+  ;;
+
+run)
+  local id= caller= keep= b64=
+  while (( $# )); do
+    case $1 in
+      --id) id=$2; shift 2 ;;
+      --caller) caller=$2; shift 2 ;;
+      --keep-open) keep=1; shift ;;
+      --b64) b64=$2; shift 2 ;;
+      --) shift; break ;;
+      *) break ;;
+    esac
+  done
+  local task
+  if [[ -n $b64 ]]; then task=$(print -rn -- $b64 | base64 -d) || { print -u2 "cua-queue: bad --b64"; exit 2; }
+  else task=${*:-}; fi
+  [[ -n $task ]] || { print -u2 'usage: cua-queue run [--id ID] [--caller LABEL] [--keep-open] "<task>"'; exit 2; }
+  [[ -n $id ]] || id=$(strftime %Y%m%d-%H%M%S $EPOCHSECONDS)-$RANDOM
+  [[ $id =~ '^[A-Za-z0-9._-]+$' ]] || { print -u2 "cua-queue: bad job id"; exit 2; }
+  [[ ! -e $jobs/$id ]] || { print -u2 "cua-queue: job $id already exists (use: cua-queue attach $id)"; exit 2; }
+  # Prune finished jobs older than a week.
+  for d in $jobs/*(N/m+7); do finished "$(get ${d:t} status)" && rm -rf $d; done
+  # Build the job in a hidden dir, then move it in whole, so no one sees a half-written job.
+  local tmp=$jobs/.new-$id-$$; mkdir -p $tmp
+  print -r -- "$task" > $tmp/task; print -r -- "${caller:-${CUA_CALLER:-local}}" > $tmp/caller
+  print -r -- "${keep:-${CHATGPT_CUA_KEEP_OPEN:-}}" > $tmp/keep; print -r -- $(now) > $tmp/created
+  print -r -- $EPOCHREALTIME > $tmp/ticket; print -r -- $$ > $tmp/waiter.pid; print queued > $tmp/status
+  : > $tmp/log; : > $tmp/out
+  mv $tmp $jobs/$id || exit 1
+  # Detached runner: survives the waiter (and its SSH session).
+  ( $self _runner $id </dev/null >>$jobs/$id/runner.log 2>&1 & ) &!
+  exec $self _wait $id
+  ;;
+
+_wait)
+  id=$1; dir=$jobs/$id
+  mine=$(( $(get $id waiter.pid) == $$ ))
+  # A killed waiter cancels its own job (only the waiter that submitted it, not an `attach`).
+  if (( mine )); then trap 'print -u2 "cua-queue: caller stopped, cancelling job $id"; $self cancel $id >&2; exit 130' TERM INT HUP; fi
+  local off=0 last= lastbeat=0 st key msg ahead run size
+  local -a live
+  print -u2 "cua-queue: job $id submitted"
+  while true; do
+    st=$(get $id status)
+    # Stream the run's log.
+    size=$(stat -f %z $dir/log 2>/dev/null || print 0)
+    if (( size > off )); then tail -c +$((off+1)) $dir/log | head -c $((size-off)) >&2; off=$size; fi
+    if finished $st; then
+      cat $dir/out
+      case $st in
+        cancelled) print -u2 "cua-queue: job $id cancelled" ;;
+        abandoned|lost) print -u2 "cua-queue: job $id $st" ;;
+      esac
+      exit ${$(get $id rc):-1}
+    fi
+    # key = what changed; msg = what to say. Print on change, and every 20s as a heartbeat
+    # (a write to a dead SSH channel is what ends a waiter whose caller vanished).
+    if [[ $st == queued ]]; then
+      live=(${(f)"$(live_jobs)"}); ahead=$(( ${live[(i)$id]} - 1 )); run=
+      for j in $live; do [[ $j != $id && $(get $j status) == running ]] && run=$j; done
+      if [[ -n $run ]]; then key="behind $run $ahead"; msg="queued behind $(caller_of $run), running $(dur $(get $run started)); $ahead ahead of this job"
+      elif (( ahead > 0 )); then key="behind ${live[1]} $ahead"; msg="queued behind $(caller_of ${live[1]}); $ahead ahead of this job"
+      else key=starting; msg=starting; fi
+    else key=running; msg="running ($(dur $(get $id started)))"; fi
+    if [[ $key != $last ]] || (( $(now) - lastbeat >= 20 )); then
+      print -u2 "cua-queue: job $id $msg"; last=$key; lastbeat=$(now)
+    fi
+    sleep 1
+  done
+  ;;
+
+_runner)
+  id=$1; dir=$jobs/$id
+  put $id runner.pid $$
+  local fd=; local -a live
+  while true; do
+    [[ -f $dir/cancel ]] && { put $id rc 130; put $id status cancelled; exit 0; }
+    if ! alive "$(get $id waiter.pid)"; then put $id rc 1; put $id status abandoned; exit 0; fi
+    live=(${(f)"$(live_jobs)"})
+    if [[ ${live[1]:-} == $id ]] && zsystem flock -t 0 -f fd $lockfile 2>/dev/null; then break; fi
+    sleep 1
+  done
+  # Our turn, lock held (released when this process exits, however it exits).
+  [[ -f $dir/cancel ]] && { put $id rc 130; put $id status cancelled; exit 0; }
+  put $id started $(now); put $id status running
+  local -a envs=(CUA_QUEUE_INNER=1 CUA_JOB_DIR=$dir)
+  [[ -n $(get $id keep) ]] && envs+=(CHATGPT_CUA_KEEP_OPEN=1)
+  env $envs ${self:h}/chatgpt-cua "$(get $id task)" >$dir/out 2>>$dir/log </dev/null &
+  put $id inner.pid $!
+  wait $!; rc=$?
+  put $id finished $(now); put $id rc $rc
+  if [[ -f $dir/cancel ]]; then put $id rc 130; put $id status cancelled
+  elif (( rc == 0 )); then put $id status done
+  else put $id status failed; fi
+  ;;
+
+*) sed -n '2,20p' $self; [[ $cmd == (help|-h|--help) ]] || exit 2 ;;
+esac

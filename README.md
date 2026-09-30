@@ -207,7 +207,7 @@ The ag inbox (`ag-inbox`) is the top-level endpoint that starts a new session: P
 - Log: `~/.local/state/ag-inbox/log.jsonl`, one line per step (`received → screenshot → routed → tab → pi_started → sent`, or `route_failed`/`jev_failed`/`duplicate`/`failed`). Server output: `/tmp/ag-inbox.log`.
 - Restart after edits: `launchctl kickstart -k gui/$(id -u)/com.nathan.ag-inbox`.
 - Voice: a multipart `audio` field (or a queued audio file sent as `text`) is saved to `~/inbox/capture/` and transcribed with Whisper via TrueFoundry (`whisper-1`, falling back to `openai-esw/whisper-1`); the transcript is the prompt (log step `transcribed`, or `stt_failed`, in which case the agent gets the file path).
-- iPhone Action Button capture (typed on one press, voice on a double press; screenshot either way): `ios-shortcuts/capture-to-ag.md`. iPhone share sheet: `ios-shortcuts/share-to-ag.md`.
+- iPhone Action Button capture (ag Button, built on MultiButton: typed on one press, voice on a double press; screenshot either way): `ios-shortcuts/capture-to-ag.md`. iPhone share sheet: `ios-shortcuts/share-to-ag.md`.
 
 ## Tickler (deferred tasks)
 

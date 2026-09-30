@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""ag-messages: Nathan's iMessages on ag-mac (signed in as nathankoerschner@gmail.com, iCloud
+Messages sync, so it sees threads sent/received on his other devices). Runs from any ag machine;
+reaches ag-mac with `mac run` (or directly when on ag-mac). Needs Full Disk Access (chat.db) and
+Automation → Messages for sshd-keygen-wrapper, both granted on ag-mac. Use this, not the client.
+
+  ag-messages thread <phone|email> [N]    last N messages (default 20), oldest first, with attachments
+  ag-messages cat <attachment path>       print an attachment file (paths from `thread`)
+  ag-messages send <phone|email> <text>   send as Nathan (iMessage; SMS fallback)
+"""
+import json, os, platform, re, shlex, subprocess, sys
+
+ON_MAC = platform.system() == "Darwin" and os.path.isdir(os.path.expanduser("~/Library/Messages"))
+
+
+def mac(cmd: str, stdin: str | None = None) -> str:
+    argv = ["sh", "-c", cmd] if ON_MAC else ["mac", "run", "sh", "-c", cmd]
+    r = subprocess.run(argv, input=stdin or "", capture_output=True, text=True)
+    if r.returncode:
+        sys.exit(r.stderr.strip() or f"failed: {cmd}")
+    return r.stdout
+
+
+def body_text(hexblob: str | None) -> str:
+    """Pull the NSString out of a typedstream attributedBody."""
+    if not hexblob:
+        return ""
+    b = bytes.fromhex(hexblob)
+    i = b.find(b"NSString")
+    if i < 0:
+        return ""
+    i = b.find(b"\x2b", i) + 1  # '+' precedes the length
+    n = b[i]
+    i += 1
+    if n == 0x81:
+        n = int.from_bytes(b[i : i + 2], "little"); i += 2
+    elif n == 0x82:
+        n = int.from_bytes(b[i : i + 4], "little"); i += 4
+    return b[i : i + n].decode("utf-8", "replace")
+
+
+def digits(h: str) -> str:
+    return re.sub(r"\D", "", h)[-10:] if "@" not in h else h
+
+
+def thread(handle: str, n: int) -> None:
+    key = digits(handle).replace("'", "''")
+    sql = f"""select m.ROWID id, datetime(m.date/1000000000+978307200,'unixepoch') utc, m.is_from_me me,
+      m.text, hex(m.attributedBody) ab,
+      (select group_concat(a.filename, char(10)) from message_attachment_join j join attachment a
+        on a.ROWID=j.attachment_id where j.message_id=m.ROWID) files
+      from message m join handle h on h.ROWID=m.handle_id
+      where h.id like '%{key}%' order by m.date desc limit {int(n)};"""
+    out = mac("sqlite3 -json ~/Library/Messages/chat.db", sql)
+    for r in reversed(json.loads(out or "[]")):
+        text = (r["text"] or body_text(r["ab"])).replace("\ufffc", "").strip()
+        who = "me  " if r["me"] else "them"
+        print(f"{r['utc']} UTC  {who}  {text}")
+        for f in (r["files"] or "").splitlines():
+            print(f"    📎 {f}")
+
+
+def send(handle: str, text: str) -> None:
+    script = """on run argv
+  set {h, msg} to argv
+  tell application "Messages"
+    try
+      send msg to participant h of (first account whose service type is iMessage)
+      return "sent via iMessage to " & h
+    on error
+      send msg to participant h of (first account whose service type is SMS)
+      return "sent via SMS to " & h
+    end try
+  end tell
+end run"""
+    print(mac(f"osascript - {shlex.quote(handle)} {shlex.quote(text)}", script).strip())
+
+
+a = sys.argv[1:]
+if a[:1] == ["thread"] and len(a) in (2, 3):
+    thread(a[1], int(a[2]) if len(a) == 3 else 20)
+elif a[:1] == ["cat"] and len(a) == 2:
+    p = a[1]
+    sys.stdout.write(mac('cat "$HOME"/' + shlex.quote(p[2:]) if p.startswith("~/") else "cat " + shlex.quote(p)))
+elif a[:1] == ["send"] and len(a) == 3:
+    send(a[1], a[2])
+else:
+    sys.exit(__doc__)

@@ -4,7 +4,7 @@
   "args": {
    "command": "cd ~/x && sed -n 10,40p src/a.ts | head"
   },
-  "sum": "Read src/a.ts:10–40",
+  "sum": "Read src/a.ts:10\u201340",
   "hosts": [
    "ag-engine"
   ]
@@ -14,7 +14,7 @@
   "args": {
    "command": "mac run 'pkill -x Telegram; pkill -f \"CoreServicesUIAgent\"; xattr -dr com.apple.quarantine /Applications/Telegram.app'"
   },
-  "sum": "Stop Telegram, CoreServicesUIAgent · Clear quarantine on /Applications/Telegram.app",
+  "sum": "Stop Telegram, CoreServicesUIAgent \u00b7 Clear quarantine on /Applications/Telegram.app",
   "hosts": [
    "ag-mac"
   ]
@@ -24,7 +24,7 @@
   "args": {
    "command": "sleep 4; mac run 'screencapture -x /tmp/tg5.png' >/dev/null 2>&1; mac pull /tmp/tg5.png"
   },
-  "sum": "Take a screenshot → /tmp/tg5.png · Copy /tmp/tg5.png from ag-mac",
+  "sum": "Take a screenshot \u2192 /tmp/tg5.png \u00b7 Copy /tmp/tg5.png from ag-mac",
   "hosts": [
    "ag-mac"
   ]
@@ -34,7 +34,7 @@
   "args": {
    "command": "mac run 'defaults read /Applications/Telegram.app/Contents/Info.plist CFBundleShortVersionString'"
   },
-  "sum": "Read macOS setting …/Contents/Info.plist",
+  "sum": "Read macOS setting \u2026/Contents/Info.plist",
   "hosts": [
    "ag-mac"
   ]
@@ -114,7 +114,7 @@
   "args": {
    "command": "cd ~/ag && git add toolsum && git commit -m 'toolsum: deterministic tool summaries' && git push"
   },
-  "sum": "Stage changes · Commit \"toolsum: deterministic tool summaries\" · Push",
+  "sum": "Stage changes \u00b7 Commit \"toolsum: deterministic tool summaries\" \u00b7 Push",
   "hosts": [
    "ag-engine"
   ]
@@ -144,7 +144,7 @@
   "args": {
    "command": "cd ~/arcade.school && git show origin/dev:apps/arcade/src/lib/server/x.ts | sed -n 1,80p"
   },
-  "sum": "Show apps/…/server/x.ts at origin/dev",
+  "sum": "Show apps/\u2026/server/x.ts at origin/dev",
   "hosts": [
    "ag-engine"
   ]
@@ -154,7 +154,7 @@
   "args": {
    "command": "grep -n \"consent\\|ARC-729\" routes/api/chat/messages/server.test.ts | head -40"
   },
-  "sum": "Search \"consent|ARC-729\" in routes/…/messages/server.test.ts",
+  "sum": "Search \"consent|ARC-729\" in routes/\u2026/messages/server.test.ts",
   "hosts": [
    "ag-engine"
   ]
@@ -244,7 +244,7 @@
   "args": {
    "command": "systemctl --user restart ag-board && sleep 2 && systemctl --user status ag-board --no-pager | head -5"
   },
-  "sum": "Restart ag-board · Check ag-board",
+  "sum": "Restart ag-board \u00b7 Check ag-board",
   "hosts": [
    "ag-engine"
   ]
@@ -284,7 +284,7 @@
   "args": {
    "command": "osascript -e 'tell application \"Google Chrome\" to get URL of active tab of front window'"
   },
-  "sum": "AppleScript → Google Chrome",
+  "sum": "AppleScript \u2192 Google Chrome",
   "hosts": [
    "ag-engine"
   ]
@@ -364,7 +364,7 @@
   "args": {
    "command": "ps aux | grep -i telegram | xargs kill"
   },
-  "sum": "Check processes/load · Stop processes (each)",
+  "sum": "Check processes/load \u00b7 Stop processes (each)",
   "hosts": [
    "ag-engine"
   ]
@@ -436,7 +436,7 @@
    "offset": 100,
    "limit": 50
   },
-  "sum": "Read ~/ag/README.md:100–149",
+  "sum": "Read ~/ag/README.md:100\u2013149",
   "hosts": [
    "ag-engine"
   ]
@@ -450,7 +450,7 @@
     {}
    ]
   },
-  "sum": "Edit ~/…/bin/ag-board (2 changes)",
+  "sum": "Edit ~/\u2026/bin/ag-board (2 changes)",
   "hosts": [
    "ag-engine"
   ]
@@ -651,7 +651,7 @@
   "args": {
    "command": "/opt/homebrew/bin/hs -c \"return hs.osascript.applescript([[tell application \\\"Google Chrome\\\" to return count of windows]])\""
   },
-  "sum": "AppleScript → Google Chrome (via Hammerspoon)",
+  "sum": "AppleScript \u2192 Google Chrome (via Hammerspoon)",
   "hosts": [
    "ag-engine"
   ]
@@ -691,7 +691,7 @@
   "args": {
    "command": "cd ~/Library/Logs/Roblox && for f in $(ls -t *Player*last.log | head -8); do echo \"$f $(wc -l <$f) join=$(grep -ac 'Joining game' $f) hang=$(grep -ac HangDetected $f)\"; done"
   },
-  "sum": "Count lines in $f · Search \"Joining game\" in $f · Search \"HangDetected\" in $f",
+  "sum": "Count lines in $f \u00b7 Search \"Joining game\" in $f \u00b7 Search \"HangDetected\" in $f",
   "hosts": [
    "ag-engine"
   ]
@@ -841,7 +841,7 @@
   "args": {
    "command": "cat notes.md | pbcopy"
   },
-  "sum": "Read notes.md · Copy to clipboard",
+  "sum": "Read notes.md \u00b7 Copy to clipboard",
   "hosts": [
    "ag-engine"
   ]
@@ -891,7 +891,7 @@
   "args": {
    "command": "\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --headless=new --disable-gpu --window-size=1440,1100 --screenshot=/tmp/devchart.png file:///tmp/devchart.html 2>/dev/null"
   },
-  "sum": "Screenshot /tmp/devchart.html in headless Chrome → /tmp/devchart.png",
+  "sum": "Screenshot /tmp/devchart.html in headless Chrome \u2192 /tmp/devchart.png",
   "hosts": [
    "ag-engine"
   ]
@@ -971,7 +971,7 @@
   "args": {
    "command": "git ls-files | xargs wc -l"
   },
-  "sum": "List tracked files · Count lines in the listed files",
+  "sum": "List tracked files \u00b7 Count lines in the listed files",
   "hosts": [
    "ag-engine"
   ]
@@ -981,7 +981,7 @@
   "args": {
    "command": "ls *.jsonl | xargs -I{} sh -c 'grep -l \"PRRT_kw\" {} 2>/dev/null'"
   },
-  "sum": "List *.jsonl · Search \"PRRT_kw\" in {} (each)",
+  "sum": "List *.jsonl \u00b7 Search \"PRRT_kw\" in {} (each)",
   "hosts": [
    "ag-engine"
   ]
@@ -1092,6 +1092,16 @@
    "command": "tmux -L ag display -p -t Inbox \"#{pane_pid}\""
   },
   "sum": "Query tmux",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "sed -i '' 's/^export const X/const X/' apps/arcade/src/lib/a.ts"
+  },
+  "sum": "Edit apps/\u2026/lib/a.ts (sed)",
   "hosts": [
    "ag-engine"
   ]

@@ -357,7 +357,7 @@ function nested(inner: string, host: string, _ctx: Ctx): SegOut {
 
 const RULES: Rule[] = [
 	{ id: "sed-read", cmd: /^sed$/, fn: (a) => {
-		if (a.some((x) => /^-i/.test(x))) { const f = positional(a.filter((x) => !/^-i/.test(x)), ["-e"]).slice(a.includes("-e") ? 0 : 1); return `Edit ${paths(f)} (sed)`; }
+		if (a.some((x) => /^-i/.test(x))) { const f = positional(a.filter((x) => !/^-i/.test(x) && x !== ""), ["-e"]).slice(a.includes("-e") ? 0 : 1); return `Edit ${paths(f)} (sed)`; }
 		const p = positional(a, ["-e"]);
 		const range = p[0]?.match(/^(\d+)(?:,(\d+|\$))?p$/);
 		if (range && p[1]) return `Read ${shortPath(p[1])}:${range[1]}${range[2] ? `–${range[2]}` : ""}`;

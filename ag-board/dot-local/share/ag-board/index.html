@@ -680,7 +680,7 @@ function render() {
   tick();
 }
 // ---------- routines view (/routines): GET /api/routines every 10 s while it's showing ----------
-let routinesAt = 0, routinesBusy = false, routineLogs = {};
+var routinesAt = 0, routinesBusy = false, routineLogs = {}; // var: render() can run before this line
 async function loadRoutines(force = false) {
   if (routinesBusy || (!force && Date.now() - routinesAt < 10000)) return;
   routinesBusy = true;

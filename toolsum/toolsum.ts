@@ -356,13 +356,18 @@ function nested(inner: string, host: string, _ctx: Ctx): SegOut {
 }
 
 const RULES: Rule[] = [
-	{ id: "sed-read", cmd: /^sed$/, fn: (a) => {
+	{ id: "sed-read", cmd: /^sed$/, fn: (a, _raw, _ctx, seg) => {
 		if (a.some((x) => /^-i/.test(x))) { const f = positional(a.filter((x) => !/^-i/.test(x) && x !== ""), ["-e"]).slice(a.includes("-e") ? 0 : 1); return `Edit ${paths(f)} (sed)`; }
 		const p = positional(a, ["-e"]);
 		const range = p[0]?.match(/^(\d+)(?:,(\d+|\$))?p$/);
 		if (range && p[1]) return `Read ${shortPath(p[1])}:${range[1]}${range[2] ? `–${range[2]}` : ""}`;
 		if (p[0] && /^\//.test(p[0]) && p[1]) return `Read part of ${shortPath(p[1])}`;
 		if (a.includes("-n") && p.length === 2 && /p$/.test(p[0]) && p[0].includes("$")) return `Read part of ${shortPath(p[1])}`;
+		// sed SCRIPT FILE… (or -e … FILE…): a filtered copy, to stdout or a redirect
+		const files = a.includes("-e") || a.includes("--expression") ? p : p.slice(1);
+		if (!files.length) return;
+		const out = seg.match(/(?:^|\s)>\s*([^\s<>&|;]+)\s*$/)?.[1];
+		return out ? `Write ${shortPath(out)} from ${paths(files)} (sed)` : `Filter ${paths(files)} with sed`;
 	} },
 	{ id: "cat", cmd: /^cat$/, fn: (a, _raw, _ctx, seg) => {
 		const out = seg.match(/(>>?)\s*([^\s<>]+)/);
@@ -393,7 +398,7 @@ const RULES: Rule[] = [
 		const root = a.find((x) => !x.startsWith("-") && x !== name);
 		return `Find ${name ? `"${name}" ` : "files "}in ${shortPath(root ?? ".")}`;
 	} },
-	{ id: "wc", cmd: /^wc$/, fn: (a, _r, _c, seg) => { const p = positional(a); const f = p.length ? p : (seg.match(/<\s*([^\s<>|;]+)/)?.slice(1) ?? []); return f.length ? `Count lines in ${paths(f)}` : undefined; } },
+	{ id: "wc", cmd: /^wc$/, fn: (a, _r, _c, seg) => { const p = positional(a); const f = p.length ? p : (seg.match(/<\s*([^\s<>|;]+)/)?.slice(1) ?? []); if (!f.length) return; const what = a.some((x) => /^-\w*[cm]/.test(x)) && !a.some((x) => /^-\w*l/.test(x)) ? "bytes" : a.some((x) => /^-\w*w/.test(x)) && !a.some((x) => /^-\w*l/.test(x)) ? "words" : "lines"; return `Count ${what} in ${paths(f)}`; } },
 	{ id: "perl", cmd: /^perl$/, fn: (a) => (a.some((x) => /^-\w*i/.test(x)) ? `Edit ${paths(positional(a, ["-e", "-E"]))} (perl)` : "Run Perl snippet") },
 	{ id: "awk", cmd: /^(awk|gawk)$/, fn: (a) => { const p = positional(a, ["-F", "-v", "-f"]); return p[1] ? `Scan ${paths(p.slice(1))}` : undefined; } },
 	{ id: "macos-log", cmd: /^log$/, fn: (a) => (a[0] === "show" || a[0] === "stream" ? `Read macOS logs${a.join(" ").match(/process == \\?"([^"\\]+)/)?.[1] ? ` of ${a.join(" ").match(/process == \\?"([^"\\]+)/)![1]}` : ""}` : undefined) },
@@ -466,9 +471,12 @@ const RULES: Rule[] = [
 	} },
 	{ id: "curl", cmd: /^(curl|wget|http|xh)$/, fn: (a) => {
 		const url = positional(a, ["-H", "-d", "--data", "--data-binary", "--data-raw", "-X", "-o", "-u", "-m", "--max-time", "-w", "-A", "-b", "-c", "-e", "-F", "--connect-timeout", "--retry", "-T", "--json"]).find((x) => /^(https?:\/\/|[\w.-]+:\d+|\/|localhost|127\.|\d+\.\d+|\$\{?\w+\}?\/\w)/.test(x) || /\.\w{2,}\//.test(x));
-		if (!url) return;
-		const method = flagVal(a, "-X", "--request") ?? (a.some((x) => /^(-d|--data|--data-binary|--data-raw|-F|--json|-T)$/.test(x)) ? "POST" : "GET");
-		return `${method.toUpperCase()} ${shortUrl(url)}`;
+		// a URL held in variables ("$u", $B/$p, $(session-link)) is shown as written
+		const vurl = url ?? positional(a, ["-H", "-d", "--data", "--data-binary", "--data-raw", "-X", "-o", "-u", "-m", "--max-time", "-w", "-A", "-b", "-c", "-e", "-F", "--connect-timeout", "--retry", "-T", "--json", "-D"]).find((x) => /^(?:\$\{?\w+\}?|\$\(session-link\))(?:[\w./$-]|\$\{?\w+\}?)*$/.test(x));
+		if (!vurl) return;
+		const head = a.some((x) => /^-[a-zA-Z]*I[a-zA-Z]*$/.test(x) || x === "--head");
+		const method = flagVal(a, "-X", "--request") ?? (a.some((x) => /^(-d|--data|--data-binary|--data-raw|-F|--json|-T)$/.test(x)) ? "POST" : head ? "HEAD" : "GET");
+		return `${method.toUpperCase()} ${url ? shortUrl(url) : clip(vurl, 40)}`;
 	} },
 	{ id: "ssh", cmd: /^ssh$/, fn: (a, _raw, ctx) => {
 		const p = positional(a, ["-o", "-i", "-p", "-J", "-L", "-R", "-F", "-l", "-E", "-W"]);
@@ -508,7 +516,9 @@ const RULES: Rule[] = [
 		const s = task ? cuaSummary(task) : undefined;
 		return s ? { sum: s, host, rule: "cua" } : null;
 	} },
-	{ id: "ag-mux", cmd: /^ag-mux$/, fn: (a) => {
+	{ id: "ag-mux", cmd: /^(ag-mux|herdr)$/, fn: (a, raw) => {
+		// herdr is ag-mux's predecessor with the same CLI; old traces still use it
+		const tool = raw.split(/\s/)[0];
 		const p = positional(a, ["--workspace", "--label", "--cwd", "--direction", "--source", "--lines", "--timeout", "--regex", "--body", "--sound", "--tab", "--pane"]);
 		const [g, sub, tgt] = p;
 		const label = flagVal(a, "--label");
@@ -523,13 +533,24 @@ const RULES: Rule[] = [
 			"api snapshot": "Read session snapshot", "notification show": "Show a notification", "layout export": "Export layout",
 			"pane rename": `Rename pane ${tgt ?? ""}`, "pane focus": `Focus pane ${tgt ?? ""}`, "pane layout": `Inspect layout of pane ${flagVal(a, "--pane") ?? tgt ?? ""}`,
 			"workspace close": `Close workspace ${tgt ?? ""}`, "workspace focus": `Focus workspace ${tgt ?? ""}`, "workspace rename": `Rename workspace ${tgt ?? ""}`,
+			"api schema": `Read the ${tool} API schema`, "server reload-config": `Reload ${tool} config`, "server stop": `Stop the ${tool} server`,
+			"config check": `Check ${tool} config`, "machine list": `List ${tool} machines`, "worktree create": "Create worktree", "worktree list": "List worktrees",
 		};
-		if (g === "status" && !sub) return "Check ag-mux status";
-		if (!g && a.includes("--skill")) return "Read the ag-mux skill";
+		if (g === "status" && !sub) return `Check ${tool} status`;
+		if (!g && a.includes("--skill")) return `Read the ${tool} skill`;
 		const s = map[`${g} ${sub}`];
 		return s?.trim();
 	} },
 	{ id: "session-link", cmd: /^session-link$/, fn: () => "Get session link" },
+	{ id: "herdr-link", cmd: /^herdr-link$/, fn: (a) => {
+		// herdr-link (predecessor of `ag link`): tabs by id, --grep PATTERN, or --session [file|id]
+		if (a.includes("--grep")) { const g = a.slice(a.indexOf("--grep") + 1).find((x) => !x.startsWith("-")); return g ? `Get links to tabs matching "${clip(g, 30)}"` : undefined; }
+		const self = (x: string) => /^"?\$\{?(?:HERDR_TAB_ID|PI_SESSION_FILE|PI_SESSION_ID)\}?"?$/.test(x);
+		const p = positional(a).filter((x) => x !== "-i");
+		if (a.includes("--session")) return !p.length || self(p[0]) ? "Get link to this session" : `Get link to session ${shortPath(p[0].replace(/^.*\//, ""))}`;
+		if (!p.length || p.every(self)) return "Get link to this tab";
+		return `Get link to ${p.slice(0, 3).map((x) => clip(x, 20)).join(", ")}${p.length > 3 ? ` +${p.length - 3}` : ""}`;
+	} },
 	{ id: "osascript", cmd: /^osascript$/, fn: (a, raw) => {
 		const app = raw.match(/tell (?:application|app) (?:id )?\\?"([^"\\]+)\\?"/)?.[1];
 		if (app) return `AppleScript → ${app.replace(/^com\.google\.Chrome$/, "Chrome")}`;
@@ -543,7 +564,7 @@ const RULES: Rule[] = [
 		return p[0] ? `Open ${/^\w+:/.test(p[0]) ? shortUrl(p[0]) : shortPath(p[0])}` : undefined;
 	} },
 	{ id: "screencapture", cmd: /^screencapture$/, fn: (a) => { const f = positional(a, ["-R", "-l", "-D", "-T", "-t"])[0]; return `Take a screenshot${f ? ` → ${shortPath(f)}` : ""}`; } },
-	{ id: "cliclick", cmd: /^cliclick$/, fn: (a) => { const c = a.find((x) => /^(c|dc|rc|m):/.test(x)); return c ? `${c.startsWith("m") ? "Move mouse" : c.startsWith("dc") ? "Double-click" : c.startsWith("rc") ? "Right-click" : "Click"} at ${c.split(":")[1]}` : "Mouse/keyboard input"; } },
+	{ id: "cliclick", cmd: /^cliclick$/, fn: (a) => { const c = a.find((x) => /^(c|dc|rc|m):/.test(x)); const kp = a.filter((x) => /^k[pdu]:/.test(x)); if (!c && kp.length && kp.length === positional(a).filter((x) => !/^w:/.test(x)).length) return `Press ${kp.map((x) => x.slice(3)).join(", ")}`; return c ? `${c.startsWith("m") ? "Move mouse" : c.startsWith("dc") ? "Double-click" : c.startsWith("rc") ? "Right-click" : "Click"} at ${c.split(":")[1]}` : "Mouse/keyboard input"; } },
 	{ id: "kill", cmd: /^(pkill|killall|kill)$/, fn: (a, raw) => { const p = positional(a, ["-s", "-signal"]); if (!p.length) return "Stop processes"; return raw.startsWith("kill ") ? `Stop process ${p.join(" ")}` : `Stop ${p.map((x) => clip(x, 30)).join(", ")}`; } },
 	{ id: "pgrep", cmd: /^(pgrep|pidof)$/, fn: (a) => `Find process "${clip(positional(a).join(" "), 30)}"` },
 	{ id: "ps", cmd: /^(ps|top|htop|uptime|free|vm_stat)$/, fn: () => "Check processes/load" },
@@ -640,7 +661,8 @@ const RULES: Rule[] = [
 		const sub: Record<string, string> = { ls: "List tmux sessions", "list-sessions": "List tmux sessions", "list-windows": "List tmux windows", "list-panes": "List tmux panes", "list-clients": "List tmux clients",
 			"capture-pane": `Read tmux pane${t ? ` ${t}` : ""}`, "send-keys": `Send keys to tmux pane${t ? ` ${t}` : ""}`, "kill-session": `Close tmux session${t ? ` ${t}` : ""}`, "kill-window": `Close tmux window${t ? ` ${t}` : ""}`,
 			"kill-pane": `Close tmux pane${t ? ` ${t}` : ""}`, "new-window": "Open tmux window", "new-session": "Start tmux session", "has-session": `Check tmux session${t ? ` ${t}` : ""}`,
-			"show-options": "Read tmux options", "display-message": "Query tmux", display: "Query tmux", "source-file": "Reload tmux config", "set-option": "Set tmux option", "rename-window": `Rename tmux window${t ? ` ${t}` : ""}` };
+			"show-options": "Read tmux options", "display-message": "Query tmux", display: "Query tmux", "source-file": "Reload tmux config", "set-option": "Set tmux option", show: "Read tmux options", "list-keys": "List tmux key bindings",
+			"show-environment": "Read tmux environment", "kill-server": `Stop tmux server${flagVal(a, "-L") ? ` ${flagVal(a, "-L")}` : ""}`, "rename-window": `Rename tmux window${t ? ` ${t}` : ""}` };
 		return p[0] ? sub[p[0]] : undefined;
 	} },
 	{ id: "strings", cmd: /^strings$/, fn: (a) => { const p = positional(a, ["-n", "-t"]); return p.length ? `Extract strings from ${paths(p)}` : undefined; } },
@@ -693,6 +715,18 @@ const RULES: Rule[] = [
 			case "logs": return r[0] ? `Read logs of ${r[0]}` : "List Ag services";
 			case "restart": return r.length ? `Restart ${r.join(", ")}` : undefined;
 			case "usage": return "Measure ag CLI usage";
+			case "doctor": return "Check what Ag still lacks on this machine";
+			case "setup": return "Install or update Ag on this machine";
+			case "discord": {
+				const [sub, x] = r;
+				const ch = (c?: string) => (c && /^https?:/.test(c) ? "a Discord message" : `Discord #${clip(c ?? "", 30)}`);
+				if (sub === "read") return x ? `Read ${ch(x)}` : undefined;
+				if (sub === "threads") return x ? `List threads in ${ch(x)}` : undefined;
+				if (sub === "get") return x ? `Read ${ch(x)}` : undefined;
+				if (sub === "post") return flagVal(a, "--reply-to") ? "Reply on Discord" : x ? `Post to ${ch(x)}` : undefined;
+				if (sub === "whoami") return "Check the Discord bot identity";
+				return;
+			}
 			case "routine": return `${r[0] ? `${r[0][0].toUpperCase()}${r[0].slice(1)} ` : "List "}routine${r[1] ? ` ${r[1]}` : "s"}`;
 		}
 		// passthrough verbs: `ag text …` runs ag-text, so summarize it as that
@@ -806,7 +840,23 @@ function summarizeOne(cmd: string, ctx: Ctx): SegOut {
 	return { sum: r.sum, host: r.hosts.find((h) => h !== ctx.host), rule: "nested", parts: r.parts };
 }
 
-export function summarizeShell(command: string, ctx: Ctx): Summary & { allNoise?: boolean } {
+/** A top-level command that is only "noise" but still has a point: printing variables, checking the time. */
+function quietSum(segs: { seg: string }[]): string | undefined {
+	const out: string[] = [];
+	const printed: string[] = [];
+	for (const { seg } of segs) {
+		const s = seg.trim();
+		const vars = s.match(/^echo((?:\s+"?\$\{?[A-Za-z_]\w*\}?"?)+)$/);
+		if (vars) { if (!printed.length) out.push("PRINT"); printed.push(...vars[1].replace(/["{}]/g, "").trim().split(/\s+/)); continue; }
+		const d = s.match(/^(?:TZ=(\S+)\s+)?date(?:\s+(?:-u|'\+[^']*'|"\+[^"]*"|\+\S+))?$/);
+		if (d) { out.push(`Show the time${d[1] ? ` in ${d[1].replace(/^.*\//, "").replace(/_/g, " ")}` : ""}`); continue; }
+		if (/^(?:cd|pushd|popd)(?:\s|$)/.test(s)) continue;
+		return;
+	}
+	return out.length ? [...new Set(out)].map((x) => (x === "PRINT" ? `Print ${[...new Set(printed)].join(", ")}` : x)).join(" · ") : undefined;
+}
+
+export function summarizeShell(command: string, ctx: Ctx, top = false): Summary & { allNoise?: boolean } {
 	const bodies: Record<string, string> = { ...ctx.heredocs };
 	const segs = splitShell(stripHeredocs(command, bodies));
 	ctx = { ...ctx, heredocs: bodies };
@@ -856,7 +906,11 @@ export function summarizeShell(command: string, ctx: Ctx): Summary & { allNoise?
 	}
 	const hosts = [...new Set([...outs.map((o) => o.host ?? ctx.host)])];
 	if (unknown) return { hosts: hosts.length ? hosts : [ctx.host], miss };
-	if (!outs.length) return sleep ? { sum: `Wait ${sleep}s`, hosts: [ctx.host], rule: "sleep" } : { hosts: [ctx.host], allNoise: true };
+	if (!outs.length) {
+		if (sleep) return { sum: `Wait ${sleep}s`, hosts: [ctx.host], rule: "sleep" };
+		const q = top ? quietSum(segs) : undefined;
+		return q ? { sum: q, hosts: [ctx.host], rule: "quiet" } : { hosts: [ctx.host], allNoise: true };
+	}
 	const local = ctx.host;
 	const label = (o: { sum: string; host?: string }) => o.sum;
 	// "Stop A · Stop B" → "Stop A, B"
@@ -906,7 +960,7 @@ export function summarize(name: string, args: any, ctx: Ctx = { host: "ag-engine
 			case "bash":
 			case "zsh":
 			case "shell":
-				return typeof args.command === "string" ? summarizeShell(args.command, ctx) : local;
+				return typeof args.command === "string" ? summarizeShell(args.command, ctx, true) : local;
 			case "read": {
 				const p = String(args.path ?? args.file_path ?? "");
 				if (IMG.test(p)) return { sum: `View image ${p.split("/").pop()}`, hosts: [ctx.host], rule: "read-image" };

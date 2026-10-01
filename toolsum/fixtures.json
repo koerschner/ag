@@ -1215,5 +1215,265 @@
   "hosts": [
    "ag-engine"
   ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr tab get wN:tM"
+  },
+  "sum": "Inspect tab wN:tM",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr tab create --workspace \"$HERDR_WORKSPACE_ID\" --cwd /tmp --no-focus"
+  },
+  "sum": "Open tab",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr status 2>&1"
+  },
+  "sum": "Check herdr status",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr server reload-config"
+  },
+  "sum": "Reload herdr config",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr --skill 2>/dev/null"
+  },
+  "sum": "Read the herdr skill",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr worktree list --cwd ~/arcade.school 2>&1"
+  },
+  "sum": "List worktrees",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr-link --session \"$f\""
+  },
+  "sum": "Get link to session $f",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr-link --url --session"
+  },
+  "sum": "Get link to this session",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr-link w1:tCW wB:t7"
+  },
+  "sum": "Get link to w1:tCW, wB:t7",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr-link --grep -i Nessie"
+  },
+  "sum": "Get links to tabs matching \"Nessie\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "for w in wF wM; do echo \"$w: $(herdr pane process-info --pane $w:p1 2>/dev/null | jq -c .result | head -c 150)\"; done"
+  },
+  "sum": "Inspect pane $w:p1",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "tmux -L ag list-keys -T prefix"
+  },
+  "sum": "List tmux key bindings",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "tmux -L ag show-environment -g 2>/dev/null"
+  },
+  "sum": "Read tmux environment",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "tmux -L agdbg kill-server"
+  },
+  "sum": "Stop tmux server agdbg",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "sed -n 's/^token=//p' ~/.config/ag/telegram"
+  },
+  "sum": "Filter ~/.config/ag/telegram with sed",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "sed -e 's/refresh-0925/refresh-0926/' -e 's/for d in 24 25/for d in 26/' /tmp/rb.sh > /tmp/rb26.sh"
+  },
+  "sum": "Write /tmp/rb26.sh from /tmp/rb.sh (sed)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "curl -sI \"$L\""
+  },
+  "sum": "HEAD $L",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "curl -s -m 20 \"$B/$p\" \"${H[@]}\" -d \"$body\""
+  },
+  "sum": "POST $B/$p",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag doctor >/dev/null"
+  },
+  "sum": "Check what Ag still lacks on this machine",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag discord read core -n 5 2>&1"
+  },
+  "sum": "Read Discord #core",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag discord post --reply-to https://discord.com/channels/1/2/3 \"$(cat /tmp/msg.md)\""
+  },
+  "sum": "Reply on Discord",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "TZ=America/New_York date '+%A, %B %-d, %Y %-I:%M %p %Z'"
+  },
+  "sum": "Show the time in New York",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "echo $PI_MODEL; echo $PI_SESSION_FILE"
+  },
+  "sum": "Print $PI_MODEL, $PI_SESSION_FILE",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "T=$(date +%s); echo $T"
+  },
+  "sum": null,
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "op-shared item list --vault machine-shared --format json > /tmp/ms.json 2>/tmp/ms.err; wc -c /tmp/ms.json"
+  },
+  "sum": "List secrets (op-shared) \u00b7 Count bytes in /tmp/ms.json",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cliclick kp:esc"
+  },
+  "sum": "Press esc",
+  "hosts": [
+   "ag-engine"
+  ]
  }
 ]

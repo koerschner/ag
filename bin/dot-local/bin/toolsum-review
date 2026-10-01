@@ -1,0 +1,99 @@
+#!/usr/bin/env zsh
+# toolsum-review: the routine that keeps AG Dash's tool-call summaries growing (systemd: toolsum-review.timer,
+# daily on the session host). See ~/ag/toolsum/README.md.
+#
+#   1. Measure: `toolsum coverage --days 7 --json` over every Pi session (report kept in the state dir).
+#   2. Gate: only when some unmatched shape (not in toolsum/skip.json) has ≥ MIN_GAP calls does it go on.
+#   3. Improve: a non-interactive Pi run, in a fresh worktree of ag, extends toolsum.ts (new rules, each with a
+#      fixture), may mark shapes as skip (raw is clearer), and reviews a sample of existing summaries for
+#      misleading ones.
+#   4. Verify: fixtures pass and coverage didn't drop; otherwise nothing is merged.
+#   5. Ship: commit, push to ag main, pull into ~/ag, restart AG Dash.
+#   Writes ~/.local/state/routines/toolsum-review.json ({at, ok, summary, session}) for AG Dash's Routines view.
+#
+#   toolsum-review [--dry-run] [--force]     --dry-run: measure + gate only; --force: skip the gate
+setopt err_exit pipe_fail
+MIN_GAP=${MIN_GAP:-10}
+STATE=~/.local/state/routines
+NAME=toolsum-review
+mkdir -p $STATE/$NAME
+dry=0 force=0
+for a in "$@"; do [[ $a == --dry-run ]] && dry=1; [[ $a == --force ]] && force=1; done
+
+status() { # ok summary [session]
+  jq -n --arg ok "$1" --arg s "$2" --arg sid "${3:-}" --arg at "$(date -u +%FT%TZ)" \
+    '{at:$at, ok:($ok=="true"), summary:$s} + (if $sid=="" then {} else {session:$sid} end)' > $STATE/$NAME.json.tmp
+  mv $STATE/$NAME.json.tmp $STATE/$NAME.json
+}
+trap 'status false "failed at line $LINENO (journalctl --user -u toolsum-review)"' ZERR
+
+day=$(date -u +%Y%m%d)
+report=$STATE/$NAME/coverage-$day.json
+toolsum coverage --days 7 --json --top 60 > $report
+before=$(jq .pct $report)
+skip=~/ag/toolsum/skip.json
+gaps=$(jq --slurpfile skip <([[ -f $skip ]] && cat $skip || echo '[]') --argjson min $MIN_GAP \
+  '[.gaps[] | select(.calls >= $min) | select(.shape as $s | ($skip[0] | map(.shape) | index($s)) | not)]' $report)
+n=$(jq length <<<$gaps)
+echo "coverage ${before}%; $n open gap(s) with ≥ $MIN_GAP calls"
+if (( n == 0 && ! force )); then status true "${before}% of tool calls summarised; no new gaps"; exit 0; fi
+(( dry )) && { echo $gaps | jq -r '.[] | "  \(.calls)  \(.shape)"'; exit 0; }
+
+# Fresh worktree off origin/main, so concurrent hand edits in ~/ag never mix in.
+wt=~/ag-routine-toolsum
+git -C ~/ag fetch -q origin
+git -C ~/ag worktree remove --force $wt 2>/dev/null || true
+git -C ~/ag branch -D routine/toolsum 2>/dev/null || true
+git -C ~/ag worktree add -q $wt -b routine/toolsum origin/main
+cleanup() { cd ~; git -C ~/ag worktree remove --force $wt 2>/dev/null; git -C ~/ag branch -D routine/toolsum 2>/dev/null; true; }
+trap cleanup EXIT
+cd $wt
+T=$wt/bin/dot-local/bin/toolsum
+
+sid=$(cat /proc/sys/kernel/random/uuid)
+prompt=$(cat <<EOF
+You are running the "toolsum review" routine for Ag (Nathan's agent system), non-interactively. Nobody will
+answer questions; finish on your own and stop.
+
+AG Dash shows a deterministic one-line summary for each agent tool call, from $wt/toolsum/toolsum.ts
+(read its header comment first). A call only gets a summary when every meaningful piece matched a rule; otherwise
+the raw command is shown. Your job: extend the rules so more calls get an accurate summary.
+
+Current coverage over the last 7 days: ${before}%. Full report: $report
+Open gaps (unmatched shapes, most calls first; examples are the piece that failed to match):
+$(jq -r '.[] | "- \(.calls) calls: \(.shape)\n    e.g. \(.examples | join("\n    e.g. "))"' <<<$gaps)
+
+Do this, working only inside $wt:
+1. For each gap, decide: add or extend a rule in toolsum.ts, or, if no deterministic summary would be clearer than
+   the raw command (opaque variables like \$C, one-off scripts), add {"shape": "<shape>", "reason": "..."} to
+   $wt/toolsum/skip.json (a JSON array; create it if missing).
+2. Summaries must be short (under ~70 chars), start with a verb, never claim more than the command does, and
+   keep the specific target (file, PR, host, table). Prefer general rules over one-off string matches.
+3. Add a fixture to $wt/toolsum/fixtures.json for every new or changed rule (same shape as the existing entries).
+4. Review quality too: run \`$T sample --days 3 --n 60\` and fix any summary that is misleading or loses the
+   important part of the command (add a fixture for each fix).
+5. Verify: \`$T check\` must pass, and \`$T coverage --days 7\` must not be lower than ${before}%.
+6. Don't commit or push; the routine does that after re-checking. End with a 1-2 line summary of what you changed.
+EOF
+)
+log=$STATE/$NAME/pi-$day.log
+pi -p --session-id $sid --name "Routine: toolsum review $day" "$prompt" > $log 2>&1 < /dev/null || true
+
+# Re-verify independently of what the agent said.
+if [[ -z $(git status --porcelain) ]]; then status true "${before}%; agent made no changes" $sid; exit 0; fi
+if ! $T check > $STATE/$NAME/check-$day.log 2>&1; then status false "agent's change failed the fixtures; not merged" $sid; exit 1; fi
+after=$($T coverage --days 7 --json | jq .pct)
+if (( after < before )); then status false "coverage dropped ${before}% → ${after}%; not merged" $sid; exit 1; fi
+
+git add toolsum
+git commit -q -F - <<EOF
+toolsum: routine review ${before}% → ${after}% tool calls summarised
+
+Claude ($(jq -r .defaultModel ~/.pi/agent/settings.json)), assisting Nathan (toolsum-review routine, session $sid):
+$(tail -5 $log)
+EOF
+for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && break; sleep 5; done
+git -C ~/ag pull -q --rebase --autostash origin main || echo "warning: ~/ag pull failed; AG Dash keeps the old rules until it's synced"
+systemctl --user restart ag-board.service || true
+status true "${before}% → ${after}% of tool calls summarised" $sid
+echo "shipped: ${before}% → ${after}%"

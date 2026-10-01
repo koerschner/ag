@@ -134,6 +134,29 @@ header h1 .brand{height:1.2em;width:auto;flex:0 0 auto}
 .tools .n{color:#a9c8ff;white-space:nowrap}
 .tools .dd{flex:1;color:#c3c7cf;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tools .dur{color:var(--dim);white-space:nowrap}
+/* tool rows: machine chip (where the call runs) + deterministic summary (raw command on hover / in details) */
+.host{font-size:10px;line-height:1;padding:.14rem .32rem;border-radius:4px;white-space:nowrap;align-self:center;border:1px solid #2b3038;color:#8b93a1;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.host.h-ag-mac{color:#ffc46b;border-color:#5a4520;background:#2a2112}
+.host.h-ag-client{color:#ff9ad5;border-color:#5a2547;background:#2a1322}
+.host.h-ag-phone{color:#9be7a5;border-color:#245a2f;background:#122a17}
+.host.h-mcp{color:#9fb6d9;border-color:#2b3a52}
+.dd.sum{font-family:inherit}
+/* Routines view: recurring jobs Ag runs on its own (systemd timers on the engine, interval LaunchAgents on ag-mac) */
+#routines{padding:.8rem 1rem 2rem;max-width:980px;overflow-y:auto;height:calc(100% - 52px);box-sizing:border-box}
+#routines h3{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin:1rem 0 .4rem;font-weight:600}
+#routines .intro{color:var(--dim);font-size:12.5px;margin:.1rem 0 .6rem}
+.rt{background:var(--col);border:1px solid var(--line);border-radius:9px;padding:.55rem .7rem;margin:0 0 .5rem}
+.rt-h{display:flex;gap:.45rem;align-items:center;flex-wrap:wrap}
+.rt-h b{font-size:13.5px}
+.rt-h .sched{color:var(--dim);font-size:12px}
+.rt-h .acts{margin-left:auto;display:flex;gap:.3rem}
+.rt-d{color:#c3c7cf;font-size:12.5px;margin:.2rem 0}
+.rt-m{color:var(--dim);font-size:12px}
+.rt-o{font-size:12.5px;margin-top:.25rem;color:#d6e4ff}
+.rt-o.bad{color:#ff9a9a}
+.rb{font-size:10.5px;padding:.08rem .38rem;border-radius:4px;background:var(--card2);color:var(--dim)}
+.rb.ok{color:var(--green)}.rb.running{color:var(--blue)}.rb.bad{color:var(--red);background:#3a1016}
+.rt pre{margin:.4rem 0 0;background:#0c0d10;padding:.45rem;border-radius:6px;overflow:auto;max-height:22em;font-size:11.5px;white-space:pre-wrap;word-break:break-word}
 .ok{color:var(--green)}.err{color:var(--red)}.run{color:var(--blue)}
 .stats{font-size:11.5px;color:var(--dim);display:flex;flex-wrap:wrap;gap:.2rem .7rem;margin:.3rem 0 .5rem}
 .stats b{color:#c3c7cf;font-weight:500}
@@ -259,6 +282,8 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   .card .qa .ib{min-width:40px;min-height:40px}
   #coltabs{display:flex;flex:none;gap:.3rem;overflow-x:auto;scrollbar-width:none;padding:.1rem calc(.7rem + env(safe-area-inset-right)) .45rem calc(.7rem + env(safe-area-inset-left));border-bottom:1px solid var(--line)}
   #coltabs::-webkit-scrollbar{display:none}
+  #coltabs.off{display:none}
+  #routines{flex:1;min-height:0;height:auto;padding:.6rem .7rem 2rem}
   #coltabs button{flex:none;border:1px solid var(--line);background:var(--card);color:var(--dim);border-radius:99px;padding:.3rem .75rem;font-size:13px;white-space:nowrap}
   #coltabs button b{color:var(--fg);font-weight:600;margin-left:.3rem}
   #coltabs button.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}#coltabs button.on b{color:var(--bg)}
@@ -305,7 +330,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   <button class="btn" id="newbtn" title="New item (n) · dictate one (d)">+ New item</button>
   <div class="counts" id="counts"></div>
   <div class="seg" id="views">
-    <button data-v="state">State</button><button data-v="lists">Lists</button><button data-v="ws">Workspaces</button>
+    <button data-v="state">State</button><button data-v="lists">Lists</button><button data-v="ws">Workspaces</button><button data-v="routines" title="Routines: recurring jobs Ag runs on its own">Routines</button>
   </div>
   <button class="btn" id="expandall" title="Expand or collapse every card's details">Details</button>
   <button class="btn" id="hotonly" title="Show only hotpath cards">Hot only</button>
@@ -317,6 +342,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
 <nav id="coltabs" aria-label="Columns"></nav>
 <div class="hint" id="hint">Shift+click (or long-press) → hotpath: pinned on top, siren ring while it isn't working, texts you when it has something new. ▾ details · ■ interrupt · click for transcript, live screen and reply · keyboard: j/k to move, n new item, d dictate, / search, ? for all shortcuts.</div>
 <main id="board"></main>
+<main id="routines" hidden></main>
 
 <div id="scrim"></div>
 <aside id="drawer" aria-hidden="true">
@@ -386,7 +412,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
     <tr><td><span class="kbd">e</span></td><td>archive (closes the tab; Undo for a few seconds)</td></tr>
     <tr><td><span class="kbd">n</span></td><td>new item</td></tr>
     <tr><td><span class="kbd">d</span></td><td>new item by dictation (click Dictate or <span class="kbd">⌘↩</span> to send)</td></tr>
-    <tr><td><span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span></td><td>State / Lists / Workspaces view</td></tr>
+    <tr><td><span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span> <span class="kbd">4</span></td><td>State / Lists / Workspaces / Routines view</td></tr>
     <tr><td><span class="kbd">/</span></td><td>search</td></tr>
     <tr><td><span class="kbd">Esc</span></td><td>close panel</td></tr>
     <tr><td><span class="kbd">Alt</span>+<span class="kbd">V</span></td><td>dictate in the open editor (stop sends it)</td></tr>
@@ -519,7 +545,7 @@ function activity(c) {
   if (c.status === "working") {
     if (a?.kind === "tool") {
       const long = Date.now() - a.since > 3 * 60_000 ? " long" : "";
-      return `<div class="act tool${long}"><i class="spin"></i><span class="lbl">${esc(a.tool)}</span><span class="d mono">${esc(a.detail)}</span>${since(a.since)}</div>`;
+      return `<div class="act tool${long}"><i class="spin"></i><span class="lbl">${esc(a.tool)}</span>${hostChips(a)}<span class="d${a.sum ? "" : " mono"}" title="${esc(a.detail)}">${esc(a.sum || a.detail)}</span>${since(a.since)}</div>`;
     }
     return `<div class="act thinking"><span class="dots"><i></i><i></i><i></i></span><span class="lbl">thinking</span><span class="d"></span>${since(a?.since || c.statusSince)}</div>`;
   }
@@ -528,11 +554,19 @@ function activity(c) {
   if (a?.kind === "error") return `<div class="act error"><span class="lbl">✖ stopped</span><span class="d">${esc(a.error)}</span>${since(a.since)}</div>`;
   return "";
 }
+// One tool call: machine chip(s) + toolsum's summary when every part of the call matched a rule, else the raw
+// command (always on hover). The local engine gets a quiet chip; other machines are coloured.
+function hostChips(t) {
+  return (t.hosts || []).map((h) => `<span class="host h-${esc(h)}" title="runs on ${esc(h)}">${esc(h)}</span>`).join("");
+}
+function toolText(t, extra = "") {
+  return t.sum ? `<span class="dd sum${extra}" title="${esc(t.detail)}">${esc(t.sum)}</span>` : `<span class="dd mono${extra}" title="${esc(t.detail)}">${esc(t.detail)}</span>`;
+}
 function toolsList(tools) {
   return `<ul class="tools">${tools.slice().reverse().map((t) => {
     const st = !t.end ? '<span class="run">⟳</span>' : t.error ? '<span class="err">✗</span>' : '<span class="ok">✓</span>';
     const dur = t.end ? ago(Date.now() - (t.end - t.ts)).replace(/ .*/, "") : "";
-    return `<li>${st}<span class="n">${esc(t.name)}</span><span class="dd mono" title="${esc(t.detail)}">${esc(t.detail)}</span><span class="dur">${t.end ? esc(dur) : since(t.ts)}</span></li>`;
+    return `<li>${st}<span class="n">${esc(t.name)}</span>${hostChips(t)}${toolText(t)}<span class="dur">${t.end ? esc(dur) : since(t.ts)}</span></li>`;
   }).join("")}</ul>`;
 }
 function statsHtml(c) {
@@ -593,6 +627,7 @@ function patch(container, items) {
   [...container.children].forEach((e) => { if (e.dataset.key == null) e.remove(); });
 }
 function columns(cards) {
+  if (view === "routines") return [];
   if (view === "lists") {
     const cols = [{ id: "", name: "Unsorted" }, ...B.lists].map((l) => ({ key: "l:" + l.id, list: l.id, name: l.name, drop: true, cards: [] }));
     const by = Object.fromEntries(cols.map((c) => [c.list, c]));
@@ -620,6 +655,9 @@ function render() {
   let cards = B.cards.filter((c) => !archiving.has(c.tab) && (!hotOnly || c.hot));
   if (q) cards = cards.filter((c) => [c.title, c.workspaceLabel, c.lastAssistant?.text, c.lastUser?.text, c.first, c.activity?.detail].join(" ").toLowerCase().includes(q));
   const cols = columns(cards);
+  const rv = view === "routines";
+  $("#board").hidden = rv; $("#routines").hidden = !rv; $("#coltabs").classList.toggle("off", rv);
+  if (rv) loadRoutines();
   patch($("#board"), cols.map((col) => ({ key: col.key, html: `<section class="col" data-key="${esc(col.key)}" data-list="${esc(col.list ?? "")}" data-drop="${col.drop ? 1 : ""}"><h2></h2><div class="cards"></div></section>` })));
   for (const col of cols) {
     const sec = $("#board").querySelector(`.col[data-key="${CSS.escape(col.key)}"]`);
@@ -641,6 +679,52 @@ function render() {
   if (sel && !card(sel)) sel = null;
   tick();
 }
+// ---------- routines view (/routines): GET /api/routines every 10 s while it's showing ----------
+let routinesAt = 0, routinesBusy = false, routineLogs = {};
+async function loadRoutines(force = false) {
+  if (routinesBusy || (!force && Date.now() - routinesAt < 10000)) return;
+  routinesBusy = true;
+  try {
+    const j = await (await fetch("/api/routines", { cache: "no-store" })).json();
+    routinesAt = Date.now();
+    renderRoutines(j.routines || []);
+  } catch { $("#routines").innerHTML = '<div class="empty">Couldn\'t load routines.</div>'; }
+  finally { routinesBusy = false; }
+}
+setInterval(() => { if (view === "routines" && !document.hidden) loadRoutines(); }, 5000);
+function routineHtml(r) {
+  const bad = r.result && !["ok", "running"].includes(r.result);
+  const badge = r.result ? `<span class="rb ${r.result === "ok" ? "ok" : r.result === "running" ? "running" : "bad"}">${esc(r.result === "ok" && r.exit ? `exit ${r.exit}` : r.result)}</span>` : "";
+  const o = r.outcome;
+  const last = r.last ? `last ran ${since(r.last)} ago${r.duration ? ` (took ${esc(ago(Date.now() - r.duration).replace(/ .*/, ""))})` : ""}` : r.machine === "ag-mac" ? "" : "hasn't run yet";
+  const next = r.next ? `next in <span class="until" data-u="${r.next}"></span>` : "";
+  const engine = r.id.startsWith("engine:");
+  return `<div class="rt" data-id="${esc(r.id)}">
+    <div class="rt-h"><span class="host h-${esc(r.machine)}">${esc(r.machine)}</span><b>${esc(r.name)}</b>${badge}<span class="sched">${esc(r.schedule)}</span>
+      <span class="acts">${engine ? `<button class="btn sm" data-rt="run">Run now</button><button class="btn sm" data-rt="log">${routineLogs[r.id] ? "Hide log" : "Log"}</button>` : ""}</span></div>
+    <div class="rt-d">${esc(r.description)}</div>
+    <div class="rt-m">${[last, next].filter(Boolean).join(" · ")}</div>
+    ${o?.summary ? `<div class="rt-o${o.ok === false ? " bad" : ""}">${o.ok === false ? "✗ " : "✓ "}${esc(o.summary)}${o.session ? ` · <a href="/${esc(o.session)}">session</a>` : ""}${o.at ? ` · ${since(Date.parse(o.at))} ago` : ""}</div>` : ""}
+    ${routineLogs[r.id] ? `<pre>${esc(routineLogs[r.id])}</pre>` : ""}
+  </div>`;
+}
+function renderRoutines(list) {
+  const by = (m) => list.filter((r) => r.machine === m);
+  const sec = (m, title) => (by(m).length ? `<h3>${esc(title)}</h3>${by(m).map(routineHtml).join("")}` : "");
+  $("#routines").innerHTML = `<div class="intro">Routines are the recurring jobs Ag runs on its own, without anyone asking: systemd timers on the session host and interval LaunchAgents on ag-mac. A routine can report what its last run did (✓/✗ line).</div>`
+    + sec("ag-engine", "Session host (ag-engine)") + sec("ag-mac", "ag-mac") + (list.length ? "" : '<div class="empty">No routines found.</div>');
+  tick();
+}
+$("#routines").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-rt]"); if (!b) return;
+  const id = b.closest(".rt").dataset.id;
+  if (b.dataset.rt === "run") {
+    const r = await fetch("/api/routines/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id }) });
+    toast(r.ok ? "Started" : (await r.json()).error || "Couldn't start it");
+    setTimeout(() => loadRoutines(true), 1500);
+  } else if (routineLogs[id]) { delete routineLogs[id]; loadRoutines(true); }
+  else { routineLogs[id] = await (await fetch("/api/routines/log?id=" + encodeURIComponent(id))).text(); loadRoutines(true); }
+});
 // Fill in every "since" span (runs every second; doesn't touch the card HTML).
 // ---------- system strip: engine memory + computer-use queue (B.sys) ----------
 let cuaOpen = false;
@@ -683,6 +767,7 @@ document.addEventListener("click", (e) => {
 
 function tick() {
   document.querySelectorAll(".since[data-t]").forEach((el) => { const t = +el.dataset.t; el.textContent = t ? ago(t) : ""; });
+  document.querySelectorAll(".until[data-u]").forEach((el) => { const u = +el.dataset.u; el.textContent = u ? (u > Date.now() ? ago(2 * Date.now() - u) : "now") : ""; });
   document.querySelectorAll(".act.tool").forEach((el) => { const t = +el.querySelector(".since")?.dataset.t; el.classList.toggle("long", t && Date.now() - t > 180000); });
 }
 function onData() {
@@ -703,7 +788,7 @@ function txHtml(msgs) {
     if (m.role === "thinking") return `<details class="tl think"><summary>thinking <span class="dd">${esc(m.text.replace(/\s+/g, " ").slice(0, 140))}</span></summary><div class="inner">${esc(m.text)}</div></details>`;
     if (m.role === "error") return `<div class="msg error"><div class="body">✖ ${esc(m.text)}</div></div>`;
     const st = !m.result ? '<span class="run">⟳</span>' : m.result.error ? '<span class="err">✗</span>' : '<span class="ok">✓</span>';
-    return `<details class="tl"><summary>${st}<span class="n">${esc(m.name)}</span><span class="dd mono">${esc(m.detail)}</span>${m.result?.media?.length ? `<span class="mbadge">img ${m.result.media.length}</span>` : ""}</summary><div class="inner">${mediaHtml(m.result?.media)}<pre>${esc(m.args)}</pre>${m.result ? `<pre>${esc(m.result.text)}</pre>` : '<div class="empty">running…</div>'}</div></details>`;
+    return `<details class="tl"><summary>${st}<span class="n">${esc(m.name)}</span>${hostChips(m)}${toolText(m)}${m.result?.media?.length ? `<span class="mbadge">img ${m.result.media.length}</span>` : ""}</summary><div class="inner">${mediaHtml(m.result?.media)}<pre>${esc(m.args)}</pre>${m.result ? `<pre>${esc(m.result.text)}</pre>` : '<div class="empty">running…</div>'}</div></details>`;
   }).join("") || '<div class="empty">No messages yet.</div>';
 }
 // The query the drawer is showing now ("tab=…" / "sid=…"). A reply for any other query is stale (a slow fetch
@@ -1011,7 +1096,7 @@ document.addEventListener("keydown", (e) => {
     o: () => sel && openDrawer(sel), Enter: () => sel && openDrawer(sel), " ": () => sel && toggleOpen(sel),
     f: () => sel && toggleHot(sel), g: () => sel && api("/api/focus", { tab: sel }).then((ok) => ok && toast("Focused in Herdr")),
     u: () => sel && api("/api/card", { tab: sel, seen: false }), e: () => sel && archive(sel), w: () => sel && toggleWait(sel),
-    1: () => setView("state"), 2: () => setView("lists"), 3: () => setView("ws"),
+    1: () => setView("state"), 2: () => setView("lists"), 3: () => setView("ws"), 4: () => setView("routines"),
     x: () => { if (!sel) return; if (Date.now() - lastX < 1500) { lastX = 0; stop(sel); } else { lastX = Date.now(); toast("Press x again to interrupt"); } },
   };
   if (map[k]) { e.preventDefault(); map[k](); }
@@ -1125,9 +1210,9 @@ $("#dlink").onclick = () => copyLink(card(openTab)?.sid);
 //   /new  /help                  the new-session and keyboard dialogs
 // Navigating pushes a history entry (sync); back/forward re-applies the URL (applyRoute). The server serves the page
 // for all of these.
-const VIEW_OF = { state: "state", lists: "lists", workspaces: "ws" };
-const VIEW_PATH = { state: "state", lists: "lists", ws: "workspaces" };
-const COL_PREFIX = { state: "s:", lists: "l:", ws: "w:" };
+const VIEW_OF = { state: "state", lists: "lists", workspaces: "ws", routines: "routines" };
+const VIEW_PATH = { state: "state", lists: "lists", ws: "workspaces", routines: "routines" };
+const COL_PREFIX = { state: "s:", lists: "l:", ws: "w:", routines: "r:" };
 const SID_PATH = /^\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(\/live)?$/;
 let applying = 0; // >0 while applying a URL: don't push
 let phoneCol = null; // the phone's current column key (set by the phone block)
@@ -1166,7 +1251,7 @@ async function applyRoute(initial = false) {
       if (openTab && m[2] && dtab !== "live") setTab("live");
       else if (openTab && !m[2] && dtab === "live") setTab("tx");
     } else {
-      const [, v, col] = p.match(/^\/(state|lists|workspaces)?(?:\/([^/]+))?\/?$/) || [];
+      const [, v, col] = p.match(/^\/(state|lists|workspaces|routines)?(?:\/([^/]+))?\/?$/) || [];
       if (openTab || openSid) closeDrawer();
       if (v && VIEW_OF[v] !== view) setView(VIEW_OF[v]);
       if (col && v) { phoneCol = COL_PREFIX[VIEW_OF[v]] + (col === "unsorted" && v === "lists" ? "" : decodeURIComponent(col)); window.agPhoneGo?.(phoneCol); }

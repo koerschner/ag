@@ -1,0 +1,9 @@
+# Routine: keep AG Dash's deterministic tool-call summaries growing (bin/dot-local/bin/toolsum-review, toolsum/README.md).
+[Unit]
+Description=Review tool-call summary coverage and extend the rules
+
+[Service]
+Type=oneshot
+ExecCondition=%h/.local/bin/machine-role host
+ExecStart=/usr/bin/zsh -lc 'exec %h/.local/bin/toolsum-review'
+TimeoutStartSec=45min

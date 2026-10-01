@@ -320,6 +320,10 @@ When the wait is long (minutes to days) or open-ended, such as a machine coming 
 - When it fires, it resumes **this** session in place if its pane is still open and ready; otherwise it opens a forked tab in the Inbox. After `expires` (default 7 days) it fires anyway and tells you the condition never came true.
 - Use `when: "online"` only when Nathan himself is needed at his Mac. When the task just needs a machine reachable, use a `check` for that machine instead. Say in your reply what you're waiting for and how it will wake you.
 
+## Routines
+
+A **routine** is a recurring job Ag runs on its own on a schedule (the tickler wakes one session once; a routine runs forever). Use that word for them. Each one is a systemd user timer on the session host (`systemd-user/` in ag, enabled in `bootstrap-linux`) or an interval LaunchAgent on ag-mac (`macos-launchagents/`), and AG Dash lists them all under **Routines** (`http://ag:7376/routines`). When you add one, have it write `~/.local/state/routines/<name>.json` (`{at, ok, summary, session?}`) so its last result shows there, and add it to the README's "Routines" table. Current routines include `tickler`, `presence`, `pi-sessions-sync` and `toolsum-review` (extends AG Dash's deterministic tool-call summaries; `toolsum/README.md`).
+
 ## Signaling completion
 
 Once you have fully accomplished your purpose (e.g. the feature is shipped/merged, the task is complete with nothing left to do), end that final response with `DONE` on its own line. Don't write it while work, verification, or questions for the user remain.

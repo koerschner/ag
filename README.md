@@ -168,13 +168,33 @@ Intentionally not tracked in git:
 - **Disrupting an agent:** ⏹ (or `x` twice) interrupts (Esc twice; this Pi setup asks for a second Esc). Replying while it works = **Steer**: queued, delivered after its current step. **Interrupt & send** stops it, waits until it's ready, clears whatever Pi put back in its editor (Ctrl+U), then sends your message instead.
 - **+ New item** (or `n`; `d` opens it already dictating): type or dictate it; dropped files add their paths. It goes to the ag inbox (`?new=1`), which opens a new session in Inbox and names it; a dictated item is sent the moment you stop and transcribed by the inbox in the background.
 - **🗄 Archive** (`e`, card details, or drawer): the card disappears at once with an **Undo** toast; the Herdr tab is closed only when the toast expires (6 s) or you leave the page, so Undo leaves the session untouched.
-- **Views:** State (Needs you / Working / Waiting for / Parked / Resolved; click a column header to collapse it, Resolved starts collapsed), Lists (your own lists, edited under "Lists…"; drag cards between them), Workspaces. Search with `/` (works with a session open too); "Hot only" shows just hotpath cards.
+- **Views:** State (Needs you / Working / Waiting for / Parked / Resolved; click a column header to collapse it, Resolved starts collapsed), Lists (your own lists, edited under "Lists…"; drag cards between them), Workspaces, **Routines** (`/routines`, key 4: every recurring job Ag runs on its own, i.e. the session host's systemd timers and ag-mac's interval LaunchAgents, with schedule, last run and result, next run, the last run's own ✓/✗ summary, Run now and Log for engine routines; see "Routines" below).
+- **Tool rows** (card activity, Recent tools, transcript): each call shows the machine it runs on (`ag-engine`, `ag-mac`, `ag-client`, `ag-phone`, `mcp`) and a deterministic one-line summary from `toolsum/` ("Telegram: Click "Open"", "Query production arcade DB: play_sessions"); when no rule fully covers a call it falls back to the raw command, which is always on hover. See `toolsum/README.md`. Search with `/` (works with a session open too); "Hot only" shows just hotpath cards.
 - **Keyboard** (`?` shows all): j/k/h/l move, o/Enter open, Space details, f hotpath, w waiting, x x interrupt, e archive, g open in Herdr, u unread, n new item, d dictate a new item, / search (n, d and / also work with a session open), 1/2/3 views.
 - **Needs you** = blocked, or ready with an answer newer than when you last saw it. Seen = opened on the board, replied from it, jumped to in Herdr, or the tab focused in Herdr. **Resolved** = the answer ends with a `DONE` line.
 - **Click telemetry:** one delegated listener on the page logs every button/control click (a stable name from `data-t`, else `id`/`data-*` action/aria-label/title/text; plus desktop or phone view) with `navigator.sendBeacon` to `POST /api/click`, which appends `{ts, name, view}` to `~/.local/state/ag-board/clicks.jsonl`. `ag-dash-stats [days]` (or `GET /api/stats?days=N`) ranks controls by clicks. Nothing leaves ag.
 - **State:** `~/.local/state/ag-board/state.json` (hotpath, list, waiting, seen time, status timing, lists), keyed by pi session id so flags survive the Inbox auto-filer moving a tab (tabs without a session fall back to the tab id). Entries for sessions no longer open are dropped.
 - **How it works:** polls `herdr api snapshot` every 1.5 s, reads each Pi session file incrementally (only appended bytes), and pushes the board to open pages over SSE. Listens on ag's Tailscale IP and on 127.0.0.1; at startup it runs `tailscale serve --bg --https=7377 http://127.0.0.1:7376` (idempotent; tailscale serve can't reach ag's own Tailscale IP, hence the loopback listener). Media is served only for image/video files under `~` or `/tmp` (`/api/file`, with Range support) and for images inside session files (`/api/embedded`).
 - Code: `bin/dot-local/bin/ag-board`; page: `ag-board/dot-local/share/ag-board/index.html` (+ `editor.js`, `manifest.json`, `icon.svg`, `icon-{180,192,512}.png`; page edits need only a refresh). The editor bundle is built from `ag-board-editor/` (`cd ag-board-editor && bun install && bun run build`) and committed, so machines don't build it. LaunchAgent `com.nathan.ag-board` (only runs on ag). Log: `/tmp/ag-board.log`. Restart after server edits: `launchctl kickstart -k gui/$(id -u)/com.nathan.ag-board`.
+
+
+## Routines
+
+A **routine** is a recurring job Ag runs on its own, on a schedule, without anyone asking (as opposed to a
+tickler item, which wakes one session once). On the session host each routine is a systemd user timer in
+`systemd-user/` (`<name>.timer` + `<name>.service`, enabled in `bootstrap-linux`); on ag-mac it's a LaunchAgent
+with `StartInterval`/`StartCalendarInterval` in `macos-launchagents/` (put a one-line `<!-- … -->` description in
+the plist). AG Dash → **Routines** lists them all. A routine reports what its last run did by writing
+`~/.local/state/routines/<name>.json` (`{at, ok, summary, session?}`; `session` is a Pi session id, linked from
+the card).
+
+| routine | where | what |
+|---|---|---|
+| `tickler` | engine, every 60 s | fires due tickler items |
+| `presence` | engine, every 30 s | is Nathan at his Mac |
+| `pi-sessions-sync` | engine, hourly | archives Pi sessions to GitHub |
+| `toolsum-review` | engine, daily 9am Central | extends AG Dash's tool-call summary rules (`toolsum/README.md`) |
+| `mem-watch`, `nessie`, `chrome-tab-reaper` | ag-mac | memory alerts, Nessie trace sync, closing stale Chrome tabs |
 
 ## Nessie (agent-trace sync)
 

@@ -1,0 +1,3 @@
+## Routines
+
+A **routine** is a recurring job Ag runs on its own on a schedule (the tickler wakes one session once; a routine runs forever). Use that word for them. Each one is a systemd user timer on the session host (`systemd-user/` in ag, enabled in `bootstrap-linux`) or an interval LaunchAgent on ag-mac (`macos-launchagents/`), and AG Dash lists them all under **Routines** (`http://ag:7376/routines`). When you add one, have it write `~/.local/state/routines/<name>.json` (`{at, ok, summary, session?}`) so its last result shows there, and add it to the README's "Routines" table. Current routines include `tickler`, `presence`, `pi-sessions-sync` and `toolsum-review` (extends AG Dash's deterministic tool-call summaries; `toolsum/README.md`).

@@ -149,6 +149,7 @@ fi
 sudo loginctl enable-linger "$USER" >/dev/null 2>&1 || true
 systemctl --user daemon-reload 2>/dev/null && systemctl --user enable --now mcp-tunnel.service >/dev/null 2>&1 && echo "  mcp-tunnel on" || warn "mcp-tunnel (needs ~/.ssh/ag-mac)"
 systemctl --user enable --now pi-sessions-sync.timer >/dev/null 2>&1 && echo "  pi-sessions-sync timer on" || warn "pi-sessions-sync timer"
+systemctl --user enable --now toolsum-review.timer >/dev/null 2>&1 && echo "  toolsum-review routine on" || warn "toolsum-review timer"
 systemctl --user enable --now ag-mux.service >/dev/null 2>&1 && echo "  ag-mux (agd, tmux -L ag) on" || warn "ag-mux.service"
 systemctl --user enable --now nessie.service >/dev/null 2>&1 && echo "  nessie (trace sync) on" || warn "nessie.service"
 

@@ -52,6 +52,8 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync
 import { homedir } from "node:os";
 import { dirname } from "node:path";
 import { constants as zc, createGzip } from "node:zlib";
+// Deterministic one-line summaries of tool calls + the machine each runs on (~/ag/toolsum; `toolsum` CLI).
+import { sessionHost, summarize } from "../../../toolsum/toolsum.ts";
 
 const PORT = 7376;
 // Ag's machine-independent address: the Tailscale Service svc:ag (ag-svc), wherever sessions are hosted.
@@ -93,8 +95,8 @@ type CardState = { goneAt?: number /* tab missing since; forgotten after GONE_KE
 type List = { id: string; name: string };
 type State = { cards: Record<string, CardState>; lists: List[] };
 type Msg = { role: "user" | "assistant"; text: string; ts: number };
-type Tool = { id?: string; name: string; detail: string; ts: number; end?: number; error?: boolean };
-type Activity = { kind: "thinking" | "tool" | "idle" | "error"; since: number; tool?: string; detail?: string; error?: string };
+type Tool = { id?: string; name: string; detail: string; sum?: string; hosts?: string[]; ts: number; end?: number; error?: boolean };
+type Activity = { kind: "thinking" | "tool" | "idle" | "error"; since: number; tool?: string; detail?: string; sum?: string; hosts?: string[]; error?: string };
 type Session = {
 	mtime: number;
 	size: number;
@@ -164,6 +166,12 @@ function toolDetail(name: string, args: any): string {
 	return oneLine(first ?? "", 140);
 }
 const shortTool = (n: string) => n.replace(/^mcp_/, "").replace(/_/g, " ");
+// detail = the raw command/argument; sum = toolsum's summary when every part matched a rule (else absent);
+// hosts = machines the call runs on (the session's own machine for local work).
+function toolInfo(name: string, args: any, cwd?: string) {
+	const r = summarize(name, args, { host: sessionHost(cwd) });
+	return { name: shortTool(name), detail: toolDetail(name, args), sum: r.sum, hosts: r.hosts };
+}
 
 // ---------- media ----------
 // Images/videos mentioned by path in prompts and answers render on the board. Only media files under the home
@@ -313,13 +321,14 @@ function ingest(s: Session, line: string) {
 	if (text) s.lastAssistant = { role: "assistant", text, ts };
 	const calls = content.filter((c) => c.type === "toolCall");
 	for (const c of calls) {
-		s.tools.push({ id: c.id, name: shortTool(c.name), detail: toolDetail(c.name, c.arguments), ts });
+		s.tools.push({ id: c.id, ...toolInfo(c.name, c.arguments, s.cwd), ts });
 		s.toolCount++;
 	}
 	if (s.tools.length > 12) s.tools.splice(0, s.tools.length - 12);
 	if (calls.length) {
 		const c = calls[calls.length - 1];
-		s.activity = { kind: "tool", since: ts, tool: shortTool(c.name), detail: toolDetail(c.name, c.arguments) };
+		const t = toolInfo(c.name, c.arguments, s.cwd);
+		s.activity = { kind: "tool", since: ts, tool: t.name, detail: t.detail, sum: t.sum, hosts: t.hosts };
 	} else if (m.stopReason === "error" || m.stopReason === "aborted") {
 		s.activity = { kind: "error", since: ts, error: m.errorMessage || m.stopReason };
 	} else {
@@ -415,6 +424,10 @@ function transcript(file: string, ref: string) {
 	const out: any[] = [];
 	const embedded = (line: number, n: number): Media[] => Array.from({ length: n }, (_, k) => ({ src: `/api/embedded?${ref}&line=${line}&idx=${k}`, kind: "image" as const, name: `image ${k + 1}` }));
 	const results = new Map<string, { text: string; error: boolean; media: Media[] }>();
+	let cwd: string | undefined;
+	try {
+		cwd = JSON.parse(lines[0]).cwd;
+	} catch {}
 	for (let i = lines.length - 1; i >= 0 && out.length < 120; i--) {
 		const l = lines[i];
 		if (!l.includes('"type":"message"')) continue;
@@ -442,7 +455,7 @@ function transcript(file: string, ref: string) {
 			const c: any[] = Array.isArray(m.content) ? m.content : [];
 			if (m.stopReason === "error" || m.stopReason === "aborted") out.push({ role: "error", ts, text: m.errorMessage || m.stopReason });
 			for (const x of [...c].reverse()) {
-				if (x.type === "toolCall") out.push({ role: "tool", ts, name: shortTool(x.name), detail: toolDetail(x.name, x.arguments), args: clip(JSON.stringify(x.arguments, null, 1), 3000), result: results.get(x.id) });
+				if (x.type === "toolCall") out.push({ role: "tool", ts, ...toolInfo(x.name, x.arguments, cwd), args: clip(JSON.stringify(x.arguments, null, 1), 3000), result: results.get(x.id) });
 				else if (x.type === "text" && x.text?.trim()) out.push({ role: "assistant", ts, text: clip(x.text.trim()), media: mediaIn(x.text) });
 				else if (x.type === "thinking" && x.thinking?.trim()) out.push({ role: "thinking", ts, text: clip(x.thinking.trim(), 4000) });
 			}
@@ -567,6 +580,91 @@ async function cuaLoop() {
 		await Bun.sleep(CUA_POLL_MS);
 	}
 }
+// ---------- routines ----------
+// A routine is a recurring job Ag runs on its own (AGENTS.md → "Routines"): every systemd user timer from the ag
+// repo on the session host, plus ag-mac's interval LaunchAgents. GET /api/routines lists them with schedule, last
+// run, result and next run; a routine may write ~/.local/state/routines/<name>.json ({at, ok, summary, session})
+// to say what its last run did. POST /api/routines/run {id} starts an engine routine now; GET /api/routines/log?id=.
+type Routine = { id: string; machine: string; name: string; description: string; schedule: string; last?: number; next?: number; running: boolean; result?: string; exit?: number; duration?: number; outcome?: { at?: string; ok?: boolean; summary?: string; session?: string } };
+const ROUTINE_STATE = `${HOME}/.local/state/routines`;
+const AG_DIR = (() => { try { return dirname(dirname(dirname(dirname(realpathSync(import.meta.path))))); } catch { return `${HOME}/ag`; } })();
+const human = (sec: number) => (sec % 86400 === 0 ? `${sec / 86400}d` : sec % 3600 === 0 ? `${sec / 3600}h` : sec % 60 === 0 ? `${sec / 60} min` : `${sec}s`);
+const usec = (s: string) => { const m = s.match(/^(\d+(?:\.\d+)?)(us|ms|s|min|h|d)?$/); if (!m) return 0; return Number(m[1]) * ({ us: 1e-6, ms: 1e-3, s: 1, min: 60, h: 3600, d: 86400 } as any)[m[2] ?? "s"]; };
+function outcomeOf(name: string) {
+	try { return JSON.parse(readFileSync(`${ROUTINE_STATE}/${name}.json`, "utf8")); } catch { return undefined; }
+}
+async function engineRoutines(): Promise<Routine[]> {
+	const lt = await run(["systemctl", "--user", "list-timers", "--all", "--output=json", "--no-pager"]);
+	const timers: { unit: string; activates: string; next?: number; last?: number }[] = lt.code === 0 ? JSON.parse(lt.out || "[]") : [];
+	if (!timers.length) return [];
+	const props = "Id,Description,FragmentPath,TimersMonotonic,TimersCalendar,ActiveState,SubState,Result,ExecMainStatus,ExecMainStartTimestamp,ExecMainExitTimestamp";
+	const sh = await run(["systemctl", "--user", "show", "--timestamp=unix", "-p", props, "--no-pager", ...timers.flatMap((t) => [t.unit, t.activates])]);
+	const blocks = new Map<string, Record<string, string>>();
+	for (const b of sh.out.split("\n\n")) {
+		const o: Record<string, string> = {};
+		for (const l of b.split("\n")) { const i = l.indexOf("="); if (i > 0) o[l.slice(0, i)] = (o[l.slice(0, i)] ? `${o[l.slice(0, i)]}\n` : "") + l.slice(i + 1); }
+		if (o.Id) blocks.set(o.Id, o);
+	}
+	const ts = (v?: string) => (v?.startsWith("@") ? Number(v.slice(1)) * 1000 : undefined);
+	const out: Routine[] = [];
+	for (const t of timers) {
+		const tm = blocks.get(t.unit) ?? {};
+		const sv = blocks.get(t.activates) ?? {};
+		if (!(tm.FragmentPath ?? "").startsWith(`${HOME}/.config/systemd/user`)) continue; // only ag's own timers
+		const cal = [...(tm.TimersCalendar ?? "").matchAll(/OnCalendar=([^;]+?)\s*;/g)].map((m) => m[1].trim());
+		const mono = [...(tm.TimersMonotonic ?? "").matchAll(/On(UnitActive|UnitInactive)USec=(\S+)/g)].map((m) => `every ${human(usec(m[2]))}`);
+		const name = t.unit.replace(/\.timer$/, "");
+		const start = ts(sv.ExecMainStartTimestamp), end = ts(sv.ExecMainExitTimestamp);
+		const running = sv.ActiveState === "activating" || sv.SubState === "running" || sv.SubState === "start";
+		out.push({
+			id: `engine:${name}`, machine: "ag-engine", name, description: sv.Description || tm.Description || name,
+			schedule: [...cal, ...mono].join(", ") || "—",
+			last: t.last ? Math.round(t.last / 1000) : start, next: t.next ? Math.round(t.next / 1000) : undefined, running,
+			result: running ? "running" : sv.Result === "success" ? "ok" : sv.Result || undefined, exit: sv.ExecMainStatus ? Number(sv.ExecMainStatus) : undefined,
+			duration: start && end && end >= start ? end - start : undefined, outcome: outcomeOf(name),
+		});
+	}
+	return out;
+}
+// ag-mac: interval LaunchAgents from the repo (schedule + description from the plist), status from launchctl list.
+let macRoutines: Routine[] = [];
+let macCheckedAt = 0;
+async function refreshMacRoutines() {
+	if (Date.now() - macCheckedAt < 30_000) return;
+	macCheckedAt = Date.now();
+	const dir = `${AG_DIR}/macos-launchagents`;
+	const defs: Routine[] = [];
+	try {
+		for (const f of readdirSync(dir)) {
+			if (!f.endsWith(".plist")) continue;
+			const x = readFileSync(`${dir}/${f}`, "utf8");
+			const iv = x.match(/<key>StartInterval<\/key>\s*<integer>(\d+)<\/integer>/)?.[1];
+			const cal = /<key>StartCalendarInterval<\/key>/.test(x);
+			if (!iv && !cal) continue;
+			const label = f.replace(/\.plist$/, "");
+			const desc = x.match(/<!--\s*([\s\S]*?)\s*-->/)?.[1]?.replace(/\s+/g, " ") ?? label;
+			defs.push({ id: `mac:${label}`, machine: "ag-mac", name: label.replace(/^com\.nathan\./, ""), description: desc, schedule: iv ? `every ${human(Number(iv))}` : "calendar", running: false });
+		}
+		const p = Bun.spawn(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "ag-mac", "launchctl list"], { stdout: "pipe", stderr: "pipe" });
+		const timer = setTimeout(() => p.kill(), 10000);
+		const outText = await new Response(p.stdout).text();
+		clearTimeout(timer);
+		const st = new Map(outText.split("\n").map((l) => l.split("\t")).filter((c) => c.length === 3).map(([pid, code, label]) => [label, { pid, code }]));
+		for (const d of defs) {
+			const s = st.get(d.id.slice(4));
+			if (!s) { d.result = "not loaded"; continue; }
+			d.running = s.pid !== "-";
+			d.exit = Number(s.code);
+			d.result = d.running ? "running" : d.exit === 0 ? "ok" : `exit ${d.exit}`;
+		}
+		macRoutines = defs;
+	} catch {}
+}
+async function routinesJson() {
+	void refreshMacRoutines();
+	return { now: Date.now(), routines: [...(await engineRoutines()), ...macRoutines] };
+}
+
 type Sys = { mem?: Mem; cua: Cua };
 
 let board: { cards: Card[]; lists: List[]; workspaces: { id: string; label: string }[]; page: number; sys?: Sys } = { cards: [], lists: state.lists, workspaces: [], page: 0 };
@@ -920,6 +1018,13 @@ async function handle(req: Request): Promise<Response> {
 			if (p === "/api/config") return Response.json({ httpsUrl: HTTPS_URL, home: HOME, fileInbox: `http://${AG_FQDN}:7374` });
 			if (p === "/api/stats") return Response.json(clickStats(Number(url.searchParams.get("days")) || 0));
 			if (p === "/api/state") return jsonRes(req, boardJson);
+			if (p === "/api/routines") return Response.json(await routinesJson());
+			if (p === "/api/routines/log") {
+				const id = url.searchParams.get("id") ?? "";
+				if (!/^engine:[\w.@-]+$/.test(id)) return bad("engine routines only");
+				const r = await run(["journalctl", "--user", "-u", `${id.slice(7)}.service`, "-n", "60", "--no-pager", "-o", "short-iso"]);
+				return new Response(r.out || r.err, { headers: { "content-type": "text/plain; charset=utf-8" } });
+			}
 			if (p === "/api/transcript") {
 				const sid = url.searchParams.get("sid");
 				const file = sid ? await fileForSid(sid) : board.cards.find((c) => c.tab === url.searchParams.get("tab"))?.sessionFile;
@@ -932,8 +1037,8 @@ async function handle(req: Request): Promise<Response> {
 				return r ? jsonRes(req, r) : bad("no such session", 404);
 			}
 			// Page URLs (the page routes itself; back/forward walk through them): /<session id>[/live], /t/<tab>[/live],
-			// /state|lists|workspaces[/<column>], /new, /help.
-			if (SID_RE.test(p.slice(1).replace(/\/live$/, "")) || /^\/(?:(?:state|lists|workspaces)(?:\/[^/]+)?|new|help|t\/[^/]+(?:\/live)?)\/?$/.test(p)) return pageRes(req);
+			// /state|lists|workspaces[/<column>], /routines, /new, /help.
+			if (SID_RE.test(p.slice(1).replace(/\/live$/, "")) || /^\/(?:(?:state|lists|workspaces)(?:\/[^/]+)?|routines|new|help|t\/[^/]+(?:\/live)?)\/?$/.test(p)) return pageRes(req);
 			if (p === "/api/screen") {
 				const card = board.cards.find((c) => c.tab === url.searchParams.get("tab"));
 				if (!card) return bad("no such card", 404);
@@ -1014,6 +1119,12 @@ async function handle(req: Request): Promise<Response> {
 			const view = body.view === "phone" ? "phone" : "desktop";
 			appendFileSync(CLICKS_FILE, JSON.stringify({ ts: Date.now(), name, view }) + "\n");
 			return new Response(null, { status: 204 });
+		}
+		if (p === "/api/routines/run") {
+			const id = String(body.id ?? "");
+			if (!/^engine:[\w.@-]+$/.test(id)) return bad("engine routines only");
+			const r = await run(["systemctl", "--user", "start", "--no-block", `${id.slice(7)}.service`]);
+			return r.code === 0 ? Response.json({ ok: true }) : bad(r.err.trim() || "start failed", 409);
 		}
 		const tab = String(body.tab ?? "");
 		const card = board.cards.find((c) => c.tab === tab);

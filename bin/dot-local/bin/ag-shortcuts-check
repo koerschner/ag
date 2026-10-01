@@ -25,7 +25,10 @@ def prefix_keys(sc):
 
 # tmux (session host): the live prefix table must carry every binding.
 # (list-sessions first: list-keys alone would start a bare server with tmux's default bindings.)
-up = subprocess.run(["tmux", "-L", "ag", "list-sessions"], capture_output=True).returncode == 0
+try:
+    up = subprocess.run(["tmux", "-L", "ag", "list-sessions"], capture_output=True).returncode == 0
+except FileNotFoundError:  # no tmux here (a Mac client)
+    up = False
 r = subprocess.run(["tmux", "-L", "ag", "list-keys", "-T", "prefix"], capture_output=True, text=True) if up else None
 if r and r.returncode == 0:
     bound = {}

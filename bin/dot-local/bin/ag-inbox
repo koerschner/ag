@@ -33,7 +33,7 @@
 // kinds of captures (e.g. a name + phone number) with a set workflow. The router picks at most one and
 // its instructions are prepended to the prompt.
 // Also: POST /tickler/<id> (body = optional note) fires a waiting tickler wake-up (bin/dot-local/bin/tickler).
-// Listens only on ag-mac's Tailscale IP. Never focuses anything, so attached Herdr clients aren't disturbed.
+// Listens only on ag-mac's Tailscale IP. Never focuses anything, so attached tmux clients aren't disturbed.
 // Run by the com.nathan.ag-inbox LaunchAgent.
 
 import { execFile, execFileSync } from "node:child_process";
@@ -41,8 +41,8 @@ import { promisify } from "node:util";
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
-// Same instant, deterministic namer the herdr-tab-name pi extension uses for numbered tabs.
-import { quickName } from "../../../pi/dot-pi/agent/extensions/herdr-tab-name.ts";
+// Same instant, deterministic namer the ag-tab-name pi extension uses for numbered tabs.
+import { quickName } from "../../../pi/dot-pi/agent/extensions/ag-tab-name.ts";
 
 const execFileP = promisify(execFile);
 
@@ -57,7 +57,7 @@ const injected = (by: string, text: string, extra: object = {}) => {
 		appendFileSync(`${HOME}/.local/state/activity/injections.jsonl`, JSON.stringify({ ts: new Date().toISOString(), by, sha, ...extra }) + "\n");
 	} catch {}
 };
-const HERDR = `${HOME}/.local/bin/ag-mux`; // tmux (agd) or Herdr, whichever this host runs
+const AG_MUX = `${HOME}/.local/bin/ag-mux`;
 const LOG_DIR = `${HOME}/.local/state/ag-inbox`;
 const CAPTURE_DIR = `${HOME}/inbox/capture`;
 const SHARE_DIR = `${HOME}/inbox/share`;
@@ -68,7 +68,7 @@ const TFY_URL = "https://tfy.promptlens.trilogy.com/chat/completions";
 const STT_URL = "https://tfy.promptlens.trilogy.com/audio/transcriptions";
 const STT_MODELS = ["whisper-1", "openai-esw/whisper-1"]; // second is the fallback route
 // Vocabulary hint so Whisper spells Nathan's usual names right.
-const STT_HINT = "Herdr, ag, pi, Arcade, arcade.school, Jev, TrueFoundry, Linear, Honeycomb, Hammerspoon, dotfiles, Roblox, TSA.";
+const STT_HINT = "tmux, ag, pi, Arcade, arcade.school, Jev, TrueFoundry, Linear, Honeycomb, Hammerspoon, dotfiles, Roblox, TSA.";
 const JEV_URL = "https://tfy.promptlens.trilogy.com/proxy-api/jev-account/jev-endpoint/v1/systemone";
 const ATTACH_THRESHOLD = 0.5; // P(prompt needs the screen); tested on ~10 typical captures
 // Follow-on routing: deliver into an existing session when Jev is sure the capture continues it,
@@ -87,15 +87,15 @@ function log(id: string, step: string, data: Record<string, unknown> = {}) {
 	console.log(line);
 }
 
-function herdr(...args: string[]): any {
-	return herdrT(60_000, ...args);
+function mux(...args: string[]): any {
+	return muxT(60_000, ...args);
 }
-function herdrT(timeout: number, ...args: string[]): any {
-	const out = execFileSync(HERDR, args, { encoding: "utf8", timeout, stdio: ["ignore", "pipe", "pipe"] });
+function muxT(timeout: number, ...args: string[]): any {
+	const out = execFileSync(AG_MUX, args, { encoding: "utf8", timeout, stdio: ["ignore", "pipe", "pipe"] });
 	return out.trim() ? JSON.parse(out).result : null;
 }
 // Error code from a failed ag-mux call (JSON on stderr), e.g. "agent_pane_busy".
-const herdrCode = (e: any): string | undefined => {
+const muxCode = (e: any): string | undefined => {
 	try { return JSON.parse(String(e?.stderr ?? "")).error?.code; } catch { return String(e?.stderr ?? e).match(/"code":"(\w+)"/)?.[1]; }
 };
 
@@ -246,11 +246,11 @@ function userPrompts(file: string): string[] {
 
 // Every open pi session (one per tab), described by its workspace › tab title, first and latest prompt.
 function openSessions(): Session[] {
-	const ws = new Map<string, string>(herdr("workspace", "list").workspaces.map((w: any) => [w.workspace_id, w.label]));
+	const ws = new Map<string, string>(mux("workspace", "list").workspaces.map((w: any) => [w.workspace_id, w.label]));
 	const tabs = new Map<string, string>();
-	for (const id of ws.keys()) for (const t of herdr("tab", "list", "--workspace", id).tabs) tabs.set(t.tab_id, t.label);
+	for (const id of ws.keys()) for (const t of mux("tab", "list", "--workspace", id).tabs) tabs.set(t.tab_id, t.label);
 	const seenTabs = new Set<string>();
-	return herdr("pane", "list").panes.flatMap((p: any) => {
+	return mux("pane", "list").panes.flatMap((p: any) => {
 		const file = p.agent === "pi" ? p.agent_session?.value : null;
 		if (!file || seenTabs.has(p.tab_id)) return [];
 		const prompts = userPrompts(file);
@@ -296,18 +296,18 @@ async function matchThread(text: string): Promise<Thread> {
 }
 
 function withHint(text: string, s: Session): string {
-	return `${text}\n\n---\nThe ag inbox thinks this may be new context for an existing session, "${s.title}" (tab ${s.tab}, pi session ${s.file}), but wasn't sure enough to add it there. If it clearly fits, don't ask: forward it with \`herdr agent prompt ${s.pane} "<my message plus any context you gathered, prefixed with a line saying it was forwarded from the Inbox>"\`, give me the link from \`herdr-link ${s.tab}\`, and close this session. Ask first only if it's genuinely ambiguous; otherwise handle it here.`;
+	return `${text}\n\n---\nThe ag inbox thinks this may be new context for an existing session, "${s.title}" (tab ${s.tab}, pi session ${s.file}), but wasn't sure enough to add it there. If it clearly fits, don't ask: forward it with \`ag send ${s.pane} "<my message plus any context you gathered, prefixed with a line saying it was forwarded from the Inbox>"\`, give me the link from \`ag link ${s.tab}\`, and close this session. Ask first only if it's genuinely ambiguous; otherwise handle it here.`;
 }
 
 // Deliver into the matched session instead of opening a new one. Throws (→ new session) if it can't take input.
 function follow(id: string, text: string, s: Session, p: number) {
-	const agent = herdr("agent", "get", s.pane);
+	const agent = mux("agent", "get", s.pane);
 	if ((agent?.agent_status ?? agent?.agent?.agent_status) === "blocked") throw new Error("session is blocked on a dialog");
 	const msg = `New context from Nathan, sent via the ag inbox (Jev matched it to this session, p=${p.toFixed(2)}; if it clearly doesn't belong here, say so and suggest where it goes):\n\n${text}`;
 	injected("ag-inbox", msg, { id, action: "follow" });
-	herdr("agent", "prompt", s.pane, msg);
+	mux("agent", "prompt", s.pane, msg);
 	log(id, "followed", { tab: s.tab, pane: s.pane, title: s.title });
-	try { execFileSync(HERDR, ["notification", "show", `Added to ${s.title}`, "--body", text.slice(0, 120)], { timeout: 10_000 }); } catch {}
+	try { execFileSync(AG_MUX, ["notification", "show", `Added to ${s.title}`, "--body", text.slice(0, 120)], { timeout: 10_000 }); } catch {}
 }
 
 function withShot(text: string, shot: Shot): string {
@@ -318,7 +318,7 @@ function withShot(text: string, shot: Shot): string {
 // Step 3: new tab in Inbox (created if missing, no focus), start pi in it, send the text.
 // Hot path: the tab opens with quickName's instant deterministic label and pi starts while the
 // router/Jev are still thinking (open() runs in parallel with prepare()). send() then renames the tab
-// to the router's label (before the prompt, so herdr-tab-name treats it as the starting name) and
+// to the router's label (before the prompt, so ag-tab-name treats it as the starting name) and
 // sends. A follow-on closes the speculative tab instead.
 // A fresh tab's shell may still be starting up (zsh init running a child), so ag-mux refuses with
 // agent_pane_busy for a moment; retry until it's an available shell. If pi can't start, close the
@@ -326,17 +326,17 @@ function withShot(text: string, shot: Shot): string {
 const SHELL_READY_MS = 30_000;
 type Opened = { tab: string; pane: string; agent: string; label: string };
 async function open(id: string, label: string): Promise<Opened> {
-	const inbox = herdr("workspace", "list").workspaces.find((w: any) => w.label.toLowerCase() === INBOX.toLowerCase());
+	const inbox = mux("workspace", "list").workspaces.find((w: any) => w.label.toLowerCase() === INBOX.toLowerCase());
 	let pane: string, tab: string;
 	if (inbox) {
-		const t = herdr("tab", "create", "--workspace", inbox.workspace_id, "--cwd", HOME, "--label", label, "--no-focus");
+		const t = mux("tab", "create", "--workspace", inbox.workspace_id, "--cwd", HOME, "--label", label, "--no-focus");
 		pane = t.root_pane.pane_id;
 		tab = t.tab.tab_id;
 	} else {
-		const w = herdr("workspace", "create", "--cwd", HOME, "--label", INBOX, "--no-focus");
+		const w = mux("workspace", "create", "--cwd", HOME, "--label", INBOX, "--no-focus");
 		pane = w.root_pane.pane_id;
 		tab = w.tab.tab_id;
-		herdr("tab", "rename", tab, label);
+		mux("tab", "rename", tab, label);
 	}
 	log(id, "tab", { pane, tab, label, via: "quick" });
 
@@ -346,11 +346,11 @@ async function open(id: string, label: string): Promise<Opened> {
 		for (let tries = 1; ; tries++) {
 			try {
 				// Async, so routing's fetches keep running while pi boots.
-				await execFileP(HERDR, ["agent", "start", agent, "--kind", "pi", "--pane", pane, "--timeout", "60000"], { timeout: 75_000 });
+				await execFileP(AG_MUX, ["agent", "start", agent, "--kind", "pi", "--pane", pane, "--timeout", "60000"], { timeout: 75_000 });
 				log(id, "pi_started", { agent, tries });
 				break;
 			} catch (e) {
-				if (herdrCode(e) !== "agent_pane_busy" || Date.now() > deadline) throw e;
+				if (muxCode(e) !== "agent_pane_busy" || Date.now() > deadline) throw e;
 				await Bun.sleep(250);
 			}
 		}
@@ -361,15 +361,15 @@ async function open(id: string, label: string): Promise<Opened> {
 	return { tab, pane, agent, label };
 }
 function discard(o: Opened) {
-	try { herdr("tab", "close", o.tab); } catch {}
+	try { mux("tab", "close", o.tab); } catch {}
 }
 function send(id: string, o: Opened, text: string, label: string): Launched {
 	if (label && label !== o.label) {
-		try { herdr("tab", "rename", o.tab, label); log(id, "renamed", { tab: o.tab, from: o.label, label }); } catch {}
+		try { mux("tab", "rename", o.tab, label); log(id, "renamed", { tab: o.tab, from: o.label, label }); } catch {}
 	}
 	try {
 		injected("ag-inbox", text, { id, action: "new" });
-		herdr("agent", "prompt", o.agent, text);
+		mux("agent", "prompt", o.agent, text);
 		log(id, "sent");
 	} catch (e) {
 		discard(o);
@@ -459,7 +459,7 @@ async function handle(id: string, text: string, shot: Shot | null, share: Share 
 		opening.then(discard, () => {}); // prepare failed: don't leave an empty pi tab behind
 		const error = e instanceof Error ? e.message : String(e);
 		log(id, "failed", { error });
-		try { execFileSync(HERDR, ["notification", "show", "ag inbox failed", "--body", error.slice(0, 200)], { timeout: 10_000 }); } catch {}
+		try { execFileSync(AG_MUX, ["notification", "show", "ag inbox failed", "--body", error.slice(0, 200)], { timeout: 10_000 }); } catch {}
 		throw new Error(error);
 	}
 }

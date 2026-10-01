@@ -356,12 +356,12 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
       <button class="btn stop" id="dstop">Interrupt</button>
       <button class="btn" id="dhot">Hotpath</button>
       <button class="btn" id="dwait" title="Mark waiting for something (w)">Waiting</button>
-      <button class="btn" id="dfocus">Open in Herdr</button>
+      <button class="btn" id="dfocus">Open in tmux</button>
       <button class="btn" id="dunread">Mark unread</button>
       <a class="btn" id="dmoshi" style="display:none;text-decoration:none" title="Open this session's terminal in Moshi (via file-inbox)">Moshi</a>
       <button class="btn" id="dlink" title="Copy a stable link to this session (http://ag:7376/&lt;session id&gt;)">Link</button>
       <select class="btn" id="dlist"></select>
-      <button class="btn" id="dkill" title="Archive: closes the Herdr tab after a few seconds, with Undo (e)">Archive</button>
+      <button class="btn" id="dkill" title="Archive: closes the tmux tab after a few seconds, with Undo (e)">Archive</button>
     </div>
     <div id="dact"></div>
     <div id="dtabs"><button data-t="tx">Transcript</button><button data-t="live">Live screen</button></div>
@@ -407,7 +407,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
     <tr><td><span class="kbd">Space</span></td><td>expand / collapse details</td></tr>
     <tr><td><span class="kbd">f</span></td><td>toggle hotpath</td></tr>
     <tr><td><span class="kbd">x</span></td><td>interrupt (press twice)</td></tr>
-    <tr><td><span class="kbd">g</span></td><td>open in Herdr</td></tr>
+    <tr><td><span class="kbd">g</span></td><td>open in tmux</td></tr>
     <tr><td><span class="kbd">u</span></td><td>mark unread</td></tr>
     <tr><td><span class="kbd">w</span></td><td>mark waiting (the agent is asked to schedule its tickler wake-up) / unmark</td></tr>
     <tr><td><span class="kbd">e</span></td><td>archive (closes the tab; Undo for a few seconds)</td></tr>
@@ -443,7 +443,7 @@ let hotOnly = localStorage.hotOnly === "1";
 let collapsed = new Set(JSON.parse(localStorage.collapsed || '["s:resolved"]'));
 let sel = null; // keyboard-selected card
 let routed = false; // the first board data applies the URL (see "routing")
-// Archive = close the Herdr tab, undoably: the card hides at once, the tab is closed only when the Undo toast
+// Archive = close the tmux tab, undoably: the card hides at once, the tab is closed only when the Undo toast
 // expires (or the page is left), so Undo just cancels it and the session is untouched.
 const ARCHIVE_MS = 6000;
 const archiving = new Map(); // tab → { timer, el }
@@ -586,7 +586,7 @@ function details(c) {
     <div class="acts">
       ${working ? '<button class="btn sm stop" data-a="stop">Interrupt</button>' : ""}
       <button class="btn sm" data-a="open">Transcript &amp; reply</button>
-      <button class="btn sm" data-a="focus">Open in Herdr</button>
+      <button class="btn sm" data-a="focus">Open in tmux</button>
       <button class="btn sm" data-a="archive" title="Archive (e)">Archive</button>
       <button class="btn sm" data-a="wait" title="Mark waiting for something (w)">${c.waiting?.some((w) => w.kind === "manual") ? "Not waiting" : "Waiting"}</button>
       <button class="btn sm" data-a="hot">${c.hot ? "Remove hotpath" : "Hotpath"}</button>
@@ -861,7 +861,7 @@ function openDrawer(tab) {
   openTab = tab; openSid = null; lastTxKey = ""; resetTranscript("tab=" + encodeURIComponent(tab));
   $("#drawer").classList.remove("ro");
   const c0 = card(tab);
-  // On the phone, a straight hop into the terminal: file-inbox /m/<sid> → moshi://herdr (resumes Moshi's ag card on that pane).
+  // On the phone, a straight hop into the terminal: file-inbox /m/<sid> → moshi://tmux (resumes Moshi's ag card on that workspace).
   const moshi = $("#dmoshi"); moshi.style.display = c0?.sid && matchMedia("(pointer:coarse)").matches ? "" : "none";
   if (c0?.sid) moshi.href = `${agConfig.fileInbox || ""}/m/${c0.sid}`;
   $("#drawer").classList.add("open"); $("#scrim").classList.add("open"); $("#drawer").setAttribute("aria-hidden", "false");
@@ -878,7 +878,7 @@ function openSession(info) {
   $("#dt").textContent = info.title;
   $("#dm").innerHTML = `${info.state === "hibernated" ? "hibernated" : "closed"}${info.workspaceLabel ? " · " + esc(info.workspaceLabel) : ""} · last active ${since(info.lastAt)} ago · $${(info.stats?.cost || 0).toFixed(2)} · ${esc(shortModel(info.model))}`;
   $("#dro").innerHTML = info.state === "hibernated"
-    ? `<div class="note">Its pi is asleep in Herdr (pi-hibernate). Opening the tab wakes it with full context.</div><button class="btn" id="dresume">Wake in Herdr</button><button class="btn" id="dlink2">Link</button>`
+    ? `<div class="note">Its pi is asleep in tmux (pi-hibernate). Opening the tab wakes it with full context.</div><button class="btn" id="dresume">Wake in tmux</button><button class="btn" id="dlink2">Link</button>`
     : `<div class="note">No open tab has this session. Resume opens a new tab in Inbox running <code>pi --session</code> with its full history.</div><button class="btn" id="dresume">▶ Resume in a new tab</button><button class="btn" id="dlink2">Link</button>`;
   $("#dresume").onclick = () => resume(info);
   $("#dlink2").onclick = () => copyLink(info.sid);
@@ -886,7 +886,7 @@ function openSession(info) {
   tick();
 }
 async function resume(info) {
-  $("#dresume").disabled = true; toast(info.state === "hibernated" ? "Waking it in Herdr…" : "Resuming…");
+  $("#dresume").disabled = true; toast(info.state === "hibernated" ? "Waking it in tmux…" : "Resuming…");
   const j = await (await fetch("/api/resume", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ sid: info.sid }) })).json().catch(() => ({}));
   if (!j.ok) { $("#dresume").disabled = false; return toast(j.error || "Couldn't resume it"); }
   // The card shows up once pi is running again; open it then.
@@ -943,7 +943,7 @@ $("#board").addEventListener("click", (e) => {
     if (a === "chev") toggleOpen(tab);
     else if (a === "stop") stop(tab);
     else if (a === "open") openDrawer(tab);
-    else if (a === "focus") api("/api/focus", { tab }).then((ok) => ok && toast("Focused in Herdr"));
+    else if (a === "focus") api("/api/focus", { tab }).then((ok) => ok && toast("Focused in tmux"));
     else if (a === "hot") toggleHot(tab);
     else if (a === "archive") archive(tab);
     else if (a === "wait") toggleWait(tab);
@@ -981,7 +981,7 @@ $("#board").addEventListener("click", (e) => {
 $("#helpbtn").onclick = () => openHelp();
 $("#dt").onclick = async () => {
   const c = card(openTab); if (!c) return;
-  const label = prompt("Rename this Herdr tab:", c.title);
+  const label = prompt("Rename this tab:", c.title);
   if (label && label.trim() && label.trim() !== c.title && await api("/api/rename", { tab: c.tab, label: label.trim() })) toast("Renamed (pinned: auto-naming won't change it)");
 };
 $("#hotonly").onclick = () => { hotOnly = !hotOnly; localStorage.hotOnly = hotOnly ? "1" : "0"; render(); };
@@ -994,7 +994,7 @@ $("#keys").addEventListener("click", async (e) => { const k = e.target.dataset.k
 $("#dstop").onclick = () => openTab && stop(openTab);
 $("#dhot").onclick = () => toggleHot(openTab);
 $("#dwait").onclick = () => openTab && toggleWait(openTab);
-$("#dfocus").onclick = async () => { if (await api("/api/focus", { tab: openTab })) toast("Focused in Herdr"); };
+$("#dfocus").onclick = async () => { if (await api("/api/focus", { tab: openTab })) toast("Focused in tmux"); };
 $("#dunread").onclick = async () => { const t = openTab; closeDrawer(); await api("/api/card", { tab: t, seen: false }); };
 $("#dlist").onchange = (e) => api("/api/card", { tab: openTab, list: e.target.value });
 $("#dkill").onclick = () => openTab && archive(openTab);
@@ -1094,7 +1094,7 @@ document.addEventListener("keydown", (e) => {
     j: () => moveSel(1, 0), ArrowDown: () => moveSel(1, 0), k: () => moveSel(-1, 0), ArrowUp: () => moveSel(-1, 0),
     h: () => moveSel(0, -1), ArrowLeft: () => moveSel(0, -1), l: () => moveSel(0, 1), ArrowRight: () => moveSel(0, 1),
     o: () => sel && openDrawer(sel), Enter: () => sel && openDrawer(sel), " ": () => sel && toggleOpen(sel),
-    f: () => sel && toggleHot(sel), g: () => sel && api("/api/focus", { tab: sel }).then((ok) => ok && toast("Focused in Herdr")),
+    f: () => sel && toggleHot(sel), g: () => sel && api("/api/focus", { tab: sel }).then((ok) => ok && toast("Focused in tmux")),
     u: () => sel && api("/api/card", { tab: sel, seen: false }), e: () => sel && archive(sel), w: () => sel && toggleWait(sel),
     1: () => setView("state"), 2: () => setView("lists"), 3: () => setView("ws"), 4: () => setView("routines"),
     x: () => { if (!sel) return; if (Date.now() - lastX < 1500) { lastX = 0; stop(sel); } else { lastX = Date.now(); toast("Press x again to interrupt"); } },

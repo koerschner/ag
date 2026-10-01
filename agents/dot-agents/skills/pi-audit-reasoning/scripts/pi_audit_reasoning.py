@@ -51,7 +51,7 @@ def tool_category(name):
     return OTHER
 
 
-SUBCOMMAND_TOOLS = {'gh', 'git', 'bun', 'herdr', 'npm', 'pnpm', 'uv', 'docker', 'npx', 'bunx', 'make', 'op-ag', 'op'}
+SUBCOMMAND_TOOLS = {'gh', 'git', 'bun', 'ag-mux', 'npm', 'pnpm', 'uv', 'docker', 'npx', 'bunx', 'make', 'op-ag', 'op'}
 SKIP_STEPS = {'cd', 'set', 'export', 'source', '.', 'true', 'break', 'continue', 'done', 'fi', 'esac', '}', ')'}
 WRAPPERS = {'timeout', 'env', 'sudo', 'nohup', 'time', 'command', 'exec'}
 

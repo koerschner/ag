@@ -1,7 +1,7 @@
 -- ag's client-side Hammerspoon glue. Stowed from the ag repo (hammerspoon/) into ~/.hammerspoon;
 -- dotfiles' init.lua loads it with `pcall(require, "ag")`, so a machine without ag still works.
 -- Everything here serves the agent system: role-specific power/activity, the ag inbox capture,
--- Ghostty → Herdr shortcut forwarding, image paste into remote agents, and herdr:// tab links.
+-- Ghostty → tmux shortcut forwarding, and image paste into remote agents.
 
 -- Always-on Macs only (host or extremity): clients sleep normally (see the Power section of dotfiles' macos).
 if os.execute(os.getenv("HOME") .. "/.local/bin/machine-role host extremity") then
@@ -14,20 +14,20 @@ end
 -- ag inbox quick capture (Cmd+Shift+Space): prompt + screenshot → new pi session on ag.
 ag_inbox = require("ag_inbox")
 
--- ─── Herdr: forward Ghostty tab/split shortcuts into herdr ─────────────────
--- When the focused Ghostty window is running herdr (detected via the window
--- title herdr writes; see ui.window_title in ~/.config/herdr/config.toml),
--- translate Ghostty's tab/split shortcuts into herdr's prefix (ctrl+b) chords.
+-- ─── Sessions: forward Ghostty tab/split shortcuts into Ag's tmux ──────────
+-- When the focused Ghostty window shows Ag's sessions (detected via the window
+-- title "ag: …" that set-titles-string writes; see ~/.config/ag/ag.tmux.conf),
+-- translate Ghostty's tab/split shortcuts into tmux's prefix (ctrl+b) chords.
 -- Anywhere else the keys pass through untouched, so Ghostty keeps its defaults.
-local HERDR_PREFIX = { mods = { "ctrl" }, key = "b" }
+local MUX_PREFIX = { mods = { "ctrl" }, key = "b" }
 -- Every shortcut is just a prefix chord, so it works the same locally and
--- through `herdr --remote` (ag-mac): herdr runs any helper script on the server.
--- The table comes from the canonical spec, ~/.config/herdr/shortcuts.json
--- (herdr/SHORTCUTS.md): each `key` (e.g. cmd+shift+d) sends prefix + `prefix`.
-local HERDR_KEY_NAMES = { minus = "-" }
-local herdrShortcuts = {}
+-- through `ag` (ssh to the session host): tmux runs any helper script there.
+-- The table comes from the canonical spec, ~/.config/ag/shortcuts.json
+-- (ag repo tmux/SHORTCUTS.md): each `key` (e.g. cmd+shift+d) sends prefix + `prefix`.
+local MUX_KEY_NAMES = { minus = "-" }
+local agShortcuts = {}
 do
-	local spec = hs.json.read(os.getenv("HOME") .. "/.config/herdr/shortcuts.json")
+	local spec = hs.json.read(os.getenv("HOME") .. "/.config/ag/shortcuts.json")
 	for _, sc in ipairs(spec and spec.shortcuts or {}) do
 		local mods, key = {}, nil
 		for part in sc.key:gmatch("[^+]+") do
@@ -37,38 +37,38 @@ do
 				key = part
 			end
 		end
-		local sent = HERDR_KEY_NAMES[sc.prefix] or sc.prefix
+		local sent = MUX_KEY_NAMES[sc.prefix] or sc.prefix
 		if key == "1..9" then
 			for i = 1, 9 do
-				table.insert(herdrShortcuts, { mods = mods, key = tostring(i), send = { {}, tostring(i) } })
+				table.insert(agShortcuts, { mods = mods, key = tostring(i), send = { {}, tostring(i) } })
 			end
 		else
-			table.insert(herdrShortcuts, { mods = mods, key = key, send = { {}, sent } })
+			table.insert(agShortcuts, { mods = mods, key = key, send = { {}, sent } })
 		end
 	end
-	-- For herdr-shortcuts-check: what this Mac actually loaded, spec-shaped.
-	herdrShortcuts_loaded = {}
-	for _, sc in ipairs(herdrShortcuts) do
+	-- For ag-shortcuts-check: what this Mac actually loaded, spec-shaped.
+	agShortcuts_loaded = {}
+	for _, sc in ipairs(agShortcuts) do
 		local names = {}
 		for m in pairs(sc.mods) do
 			table.insert(names, m)
 		end
 		table.sort(names)
-		table.insert(herdrShortcuts_loaded, { mods = names, key = sc.key, send = sc.send[2] })
+		table.insert(agShortcuts_loaded, { mods = names, key = sc.key, send = sc.send[2] })
 	end
-	if #herdrShortcuts == 0 then
-		hs.alert.show("Herdr shortcuts: ~/.config/herdr/shortcuts.json missing")
+	if #agShortcuts == 0 then
+		hs.alert.show("Ag shortcuts: ~/.config/ag/shortcuts.json missing")
 	end
 end
 
-local function focusedWindowIsHerdr()
+local function focusedWindowIsAg()
 	local app = hs.application.frontmostApplication()
 	if not app or app:name() ~= "Ghostty" then
 		return false
 	end
 	local win = app:focusedWindow()
 	local title = win and win:title() or ""
-	return title:match("^herdr") ~= nil
+	return title:match("^ag: ") ~= nil
 end
 
 local function flagsMatch(flags, wanted)
@@ -80,23 +80,23 @@ local function flagsMatch(flags, wanted)
 	return true
 end
 
-herdr_shortcut_tap = hs.eventtap
+ag_shortcut_tap = hs.eventtap
 	.new({ hs.eventtap.event.types.keyDown }, function(evt)
 		local flags = evt:getFlags()
 		if not flags["cmd"] then
 			return false
 		end
 		local key = hs.keycodes.map[evt:getKeyCode()]
-		for _, sc in ipairs(herdrShortcuts) do
+		for _, sc in ipairs(agShortcuts) do
 			if key == sc.key and flagsMatch(flags, sc.mods) then
-				if not focusedWindowIsHerdr() then
+				if not focusedWindowIsAg() then
 					return false
 				end
 				local ev = hs.eventtap.event
 				local mods, k = sc.send[1], sc.send[2]
 				return true, {
-					ev.newKeyEvent(HERDR_PREFIX.mods, HERDR_PREFIX.key, true),
-					ev.newKeyEvent(HERDR_PREFIX.mods, HERDR_PREFIX.key, false),
+					ev.newKeyEvent(MUX_PREFIX.mods, MUX_PREFIX.key, true),
+					ev.newKeyEvent(MUX_PREFIX.mods, MUX_PREFIX.key, false),
 					ev.newKeyEvent(mods, k, true),
 					ev.newKeyEvent(mods, k, false),
 				}
@@ -114,8 +114,7 @@ herdr_shortcut_tap = hs.eventtap
 local AG_HOST_BIN = os.getenv("HOME") .. "/.local/bin/ag-host"
 local PASTE_HOST = (hs.execute(AG_HOST_BIN):gsub("%s", ""))
 if PASTE_HOST == "" then PASTE_HOST = "ag-engine" end
--- This Mac's LocalHostName, and whether it is the Herdr host (machines/README.md via machine-role).
-local THIS_HOST = (hs.execute("scutil --get LocalHostName"):gsub("%s", ""))
+-- Whether this Mac is the session host (machines/README.md via machine-role).
 local IS_HOST = select(2, hs.execute(os.getenv("HOME") .. "/.local/bin/machine-role host")) == true
 local PASTE_DIR = "inbox/clipboard"
 local PASTE_REMOTE_HOME = (hs.execute(AG_HOST_BIN .. " --home"):gsub("%s", "")) -- pi wants absolute paths
@@ -159,8 +158,8 @@ end
 -- Pre-upload: every CleanShot capture is pushed to ag the moment it's written, so by
 -- the time you press Cmd+V the file is already there and the paste just types its path.
 -- CleanShot copies a file URL to its media folder PNG, which is matched against this map.
-herdr_preuploaded = {} -- local path -> remote path
-local preuploaded = herdr_preuploaded
+ag_preuploaded = {} -- local path -> remote path
+local preuploaded = ag_preuploaded
 local function uploadCmd(src, name, convert, tmp)
 	local q = shq(src)
 	local prep = convert and ("sips -s format png " .. q .. " --out " .. q .. ".png >/dev/null && ") or ""
@@ -171,12 +170,12 @@ local function uploadCmd(src, name, convert, tmp)
 		.. " < " .. up .. (tmp and (" && rm -f " .. q .. " " .. q .. ".png") or "")
 end
 
-herdr_upload_log = {} -- recent { started, finished, code } for debugging paste latency
+ag_upload_log = {} -- recent { started, finished, code } for debugging paste latency
 local function runUpload(cmd)
 	local entry = { started = hs.timer.secondsSinceEpoch() }
-	table.insert(herdr_upload_log, entry)
-	if #herdr_upload_log > 20 then
-		table.remove(herdr_upload_log, 1)
+	table.insert(ag_upload_log, entry)
+	if #ag_upload_log > 20 then
+		table.remove(ag_upload_log, 1)
 	end
 	hs.task
 		.new("/bin/sh", function(code, _, err)
@@ -214,7 +213,7 @@ local function preupload(path)
 end
 
 -- Insert text as one terminal paste (keyStrokes sends one event per character, which
--- is slow through remote Herdr). Swap the clipboard, send Cmd+V, restore it.
+-- is slow through remote tmux). Swap the clipboard, send Cmd+V, restore it.
 local pastingText = false
 local function pasteText(text)
 	local saved = hs.pasteboard.readAllData()
@@ -227,7 +226,7 @@ local function pasteText(text)
 	end)
 end
 
-local function pasteImagesToHerdr(images)
+local function pasteImagesToAg(images)
 	local stamp = os.date("%Y%m%d-%H%M%S")
 	local remote, cmd = {}, {}
 	for i, im in ipairs(images) do
@@ -244,25 +243,25 @@ local function pasteImagesToHerdr(images)
 		runUpload(table.concat(cmd, " && "))
 	end
 end
-herdr_paste_images = function() -- debug/test entry point: same as Cmd+V in herdr
+ag_paste_images = function() -- debug/test entry point: same as Cmd+V in an Ag window
 	local images = clipboardImages()
 	if images then
-		pasteImagesToHerdr(images)
+		pasteImagesToAg(images)
 	end
 	return images ~= nil
 end
 
 -- Keep the ssh master warm so the first paste is fast too.
 if not IS_HOST then
-	herdr_ssh_warm = hs.timer.doEvery(600, function()
+	ag_ssh_warm = hs.timer.doEvery(600, function()
 		hs.task.new("/bin/sh", nil, { "-c", "mkdir -p ~/.ssh/sockets && { ssh -O check " .. PASTE_HOST .. " 2>/dev/null || ssh -fN " .. PASTE_HOST .. "; } && ssh " .. PASTE_HOST .. " mkdir -p " .. PASTE_DIR }):start()
 	end)
-	herdr_ssh_warm:fire()
+	ag_ssh_warm:fire()
 
 	-- Watch CleanShot's capture folders (media history holds the copied PNG; ~/Screenshots
 	-- gets the saved one). Only files created after startup are uploaded.
 	local started = os.time()
-	herdr_capture_watchers = {}
+	ag_capture_watchers = {}
 	for _, dir in ipairs({ os.getenv("HOME") .. "/Library/Application Support/CleanShot/media", os.getenv("HOME") .. "/Screenshots" }) do
 		local w = hs.pathwatcher.new(dir, function(paths, flags)
 			for i, p in ipairs(paths) do
@@ -276,51 +275,26 @@ if not IS_HOST then
 			end
 		end)
 		w:start()
-		table.insert(herdr_capture_watchers, w)
+		table.insert(ag_capture_watchers, w)
 	end
 end
 
 if not IS_HOST then
-	herdr_image_paste_tap = hs.eventtap
+	ag_image_paste_tap = hs.eventtap
 		.new({ hs.eventtap.event.types.keyDown }, function(evt)
 			if pastingText or hs.keycodes.map[evt:getKeyCode()] ~= "v" or not flagsMatch(evt:getFlags(), { cmd = true }) then
 				return false
 			end
-			if not focusedWindowIsHerdr() then
+			if not focusedWindowIsAg() then
 				return false
 			end
 			local images = clipboardImages()
 			if not images then
 				return false
 			end
-			pasteImagesToHerdr(images)
+			pasteImagesToAg(images)
 			return true
 		end)
 		:start()
 end
 -- ────────────────────────────────────────────────────────────────────────────
-
--- ─── Herdr: clickable links to tabs ─────────────────────────────────────────
--- Agents print gemini://<host>/focus/<tab_id> (see `herdr-link`). Cmd+click in Ghostty →
--- HerdrLink.app (macos-apps/HerdrLink, the gemini:// handler) → hammerspoon://herdr?tab=&host=
--- → here: focus that tab over the warm ssh connection. No browser involved.
-hs.urlevent.bind("herdr", function(_, params)
-	local tab, host = params.tab or "", params.host or PASTE_HOST
-	if not tab:match("^[%w]+:[%w]+$") or not host:match("^[%w%.%-]+$") then
-		return hs.alert.show("herdr link: bad target")
-	end
-	-- "ag" is ag-mac's old name (links printed before the 2026-09-29 rename).
-	local here = host == THIS_HOST or (IS_HOST and (host == "ag" or host == "ag-mac"))
-	local focus = "$HOME/.local/bin/ag-mux tab focus " .. tab
-	hs.task
-		.new("/bin/sh", function(code, _, err)
-			if code ~= 0 then
-				hs.alert.show("herdr link failed: " .. (err or ""), 4)
-			end
-		end, { "-c", here and focus or ("ssh " .. host .. " '" .. focus .. "'") })
-		:start()
-	local ghostty = hs.application.find("Ghostty")
-	if ghostty then
-		ghostty:activate()
-	end
-end)

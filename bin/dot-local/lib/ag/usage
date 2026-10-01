@@ -2,7 +2,7 @@
 """ag usage — measure how agents use the ag CLI, from every Pi session's tool calls (docs/ag-cli.md).
 
 Counts, over the window: each `ag <verb>` call (calls, sessions, error rate from its tool result), and every
-hand-rolled equivalent from usage-patterns.json (the same job done with ag-mux/herdr + jq, curl to AG Dash or
+hand-rolled equivalent from usage-patterns.json (the same job done with ag-mux + jq, curl to AG Dash or
 the inbox, jq over transcripts, per-machine ssh …) with the ag verb that covers or should cover it. Stdlib only.
 The weekly `ag-cli-usage` routine (~/ag/routines/ag-cli-usage.md) runs it.
 

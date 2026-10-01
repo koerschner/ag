@@ -6,7 +6,7 @@ Never sit idle while CI runs. `sleep N` longer than ~60s is banned, including in
 
 - The next queued card or follow-up in the same task: start it in its own worktree off `origin/dev` (or stacked on the pending branch if it depends on it).
 - Anything that doesn't depend on the CI result: review bot comments already posted, reply to/resolve threads, draft the PR description, file follow-up tickets, simplify, run local checks for the next change.
-- Run slow local gates (pre-push hooks, `bun run check`) in a separate Herdr pane in the background and read the result later, instead of blocking your tool call on them.
+- Run slow local gates (pre-push hooks, `bun run check`) in a separate tmux pane in the background and read the result later, instead of blocking your tool call on them.
 
 Check back on the pending PR every few minutes between those steps. Only wait passively when there is truly nothing else to do, and say so.
 

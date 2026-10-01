@@ -1,5 +1,0 @@
-# Only dot-config/ stows into ~; plugins are linked by setup.sh.
-^/plugins
-^/setup\.sh
-\.git
-\.gitignore

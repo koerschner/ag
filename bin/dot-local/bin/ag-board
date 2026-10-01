@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
-// ag-board (AG Dash): a Kanban dashboard over every agent session in Herdr. http://ag:7376/ (Tailscale only).
+// ag-board (AG Dash): a Kanban dashboard over every agent session (ag-mux on tmux). http://ag:7376/ (Tailscale only).
 //
-// Herdr stays the runtime; this is a view on it plus a little metadata Herdr doesn't keep.
+// ag-mux stays the runtime; this is a view on it plus a little metadata ag-mux doesn't keep.
 //   - Polls `ag-mux api snapshot` (~15 ms) every POLL_MS; each tab hosting an agent is a card.
 //   - Reads each card's Pi session file incrementally (only appended bytes) for the latest ask/answer,
 //     live activity (thinking / running a tool since when), recent tools, thinking, cost and context size.
@@ -10,14 +10,14 @@
 // Card semantics:
 //   ready     = agent idle/done/blocked (at its prompt)
 //   needsYou  = blocked, or ready with an answer newer than seenAt. Seen = opened on the board, replied
-//               from it, jumped to in Herdr, or the tab is focused in Herdr.
+//               from it, jumped to in tmux, or the tab is focused in tmux.
 //   resolved  = the latest answer ends with a DONE line (the global "signal completion" convention).
 //   hotpath   = 🔥 top priority (shift+click / long-press). Pinned to the top everywhere; its siren ring runs
-//               whenever the agent isn't working (throb). Becoming needsYou fires the fast lane: ag-text + a Herdr toast.
+//               whenever the agent isn't working (throb). Becoming needsYou fires the fast lane: ag-text + a tmux toast.
 // Every page is a URL (views, columns, /new, /help, /<session id>[/live]); the page's router handles back/forward.
 // Deep links: http://ag:7376/<pi session id> (the UUID in the session filename; stable, unlike tab ids) serves the
 // board with that session open: the live card's drawer, or, for a hibernated pane or a closed session, its
-// transcript read-only with Wake in Herdr / Resume (POST /api/resume: new tab running `pi --session <file>`).
+// transcript read-only with Wake in tmux / Resume (POST /api/resume: new tab running `pi --session <file>`).
 // GET /api/session/<id> resolves an id; GET /api/transcript?sid=<id> reads any session file.
 // Media: GET /api/file?path= (image/video files under ~ or /tmp, Range-capable), GET /api/embedded?tab=&line=&idx=
 // (base64 images inside the session, e.g. pasted screenshots and read-tool images).
@@ -67,7 +67,7 @@ const AG_FQDN = process.env.AG_FQDN ?? (() => {
 const HTTPS_PORT = 7377; // `tailscale serve` → https://ag.<tailnet>.ts.net:7377 (browsers only allow the mic on https)
 const POLL_MS = 1500;
 const HOME = homedir();
-const HERDR = `${HOME}/.local/bin/ag-mux`; // tmux (agd) or Herdr, whichever this host runs
+const AG_MUX = `${HOME}/.local/bin/ag-mux`;
 const AG_TEXT = `${HOME}/.local/bin/ag-text`;
 const STATE_DIR = `${HOME}/.local/state/ag-board`;
 const STATE_FILE = `${STATE_DIR}/state.json`;
@@ -81,7 +81,7 @@ const UPLOAD_DIR = `${HOME}/inbox/clipboard`;
 const INBOX_URL = process.env.AG_INBOX_URL || "http://ag:7373/prompt?new=1"; // the ag inbox: new items land in Inbox
 const STT_URL = "https://tfy.promptlens.trilogy.com/audio/transcriptions";
 const STT_MODELS = ["whisper-1", "openai-esw/whisper-1"]; // second is the fallback route
-const STT_HINT = "Herdr, ag, pi, Arcade, arcade.school, Jev, TrueFoundry, Linear, Honeycomb, Hammerspoon, dotfiles, Roblox, TSA, hotpath.";
+const STT_HINT = "tmux, ag, pi, Arcade, arcade.school, Jev, TrueFoundry, Linear, Honeycomb, Hammerspoon, dotfiles, Roblox, TSA, hotpath.";
 const FAST_LANE_GAP_MS = 60_000; // at most one fast-lane ping per card per minute
 const READY = new Set(["idle", "done", "blocked"]);
 const WAKE_EVERY_MS = 15 * 60_000;
@@ -142,7 +142,7 @@ async function run(args: string[]) {
 	const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
 	return { code, out, err };
 }
-const herdr = (...a: string[]) => run([HERDR, ...a]);
+const mux = (...a: string[]) => run([AG_MUX, ...a]);
 const cleanLabel = (s: string) => s.replace(/\s*●\s*$/, "").trim();
 const textOf = (content: unknown): string =>
 	typeof content === "string"
@@ -404,15 +404,15 @@ async function resumeSession(sid: string, workspace?: string): Promise<string> {
 	if (!r) throw new Error("no such session");
 	if (r.state === "live") return r.tab;
 	if (r.state === "hibernated" && r.tab) {
-		await herdr("tab", "focus", r.tab); // focusing a hibernated pane wakes it (pi-hibernate daemon)
+		await mux("tab", "focus", r.tab); // focusing a hibernated pane wakes it (pi-hibernate daemon)
 		return r.tab;
 	}
 	const ws = workspace ?? board.workspaces.find((w) => w.label.toLowerCase() === "inbox")?.id ?? board.workspaces[0]?.id;
 	const cwd = r.cwd && existsSync(r.cwd) ? r.cwd : HOME;
-	const t = await herdr("tab", "create", "--workspace", ws, "--cwd", cwd, "--no-focus");
+	const t = await mux("tab", "create", "--workspace", ws, "--cwd", cwd, "--no-focus");
 	if (t.code !== 0) throw new Error(t.err.trim() || "tab create failed");
 	const { tab, root_pane } = JSON.parse(t.out).result;
-	const a = await herdr("agent", "start", `resume-${sid.slice(-8)}`, "--kind", "pi", "--pane", root_pane.pane_id, "--timeout", "30000", "--", "--session", r.file);
+	const a = await mux("agent", "start", `resume-${sid.slice(-8)}`, "--kind", "pi", "--pane", root_pane.pane_id, "--timeout", "30000", "--", "--session", r.file);
 	if (a.code !== 0) throw new Error(a.err.trim() || "pi didn't start");
 	return tab.tab_id;
 }
@@ -706,12 +706,12 @@ const pageRes = (req: Request) => gzipped(req, readFileSync(PAGE), { "content-ty
 function fastLane(card: Card) {
 	const snippet = (card.status === "blocked" ? "is blocked and needs you" : "is ready") + (card.lastAssistant ? `: ${oneLine(card.lastAssistant.text, 160)}` : "");
 	void run([AG_TEXT, `🔥 ${card.title} (${card.workspaceLabel}) ${snippet}\n${card.sid ? `http://ag:${PORT}/${card.sid}` : `${HTTPS_URL}/#${card.tab}`}`]);
-	void herdr("notification", "show", `🔥 ${card.title}`, "--body", snippet.slice(0, 120), "--sound", "request");
+	void mux("notification", "show", `🔥 ${card.title}`, "--body", snippet.slice(0, 120), "--sound", "request");
 	console.log(new Date().toISOString(), "fast-lane", card.tab, card.title);
 }
 
 async function poll() {
-	const r = await herdr("api", "snapshot");
+	const r = await mux("api", "snapshot");
 	if (r.code !== 0) return;
 	const snap = JSON.parse(r.out).result.snapshot;
 	const now = Date.now();
@@ -752,7 +752,7 @@ async function poll() {
 		const ready = READY.has(a.agent_status);
 		const focused = snap.focused_tab_id === a.tab_id;
 		if (focused && ready && (s?.lastAssistant?.ts ?? 0) > cs.seenAt) {
-			cs.seenAt = now; // he's looking at it in Herdr
+			cs.seenAt = now; // he's looking at it in tmux
 			dirty = true;
 		}
 		const sid = sidOf(a.agent_session?.value);
@@ -768,7 +768,7 @@ async function poll() {
 				cs.wakeAskedAt = now;
 				cs.wakeAsks = (cs.wakeAsks ?? 0) + 1;
 				dirty = true;
-				void herdr("agent", "prompt", a.pane_id, WAKE_PROMPT).then((r) => console.log(new Date().toISOString(), "wake-up ask", a.tab_id, r.code === 0 ? "sent" : r.err.trim()));
+				void mux("agent", "prompt", a.pane_id, WAKE_PROMPT).then((r) => console.log(new Date().toISOString(), "wake-up ask", a.tab_id, r.code === 0 ? "sent" : r.err.trim()));
 			}
 		}
 		const waiting: Waiting[] = a.agent_status === "working" ? [] : [...tick, ...(cs.waiting ? [{ title: "Marked waiting", kind: "manual" as const, detail: "asked the session to schedule its wake-up" }] : [])];
@@ -917,7 +917,7 @@ async function sendDictation(pane: string, typed: string, audio: File, interrupt
 			console.error(new Date().toISOString(), "dictation stt failed", e);
 			text = [typed, `I sent a voice recording but transcription failed. Transcribe it (e.g. Whisper via TrueFoundry) and do what it says:\n${path}`].filter(Boolean).join("\n\n");
 		}
-		const r = interruptFirst ? await interruptAndSend(pane, text) : await herdr("agent", "prompt", pane, text);
+		const r = interruptFirst ? await interruptAndSend(pane, text) : await mux("agent", "prompt", pane, text);
 		if (r.code !== 0) console.error(new Date().toISOString(), "dictation prompt failed", r.err);
 		void after();
 	})();
@@ -926,7 +926,7 @@ async function sendDictation(pane: string, typed: string, audio: File, interrupt
 // ---------- control ----------
 const keys = async (pane: string, ...ks: string[]) => {
 	for (const k of ks) {
-		const r = await herdr("agent", "send-keys", pane, k);
+		const r = await mux("agent", "send-keys", pane, k);
 		if (r.code !== 0) return r;
 		await Bun.sleep(60);
 	}
@@ -940,9 +940,9 @@ async function interrupt(pane: string) {
 // Interrupt, wait until the agent is at its prompt, clear whatever Pi put back in the editor, then send.
 async function interruptAndSend(pane: string, text: string) {
 	await interrupt(pane);
-	await herdr("agent", "wait", pane, "--until", "idle", "--until", "done", "--timeout", "20000");
+	await mux("agent", "wait", pane, "--until", "idle", "--until", "done", "--timeout", "20000");
 	for (let i = 0; i < 8; i++) await keys(pane, "ctrl+u", "backspace");
-	return herdr("agent", "prompt", pane, text);
+	return mux("agent", "prompt", pane, text);
 }
 
 // ---------- server ----------
@@ -1045,7 +1045,7 @@ async function handle(req: Request): Promise<Response> {
 			if (p === "/api/screen") {
 				const card = board.cards.find((c) => c.tab === url.searchParams.get("tab"));
 				if (!card) return bad("no such card", 404);
-				const r = await herdr("agent", "read", card.pane, "--source", "visible", "--lines", "120");
+				const r = await mux("agent", "read", card.pane, "--source", "visible", "--lines", "120");
 				return new Response(r.code === 0 ? r.out : r.err, { status: r.code === 0 ? 200 : 409, headers: { "content-type": "text/plain; charset=utf-8" } });
 			}
 			if (p === "/events") {
@@ -1160,7 +1160,7 @@ async function handle(req: Request): Promise<Response> {
 			case "/api/prompt": {
 				const text = String(body.text ?? "").trim();
 				if (!card || !text) return bad("tab and text required");
-				const r = body.interrupt ? await interruptAndSend(card.pane, text) : await herdr("agent", "prompt", card.pane, text);
+				const r = body.interrupt ? await interruptAndSend(card.pane, text) : await mux("agent", "prompt", card.pane, text);
 				if (r.code !== 0) return fail(r, "prompt");
 				markSeen(tab);
 				void after(); // answer right away; the board refresh follows over SSE
@@ -1197,14 +1197,14 @@ async function handle(req: Request): Promise<Response> {
 			case "/api/rename": {
 				const label = String(body.label ?? "").trim().slice(0, 60);
 				if (!card || !label) return bad("tab and label required");
-				const r = await herdr("tab", "rename", tab, label);
+				const r = await mux("tab", "rename", tab, label);
 				if (r.code !== 0) return fail(r, "rename");
 				await after();
 				return ok();
 			}
 			case "/api/focus": {
 				if (!card) return bad("no such card", 404);
-				const r = await herdr("tab", "focus", tab);
+				const r = await mux("tab", "focus", tab);
 				if (r.code !== 0) return fail(r, "focus");
 				markSeen(tab);
 				await after();
@@ -1212,7 +1212,7 @@ async function handle(req: Request): Promise<Response> {
 			}
 			case "/api/close": {
 				if (!card) return bad("no such card", 404);
-				const r = await herdr("tab", "close", tab);
+				const r = await mux("tab", "close", tab);
 				if (r.code !== 0) return fail(r, "close");
 				await after();
 				return ok();

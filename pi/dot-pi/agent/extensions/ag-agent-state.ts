@@ -1,22 +1,20 @@
-// installed by herdr
-// managed by herdr; reinstalling or updating the integration overwrites this file.
-// add custom hooks/plugins beside this file instead of editing it.
-// HERDR_INTEGRATION_ID=pi
-// HERDR_INTEGRATION_VERSION=9
+// Reports this Pi's agent state (idle/working/blocked/done) and session file to agd (ag-mux), which
+// AG Dash, the tickler, pi-hibernate and the status bar read. Claude and Codex have shell twins
+// (claude/dot-claude/hooks/ag-agent-state.sh, codex/dot-codex/ag-agent-state.sh). Design: docs/ag-mux.md.
 // @ts-nocheck
 
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 
-const HERDR_ENV = process.env.HERDR_ENV;
-const socketPath = process.env.HERDR_SOCKET_PATH;
-const socketEndpoint =
-  process.platform === "win32" && socketPath ? `\\\\.\\pipe\\${socketPath}` : socketPath;
-const paneId = process.env.HERDR_PANE_ID;
-const source = "herdr:pi";
+const socketPath = process.env.AG_MUX_SOCKET || path.join(os.homedir(), ".local/state/ag-mux/agd.sock");
+const socketEndpoint = socketPath;
+// AG_PANE_ID on panes agd made; TMUX_PANE (which agd also resolves) on panes from before AG_* existed.
+const paneId = process.env.AG_PANE_ID || process.env.TMUX_PANE;
+const source = "ag:pi";
 
 function enabled() {
-  return HERDR_ENV === "1" && !!socketPath && !!paneId;
+  return process.env.AG_MUX === "1" && !!paneId;
 }
 
 function sendRequestAttempt(request: unknown, timeoutMs: number): Promise<boolean> {
@@ -208,7 +206,7 @@ export default function (pi) {
     queueState(next.state, next.message);
   }
 
-  pi.events.on("herdr:blocked", (data) => {
+  pi.events.on("ag:blocked", (data) => {
     if (!rootSession) {
       return;
     }
@@ -227,7 +225,7 @@ export default function (pi) {
   });
 
   pi.on("session_start", async (event, ctx) => {
-    // TUI only: RPC/JSON/print modes are headless (no PTY herdr can display),
+    // TUI only: RPC/JSON/print modes are headless (no PTY tmux can display),
     // and RPC still reports hasUI=true, so mode is the reliable gate.
     if (ctx?.mode !== "tui") {
       return;

@@ -9,10 +9,10 @@ Roles:
 - **engine** (Ag, Linux): rented, rebuilt from zero by `ag-infra` (infra/hetzner) + `bootstrap-linux`; persistent state on a volume at /data. Design: `docs/ag.md`. Sync it like the others (`git pull --ff-only` in `~/ag` and `~/dotfiles`, re-run `~/ag/bootstrap-linux` if it changed).
 - **host**: runs Ag's sessions (ag-mux on tmux), every Ag service, and the repos. Agents act from here. Today: ag-engine (Linux, Hetzner CCX33 in Hillsboro).
 - **extremity**: the always-on Mac Ag drives for computer use and Mac-only apps and CLIs (ag-mac). No sessions or Ag services; it never sleeps.
-- **client**: where Nathan sits; runs no Herdr server. Attaches to a host's Herdr
-  (`ag` command, host keybindings), runs Hammerspoon, CleanShot, and the client side
+- **client**: where Nathan sits; runs no sessions. Attaches to the host's tmux
+  (`ag` command = `ssh -t <host> ag-mux attach`), runs Hammerspoon, CleanShot, and the client side
   of the bridge (`shot`, `show`, `client-cua`). Client shortcuts only translate keys
-  into Herdr chords; anything that executes is a Herdr `keys.command` on the host.
+  into tmux prefix chords; anything that executes is a tmux binding on the host (`ag.tmux.conf`).
   Full rules: "Multi-machine setup model: host and client" in `pi/dot-pi/agent/AGENTS.md`.
 
 | SSH alias | LocalHostName | Role | User | Home | ag checkout | Dotfiles checkout | Tailscale IP |

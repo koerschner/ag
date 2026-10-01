@@ -44,8 +44,8 @@ function away(): boolean {
 
 function tabLabel(): string {
 	try {
-		const pane = JSON.parse(run(`${BIN}/ag-mux`, ["pane", "get", process.env.HERDR_PANE_ID ?? ""])).result.pane;
-		return JSON.parse(run(`${BIN}/ag-mux`, ["tab", "get", pane.tab_id])).result.tab.label.replace(/\s*●$/, "");
+		const pane = JSON.parse(run(`${BIN}/ag-mux`, ["pane", "current"])).result.pane;
+		return JSON.parse(run(`${BIN}/ag-mux`, ["tab", "get", pane.tab_id])).result.tab.label;
 	} catch {
 		return "pi";
 	}
@@ -57,7 +57,7 @@ export default function (pi: ExtensionAPI) {
 	let prompt = "";
 
 	pi.on("session_start", (_e, ctx) => {
-		root = ctx.mode === "tui" && process.env.HERDR_ENV === "1";
+		root = ctx.mode === "tui" && process.env.AG_MUX === "1";
 	});
 
 	pi.on("before_agent_start", (event) => {

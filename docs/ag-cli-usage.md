@@ -30,17 +30,17 @@ strips heredocs but not multi-line quoted strings; at this volume it's noise, so
 |---|---:|---:|---|---|
 | pane-read (`pane`/`agent read`) | 537 / 125 | 9% | `peek` | verb not built yet (build gap) |
 | service-ctl (systemctl/launchctl) | 304 / 82 | 16% | `status`/`restart` | not built; many hits are legit dev work on services |
-| herdr-link | 285 / 115 | 11% | `link` | not built; AGENTS.md still tells agents to use `herdr-link` |
+| old-link-helper | 285 / 115 | 11% | `link` | not built; AGENTS.md still told agents to use the old link helper |
 | agent-prompt | 266 / 89 | 15% | `send` | not built; stale pane ids → `agent_not_found` |
 | self-lookup (`pane list` + jq) | 257 / 104 | 9% | `me` | not built; AGENTS.md "Split out" recipe teaches it |
 | mux-snapshot (`api snapshot`/`workspace list`) | 179 / 59 | 8% | `ls` | not built (new pattern) |
 | transcript-jq | 172 / 72 | 12% | `read` | not built |
 | tab-by-label | 161 / 77 | 16% | `ls` | not built |
 | agent-status (`agent`/`pane get`) | 161 / 49 | 12% | `ls` | not built (new pattern) |
-| tab-close | 126 / 74 | 10% | `close` | not built; "Defer-only sessions" rule teaches `herdr tab close` |
+| tab-close | 126 / 74 | 10% | `close` | not built; "Defer-only sessions" rule taught the raw `tab close` |
 | inbox-curl | 121 / 48 | 19% | `spawn` | not built; forgotten text/plain header → `empty` |
 | agents-build | 103 / 53 | 18% | `sync` | not built |
-| stale-self-env (`$HERDR_TAB_ID`) | 91 / 59 | 5% | `me` | not built |
+| stale-self-env (tab-id env var) | 91 / 59 | 5% | `me` | not built |
 | board-state (`:7376/api/state`) | 81 / 19 | 7% | `ls` | not built |
 | report-back | 71 / 38 | 8% | `report` | not built |
 | tab-create-start | 63 / 30 | 22% | `spawn` | not built |
@@ -59,8 +59,8 @@ which inflates each row by a few calls.
 
 - First run; baseline recorded.
 - `usage-patterns.json`: `pane-read` now also matches `agent read`; new patterns `agent-status`
-  (`agent`/`pane get` → `ls`), `mux-snapshot` (`api snapshot`/`workspace list` → `ls`) and `herdr-link`
-  (→ `link`), found by skimming uncatalogued ag-mux/herdr/curl/ssh calls.
+  (`agent`/`pane get` → `ls`), `mux-snapshot` (`api snapshot`/`workspace list` → `ls`) and the old link helper
+  (→ `link`), found by skimming uncatalogued ag-mux/curl/ssh calls.
 - Nothing spun out: the top finding (`peek`, and every other gap) is covered by the "ag CLI Build" session
   spun out earlier today (http://ag:7376/01a0f5ca-2434-75db-bad6-bce2dc5f80c0), which builds every verb in
   ag-cli.md and then replaces the old recipes in AGENTS.md.

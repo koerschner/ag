@@ -4,7 +4,7 @@ Session references (every verb that takes one): a pi session id, or a unique pre
 file path; an AG Dash link (http://ag:7376/<sid> or …/t/<tab>); a tab id (w1:tCW) or pane id (w1:pCX); or a
 label match (case-insensitive: exact first, then substring; ambiguous → error listing the candidates).
 "me", "self" or "." (and the default) is the calling session, found by $PI_SESSION_ID / $PI_SESSION_FILE,
-else by $TMUX_PANE; never $HERDR_*, which goes stale when a tab is filed. Everything is resolved fresh from
+else by $TMUX_PANE; never $AG_TAB_ID/$AG_WORKSPACE_ID, which go stale when a tab is filed. Everything is resolved fresh from
 ag-mux's snapshot on each call, so stale pane ids can't happen.
 """
 

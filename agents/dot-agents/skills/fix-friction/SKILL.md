@@ -35,7 +35,7 @@ There are two roles. Work out which one you are:
    to report back to your session when done (see "Split out" in AGENTS.md for
    finding your pane).
 3. Tell Nathan in one line that the fixer is on it, with its link
-   (`herdr-link --grep 'Fix Friction|Friction'`, or the ag inbox response).
+   (`ag find Friction`, or the ag inbox response).
    Then carry on.
 
 ## Fix (the Fix Friction session)

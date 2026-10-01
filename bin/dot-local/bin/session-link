@@ -3,7 +3,7 @@
 # phone: https://ag.<tailnet>.ts.net:7377/<pi session id> (full name + https so iMessage linkifies it and the
 # phone resolves it without MagicDNS short names). The board shows the live session (transcript, reply), or a
 # hibernated/closed one with Wake / Resume; its "📱 Open in Moshi" button goes on to the terminal via file-inbox
-# (GET /m/<session id> → moshi://herdr?workspace&tab&pane).
+# (GET /m/<session id> → moshi://tmux?session=<workspace>).
 # Usage: session-link [pi session file]   (default: $PI_SESSION_FILE)
 set -eu
 f=${1:-${PI_SESSION_FILE:?not in a pi session; pass a session file}}

@@ -1,7 +1,7 @@
 // Tickler tool: lets the agent defer work to a later time from plain text ("do this Friday at 9",
 // "remind me about this in 2 weeks"), or until Nathan is next online at his client Mac ("resume this next time
 // I'm on the client"; detected by `presence`, bin/dot-local/bin/presence). Wraps the `tickler` CLI (bin/dot-local/bin/tickler), which the
-// com.nathan.tickler LaunchAgent fires: a new Herdr tab running pi, forked from this session.
+// tickler timer (systemd) fires: a new tab running pi, forked from this session.
 import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { StringEnum } from "@earendil-works/pi-ai";
@@ -10,12 +10,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 const BIN = `${homedir()}/.local/bin/tickler`;
 
-function herdrWorkspaceLabel(): string | undefined {
-	const pane = process.env.HERDR_PANE_ID;
-	if (!pane) return undefined;
+function currentWorkspaceLabel(): string | undefined {
+	if (process.env.AG_MUX !== "1") return undefined;
 	try {
-		// Resolve live: HERDR_WORKSPACE_ID goes stale if the pane moves (e.g. auto-filed out of Inbox).
-		const ws = JSON.parse(execFileSync("ag-mux", ["pane", "get", pane], { encoding: "utf8", timeout: 3000 })).result.pane.workspace_id;
+		// Resolve live: AG_WORKSPACE_ID goes stale if the pane moves (e.g. auto-filed out of Inbox).
+		const ws = JSON.parse(execFileSync("ag-mux", ["pane", "current"], { encoding: "utf8", timeout: 3000 })).result.pane.workspace_id;
 		const r = JSON.parse(execFileSync("ag-mux", ["workspace", "get", ws], { encoding: "utf8", timeout: 3000 })).result;
 		return (r.workspace ?? r).label;
 	} catch {
@@ -34,7 +33,7 @@ export default function (pi: ExtensionAPI) {
 		name: "tickler",
 		label: "Tickler",
 		description:
-			"GTD tickler: defer a task to a specific future time, to the next time Nathan comes online at his client Mac (when: \"online\"), or wake this session when something finishes (when: \"check\" with a shell check, or \"event\" via a webhook). At that moment a new Herdr tab opens running pi (forked from this conversation by default, so it has full context) and the task is sent to it as a prompt. Also list or cancel scheduled items.",
+			"GTD tickler: defer a task to a specific future time, to the next time Nathan comes online at his client Mac (when: \"online\"), or wake this session when something finishes (when: \"check\" with a shell check, or \"event\" via a webhook). At that moment a new tab opens running pi (forked from this conversation by default, so it has full context) and the task is sent to it as a prompt. Also list or cancel scheduled items.",
 		promptSnippet: "Schedule a task/reminder to come back at a future time, or when Nathan is next online at his Mac, as a new pi tab",
 		promptGuidelines: [
 			"When Nathan asks in plain text to do, check, or remind him of something at a later time (\"on Friday\", \"tomorrow at 9\", \"in two weeks\", \"defer this\", \"send this back to me later\"), call the tickler tool with action \"schedule\" yourself; never ask him to run a command.",
@@ -59,7 +58,7 @@ export default function (pi: ExtensionAPI) {
 			expires: Type.Optional(Type.String({ description: "when=check|event: ISO time to give up and fire as expired (default 7 days)" })),
 			task: Type.Optional(Type.String({ description: "schedule: self-contained instruction for the future agent" })),
 			title: Type.Optional(Type.String({ description: "schedule: short tab title (≤ 35 chars)" })),
-			workspace: Type.Optional(Type.String({ description: "schedule: Herdr workspace label to open in (default: the current one)" })),
+			workspace: Type.Optional(Type.String({ description: "schedule: workspace label to open in (default: the current one)" })),
 			mode: Type.Optional(StringEnum(["fork", "fresh"] as const, { description: "schedule: fork this conversation (default) or start a fresh pi" })),
 			waitingFor: Type.Optional(Type.String({ description: "schedule with `at`: GTD waiting-for; the person we're waiting on (enables the check/follow-up/backoff prompt)" })),
 			attempt: Type.Optional(Type.Number({ description: "waitingFor: which check-in this is (1 = first; increment on each requeue)" })),
@@ -80,7 +79,7 @@ export default function (pi: ExtensionAPI) {
 				if (p.needsNathan) trigger.push("--needs-nathan");
 				args = ["add", ...trigger, "--task", p.task, "--cwd", ctx.cwd, "--mode", p.mode ?? "fork"];
 				const session = ctx.sessionManager.getSessionFile();
-				const workspace = p.workspace ?? herdrWorkspaceLabel();
+				const workspace = p.workspace ?? currentWorkspaceLabel();
 				if (p.title) args.push("--title", p.title);
 				if (session) args.push("--session", session);
 				if (workspace) args.push("--workspace", workspace);

@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Browser-style back/forward focus history for Herdr.
+"""Browser-style back/forward focus history for Ag's tmux sessions (ag-mux).
 
-  herdr-nav daemon    watch Herdr focus events and serve back/forward requests
-  herdr-nav back      focus the previous pane in history
-  herdr-nav forward   focus the next pane in history
-  herdr-nav last-space  focus the most recently used other workspace (tmux switch-client -l)
-  herdr-nav reopen    reopen the most recently closed pane (Cmd+Shift+T)
-  herdr-nav status    print the history (for debugging)
+  ag-nav daemon    watch ag-mux focus events and serve back/forward requests
+  ag-nav back      focus the previous pane in history
+  ag-nav forward   focus the next pane in history
+  ag-nav last-space  focus the most recently used other workspace (tmux switch-client -l)
+  ag-nav reopen    reopen the most recently closed pane (Cmd+Shift+T)
+  ag-nav status    print the history (for debugging)
 
-The daemon subscribes to Herdr's socket API (pane/tab/workspace focus events),
+The daemon subscribes to agd's socket API (pane/tab/workspace focus events),
 records the focused pane after each change, and listens on a control socket.
-Hammerspoon binds Cmd+[ / Cmd+] to `back` / `forward`.
+tmux binds prefix+[ / prefix+] to `back` / `forward` (Hammerspoon sends Cmd+[ / Cmd+] as those).
 It also caches the session layout so a closed pane can be reopened: same spot
 (split beside the neighbour that absorbed it) or a recreated tab, same cwd,
 and pi panes resume their session file. Processes and scrollback don't return.
-Stdlib only on purpose: launchd runs it with the system python3.
+Stdlib only on purpose: systemd runs it with the system python3.
 """
 
 import json
@@ -24,17 +24,10 @@ import sys
 import threading
 import time
 
-def _socket_path():
-    """agd (ag-mux on tmux) or Herdr, whichever this host runs; env overrides first."""
-    for p in (os.environ.get("HERDR_SOCKET"), os.environ.get("AG_MUX_SOCKET"), os.environ.get("HERDR_SOCKET_PATH"),
-              "~/.local/state/ag-mux/agd.sock", "~/.config/herdr/herdr.sock"):
-        if p and os.path.exists(os.path.expanduser(p)):
-            return os.path.expanduser(p)
-    return os.path.expanduser("~/.config/herdr/herdr.sock")
+# agd's socket (ag-mux on tmux; bin/dot-local/lib/ag-mux).
+MUX_SOCK = os.path.expanduser(os.environ.get("AG_MUX_SOCKET") or "~/.local/state/ag-mux/agd.sock")
 
-
-HERDR_SOCK = _socket_path()
-STATE_DIR = os.path.expanduser("~/.local/state/herdr-nav")
+STATE_DIR = os.path.expanduser("~/.local/state/ag-nav")
 CTL_SOCK = os.path.join(STATE_DIR, "ctl.sock")
 MAX_HISTORY = 200
 MAX_CLOSED = 30
@@ -42,11 +35,11 @@ MAX_CLOSED = 30
 JUMP_SETTLE_S = 0.4
 
 
-def herdr_request(method, params=None, timeout=3.0):
+def mux(method, params=None, timeout=3.0):
     s = socket.socket(socket.AF_UNIX)
     s.settimeout(timeout)
     try:
-        s.connect(HERDR_SOCK)
+        s.connect(MUX_SOCK)
         s.sendall((json.dumps({"id": "nav", "method": method, "params": params or {}}) + "\n").encode())
         line = s.makefile().readline()
     finally:
@@ -58,7 +51,7 @@ def herdr_request(method, params=None, timeout=3.0):
 
 
 def snapshot():
-    return herdr_request("session.snapshot")["snapshot"]
+    return mux("session.snapshot")["snapshot"]
 
 
 class History:
@@ -111,7 +104,7 @@ class History:
             pane_id = self.entries[target]
             self.jump_target = pane_id
             self.jump_deadline = time.monotonic() + JUMP_SETTLE_S
-        herdr_request("pane.focus", {"pane_id": pane_id})
+        mux("pane.focus", {"pane_id": pane_id})
         return pane_id
 
     def last_space(self):
@@ -125,7 +118,7 @@ class History:
         for pid in reversed(entries):
             ws = ws_of.get(pid)
             if ws and ws != current:
-                herdr_request("workspace.focus", {"workspace_id": ws})
+                mux("workspace.focus", {"workspace_id": ws})
                 return ws
         return None
 
@@ -181,7 +174,7 @@ class Closed:
 
     def export(self, tab_id):
         try:
-            tree = herdr_request("layout.export", {"tab_id": tab_id})["layout"]["root"]
+            tree = mux("layout.export", {"tab_id": tab_id})["layout"]["root"]
         except RuntimeError:
             return
         with self.lock:
@@ -233,7 +226,7 @@ class Closed:
                 self.push({"kind": "pane", "pane_id": pid, "tab_id": tab_id,
                            "workspace_id": self.tabs.get(tab_id, {}).get("workspace_id"),
                            "label": self.tabs.get(tab_id, {}).get("label"),
-                           # Herdr only splits single panes: split the one it touched
+                           # ag-mux only splits single panes: split the one it touched
                            # (exact when the sibling was a single pane).
                            "neighbour": sibling[0] if first else sibling[-1],
                            "direction": parent["direction"], "ratio": parent["ratio"], "first": first,
@@ -271,21 +264,21 @@ class Closed:
             nb, cwd = self.resolve(e["neighbour"]), usable_cwd(e.get("cwd"))
             if nb in live_panes:
                 # ratio is the first slot's share; swap keeps slot sizes, so it holds both ways.
-                new = herdr_request("pane.split", {"target_pane_id": nb, "direction": e["direction"],
+                new = mux("pane.split", {"target_pane_id": nb, "direction": e["direction"],
                                                    "ratio": e["ratio"], "cwd": cwd})["pane"]["pane_id"]
                 if e["first"]:
-                    herdr_request("pane.swap", {"source_pane_id": new, "target_pane_id": nb})
+                    mux("pane.swap", {"source_pane_id": new, "target_pane_id": nb})
             elif tab in live_tabs:
                 target = next(p for p, v in live_panes.items() if v["tab_id"] == tab)
-                new = herdr_request("pane.split", {"target_pane_id": target, "direction": "right", "cwd": cwd})["pane"]["pane_id"]
+                new = mux("pane.split", {"target_pane_id": target, "direction": "right", "cwd": cwd})["pane"]["pane_id"]
             else:
-                res = herdr_request("tab.create", {"workspace_id": ws, "label": e["label"], "cwd": cwd})
+                res = mux("tab.create", {"workspace_id": ws, "label": e["label"], "cwd": cwd})
                 new = res["root_pane"]["pane_id"]
                 self.remap[e["tab_id"]] = res["tab"]["tab_id"]
             self.remap[e["pane_id"]] = new
             pairs = [(new, e.get("pi"))]
         else:
-            res = herdr_request("layout.apply", {"workspace_id": ws, "tab_label": e["label"],
+            res = mux("layout.apply", {"workspace_id": ws, "tab_label": e["label"],
                                                  "root": fresh(e["tree"], e["info"])})["layout"]
             self.remap[e["tab_id"]] = res["tab_id"]
             pairs = []
@@ -294,8 +287,8 @@ class Closed:
                 pairs.append((new, (e["info"].get(old) or {}).get("pi")))
         for pane, pi in pairs:
             if pi and os.path.exists(pi):
-                herdr_request("pane.send_input", {"pane_id": pane, "text": "pi --session " + shq(pi), "keys": ["enter"]})
-        herdr_request("pane.focus", {"pane_id": pairs[0][0]})
+                mux("pane.send_input", {"pane_id": pane, "text": "pi --session " + shq(pi), "keys": ["enter"]})
+        mux("pane.focus", {"pane_id": pairs[0][0]})
         return pairs[0][0]
 
 
@@ -309,7 +302,7 @@ def watch_panes(closed):
     while True:
         try:
             s = socket.socket(socket.AF_UNIX)
-            s.connect(HERDR_SOCK)
+            s.connect(MUX_SOCK)
             s.sendall((json.dumps({"id": "nav-panes", "method": "events.subscribe",
                                    "params": {"subscriptions": [{"type": t} for t in events]}}) + "\n").encode())
             f = s.makefile()
@@ -330,7 +323,7 @@ def watch_focus(history):
     while True:
         try:
             s = socket.socket(socket.AF_UNIX)
-            s.connect(HERDR_SOCK)
+            s.connect(MUX_SOCK)
             s.sendall((json.dumps({"id": "nav-sub", "method": "events.subscribe", "params": {"subscriptions": subs}}) + "\n").encode())
             f = s.makefile()
             first = snapshot().get("focused_pane_id")
@@ -350,7 +343,7 @@ def watch_focus(history):
                         history.record(pid)
         except (OSError, RuntimeError, ValueError, KeyError):
             pass
-        time.sleep(1)  # Herdr not running / restarted: retry.
+        time.sleep(1)  # agd not running / restarted: retry.
 
 
 def serve(history, closed):
@@ -390,7 +383,7 @@ def client(cmd):
     try:
         s.connect(CTL_SOCK)
     except OSError:
-        sys.exit("herdr-nav daemon not running (launchctl kickstart gui/$UID/com.nathan.herdr-nav)")
+        sys.exit("ag-nav daemon not running (systemctl --user restart ag-nav)")
     s.sendall((cmd + "\n").encode())
     print(s.makefile().readline().strip())
 

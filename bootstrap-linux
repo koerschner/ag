@@ -84,13 +84,11 @@ have mise || curl -fsSL https://mise.run | sh || warn "mise"
 
 step "Standalone CLIs (vendor installers)"
 [[ -x ~/.bun/bin/bun ]] || curl -fsSL https://bun.sh/install | bash >/dev/null || warn "bun"
-# Sessions run on tmux via ag-mux (docs/tmux-port.md); no Herdr here, so `herdr` never talks to agd.
 # Sessions, tickler items and state moved from ag-mac name /Users/natkoersch/...; keep those paths valid.
 [ -e /Users/natkoersch ] || { sudo mkdir -p /Users && sudo ln -sfn "$HOME" /Users/natkoersch; }
 command -v pnpm >/dev/null || npm install -g pnpm >/dev/null 2>&1 || warn "pnpm"
 # Ghostty's terminfo, so `ssh ag-engine` from Ghostty (TERM=xterm-ghostty) can run tmux.
 infocmp xterm-ghostty >/dev/null 2>&1 || tic -x "$AG/tmux/terminfo/xterm-ghostty.src" 2>/dev/null || warn "ghostty terminfo"
-rm -f "$HOME/.local/bin/herdr"
 have claude || curl -fsSL https://claude.ai/install.sh | bash           || warn "claude"
 have codex  || curl -fsSL https://chatgpt.com/codex/install.sh | sh     || warn "codex"
 
@@ -162,6 +160,7 @@ systemctl --user enable --now pi-sessions-sync.timer >/dev/null 2>&1 && echo "  
 systemctl --user enable --now toolsum-review.timer >/dev/null 2>&1 && echo "  toolsum-review routine on" || warn "toolsum-review timer"
 ~/.local/bin/ag routine apply 2>&1 | sed 's/^/  routines: /' || warn "ag routine apply"
 systemctl --user enable --now ag-mux.service >/dev/null 2>&1 && echo "  ag-mux (agd, tmux -L ag) on" || warn "ag-mux.service"
+~/.local/bin/ag-shortcuts-check >/dev/null 2>&1 && echo "  shortcuts match tmux/SHORTCUTS.md" || warn "ag shortcuts drifted (run ag-shortcuts-check)"
 systemctl --user enable --now nessie.service >/dev/null 2>&1 && echo "  nessie (trace sync) on" || warn "nessie.service"
 systemctl --user enable --now ag-telegram.service >/dev/null 2>&1 && echo "  ag-telegram (Telegram replies) on" || warn "ag-telegram.service"
 

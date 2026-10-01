@@ -8,7 +8,7 @@
 set -uo pipefail
 
 AG=${AG:-${0:A:h}}
-STOW_PACKAGES=(ag-board ag-inbox agents bin claude codex hammerspoon herdr pi tmux)
+STOW_PACKAGES=(ag-board ag-inbox agents bin claude codex hammerspoon pi tmux)
 backup=$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)
 failed=()
 STOW=(stow --dotfiles --no-folding -d $AG -t $HOME)
@@ -21,7 +21,6 @@ have stow || brew install stow || { echo "ag install needs GNU stow"; exit 1; }
 
 step "Agent CLIs (vendor installers)"
 [[ -x ~/.bun/bin/bun ]]   || curl -fsSL https://bun.sh/install | bash               || warn "bun"
-have herdr                || curl -fsSL https://herdr.dev/install.sh | sh            || warn "herdr"
 have claude               || curl -fsSL https://claude.ai/install.sh | bash          || warn "claude"
 have codex                || curl -fsSL https://chatgpt.com/codex/install.sh | sh    || warn "codex"
 have amp                  || curl -fsSL https://ampcode.com/install.sh | bash        || warn "amp"
@@ -66,7 +65,6 @@ for plist in $AG/macos-launchagents/*.plist; do
 done
 
 step "macOS helper apps"
-zsh $AG/macos-apps/HerdrLink/install.sh || warn "HerdrLink (needs Command Line Tools)"
 zsh $AG/macos-apps/ChromeTabReaper/install.sh || warn "ChromeTabReaper"
 
 step "Tool setup"
@@ -76,12 +74,8 @@ $AG/bin/dot-local/bin/moshi-hook-install >/dev/null && ~/.local/bin/moshi-hook i
 # DiscordChatExporter for the discord-export skill (pinned, checksum-verified).
 bash $AG/agents/dot-agents/skills/discord-export/scripts/install.sh >/dev/null \
   && echo "  DiscordChatExporter" || warn "discord-export install.sh"
-if have herdr && [[ $(herdr status 2>/dev/null) == *'status: running'* ]]; then
-  zsh $AG/herdr/setup.sh || warn "herdr/setup.sh"
-  $AG/bin/dot-local/bin/herdr-shortcuts-check || warn "herdr shortcuts drifted (herdr/SHORTCUTS.md)"
-else
-  warn "herdr server not running: open Ghostty (starts herdr), then run herdr/setup.sh"
-fi
+# Sessions live in tmux on the session host; this Mac only forwards Cmd shortcuts into them (Hammerspoon).
+$AG/bin/dot-local/bin/ag-shortcuts-check || warn "ag shortcuts drifted (tmux/SHORTCUTS.md)"
 
 if $AG/bin/dot-local/bin/machine-role host extremity; then
   step "ag host secrets (Keychain)"

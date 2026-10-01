@@ -14,7 +14,7 @@ ask once to allow `security` to read it), keeps the token whose auth.test matche
 and stores both as Keychain items "ag Slack <TEAM_ID> xoxc" / "... xoxd" (account
 natkoersch). Never prints either secret. If the app signs out, run `store` again.
 
-From a shell without Keychain access (SSH, Herdr panes), it reruns itself as a one-shot
+From a shell without Keychain access (SSH, tmux panes), it reruns itself as a one-shot
 job in the logged-in GUI session, like op-ag does.
 """
 import glob

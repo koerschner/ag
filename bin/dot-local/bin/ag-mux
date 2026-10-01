@@ -1,16 +1,6 @@
 #!/bin/sh
-# ag-mux launcher (implementation: ~/.local/lib/ag-mux/ag-mux.ts, docs/tmux-port.md).
-# On a host that still runs Herdr, CLI calls go straight to `herdr` (no Bun start-up); otherwise to agd.
-# Works from minimal PATHs (launchd, Hammerspoon, systemd).
-sock=${AG_MUX_SOCKET:-$HOME/.local/state/ag-mux/agd.sock}
-herdr=$HOME/.local/bin/herdr
-[ -x "$herdr" ] || herdr=$(command -v herdr 2>/dev/null)
-case $1 in daemon | attach | switch | save | restore | backend | --skill | _*) own=1 ;; *) own= ;; esac
-if [ -z "$own" ] && [ -n "$herdr" ] && [ "${AG_MUX_BACKEND:-}" != tmux ]; then
-	if [ "${AG_MUX_BACKEND:-}" = herdr ] || { [ "${AG_MUX:-}" != 1 ] && { [ "${HERDR_ENV:-}" = 1 ] || [ ! -S "$sock" ]; }; }; then
-		[ $# -gt 0 ] && exec "$herdr" "$@"
-	fi
-fi
+# ag-mux launcher (implementation: ~/.local/lib/ag-mux/ag-mux.ts, docs/ag-mux.md).
+# Works from minimal PATHs (Hammerspoon over SSH, systemd).
 for bun in "${BUN:-}" "$HOME/.bun/bin/bun" /opt/homebrew/bin/bun /usr/local/bin/bun "$(command -v bun 2>/dev/null)"; do
 	[ -n "$bun" ] && [ -x "$bun" ] && exec "$bun" "${AG_MUX_LIB:-$HOME/.local/lib/ag-mux}/ag-mux.ts" "$@"
 done

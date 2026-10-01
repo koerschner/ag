@@ -14,11 +14,9 @@
 //                    HTML gets a phone viewport and a Comment button injected.
 //   POST /r/<slot>/comment   JSON {text, section} → prompt the pi session that ran `show`
 //                    (found by its session file, so it survives pane moves), else a new Inbox session.
-//   GET  /focus?tab=<tab id>   focus that Herdr tab in the attached session, then close the
-//                    browser tab. Agents print these as clickable links (`herdr-link`).
 //   GET  /m/<pi session id>   phone deep link: finds the pane now running that pi session (by
 //                    session file, so it survives the Inbox auto-filer moving it) and redirects
-//                    to moshi://herdr?workspace&tab&pane, which resumes Moshi's active card
+//                    to moshi://tmux?session=<workspace>, which resumes Moshi's card
 //                    there. `session-link` prints these; iMessage won't linkify moshi:// itself.
 //
 // Listens only on ag-mac's Tailscale IP (tailnet-only, like ag-inbox). Run by com.nathan.file-inbox.
@@ -41,7 +39,7 @@ const injected = (by: string, text: string, extra: object = {}) => {
 	} catch {}
 };
 const DIR = `${HOME}/inbox/phone`;
-const HERDR = `${HOME}/.local/bin/ag-mux`; // tmux (agd) or Herdr, whichever this host runs
+const AG_MUX = `${HOME}/.local/bin/ag-mux`;
 const AG_INBOX = (host: string) => `http://${host}:7373/prompt`;
 const HOST = Bun.spawnSync(["/usr/local/bin/tailscale", "ip", "-4"]).stdout.toString().trim();
 if (!HOST) throw new Error("no Tailscale IP yet");
@@ -49,7 +47,7 @@ const REVIEW = `${HOME}/review`;
 mkdirSync(DIR, { recursive: true });
 
 const log = (data: Record<string, unknown>) => console.log(JSON.stringify({ ts: new Date().toISOString(), ...data }));
-const herdr = (...args: string[]) => JSON.parse(execFileSync(HERDR, args, { encoding: "utf8", timeout: 30_000 })).result;
+const mux = (...args: string[]) => JSON.parse(execFileSync(AG_MUX, args, { encoding: "utf8", timeout: 30_000 })).result;
 
 const EXT: Record<string, string> = {
 	"image/png": ".png", "image/jpeg": ".jpg", "image/heic": ".heic", "image/gif": ".gif",
@@ -68,8 +66,8 @@ async function save(bytes: ArrayBuffer, name: string | null, type: string): Prom
 
 // The 3 pi sessions with the most recently written session file, labelled "Workspace › Tab".
 function sessions(): Record<string, string> {
-	const spaces = Object.fromEntries(herdr("workspace", "list").workspaces.map((w: any) => [w.workspace_id, w.label]));
-	const recent = herdr("agent", "list").agents
+	const spaces = Object.fromEntries(mux("workspace", "list").workspaces.map((w: any) => [w.workspace_id, w.label]));
+	const recent = mux("agent", "list").agents
 		.map((a: any) => {
 			const file = a.agent_session?.value;
 			let mtime = 0;
@@ -81,7 +79,7 @@ function sessions(): Record<string, string> {
 		.slice(0, 3);
 	const out: Record<string, string> = { "Just save": "", "New session": "new" };
 	for (const a of recent) {
-		const tab = herdr("tab", "get", a.tab).tab?.label ?? a.tab;
+		const tab = mux("tab", "get", a.tab).tab?.label ?? a.tab;
 		out[`${spaces[a.ws] ?? a.ws} › ${tab}`] = a.pane;
 	}
 	return out;
@@ -102,7 +100,7 @@ async function deliver(to: string, text: string, paths: string[]): Promise<strin
 		return "sent to a new session";
 	}
 	injected("file-inbox", msg, { kind: "file" });
-	herdr("agent", "prompt", to, msg);
+	mux("agent", "prompt", to, msg);
 	return `sent to ${to}`;
 }
 
@@ -187,13 +185,13 @@ async function reviewComment(slot: string, body: any): Promise<string> {
 	const section = String(body?.section ?? "").trim();
 	const page = meta.url || String(body?.page ?? slot);
 	const msg = `Comment from Nathan's phone on the review page ${meta.source ?? slot} (${page})${section ? `, section "${section}"` : ""}:\n\n${text}`;
-	const agents = herdr("agent", "list").agents as any[];
+	const agents = mux("agent", "list").agents as any[];
 	const agent = (meta.session && agents.find((a) => a.agent_session?.value === meta.session)) ||
 		(meta.pane && !meta.session && agents.find((a) => a.pane_id === meta.pane));
 	if (agent) {
 		injected("file-inbox", msg, { kind: "review-comment", slot });
-		herdr("agent", "prompt", agent.pane_id, msg);
-		const tab = herdr("tab", "get", agent.tab_id).tab?.label ?? agent.tab_id;
+		mux("agent", "prompt", agent.pane_id, msg);
+		const tab = mux("tab", "get", agent.tab_id).tab?.label ?? agent.tab_id;
 		return `sent to ${tab}`;
 	}
 	const res = await fetch(AG_INBOX(HOST), { method: "POST", body: `${msg}\n\n(The session that published this page is gone. The page's files are in ~/review/${slot}/ on ag.)` });
@@ -231,27 +229,14 @@ for (const hostname of [HOST, "127.0.0.1"]) Bun.serve({
 			}
 			const m = url.pathname.match(/^\/m\/([0-9a-f-]{8,36})$/);
 			if (req.method === "GET" && m) {
-				const pane = herdr("pane", "list").panes.find((p: any) => String(p.agent_session?.value ?? p.sleeping_session ?? "").includes(m[1]));
+				const pane = mux("pane", "list").panes.find((p: any) => String(p.agent_session?.value ?? p.sleeping_session ?? "").includes(m[1]));
 				log({ moshi: m[1], pane: pane?.pane_id ?? null });
 				if (!pane) return new Response("That session isn't open anymore.\n", { status: 404 });
-				if (pane.tmux_pane) {
-					// ag-mux (tmux): select the tab server-side (Moshi's tmux link only picks windows 0-9), then reopen
-					// Moshi's card on that tmux session.
-					herdr("tab", "focus", pane.tab_id);
-					const session = herdr("workspace", "get", pane.workspace_id).workspace?.tmux_session ?? "";
-					return new Response(null, { status: 302, headers: { location: `moshi://tmux?${new URLSearchParams({ session })}` } });
-				}
-				const q = new URLSearchParams({ workspace: pane.workspace_id, tab: pane.tab_id, pane: pane.pane_id });
-				return new Response(null, { status: 302, headers: { location: `moshi://herdr?${q}` } });
-			}
-			if (req.method === "GET" && url.pathname === "/focus") {
-				const tab = url.searchParams.get("tab") ?? "";
-				if (!/^[A-Za-z0-9]+:[A-Za-z0-9]+$/.test(tab)) return new Response("bad tab id\n", { status: 400 });
-				herdr("tab", "focus", tab);
-				log({ focus: tab });
-				const label = Bun.escapeHTML(herdr("tab", "get", tab).tab?.label ?? tab);
-				return new Response(`<!doctype html><title>${label}</title><body style="font:14px system-ui;background:#111;color:#aaa">Switched Herdr to <b>${label}</b>. <script>location.href="hammerspoon://herdr-return"</script>`,
-					{ headers: { "content-type": "text/html" } });
+				// Select the tab server-side (Moshi's tmux link only picks windows 0-9), then reopen Moshi's card on
+				// that tmux session.
+				mux("tab", "focus", pane.tab_id);
+				const session = mux("workspace", "get", pane.workspace_id).workspace?.tmux_session ?? "";
+				return new Response(null, { status: 302, headers: { location: `moshi://tmux?${new URLSearchParams({ session })}` } });
 			}
 			if (req.method === "GET" && url.pathname === "/") {
 				const opts = Object.entries(sessions()).map(([l, v]) => `<option value="${v}">${Bun.escapeHTML(l)}</option>`).join("");

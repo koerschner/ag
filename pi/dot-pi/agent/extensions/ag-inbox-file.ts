@@ -1,9 +1,9 @@
-// GTD auto-filing: a session in the Herdr "Inbox" workspace files itself into a topic workspace
+// GTD auto-filing: a session in the "Inbox" workspace files itself into a topic workspace
 // when Nathan sends his first reply (the 2nd prompt this pi process sees; the 1st is the capture).
 // A fast LLM picks one of the existing workspaces from their labels and tab names, or "Inbox" to
 // leave it for manual filing. Only existing workspaces are used; none are created.
 // The pane moves into a new tab of the same name there. If Nathan is looking at it, focus follows;
-// otherwise a Herdr toast says where it went. Decisions log to ~/.local/state/herdr-inbox-file/log.jsonl.
+// otherwise a toast says where it went. Decisions log to ~/.local/state/ag-inbox-file/log.jsonl.
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
@@ -16,9 +16,9 @@ const MODELS: [string, string][] = [
 	["truefoundry-chat", "gemini-group/gemini-3.5-flash-lite"],
 	["truefoundry-openai", "gpt-5.4-nano"],
 ];
-const LOG_DIR = `${homedir()}/.local/state/herdr-inbox-file`;
+const LOG_DIR = `${homedir()}/.local/state/ag-inbox-file`;
 
-function herdr(args: string[]): any {
+function mux(args: string[]): any {
 	return JSON.parse(execFileSync("ag-mux", args, { encoding: "utf8", timeout: 5000 })).result;
 }
 
@@ -37,8 +37,9 @@ export default function (pi: ExtensionAPI) {
 	let prompts = 0;
 
 	pi.on("before_agent_start", (event, ctx) => {
-		const paneEnv = process.env.HERDR_PANE_ID;
-		if (process.env.HERDR_ENV !== "1" || !paneEnv || !event.prompt.trim()) return;
+		// AG_PANE_ID on panes agd made; TMUX_PANE (which agd also resolves) on older ones. Both survive moves.
+		const paneEnv = process.env.AG_PANE_ID || process.env.TMUX_PANE;
+		if (process.env.AG_MUX !== "1" || !paneEnv || !event.prompt.trim()) return;
 		if (++prompts !== 2) return;
 
 		const history = [
@@ -54,12 +55,12 @@ export default function (pi: ExtensionAPI) {
 
 		void (async () => {
 			try {
-				// The env pane ID stays valid after moves (Herdr aliases it), so resolve where we are now.
-				const pane = herdr(["pane", "get", paneEnv]).pane;
-				const workspaces = herdr(["workspace", "list"]).workspaces as any[];
+				// The pane ID stays valid after moves, so resolve where we are now.
+				const pane = mux(["pane", "get", paneEnv]).pane;
+				const workspaces = mux(["workspace", "list"]).workspaces as any[];
 				const here = workspaces.find((w) => w.workspace_id === pane.workspace_id);
 				if (here?.label.toLowerCase() !== INBOX) return;
-				const tabs = herdr(["tab", "list", "--workspace", pane.workspace_id]).tabs as any[];
+				const tabs = mux(["tab", "list", "--workspace", pane.workspace_id]).tabs as any[];
 				const tab = tabs.find((t) => t.tab_id === pane.tab_id);
 				if (!tab || tab.pane_count > 1) return log({ tab: pane.tab_id, action: "skip", reason: "multi-pane tab" });
 
@@ -67,8 +68,8 @@ export default function (pi: ExtensionAPI) {
 					.filter((w) => !NOT_TARGETS.has(w.label.toLowerCase()))
 					.map((w) => ({
 						w,
-						tabs: (herdr(["tab", "list", "--workspace", w.workspace_id]).tabs as any[])
-							.map((t) => t.label.replace(/\s*●+$/, ""))
+						tabs: (mux(["tab", "list", "--workspace", w.workspace_id]).tabs as any[])
+							.map((t) => t.label)
 							.slice(0, 12),
 					}));
 				const model = MODELS.map(([prov, id]) => ctx.modelRegistry.find(prov, id)).find(
@@ -96,15 +97,15 @@ export default function (pi: ExtensionAPI) {
 				);
 				const answer = text(res.content).replace(/["'`*]/g, "").trim().toLowerCase();
 				const dest = targets.find(({ w }) => w.label.toLowerCase() === answer)?.w;
-				const label = tab.label.replace(/\s*●+$/, "");
+				const label = tab.label;
 				if (!dest) return log({ tab: tab.tab_id, label, answer, action: "keep" });
 
 				// Re-check: Nathan may have filed it by hand while the model was thinking.
-				const now = herdr(["pane", "get", paneEnv]).pane;
+				const now = mux(["pane", "get", paneEnv]).pane;
 				if (now.workspace_id !== pane.workspace_id) return log({ tab: tab.tab_id, label, action: "moved-by-hand" });
 				const watching = here.focused && tab.focused;
-				herdr(["pane", "move", paneEnv, "--new-tab", "--workspace", dest.workspace_id, "--label", label, watching ? "--focus" : "--no-focus"]);
-				if (!watching) herdr(["notification", "show", `Filed “${label}”`, "--body", `Inbox → ${dest.label}`]);
+				mux(["pane", "move", paneEnv, "--new-tab", "--workspace", dest.workspace_id, "--label", label, watching ? "--focus" : "--no-focus"]);
+				if (!watching) mux(["notification", "show", `Filed “${label}”`, "--body", `Inbox → ${dest.label}`]);
 				log({ tab: tab.tab_id, label, to: dest.label, followed: watching, action: "file" });
 			} catch (e) {
 				log({ action: "error", error: String(e) }); // best-effort

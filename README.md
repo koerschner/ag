@@ -78,7 +78,7 @@ A **new host** is built from nothing with `ag infra up` (OpenTofu on Hetzner; cl
 runs `bootstrap-linux`, the script behind `ag setup`). See [`infra/README.md`](infra/README.md). A new machine also gets a row in
 [`machines/README.md`](machines/README.md), which is what "every machine" means to `ag sync` and `ag status`.
 
-On a Mac client, Hammerspoon provides the capture shortcut, image paste and Herdr shortcuts: load
+On a Mac client, Hammerspoon provides the capture shortcut, image paste and session shortcuts: load
 `~/.hammerspoon/ag.lua` from your `init.lua` with `pcall(require, "ag")` (Nathan's dotfiles do this).
 
 ## The `ag` CLI
@@ -190,7 +190,7 @@ rebuild. (Nathan's personal shell, editor and window-manager config live in his 
 |---|---|
 | `bin/dot-local/bin/` | the `ag` dispatcher and every tool (`ag-*`, `mac`, `show`, `tickler`, …) |
 | `bin/dot-local/lib/ag/` | `ag` verbs, one executable each; shared session resolver `aglib.py` |
-| `bin/dot-local/lib/ag-mux/` | the session layer: tmux driven through a Herdr-compatible CLI ([docs/tmux-port.md](docs/tmux-port.md)) |
+| `bin/dot-local/lib/ag-mux/` | the session layer: tmux plus agd, driven through the `ag-mux` CLI ([docs/ag-mux.md](docs/ag-mux.md)) |
 | `ag-board/`, `ag-board-editor/` | AG Dash's page and its editor bundle |
 | `ag-inbox/` | inbox playbooks (workflows for common kinds of captures) |
 | `pi/` | Pi settings, extensions (tickler tool, tab naming, notifications, …) and the generated `AGENTS.md` |
@@ -201,7 +201,7 @@ rebuild. (Nathan's personal shell, editor and window-manager config live in his 
 | `routines/` | routine definitions |
 | `infra/` | OpenTofu for the rented machines |
 | `machines/` | the machine inventory |
-| `hammerspoon/`, `herdr/`, `tmux/`, `macos-apps/`, `ios-shortcuts/`, `tailscale/` | client glue, terminal config, helper apps, phone shortcuts, tailnet policy |
+| `hammerspoon/`, `tmux/`, `macos-apps/`, `ios-shortcuts/`, `tailscale/` | client glue, terminal config, helper apps, phone shortcuts, tailnet policy |
 | `toolsum/` | rules that turn agent tool calls into one-line summaries on AG Dash |
 | `docs/` | design notes and the component reference |
 | `install`, `bootstrap-linux` | the setup scripts behind `ag setup` |
@@ -226,9 +226,9 @@ iMessage on ag-mac. Expect to touch those when Ag runs for someone else.
 | [docs/reference.md](docs/reference.md) | every component in depth: AG Dash, inbox, tickler, presence, MCP gateway, secrets, permissions, the client bridge, … |
 | [docs/ag.md](docs/ag.md) | design and roadmap: the engine, ag-mac, workers, persistence |
 | [docs/ag-cli.md](docs/ag-cli.md) | why the CLI looks the way it does (audit of what agents did by hand) |
-| [docs/tmux-port.md](docs/tmux-port.md) | the session layer: moving from Herdr to tmux + `ag-mux` |
+| [docs/ag-mux.md](docs/ag-mux.md) | the session layer: tmux + `ag-mux` (agd) |
 | [machines/README.md](machines/README.md) | machine inventory and roles |
 | [infra/README.md](infra/README.md) | building machines with OpenTofu |
-| [herdr/SHORTCUTS.md](herdr/SHORTCUTS.md) | keyboard shortcuts on every device |
+| [tmux/SHORTCUTS.md](tmux/SHORTCUTS.md) | keyboard shortcuts on every device |
 | [agents.md/includes/attribution.md](agents.md/includes/attribution.md) | how agents label what they write for other people |
 | [friction.md](friction.md) | log of places Nathan had to step in, and how each was fixed |

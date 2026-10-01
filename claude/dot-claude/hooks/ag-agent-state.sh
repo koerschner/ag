@@ -1,14 +1,11 @@
 #!/bin/sh
-# installed by herdr
-# managed by herdr; reinstalling or updating the integration overwrites this file.
-# add custom hooks beside this file instead of editing it.
-# HERDR_INTEGRATION_ID=codex
-# HERDR_INTEGRATION_VERSION=8
+# Reports this Claude session (its transcript/session id) to agd (ag-mux) on SessionStart, so AG Dash
+# and the tickler can find it. Twin of pi/dot-pi/agent/extensions/ag-agent-state.ts. Design: docs/ag-mux.md.
 
 set -eu
 
 action="${1:-}"
-hook_input_file="$(mktemp "${TMPDIR:-/tmp}/herdr-codex-hook.XXXXXX")" || exit 0
+hook_input_file="$(mktemp "${TMPDIR:-/tmp}/ag-claude-hook.XXXXXX")" || exit 0
 trap 'rm -f "$hook_input_file"' EXIT HUP INT TERM
 cat >"$hook_input_file" 2>/dev/null || true
 
@@ -17,23 +14,24 @@ case "$action" in
   *) exit 0 ;;
 esac
 
-[ "${HERDR_ENV:-}" = "1" ] || exit 0
-[ -n "${HERDR_SOCKET_PATH:-}" ] || exit 0
-[ -n "${HERDR_PANE_ID:-}" ] || exit 0
+[ "${AG_MUX:-}" = "1" ] || exit 0
+# AG_PANE_ID on panes agd made; TMUX_PANE (which agd also resolves) on older panes.
+pane_id="${AG_PANE_ID:-${TMUX_PANE:-}}"
+[ -n "$pane_id" ] || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
-HERDR_ACTION="$action" HERDR_HOOK_INPUT_FILE="$hook_input_file" python3 - <<'PY'
+AG_HOOK_ACTION="$action" AG_HOOK_INPUT_FILE="$hook_input_file" AG_HOOK_PANE="$pane_id" python3 - <<'PY'
 import json
 import os
 import random
 import socket
 import time
 
-source = "herdr:codex"
-action = os.environ.get("HERDR_ACTION", "")
-pane_id = os.environ.get("HERDR_PANE_ID")
-socket_path = os.environ.get("HERDR_SOCKET_PATH")
-hook_input_file = os.environ.get("HERDR_HOOK_INPUT_FILE")
+source = "ag:claude"
+action = os.environ.get("AG_HOOK_ACTION", "")
+pane_id = os.environ.get("AG_HOOK_PANE")
+socket_path = os.environ.get("AG_MUX_SOCKET") or os.path.expanduser("~/.local/state/ag-mux/agd.sock")
+hook_input_file = os.environ.get("AG_HOOK_INPUT_FILE")
 
 if not pane_id or not socket_path:
     raise SystemExit(0)
@@ -48,20 +46,20 @@ if hook_input_file:
     except Exception:
         hook_input = {}
 
-hook_event_name = str(hook_input.get("hook_event_name") or "")
-if hook_event_name and hook_event_name != "SessionStart":
+if "CURSOR_VERSION" in os.environ or "cursor_version" in hook_input:
     raise SystemExit(0)
-
+hook_event_name = str(hook_input.get("hook_event_name") or "")
+if hook_event_name != "SessionStart":
+    raise SystemExit(0)
+is_subagent = bool(hook_input.get("agent_id"))
+if is_subagent:
+    raise SystemExit(0)
 request_id = f"{source}:{int(time.time() * 1000)}:{random.randrange(1_000_000):06d}"
 report_seq = time.time_ns()
 session_id = hook_input.get("session_id")
 agent_session_id = session_id if isinstance(session_id, str) and session_id else None
 transcript_path = hook_input.get("transcript_path")
-if not isinstance(transcript_path, str) or not transcript_path.strip():
-    raise SystemExit(0)
-inherited_session_id = os.environ.get("CODEX_THREAD_ID")
-if inherited_session_id and inherited_session_id != agent_session_id:
-    raise SystemExit(0)
+agent_session_path = transcript_path if isinstance(transcript_path, str) and transcript_path else None
 session_start_source = hook_input.get("source") if hook_event_name == "SessionStart" else None
 if not isinstance(session_start_source, str) or not session_start_source:
     session_start_source = None
@@ -69,10 +67,12 @@ if agent_session_id:
     params = {
         "pane_id": pane_id,
         "source": source,
-        "agent": "codex",
+        "agent": "claude",
         "seq": report_seq,
         "agent_session_id": agent_session_id,
     }
+    if agent_session_path:
+        params["agent_session_path"] = agent_session_path
     if session_start_source:
         params["session_start_source"] = session_start_source
     request = {

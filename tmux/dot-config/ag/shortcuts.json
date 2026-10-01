@@ -1,0 +1,13 @@
+{
+  "_doc": "Canonical Ag session shortcuts. Edit here, then run ag-shortcuts-check. Each `prefix` key must be bound in ag.tmux.conf (beside this file) to a command containing `binding`; Hammerspoon (Mac clients) reads this file and turns each Cmd `key` into Ctrl+B + `prefix`. See tmux/SHORTCUTS.md.",
+  "shortcuts": [
+    { "key": "cmd+t", "prefix": "t", "action": "New tab running Pi", "binding": "ag-new-pi-tab" },
+    { "key": "cmd+w", "prefix": "x", "action": "Close pane", "binding": "kill-pane" },
+    { "key": "cmd+shift+t", "prefix": "u", "action": "Reopen closed pane", "binding": "ag-nav reopen" },
+    { "key": "cmd+d", "prefix": "v", "action": "Split side by side", "binding": "split-window -h" },
+    { "key": "cmd+shift+d", "prefix": "minus", "action": "Split stacked", "binding": "split-window -v" },
+    { "key": "cmd+[", "prefix": "[", "action": "Focus history back", "binding": "ag-nav back" },
+    { "key": "cmd+]", "prefix": "]", "action": "Focus history forward", "binding": "ag-nav forward" },
+    { "key": "cmd+1..9", "prefix": "1..9", "action": "Switch to tab 1-9", "binding": "select-window" }
+  ]
+}

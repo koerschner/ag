@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+"""ag-shortcuts-check — verify Ag's session shortcuts on this machine match the canonical spec.
+
+Spec: ~/.config/ag/shortcuts.json (ag repo tmux/dot-config/ag/).
+Checks, per shortcut:
+  - Ag's tmux server (if it runs here) binds prefix+<key> to a command containing `binding`;
+  - Hammerspoon (if running here) loaded exactly the spec's Cmd table;
+  - tmux/SHORTCUTS.md's table is current (--write regenerates it).
+Exit 1 on any drift. Run after editing any of these, and from install.
+"""
+import json, os, subprocess, sys
+
+HOME = os.path.expanduser("~")
+SPEC = os.path.join(HOME, ".config/ag/shortcuts.json")
+DOC = os.path.normpath(os.path.join(os.path.dirname(os.path.realpath(SPEC)), "..", "..", "SHORTCUTS.md"))
+
+errors = []
+spec = json.load(open(SPEC))["shortcuts"]
+
+
+def prefix_keys(sc):
+    p = {"minus": "-"}.get(sc["prefix"], sc["prefix"])
+    return [str(i) for i in range(1, 10)] if p == "1..9" else [p]
+
+
+# tmux (session host): the live prefix table must carry every binding.
+r = subprocess.run(["tmux", "-L", "ag", "list-keys", "-T", "prefix"], capture_output=True, text=True)
+if r.returncode == 0:
+    bound = {}
+    for line in r.stdout.splitlines():
+        parts = line.split(None, 4)  # bind-key -T prefix <key> <command>
+        if len(parts) == 5:
+            bound[parts[3].replace("\\", "")] = parts[4]
+    for sc in spec:
+        for k in prefix_keys(sc):
+            if sc["binding"] not in bound.get(k, ""):
+                errors.append(f"tmux: prefix+{k} ({sc['action']}) should run {sc['binding']!r}; has {bound.get(k)!r}")
+
+# Hammerspoon (Mac clients): the running table must equal the spec.
+if subprocess.run(["pgrep", "-x", "Hammerspoon"], capture_output=True).returncode == 0:
+    hs = next((p for p in ("/opt/homebrew/bin/hs", "/usr/local/bin/hs") if os.path.exists(p)), None)
+    if hs:
+        lua = ('local t={} for _,s in ipairs(agShortcuts_loaded or {}) do '
+               't[#t+1]=s end print(hs.json.encode(t))')
+        r = subprocess.run([hs, "-c", lua], capture_output=True, text=True, timeout=10)
+        try:
+            live = json.loads(r.stdout.strip() or "null")
+        except ValueError:
+            live = None
+        want = []
+        for sc in spec:
+            *mods, key = sc["key"].split("+")
+            sent = {"minus": "-"}.get(sc["prefix"], sc["prefix"])
+            for k, s in ([(str(i), str(i)) for i in range(1, 10)] if key == "1..9" else [(key, sent)]):
+                want.append({"mods": sorted(mods), "key": k, "send": s})
+        if live is None:
+            errors.append("Hammerspoon: couldn't read agShortcuts_loaded (reload: hs -c 'hs.reload()')")
+        elif sorted(json.dumps(x, sort_keys=True) for x in live) != sorted(json.dumps(x, sort_keys=True) for x in want):
+            errors.append("Hammerspoon: loaded table differs from spec (reload: hs -c 'hs.reload()')")
+
+# Generated doc table.
+rows = ["| Shortcut | Action | Mac (Ghostty) | tmux prefix (everywhere, incl. Moshi) |", "|---|---|---|---|"]
+for sc in spec:
+    pretty = "+".join(p.capitalize() if len(p) > 1 else p.upper() for p in sc["key"].split("+")).replace("1..9", "1–9")
+    rows.append(f"| {pretty} | {sc['action']} | Hammerspoon → prefix chord | `Ctrl+B` `{sc['prefix'].replace('minus', '-').replace('1..9', '1–9')}` |")
+table = "\n".join(rows)
+BEGIN, END = "<!-- BEGIN generated: ag-shortcuts-check --write -->", "<!-- END generated -->"
+doc = open(DOC).read() if os.path.exists(DOC) else ""
+current = doc[doc.find(BEGIN) + len(BEGIN):doc.find(END)].strip() if BEGIN in doc else None
+if "--write" in sys.argv and BEGIN in doc:
+    open(DOC, "w").write(doc[:doc.find(BEGIN) + len(BEGIN)] + "\n" + table + "\n" + doc[doc.find(END):])
+elif current != table:
+    errors.append(f"{DOC}: shortcut table is stale (run ag-shortcuts-check --write)")
+
+for e in errors:
+    print("✗", e)
+print("ag shortcuts: ok" if not errors else f"ag shortcuts: {len(errors)} problem(s)")
+sys.exit(1 if errors else 0)

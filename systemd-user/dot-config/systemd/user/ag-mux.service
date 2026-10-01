@@ -1,4 +1,4 @@
-# agd: Ag's session layer (tmux -L ag + ag-mux daemon). docs/tmux-port.md.
+# agd: Ag's session layer (tmux -L ag + ag-mux daemon). docs/ag-mux.md.
 [Unit]
 Description=ag-mux (agd): Ag sessions on tmux
 After=network-online.target

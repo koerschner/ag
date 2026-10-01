@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ag me — who am I: this session's workspace, tab, pane, session id, file and AG Dash link.
 
-Found fresh from $PI_SESSION_ID / $PI_SESSION_FILE (else $TMUX_PANE), never $HERDR_*, which goes stale
+Found fresh from $PI_SESSION_ID / $PI_SESSION_FILE (else $TMUX_PANE), never $AG_TAB_ID/$AG_WORKSPACE_ID, which go stale
 when the Inbox auto-filer moves a tab.
 
     ag me [--json]          all of it

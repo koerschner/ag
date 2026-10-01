@@ -1,6 +1,6 @@
-## Herdr (terminal multiplexer)
+## Sessions (tmux via ag-mux)
 
-<!-- include: herdr.md -->
+<!-- include: sessions.md -->
 
 Never create a git commit without consulting the user first and receiving explicit approval.
 

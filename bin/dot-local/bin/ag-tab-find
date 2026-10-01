@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""herdr-find — fuzzy-search every Herdr tab by space name, tab name, and contents.
+"""ag-tab-find — fuzzy-search every tab by workspace name, tab name, and contents.
 
-Bound to prefix+f as a popup in ~/.config/herdr/config.toml: type, Enter jumps to the tab.
+Bound to prefix+f as a popup in ~/.config/ag/ag.tmux.conf: type, Enter jumps to the tab.
 Every tab contributes one "name" row, plus one row per line of its contents:
 pi panes (live or hibernated by pi-hibernate) use the session transcript's user and
 assistant text; other panes use their terminal scrollback. Stdlib only.
 
-  herdr-find           open the picker (needs fzf)
-  herdr-find --dump    print the rows fzf would get: <tab_id>\t<Space › Tab>\t<text>
+  ag-tab-find          open the picker (needs fzf)
+  ag-tab-find --dump   print the rows fzf would get: <tab_id>\t<Space › Tab>\t<text>
 """
 
 import json
@@ -17,25 +17,18 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 
-def _socket_path():
-    """agd (ag-mux on tmux) or Herdr, whichever this host runs; env overrides first."""
-    for p in (os.environ.get("HERDR_SOCKET"), os.environ.get("AG_MUX_SOCKET"), os.environ.get("HERDR_SOCKET_PATH"),
-              "~/.local/state/ag-mux/agd.sock", "~/.config/herdr/herdr.sock"):
-        if p and os.path.exists(os.path.expanduser(p)):
-            return os.path.expanduser(p)
-    return os.path.expanduser("~/.config/herdr/herdr.sock")
+# agd's socket (ag-mux on tmux; bin/dot-local/lib/ag-mux).
+MUX_SOCK = os.path.expanduser(os.environ.get("AG_MUX_SOCKET") or "~/.local/state/ag-mux/agd.sock")
 
-
-HERDR_SOCK = _socket_path()
 SCROLLBACK_LINES = 2000
 MAX_LINE = 400
 
 
-def herdr(method, params=None):
+def mux(method, params=None):
     s = socket.socket(socket.AF_UNIX)
     s.settimeout(5)
     try:
-        s.connect(HERDR_SOCK)
+        s.connect(MUX_SOCK)
         s.sendall((json.dumps({"id": "find", "method": method, "params": params or {}}) + "\n").encode())
         resp = json.loads(s.makefile().readline())
     finally:
@@ -50,7 +43,7 @@ def session_file(pane):
     path = (pane.get("agent_session") or {}).get("value")
     if path:
         return path
-    info = herdr("pane.process_info", {"pane_id": pane["pane_id"]})
+    info = mux("pane.process_info", {"pane_id": pane["pane_id"]})
     for proc in info.get("process_info", {}).get("foreground_processes", []):
         argv = proc.get("argv", [])
         if len(argv) >= 3 and argv[-2] == "wait" and argv[-3].endswith("pi-hibernate"):
@@ -75,7 +68,7 @@ def transcript_lines(path):
 
 
 def scrollback_lines(pane_id):
-    res = herdr("pane.read", {"pane_id": pane_id, "source": "recent_unwrapped", "lines": SCROLLBACK_LINES})
+    res = mux("pane.read", {"pane_id": pane_id, "source": "recent_unwrapped", "lines": SCROLLBACK_LINES})
     return res.get("read", {}).get("text", "").splitlines()
 
 
@@ -92,9 +85,9 @@ def clean(text):
 
 
 def rows():
-    spaces = {w["workspace_id"]: w["label"] for w in herdr("workspace.list")["workspaces"]}
-    tabs = {t["tab_id"]: f"{spaces[t['workspace_id']]} › {t['label']}" for t in herdr("tab.list")["tabs"]}
-    panes = [p for p in herdr("pane.list")["panes"] if p["tab_id"] in tabs]
+    spaces = {w["workspace_id"]: w["label"] for w in mux("workspace.list")["workspaces"]}
+    tabs = {t["tab_id"]: f"{spaces[t['workspace_id']]} › {t['label']}" for t in mux("tab.list")["tabs"]}
+    panes = [p for p in mux("pane.list")["panes"] if p["tab_id"] in tabs]
     with ThreadPoolExecutor(16) as pool:
         contents = dict(zip((p["pane_id"] for p in panes), pool.map(pane_lines, panes)))
 
@@ -130,7 +123,7 @@ def main():
         pass
     pick = fzf.stdout.read().strip()
     if fzf.wait() == 0 and pick:
-        herdr("tab.focus", {"tab_id": pick.split("\t", 1)[0]})
+        mux("tab.focus", {"tab_id": pick.split("\t", 1)[0]})
 
 
 if __name__ == "__main__":

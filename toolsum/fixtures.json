@@ -172,7 +172,7 @@
  {
   "tool": "bash",
   "args": {
-   "command": "herdr pane list | jq -r '.result.panes[]'"
+   "command": "ag-mux pane list | jq -r '.result.panes[]'"
   },
   "sum": "List panes",
   "hosts": [
@@ -182,7 +182,7 @@
  {
   "tool": "bash",
   "args": {
-   "command": "herdr pane read w2K:p1G --source recent-unwrapped --lines 40"
+   "command": "ag-mux pane read w2K:p1G --source recent-unwrapped --lines 40"
   },
   "sum": "Read pane w2K:p1G",
   "hosts": [
@@ -202,7 +202,7 @@
  {
   "tool": "bash",
   "args": {
-   "command": "p=$(herdr pane list | jq -r '.result.panes[0].pane_id'); echo $p"
+   "command": "p=$(ag-mux pane list | jq -r '.result.panes[0].pane_id'); echo $p"
   },
   "sum": "List panes",
   "hosts": [
@@ -679,7 +679,7 @@
  {
   "tool": "bash",
   "args": {
-   "command": "for w in wF wM; do echo \"$w: $(herdr pane process-info --pane $w:p1 2>/dev/null | jq -c .result | head -c 150)\"; done"
+   "command": "for w in wF wM; do echo \"$w: $(ag-mux pane process-info --pane $w:p1 2>/dev/null | jq -c .result | head -c 150)\"; done"
   },
   "sum": "Inspect pane $w:p1",
   "hosts": [
@@ -769,7 +769,7 @@
  {
   "tool": "bash",
   "args": {
-   "command": "for w in w1 w2; do herdr workspace close $w >/dev/null; done"
+   "command": "for w in w1 w2; do ag-mux workspace close $w >/dev/null; done"
   },
   "sum": "Close workspace $w",
   "hosts": [
@@ -779,7 +779,7 @@
  {
   "tool": "bash",
   "args": {
-   "command": "herdr pane rename $P \"watch #1533\" >/dev/null"
+   "command": "ag-mux pane rename $P \"watch #1533\" >/dev/null"
   },
   "sum": "Rename pane $P",
   "hosts": [
@@ -789,7 +789,7 @@
  {
   "tool": "bash",
   "args": {
-   "command": "herdr pane layout --pane $P"
+   "command": "ag-mux pane layout --pane $P"
   },
   "sum": "Inspect layout of pane $P",
   "hosts": [
@@ -799,9 +799,9 @@
  {
   "tool": "bash",
   "args": {
-   "command": "herdr --skill 2>/dev/null"
+   "command": "ag-mux --skill 2>/dev/null"
   },
-  "sum": "Read the Herdr skill",
+  "sum": "Read the ag-mux skill",
   "hosts": [
    "ag-engine"
   ]
@@ -809,9 +809,9 @@
  {
   "tool": "bash",
   "args": {
-   "command": "herdr api schema 2>&1"
+   "command": "ag-mux status 2>&1"
   },
-  "sum": "Read Herdr API schema",
+  "sum": "Check ag-mux status",
   "hosts": [
    "ag-engine"
   ]
@@ -819,19 +819,9 @@
  {
   "tool": "bash",
   "args": {
-   "command": "herdr status 2>&1"
+   "command": "ag-mux workspace close --help 2>&1"
   },
-  "sum": "Check Herdr status",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr workspace close --help 2>&1"
-  },
-  "sum": "Read herdr workspace close help",
+  "sum": "Read ag-mux workspace close help",
   "hosts": [
    "ag-engine"
   ]

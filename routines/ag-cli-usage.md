@@ -7,7 +7,7 @@ timeout: 60min
 enabled: true
 ---
 Goal: agents should do Ag operations (find/read/prompt/spin out/merge/close sessions, hotpath and waiting,
-syncing machines, services) through the `ag` CLI instead of hand-rolling them with ag-mux/herdr + jq, curl to
+syncing machines, services) through the `ag` CLI instead of hand-rolling them with ag-mux + jq, curl to
 AG Dash or the inbox, or jq over transcripts. Background and the intended command surface: ~/ag/docs/ag-cli.md.
 
 1. Measure: `ag usage --days 7 --json > ~/.local/state/routines/ag-cli-usage/usage-$(date +%Y%m%d).json`, and read
@@ -17,7 +17,7 @@ AG Dash or the inbox, or jq over transcripts. Background and the intended comman
      sessions (instructions still show the old recipe? the verb lacks an option they needed? it errors?).
    - its verb doesn't exist yet → it's a build gap.
    Also judge each `ag` verb with an error rate above 10%: read a few failing calls and say what broke.
-   Look for recurring Ag operations that the catalog misses (skim a sample of this week's ag-mux/herdr/curl/ssh
+   Look for recurring Ag operations that the catalog misses (skim a sample of this week's ag-mux/curl/ssh
    calls); add a regex for each to usage-patterns.json.
 3. Write the report to ~/ag/docs/ag-cli-usage.md (replace the whole file): date, adoption % this week vs last,
    a table of verbs (calls, sessions, error %), a table of the top hand-rolled gaps with the verb that covers them

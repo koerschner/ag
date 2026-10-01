@@ -2,11 +2,11 @@
 """Hibernate idle pi sessions to save memory; wake them when you open their tab.
 
 Like Chrome's tab discarding: an idle pi process (~100-200 MB each) is stopped and
-its Herdr pane shows a sleep screen. Visiting the pane (focus) or pressing any key
+its tmux pane shows a sleep screen. Visiting the pane (focus) or pressing any key
 resumes the same session (`pi --session <file>`) with full context.
 
   pi-hibernate daemon          watch focus to wake panes; sweep every SWEEP_EVERY_S
-                               (LaunchAgent com.nathan.pi-hibernate)
+                               (systemd user unit pi-hibernate)
   pi-hibernate sweep [-n]      hibernate eligible sessions now (-n: dry run)
   pi-hibernate sweep --all     ignore the idle-time threshold (still only idle ones)
   pi-hibernate pane <pane-id>  hibernate one pane now (still must be an idle pi)
@@ -29,16 +29,9 @@ import sys
 import threading
 import time
 
-def _socket_path():
-    """agd (ag-mux on tmux) or Herdr, whichever this host runs; env overrides first."""
-    for p in (os.environ.get("HERDR_SOCKET"), os.environ.get("AG_MUX_SOCKET"), os.environ.get("HERDR_SOCKET_PATH"),
-              "~/.local/state/ag-mux/agd.sock", "~/.config/herdr/herdr.sock"):
-        if p and os.path.exists(os.path.expanduser(p)):
-            return os.path.expanduser(p)
-    return os.path.expanduser("~/.config/herdr/herdr.sock")
+# agd's socket (ag-mux on tmux; bin/dot-local/lib/ag-mux).
+MUX_SOCK = os.path.expanduser(os.environ.get("AG_MUX_SOCKET") or "~/.local/state/ag-mux/agd.sock")
 
-
-HERDR_SOCK = _socket_path()
 STATE = os.path.expanduser("~/.local/state/pi-hibernate")
 WAITING = os.path.join(STATE, "waiting")  # <pid> -> session file, one per sleep screen
 LOG = os.path.join(STATE, "log")
@@ -55,11 +48,11 @@ def log(msg):
         f.write(time.strftime("%F %T ") + msg + "\n")
 
 
-def herdr(method, params=None, timeout=5.0):
+def mux(method, params=None, timeout=5.0):
     s = socket.socket(socket.AF_UNIX)
     s.settimeout(timeout)
     try:
-        s.connect(HERDR_SOCK)
+        s.connect(MUX_SOCK)
         s.sendall((json.dumps({"id": "hib", "method": method, "params": params or {}}) + "\n").encode())
         resp = json.loads(s.makefile().readline())
     finally:
@@ -115,10 +108,10 @@ def pressure():
 
 
 def candidates(ignore_idle=False, only=None):
-    snap = herdr("session.snapshot")["snapshot"]
+    snap = mux("session.snapshot")["snapshot"]
     ws_label = {w["workspace_id"]: w.get("label") for w in snap["workspaces"]}
     focused = snap.get("focused_pane_id")
-    me = os.environ.get("HERDR_PANE_ID")
+    me = os.environ.get("AG_PANE_ID")
     idle_s = (PRESSURE_IDLE_MIN if pressure() >= 2 else IDLE_MIN) * 60
     for p in snap["panes"]:
         sess = (p.get("agent_session") or {}).get("value")
@@ -131,7 +124,7 @@ def candidates(ignore_idle=False, only=None):
         age = time.time() - os.path.getmtime(sess)
         if not ignore_idle and age < idle_s:
             continue
-        info = herdr("pane.process_info", {"pane_id": p["pane_id"]})["process_info"]
+        info = mux("pane.process_info", {"pane_id": p["pane_id"]})["process_info"]
         pis = [f for f in info["foreground_processes"] if f.get("argv0") == "pi"]
         if len(pis) != 1:
             continue
@@ -155,7 +148,7 @@ def hibernate(pane, pid, sess):
         log(f"skip {pane['pane_id']}: pi {pid} ignored SIGTERM")
         return False
     time.sleep(0.3)  # let the shell redraw its prompt
-    herdr("pane.send_input", {"pane_id": pane["pane_id"],
+    mux("pane.send_input", {"pane_id": pane["pane_id"],
                               "text": f" pi-hibernate wait {shq(sess)} && pi --session {shq(sess)}",
                               "keys": ["enter"]})
     log(f"hibernated {pane['pane_id']} ({pane['tab_id']}) {sess}")
@@ -192,9 +185,9 @@ def wake_if_sleeping(pane_id):
     sleepers = waiting()
     if not sleepers:
         return
-    info = herdr("pane.process_info", {"pane_id": pane_id})["process_info"]
+    info = mux("pane.process_info", {"pane_id": pane_id})["process_info"]
     if any(f.get("pid") in sleepers for f in info["foreground_processes"]):
-        herdr("pane.send_keys", {"pane_id": pane_id, "keys": ["enter"]})
+        mux("pane.send_keys", {"pane_id": pane_id, "keys": ["enter"]})
         log(f"woke {pane_id}")
 
 
@@ -203,7 +196,7 @@ def watch_focus():
     while True:
         try:
             s = socket.socket(socket.AF_UNIX)
-            s.connect(HERDR_SOCK)
+            s.connect(MUX_SOCK)
             s.sendall((json.dumps({"id": "hib-sub", "method": "events.subscribe",
                                    "params": {"subscriptions": subs}}) + "\n").encode())
             for line in s.makefile():
@@ -212,7 +205,7 @@ def watch_focus():
                     if not msg.get("event"):
                         continue
                     pid = (msg.get("data") or {}).get("pane_id") if msg["event"] == "pane_focused" else None
-                    wake_if_sleeping(pid or herdr("session.snapshot")["snapshot"]["focused_pane_id"])
+                    wake_if_sleeping(pid or mux("session.snapshot")["snapshot"]["focused_pane_id"])
                 except (ValueError, KeyError, RuntimeError, OSError):
                     continue
         except OSError:
@@ -257,8 +250,8 @@ def wait_screen(sess):
 
 def status():
     sleepers = set(waiting())
-    for p in herdr("session.snapshot")["snapshot"]["panes"]:
-        info = herdr("pane.process_info", {"pane_id": p["pane_id"]})["process_info"]
+    for p in mux("session.snapshot")["snapshot"]["panes"]:
+        info = mux("pane.process_info", {"pane_id": p["pane_id"]})["process_info"]
         for f in info["foreground_processes"]:
             if f.get("pid") in sleepers:
                 print(p["pane_id"], p["tab_id"], waiting()[f["pid"]])

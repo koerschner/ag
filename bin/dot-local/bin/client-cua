@@ -30,7 +30,7 @@ if [[ -n ${CLIENT_CUA_GATE_TOKEN:-} ]] && $gate --consume "$CLIENT_CUA_GATE_TOKE
   :  # already approved by the Pi guard for this call
 else
   [[ -n $why ]] || { echo 'client-cua: a justification is required: --why "<why this exists only on the client>" (or CLIENT_CUA_WHY). Driving the client desktop is an antipattern; only a dialog/prompt showing there, iPhone Mirroring, or a client-only setting qualifies. Do everything else on ag.' >&2; exit 2; }
-  if ! verdict=$($gate --kind cua --why "$why" --pane "${HERDR_PANE_ID:-}" -- "$task"); then
+  if ! verdict=$($gate --kind cua --why "$why" --pane "${AG_PANE_ID:-${TMUX_PANE:-}}" -- "$task"); then
     print -r -- "client-cua: $(print -r -- $verdict | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("reason","blocked"))' 2>/dev/null || print -r -- $verdict)" >&2
     exit 3
   fi

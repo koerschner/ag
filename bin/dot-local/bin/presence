@@ -61,14 +61,14 @@ const local = (iso?: string) =>
 // ─── Activity capture (for the time review) ────────────────────────────────────
 // Piggybacks on this poll so nothing else wakes up: the same SSH round trip pulls new lines
 // from the client's event-driven Hammerspoon log (activity_log.lua), and one local `ps` notices
-// which device has Herdr attached. Everything lands in ~/.local/state/activity/ as JSONL.
+// which device has Ag's tmux attached. Everything lands in ~/.local/state/activity/ as JSONL.
 const ACT = `${HOME}/.local/state/activity`;
 const ACT_STATE = `${ACT}/state.json`;
 mkdirSync(ACT, { recursive: true });
-type HerdrClient = { via: string; ip?: string; device?: string; since: string };
-type ActState = { offset: number; herdr: Record<string, HerdrClient> };
+type MuxClient = { via: string; ip?: string; device?: string; since: string };
+type ActState = { offset: number; clients: Record<string, MuxClient> };
 const actLoad = (): ActState =>
-	existsSync(ACT_STATE) ? { offset: 0, herdr: {}, ...JSON.parse(readFileSync(ACT_STATE, "utf8")) } : { offset: 0, herdr: {} };
+	existsSync(ACT_STATE) ? { offset: 0, clients: {}, ...JSON.parse(readFileSync(ACT_STATE, "utf8")) } : { offset: 0, clients: {} };
 const actLog = (file: string, data: object) =>
 	appendFileSync(`${ACT}/${file}`, JSON.stringify({ ts: new Date().toISOString(), ...data }) + "\n");
 const EVENTS_MARK = "@@EVENTS";
@@ -100,9 +100,9 @@ function deviceFor(ip: string): string | undefined {
 	return tsNames?.[ip];
 }
 
-// Herdr clients on this host: remote bridges (the client's `ag` command), TUIs inside SSH/mosh (iPhone Moshi),
-// and a local Ghostty TUI. Logs attach/detach transitions only.
-function trackHerdrClients(a: ActState) {
+// tmux clients attached to Ag's server on this host: over SSH (the client's `ag` command), mosh (iPhone Moshi),
+// or a local Ghostty. Logs attach/detach transitions only.
+function trackMuxClients(a: ActState) {
 	const ps = spawnSync("ps", ["-axo", "pid=,ppid=,command="], { encoding: "utf8", timeout: 5000 }).stdout ?? "";
 	const procs = new Map<string, { ppid: string; cmd: string }>();
 	for (const line of ps.split("\n")) {
@@ -111,12 +111,12 @@ function trackHerdrClients(a: ActState) {
 	}
 	const isClient = (cmd: string) =>
 		!/^\/usr\/bin\/login /.test(cmd) &&
-		(/herdr remote-client-bridge/.test(cmd) || /(^|\/|-)herdr( --remote\b.*)?$/.test(cmd) || /^tmux -L ag attach-session\b/.test(cmd));
-	const now: Record<string, HerdrClient> = {};
+		/^tmux -L ag attach-session\b/.test(cmd);
+	const now: Record<string, MuxClient> = {};
 	for (const [pid, p] of procs) {
 		if (!isClient(p.cmd)) continue;
-		if (a.herdr[pid]) {
-			now[pid] = a.herdr[pid];
+		if (a.clients[pid]) {
+			now[pid] = a.clients[pid];
 			continue;
 		}
 		let via = "unknown", sshd: string | undefined;
@@ -127,18 +127,18 @@ function trackHerdrClients(a: ActState) {
 			if (/ghostty/i.test(c)) { via = "local"; break; }
 		}
 		if (via === "unknown") continue; // mid-startup or exiting; look again next poll
-		const c: HerdrClient = { via, since: new Date().toISOString(), device: via === "local" ? "ag-mac (local)" : undefined };
+		const c: MuxClient = { via, since: new Date().toISOString(), device: via === "local" ? "ag-mac (local)" : undefined };
 		if (sshd) {
 			const l = spawnSync("lsof", ["-nP", "-a", "-p", sshd, "-iTCP", "-sTCP:ESTABLISHED"], { encoding: "utf8", timeout: 5000 }).stdout ?? "";
 			c.ip = l.match(/->([\d.]+):\d+/)?.[1];
 			if (c.ip) c.device = deviceFor(c.ip);
 		}
 		now[pid] = c;
-		actLog("ag.jsonl", { ev: "herdr_attach", pid: Number(pid), kind: /remote-client-bridge/.test(p.cmd) ? "bridge" : "tui", ...c });
+		actLog("ag.jsonl", { ev: "mux_attach", pid: Number(pid), ...c });
 	}
-	for (const [pid, c] of Object.entries(a.herdr))
-		if (!now[pid]) actLog("ag.jsonl", { ev: "herdr_detach", pid: Number(pid), via: c.via, ip: c.ip, device: c.device, attached_since: c.since });
-	a.herdr = now;
+	for (const [pid, c] of Object.entries(a.clients))
+		if (!now[pid]) actLog("ag.jsonl", { ev: "mux_detach", pid: Number(pid), via: c.via, ip: c.ip, device: c.device, attached_since: c.since });
+	a.clients = now;
 }
 
 // One SSH round trip: idle ns, locked, console user, running client-cua jobs, then new activity-log bytes.
@@ -172,9 +172,9 @@ function poll() {
 	const x = sample(act.offset);
 	if (x?.events) act.offset = saveClientEvents(act.offset, x.events.size, x.events.chunk);
 	try {
-		trackHerdrClients(act);
+		trackMuxClients(act);
 	} catch (e) {
-		log("herdr_clients_failed", { error: String(e) });
+		log("mux_clients_failed", { error: String(e) });
 	}
 	writeFileSync(ACT_STATE, JSON.stringify(act, null, 2) + "\n");
 	const next: State = { ...s, client: CLIENT, last_poll: now, held: undefined };

@@ -21,7 +21,7 @@
 
 	"ssh": [
 		// Nathan's devices (including ag) SSH into Ag machines with no browser check,
-		// so scripts and Herdr can connect unattended.
+		// so scripts and attached terminals can connect unattended.
 		{
 			"action": "accept",
 			"src":    ["autogroup:member"],
@@ -46,7 +46,7 @@
 
 	// Tailscale Service `svc:ag` (ag.tail44736d.ts.net, short name `ag`): Ag's machine-independent address
 	// for AG Dash, the inbox, show/phone review and the private chat. Whichever machine hosts sessions
-	// advertises it (ag-engine; until the move it forwards to ag-mac). See docs/tmux-port.md.
+	// advertises it (ag-engine; until the move it forwards to ag-mac). See docs/ag-mux.md.
 	"autoApprovers": {
 		"services": {
 			"svc:ag": ["tag:ag-engine"],

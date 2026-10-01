@@ -2,11 +2,11 @@
 # Smoke test for ag-mux on an isolated tmux server and state dir (never touches the real `tmux -L ag`).
 #   tests/ag-mux-smoke.sh            topology, pane I/O, moves, events, snapshot shape, restore
 #   AG_MUX_TEST_PI=1 tests/…         also start a Pi agent and prompt it (costs one tiny model call)
-# Shape checks compare key sets against Herdr fixtures captured from a real Herdr (tests/fixtures).
+# Shape checks compare key sets against golden response fixtures (tests/fixtures), the contract scripts rely on.
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 bin=$here/../bin/dot-local/bin; export AG_MUX_LIB=$here/../bin/dot-local/lib/ag-mux
-export AG_MUX_TMUX=agsmoke$$ AG_MUX_STATE=${TMPDIR:-/tmp}/agsmoke$$ AG_MUX_BACKEND=tmux
+export AG_MUX_TMUX=agsmoke$$ AG_MUX_STATE=${TMPDIR:-/tmp}/agsmoke$$
 export AG_MUX_SOCKET=$AG_MUX_STATE/agd.sock AG_MUX_CONF=$here/../tmux/dot-config/ag/ag.tmux.conf AG_MUX_BIN=$bin/ag-mux AG_MUX_SLEEP=$bin/ag-mux-sleep
 M() { "$bin/ag-mux" "$@"; }
 pass=0 failed=0
@@ -29,8 +29,8 @@ check "Inbox created" '[ "$(M workspace list | jq -r ".result.workspaces[0].labe
 
 W=$(M workspace create --label "Dev Setup" --cwd /tmp --no-focus | jq -r .result.workspace.workspace_id)
 read -r T P < <(M tab create --workspace "$W" --cwd /tmp --label "Test Tab" --no-focus | jq -r '.result.tab.tab_id + " " + .result.root_pane.pane_id')
-check "ids look like Herdr's" '[[ $W =~ ^w[0-9A-Z]+$ && $T =~ ^$W:t[0-9A-Z]+$ && $P =~ ^$W:p[0-9A-Z]+$ ]]'
-M pane run "$P" 'echo "id=$HERDR_PANE_ID env=$HERDR_ENV"; echo PROBE_DONE' >/dev/null
+check "ids look like w/t/p ids" '[[ $W =~ ^w[0-9A-Z]+$ && $T =~ ^$W:t[0-9A-Z]+$ && $P =~ ^$W:p[0-9A-Z]+$ ]]'
+M pane run "$P" 'echo "id=$AG_PANE_ID env=$AG_MUX"; echo PROBE_DONE' >/dev/null
 check "wait-output regex" 'M pane wait-output "$P" --regex "^PROBE_DONE$" --timeout 8000 >/dev/null'
 check "pane env has its own id" 'M pane read "$P" --source recent-unwrapped | grep -q "id=$P env=1"'
 S=$(M pane split "$P" --direction down --no-focus | jq -r .result.pane.pane_id)
@@ -38,7 +38,7 @@ tp=$(M pane get "$P" | jq -r .result.pane.tmux_pane)
 tmux -L "$AG_MUX_TMUX" split-window -d -h -t "$tp"
 sleep 1
 R=$(M pane list --workspace "$W" | jq -r --arg t "$T" --arg a "$P" --arg b "$S" '.result.panes[] | select(.tab_id == $t and .pane_id != $a and .pane_id != $b) | .pane_id')
-M pane run "$R" 'echo "raw=$HERDR_PANE_ID"' >/dev/null
+M pane run "$R" 'echo "raw=$AG_PANE_ID"' >/dev/null
 check "plain tmux split gets ids (ag-mux-shell)" 'M pane wait-output "$R" --match "raw=$R" --timeout 5000 >/dev/null'
 leaves=$(printf '{"method":"layout.export","params":{"tab_id":"%s"}}' "$T" | M _raw | jq '[.result.layout.root | .. | objects | select(.type == "pane")] | length')
 check "layout tree has 3 leaves" '[ "$leaves" = 3 ]'
@@ -76,7 +76,7 @@ wait "$sub"
 check "events: pane_moved" 'grep -q "\"event\":\"pane_moved\"" "$ev"'
 check "events: tab_renamed" 'grep -q "\"event\":\"tab_renamed\"" "$ev"'
 
-# Response shapes vs Herdr fixtures (keys present in Herdr must be present here).
+# Response shapes vs the golden fixtures (every key there must be present here).
 fx=$here/fixtures
 sub_of() { comm -23 <(tr ' ' '\n' <<<"$1" | sort -u) <(tr ' ' '\n' <<<"$2" | sort -u) | grep -v '^$' | tr '\n' ' '; }
 for c in "pane get|$P|.result.pane|pane-get.json" "tab get|$T|.result.tab|tab-get.json" "workspace get|$W|.result.workspace|workspace-get.json"; do

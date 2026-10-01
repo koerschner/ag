@@ -32,7 +32,7 @@ resource "hcloud_firewall" "tailnet_only" {
   }
 }
 
-# Survives `ag-infra down`: Pi sessions, ~/inbox, ~/.local/state (tickler, logs), Herdr layout snapshots.
+# Survives `ag-infra down`: Pi sessions, ~/inbox, ~/.local/state (tickler, logs), ag-mux layout snapshots.
 resource "hcloud_volume" "engine_data" {
   name     = "ag-engine-data"
   size     = var.engine_volume_gb

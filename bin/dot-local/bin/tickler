@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// tickler: a GTD tickler for Herdr. Deferred tasks come back at their time as a new pi tab.
+// tickler: a GTD tickler for Ag's sessions. Deferred tasks come back at their time as a new pi tab.
 //
 //   tickler add --at <ISO time> --task <text> [--title t] [--session f] [--cwd d] [--workspace label] [--mode fork|fresh]
 //   tickler add --when online --task <text> ...   # fire the next time Nathan comes online at the client (`presence`)
@@ -45,7 +45,7 @@ const injected = (by: string, text: string, extra: object = {}) => {
 	} catch {}
 };
 const DIR = `${HOME}/.local/state/tickler`;
-const HERDR = `${HOME}/.local/bin/ag-mux`; // tmux (agd) or Herdr, whichever this host runs
+const AG_MUX = `${HOME}/.local/bin/ag-mux`;
 const FALLBACK_WORKSPACE = "Inbox";
 const PRESENCE = `${HOME}/.local/state/presence/state.json`;
 const PRESENCE_STALE_MS = 5 * 60_000;
@@ -95,8 +95,8 @@ const whenText = (i: Item) =>
 const local = (iso: string) =>
 	new Date(iso).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
 
-function herdr(...args: string[]): any {
-	const out = execFileSync(HERDR, args, { encoding: "utf8", timeout: 90_000 });
+function mux(...args: string[]): any {
+	const out = execFileSync(AG_MUX, args, { encoding: "utf8", timeout: 90_000 });
 	return out.trim() ? JSON.parse(out).result : null;
 }
 
@@ -167,7 +167,7 @@ function cancel(id: string) {
 
 // The item's workspace by label, else the Inbox workspace, else null (caller creates Inbox).
 function workspaceFor(label?: string): string | null {
-	const spaces = herdr("workspace", "list").workspaces as { workspace_id: string; label: string }[];
+	const spaces = mux("workspace", "list").workspaces as { workspace_id: string; label: string }[];
 	const find = (l: string) => spaces.find((w) => w.label.toLowerCase() === l.toLowerCase());
 	return ((label && find(label)) || find(FALLBACK_WORKSPACE))?.workspace_id ?? null;
 }
@@ -256,7 +256,7 @@ Do it now. If it's a reminder or needs Nathan's decision, check what changed sin
 function originPane(i: Item): string | null {
 	if (!i.session) return null;
 	try {
-		const panes = herdr("pane", "list").panes as { pane_id: string; agent_status?: string; agent_session?: { value?: string } }[];
+		const panes = mux("pane", "list").panes as { pane_id: string; agent_status?: string; agent_session?: { value?: string } }[];
 		const p = panes.find((x) => x.agent_session?.value === i.session);
 		return p && ["idle", "done"].includes(p.agent_status ?? "") ? p.pane_id : null;
 	} catch {
@@ -268,9 +268,9 @@ function fireOne(i: Item) {
 	const origin = resumes(i) ? originPane(i) : null;
 	if (origin) {
 		injected("tickler", prompt(i), { id: i.id, when: i.when });
-		herdr("agent", "prompt", origin, prompt(i));
+		mux("agent", "prompt", origin, prompt(i));
 		try {
-			herdr("notification", "show", `🔔 ${i.title}`.slice(0, 40), "--body", "Wake-up fired: resumed its session", "--sound", "request");
+			mux("notification", "show", `🔔 ${i.title}`.slice(0, 40), "--body", "Wake-up fired: resumed its session", "--sound", "request");
 		} catch {}
 		return log(i.id, "fired", { pane: origin, resumed: true });
 	}
@@ -279,10 +279,10 @@ function fireOne(i: Item) {
 	const label = `${icon} ${i.title}`.slice(0, 40);
 	const cwd = existsSync(i.cwd) ? i.cwd : HOME;
 	let pane: string;
-	if (ws) pane = herdr("tab", "create", "--workspace", ws, "--cwd", cwd, "--label", label, "--no-focus").root_pane.pane_id;
+	if (ws) pane = mux("tab", "create", "--workspace", ws, "--cwd", cwd, "--label", label, "--no-focus").root_pane.pane_id;
 	else {
-		const w = herdr("workspace", "create", "--cwd", cwd, "--label", FALLBACK_WORKSPACE, "--no-focus");
-		herdr("tab", "rename", w.tab.tab_id, label);
+		const w = mux("workspace", "create", "--cwd", cwd, "--label", FALLBACK_WORKSPACE, "--no-focus");
+		mux("tab", "rename", w.tab.tab_id, label);
 		pane = w.root_pane.pane_id;
 	}
 	const agent = `tickler-${i.id}`;
@@ -290,7 +290,7 @@ function fireOne(i: Item) {
 	// A brand-new pane's shell may still be initializing (agent_pane_busy); retry for ~20s.
 	for (let tries = 0; ; tries++) {
 		try {
-			herdr("agent", "start", agent, "--kind", "pi", "--pane", pane, "--timeout", "60000", ...extra);
+			mux("agent", "start", agent, "--kind", "pi", "--pane", pane, "--timeout", "60000", ...extra);
 			break;
 		} catch (e) {
 			if (tries >= 10 || !String(e).includes("agent_pane_busy")) throw e;
@@ -298,10 +298,10 @@ function fireOne(i: Item) {
 		}
 	}
 	injected("tickler", prompt(i), { id: i.id, when: i.when });
-	herdr("agent", "prompt", agent, prompt(i));
+	mux("agent", "prompt", agent, prompt(i));
 	try {
 		const why = i.when === "online" ? "Welcome back: queued for when you're online" : isWake(i) ? "Wake-up fired (its session was closed or busy)" : "Tickler fired";
-		herdr("notification", "show", label, "--body", `${why}, in ${i.workspace ?? FALLBACK_WORKSPACE}`, "--sound", "request");
+		mux("notification", "show", label, "--body", `${why}, in ${i.workspace ?? FALLBACK_WORKSPACE}`, "--sound", "request");
 	} catch {}
 	log(i.id, "fired", { pane, agent });
 }

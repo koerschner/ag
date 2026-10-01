@@ -8,7 +8,7 @@
 # Alerts (each at most once an hour): macOS memory pressure warn/critical, swap in use
 # >= MEMWATCH_SWAP_GB (8), or one process >= MEMWATCH_PROC_GB (3) resident. Alerts show
 # as a notification on the client Mac where Nathan sits (MEMWATCH_CLIENT, default
-# ag-client), plus a Herdr toast on the host. History: ~/Library/Logs/mem-watch.log
+# ag-client), plus a tmux toast on the host. History: ~/Library/Logs/mem-watch.log
 set -u
 SWAP_GB=${MEMWATCH_SWAP_GB:-8}
 PROC_GB=${MEMWATCH_PROC_GB:-3}

@@ -2,7 +2,7 @@
 // the session file has it). Appends to ~/.local/state/activity/prompts.jsonl:
 //   origin   typed | ag-inbox | tickler | file-inbox | rpc | extension. Injecting scripts log a hash of what
 //            they send (injections.jsonl); a matching hash means it wasn't typed.
-//   devices  which devices had Herdr attached at that moment (from presence's poll, ≤30s old)
+//   devices  which devices had Ag's tmux attached at that moment (from presence's poll, ≤30s old)
 //   client   presence state and HID idle seconds on the client, to tell Nathan's typing from agent-sent prompts
 // Private sessions (pi-private, ~/private-chat) are skipped entirely. Cost: a few small file reads per prompt.
 import { createHash } from "node:crypto";
@@ -54,7 +54,7 @@ export default function (pi: ExtensionAPI) {
 			const inj = event.source === "interactive" ? injectionFor(sha) : undefined;
 			const act = readJson(`${DIR}/state.json`);
 			const pres = readJson(PRESENCE);
-			const devices = [...new Set(Object.values(act?.herdr ?? {}).map((c: any) => c.device ?? c.via))];
+			const devices = [...new Set(Object.values(act?.clients ?? {}).map((c: any) => c.device ?? c.via))];
 			mkdirSync(DIR, { recursive: true });
 			appendFileSync(
 				`${DIR}/prompts.jsonl`,
@@ -62,7 +62,7 @@ export default function (pi: ExtensionAPI) {
 					ts: new Date().toISOString(),
 					session: file,
 					cwd: ctx.cwd,
-					herdr_start: { ws: process.env.HERDR_WORKSPACE_ID, tab: process.env.HERDR_TAB_ID, pane: process.env.HERDR_PANE_ID },
+					mux_start: { ws: process.env.AG_WORKSPACE_ID, tab: process.env.AG_TAB_ID, pane: process.env.AG_PANE_ID ?? process.env.TMUX_PANE },
 					source: event.source,
 					streaming: event.streamingBehavior,
 					chars: event.text.length,

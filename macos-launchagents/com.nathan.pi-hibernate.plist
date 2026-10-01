@@ -4,7 +4,7 @@
 <dict>
   <key>Label</key>
   <string>com.nathan.pi-hibernate</string>
-  <!-- Hibernate idle pi sessions to save memory; wake them when their Herdr pane is focused (bin/dot-local/bin/pi-hibernate). Only runs on the host (ag-mac). -->
+  <!-- Hibernate idle pi sessions to save memory; wake them when their pane is focused (bin/dot-local/bin/pi-hibernate). Only runs on the host (ag-mac). -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string>

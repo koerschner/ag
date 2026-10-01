@@ -6,7 +6,7 @@
   Included: 50 tagged resources (more are $1/mo each under Billing → Add-ons), unlimited user devices.
 - **Policy:** `policy.hujson` here is the source of truth. Edit it, then run `ts-apply-policy`
   (validates first). Don't edit it in the admin console.
-  - Tags: `tag:ag-engine` (the Linux engine / Herdr server) and `tag:ag-worker` (scale-out machines).
+  - Tags: `tag:ag-engine` (the Linux engine / session host) and `tag:ag-worker` (scale-out machines).
   - Nathan's devices reach everything. The engine reaches everything. Workers reach only the engine and each other.
   - Tailscale SSH (no browser check) from Nathan's devices, ag included, to both tags, and from the engine to workers.
 - **Credentials** (Trilogy vault `ag-vault`, `c3qkbcqktsxmi6hnpzpltdbose`, read with `op-work`):

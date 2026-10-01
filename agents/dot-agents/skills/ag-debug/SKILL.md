@@ -39,7 +39,7 @@ Two roles. Work out which one you are:
    and an instruction to load the `ag-debug` skill and report back to your
    session when done or blocked.
 3. Tell Nathan in one line what meta issue you extracted and link the new
-   session (the inbox response's `tab` → `herdr-link <tab>`). Then carry on
+   session (the inbox response's `tab` → `ag link <tab>`). Then carry on
    with the original task, working around the issue if it's safe.
 
 ## Debug (the Ag Debug session)

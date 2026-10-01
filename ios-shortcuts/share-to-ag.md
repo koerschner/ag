@@ -2,7 +2,7 @@
 
 The fastest way to hand ag anything from the iPhone: in any share sheet (a screenshot's
 thumbnail, Photos, Safari, a link, text, a PDF) tap **Share to ag**, optionally type a
-message, and it opens a new pi session in Herdr's **Inbox** workspace. No session picker,
+message, and it opens a new pi session in the **Inbox** workspace. No session picker,
 no confirmation. For choosing an existing session instead, use **Send to ag**
 (`send-to-ag.md`). The phone must be on the tailnet (Tailscale connected).
 

@@ -1,4 +1,4 @@
-// Keeps this Herdr tab's label (the session's title in AG Dash) accurate. On every prompt (in the
+// Keeps this tab's label (the session's title in AG Dash) accurate. On every prompt (in the
 // background, never delaying the turn):
 //   1. Default numeric label ("9")        → name it right away from the prompt's first words
 //      (quickName: deterministic, no model); a fast LLM only if that yields under 2 words.
@@ -8,7 +8,7 @@
 // prompts: a name should carry the keywords the session is about, and follow-up steps ("review the
 // PR", "run it") shouldn't rename it.
 // A label you change by hand is pinned: this session never touches it again.
-// Every decision is logged to ~/.local/state/herdr-tab-name/log.jsonl.
+// Every decision is logged to ~/.local/state/ag-tab-name/log.jsonl.
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -22,15 +22,14 @@ const NAMERS: [string, string][] = [
 	["truefoundry-chat", "gemini-group/gemini-3.5-flash-lite"],
 	["truefoundry-openai", "gpt-5.4-nano"],
 ];
-const LOG_DIR = `${homedir()}/.local/state/herdr-tab-name`;
+const LOG_DIR = `${homedir()}/.local/state/ag-tab-name`;
 
-function herdr(args: string[]): any {
+function mux(args: string[]): any {
 	return JSON.parse(execFileSync("ag-mux", args, { encoding: "utf8", timeout: 3000 })).result;
 }
 
-// Herdr appends " ●" to labels of tabs with unread output; that's not part of the name.
 function tabLabel(tab: string): string {
-	return herdr(["tab", "get", tab]).tab.label.replace(/\s*●$/, "");
+	return mux(["tab", "get", tab]).tab.label;
 }
 
 function log(data: Record<string, unknown>) {
@@ -67,7 +66,7 @@ export function digest(all: string[]): { first: string; later: string[] } {
 // maybe …" → "AG Sessions should get better initial names". Empty if nothing word-like is left.
 export function quickName(prompt: string): string {
 	const t = prompt
-		.split(/\n\s*Herdr context \(snapshot/)[0]
+		.split(/\n\s*Session context \(snapshot/)[0]
 		.replace(/```[\s\S]*?```/g, " ")
 		.replace(/Screenshot of my[^\n]*/g, " ")
 		.replace(/https?:\/\/\S+/g, " ")
@@ -140,12 +139,11 @@ export default function (pi: ExtensionAPI) {
 	let pinned = false;
 
 	pi.on("before_agent_start", (event, ctx) => {
-		const pane = process.env.HERDR_PANE_ID;
-		if (pinned || process.env.HERDR_ENV !== "1" || !pane || !event.prompt.trim()) return;
-		// Resolve the tab live: HERDR_TAB_ID goes stale if the pane moves (e.g. auto-filed out of Inbox).
+		if (pinned || process.env.AG_MUX !== "1" || !event.prompt.trim()) return;
+		// Resolve the tab live: AG_TAB_ID goes stale if the pane moves (e.g. auto-filed out of Inbox).
 		let tab: string;
 		try {
-			tab = herdr(["pane", "get", pane]).pane.tab_id;
+			tab = mux(["pane", "current"]).pane.tab_id;
 		} catch {
 			return;
 		}
@@ -172,7 +170,7 @@ export default function (pi: ExtensionAPI) {
 				if (/^\d+$/.test(label)) {
 					const quick = quickName(d.first);
 					if (quick.includes(" ")) { // one word ("Look") says too little: let the LLM name it
-						herdr(["tab", "rename", tab, quick]);
+						mux(["tab", "rename", tab, quick]);
 						lastSet = quick;
 						return log({ tab, label, action: "rename", name: quick, via: "quick" });
 					}
@@ -206,7 +204,7 @@ export default function (pi: ExtensionAPI) {
 				const name = text(res.content).replace(/["'`*.]/g, "").trim().split(/\s+/).slice(0, 3).join(" ");
 				// Re-check: the label may have changed while we were thinking.
 				if (!name || name === label || tabLabel(tab) !== label) return;
-				herdr(["tab", "rename", tab, name]);
+				mux(["tab", "rename", tab, name]);
 				lastSet = name;
 				log({ tab, label, p_accurate: p, action: "rename", name });
 			} catch (e) {

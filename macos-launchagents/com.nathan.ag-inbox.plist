@@ -4,7 +4,7 @@
 <dict>
   <key>Label</key>
   <string>com.nathan.ag-inbox</string>
-  <!-- ag inbox: POST a prompt (optionally a screenshot) → new pi tab in Herdr. Only runs on the host (ag-mac). -->
+  <!-- ag inbox: POST a prompt (optionally a screenshot) → new pi tab. Only runs on the host (ag-mac). -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string>

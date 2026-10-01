@@ -71,7 +71,7 @@ const kind = opt("--kind") ?? "cua";
 const why = opt("--why") ?? "";
 const goal = opt("--goal") ?? "";
 const session = opt("--session") ?? "";
-const pane = opt("--pane") ?? process.env.HERDR_PANE_ID ?? "";
+const pane = opt("--pane") ?? process.env.AG_PANE_ID ?? process.env.TMUX_PANE ?? "";
 
 type Answers = { justified: number; drives: number };
 
@@ -122,10 +122,10 @@ ${command.slice(0, 4000)}
 \`\`\`
 Agent's justification: ${why || "(none given)"}
 Its session goal: ${goal || "(unknown)"}
-Blocked pi session: ${session || "(not a pi session)"}${pane ? `\nBlocked agent's Herdr pane: ${pane}` : ""}
+Blocked pi session: ${session || "(not a pi session)"}${pane ? `\nBlocked agent's tmux pane: ${pane}` : ""}
 
 Your job: make sure this never needs the client again, by getting the right access onto ag.
-1. Read the blocked session (if given) and work out exactly what it needed (app, account, API, MCP server, permission) and why ag couldn't do it. First check whether an open session is already getting this access (\`herdr-link --grep <topic>\`); if so, hand it this context with \`herdr agent prompt\` instead of duplicating the work, and close this tab.
+1. Read the blocked session (if given) and work out exactly what it needed (app, account, API, MCP server, permission) and why ag couldn't do it. First check whether an open session is already getting this access (\`ag find <topic>\`); if so, hand it this context with \`ag send <session> "…"\` instead of duplicating the work, and close this tab.
 2. Fix what you can safely yourself, preferring programmatic access: an API/CLI/MCP credential (store a scoped key in the canonical vault with op-ag, or op-shared for Nathan's personal services, never printing it), install the tool or app on ag-mac (Brewfile), start the app's sign-in flow on ag-mac with chatgpt-cua, grant ag-mac's permission dialogs.
 3. For a login only Nathan can do, ask him clearly and politely: exactly what to sign in to on ag-mac, and why (message him with ag-text as well as here).
 4. Record the fix in the ag repo (~/ag: README, secrets checklist, docs) or dotfiles (Brewfile), commit, push, and sync every machine in machines/README.md.
@@ -141,7 +141,7 @@ async function spawnAccessSession(verdict: string): Promise<string> {
 	let spawned: Record<string, number> = {};
 	try { spawned = JSON.parse(readFileSync(spawnedFile, "utf8")); } catch {}
 	const recent = (k: string, ms: number) => !!k && Date.now() - (spawned[k] ?? 0) < ms;
-	if (recent(key, SPAWN_DEDUP_MS) || recent(`s:${sessKey}`, SESSION_DEDUP_MS)) return "already requested (an access session was spun out for this recently; look in the Herdr Inbox)";
+	if (recent(key, SPAWN_DEDUP_MS) || recent(`s:${sessKey}`, SESSION_DEDUP_MS)) return "already requested (an access session was spun out for this recently; look in the Inbox workspace)";
 	const res = await fetch(INBOX_URL, {
 		method: "POST",
 		headers: { "content-type": "text/plain" },

@@ -508,7 +508,7 @@ const RULES: Rule[] = [
 		const s = task ? cuaSummary(task) : undefined;
 		return s ? { sum: s, host, rule: "cua" } : null;
 	} },
-	{ id: "herdr", cmd: /^(herdr|ag-mux)$/, fn: (a) => {
+	{ id: "ag-mux", cmd: /^ag-mux$/, fn: (a) => {
 		const p = positional(a, ["--workspace", "--label", "--cwd", "--direction", "--source", "--lines", "--timeout", "--regex", "--body", "--sound", "--tab", "--pane"]);
 		const [g, sub, tgt] = p;
 		const label = flagVal(a, "--label");
@@ -520,19 +520,16 @@ const RULES: Rule[] = [
 			"tab create": `Open tab${label ? ` "${label}"` : ""}`, "tab close": `Close tab ${tgt ?? ""}`, "tab list": "List tabs", "tab rename": `Rename tab ${tgt ?? ""}`, "tab get": `Inspect tab ${tgt ?? ""}`, "tab move": `Move tab ${tgt ?? ""}`, "tab focus": `Focus tab ${tgt ?? ""}`,
 			"workspace list": "List workspaces", "workspace create": `Create workspace${label ? ` "${label}"` : ""}`, "workspace get": "Inspect workspace",
 			"agent read": `Read agent ${tgt ?? ""}`, "pane process-info": `Inspect pane ${flagVal(a, "--pane") ?? tgt ?? ""}`, "agent rename": `Rename agent ${tgt ?? ""}`,
-			"api snapshot": "Herdr snapshot", "notification show": "Show a notification", "layout export": "Export layout",
+			"api snapshot": "Read session snapshot", "notification show": "Show a notification", "layout export": "Export layout",
 			"pane rename": `Rename pane ${tgt ?? ""}`, "pane focus": `Focus pane ${tgt ?? ""}`, "pane layout": `Inspect layout of pane ${flagVal(a, "--pane") ?? tgt ?? ""}`,
 			"workspace close": `Close workspace ${tgt ?? ""}`, "workspace focus": `Focus workspace ${tgt ?? ""}`, "workspace rename": `Rename workspace ${tgt ?? ""}`,
-			"api schema": "Read Herdr API schema",
 		};
-		if (g === "backend") return "Check multiplexer backend";
-		if (g === "status" && !sub) return "Check Herdr status";
-		if (!g && a.includes("--skill")) return "Read the Herdr skill";
-		if (!g && a.includes("--default-config")) return "Show Herdr's default config";
+		if (g === "status" && !sub) return "Check ag-mux status";
+		if (!g && a.includes("--skill")) return "Read the ag-mux skill";
 		const s = map[`${g} ${sub}`];
 		return s?.trim();
 	} },
-	{ id: "herdr-link", cmd: /^(herdr-link|session-link)$/, fn: () => "Get session link" },
+	{ id: "session-link", cmd: /^session-link$/, fn: () => "Get session link" },
 	{ id: "osascript", cmd: /^osascript$/, fn: (a, raw) => {
 		const app = raw.match(/tell (?:application|app) (?:id )?\\?"([^"\\]+)\\?"/)?.[1];
 		if (app) return `AppleScript → ${app.replace(/^com\.google\.Chrome$/, "Chrome")}`;
@@ -719,7 +716,7 @@ const RULES: Rule[] = [
 		if (p[0] === "uninstall") return "Uninstall moshi-hook";
 		if (p[0] === "status") return "Check moshi-hook status";
 	} },
-	{ id: "ag-script", cmd: /^(?:~|\$HOME)?\/?(?:\.local\/bin\/)?(mcp-gateway|ag-board|ag-mux-smoke\.sh|herdr-nav|tickler|agd)$/, fn: (a, raw) => `${raw.split(/\s/)[0].replace(/^.*\//, "")} ${positional(a)[0] ?? ""}`.trim() },
+	{ id: "ag-script", cmd: /^(?:~|\$HOME)?\/?(?:\.local\/bin\/)?(mcp-gateway|ag-board|ag-mux-smoke\.sh|ag-nav|tickler|agd)$/, fn: (a, raw) => `${raw.split(/\s/)[0].replace(/^.*\//, "")} ${positional(a)[0] ?? ""}`.trim() },
 ];
 
 /** One simple command (no ; && | at top level) → summary, "noise", or null (not understood). */

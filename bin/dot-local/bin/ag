@@ -10,12 +10,8 @@ lib="$HOME/.local/lib/ag"
 
 attach() {
 	host=$("$HOME/.local/bin/ag-host")
-	# tmux host (ag-mux): ssh -t <host> ag-mux attach [workspace]
-	if ssh -o ConnectTimeout=5 "$host" 'test -S ~/.local/state/ag-mux/agd.sock' 2>/dev/null; then
-		exec ssh -t "$host" '~/.local/bin/ag-mux attach' "$@"
-	fi
-	# Herdr host: herdr never sends local custom-command bindings over --remote, so the host's config is used
-	exec "$HOME/.local/bin/herdr" --remote "$host" --remote-keybindings server "$@"
+	# ssh -t <host> ag-mux attach [workspace]
+	exec ssh -t "$host" '~/.local/bin/ag-mux attach' "$@"
 }
 
 verbs() {

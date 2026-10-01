@@ -1,24 +1,18 @@
 #!/usr/bin/env bun
-// Run through ~/.local/bin/ag-mux (the launcher), which finds bun and short-cuts Herdr hosts.
+// Run through ~/.local/bin/ag-mux (the launcher), which finds bun.
 // ag-mux: Ag's session layer. tmux runs the terminals; `ag-mux daemon` (agd) adds what Ag needs on top:
 // stable workspace/tab/pane IDs, agent lifecycle states, snapshots, events, notifications, and layout
-// persistence. It speaks Herdr's CLI grammar and JSON-lines socket protocol (the subset Ag uses), so
-// scripts and the Pi/Claude/Codex state hooks work against either backend. Design: docs/tmux-port.md.
+// persistence, over a JSON-lines socket that scripts and the Pi/Claude/Codex state hooks talk to.
+// Design: docs/ag-mux.md.
 //
-//   ag-mux <group> <command> ...   Herdr-style CLI (workspace/tab/pane/agent/notification/api/server)
+//   ag-mux <group> <command> ...   CLI (workspace/tab/pane/agent/notification/api/server)
 //   ag-mux attach [workspace]      attach this terminal to the Ag tmux server (tmux -L ag)
 //   ag-mux daemon                  run agd (systemd user unit ag-mux.service)
 //   ag-mux switch [--client C]     fuzzy tab switcher (bound to prefix+s)
 //   ag-mux save | restore [--from FILE] [--awake]
-//   ag-mux backend                 print which backend CLI calls go to (tmux or herdr)
 //
-// Backend: tmux when agd's socket is up (or AG_MUX_BACKEND=tmux); otherwise calls pass straight through
-// to a real `herdr` binary if one is installed (AG_MUX_BACKEND=herdr forces it). So callers use
-// `ag-mux` everywhere, before and after the move off Herdr.
-//
-// Compatibility notes: the protocol and CLI mirror Herdr (Apache-2.0, github.com/herdrdev/herdr) for
-// interoperability; this is an independent implementation. Pane env keeps the HERDR_* names because
-// the agent-state hooks read them.
+// Every pane gets AG_MUX=1, AG_MUX_SOCKET, AG_WORKSPACE_ID, AG_TAB_ID and AG_PANE_ID. Only AG_PANE_ID
+// stays reliable (a tab keeps its pane when filed); resolve the rest live with `pane get`.
 
 import { existsSync, mkdirSync, readFileSync, readlinkSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import net from "node:net";
@@ -319,7 +313,7 @@ function setStatus(paneId: string, status: Status, message?: string) {
 	notifyWaiters();
 }
 
-// Herdr's "done" = finished while nobody was looking; "idle" = ready and seen.
+// "done" = finished while nobody was looking; "idle" = ready and seen.
 function reported(paneId: string, state: string): Status {
 	const a = S.agents[paneId];
 	if (state !== "idle") return state as Status;
@@ -349,7 +343,7 @@ function waitFor(pred: () => boolean, timeoutMs?: number | null): Promise<boolea
 	});
 }
 
-// ───────────────────────── info shapes (Herdr-compatible) ─────────────────────────
+// ───────────────────────── info shapes ─────────────────────────
 
 function orderedWs(): Ws[] {
 	return [...WS.values()].sort((a, b) => (a.label === INBOX ? -1 : b.label === INBOX ? 1 : a.order - b.order || Number(a.sid.slice(1)) - Number(b.sid.slice(1))));
@@ -399,7 +393,7 @@ function paneLayout(t: Tab) {
 	};
 }
 
-// tmux layout string → Herdr's binary split tree (layout.export).
+// tmux layout string → a binary split tree (layout.export).
 type Node = { type: "pane"; pane_id?: string; cwd?: string; agent?: string; session?: string } | { type: "split"; direction: "right" | "down"; ratio: number; first: Node; second: Node };
 function layoutTree(t: Tab) {
 	const s = t.layout.replace(/^[0-9a-f]+,/, "");
@@ -534,8 +528,10 @@ function focusPane(p: Pane, client?: string | null) {
 
 // ───────────────────────── creation ─────────────────────────
 
+const PANE_ENV = ["AG_WORKSPACE_ID", "AG_TAB_ID", "AG_PANE_ID"];
+const paneEnv = (ws: string, tab: string, pane: string) => ({ AG_MUX: "1", AG_MUX_SOCKET: SOCK, AG_WORKSPACE_ID: ws, AG_TAB_ID: tab, AG_PANE_ID: pane });
 function envFor(ws: string, tab: string, pane: string, extra: Record<string, string> = {}): string[] {
-	const env = { HERDR_ENV: "1", AG_MUX: "1", HERDR_SOCKET_PATH: SOCK, HERDR_WORKSPACE_ID: ws, HERDR_TAB_ID: tab, HERDR_PANE_ID: pane, ...extra };
+	const env = { ...paneEnv(ws, tab, pane), ...extra };
 	return Object.entries(env).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
 }
 const cwdOr = (cwd?: string | null) => (cwd && existsSync(cwd) ? cwd : HOME);
@@ -555,7 +551,7 @@ function createWorkspace(p: { cwd?: string; label?: string; focus?: boolean; env
 	const [sid, wid, tp, idx] = tmux(["new-session", "-d", "-P", "-F", "#{session_id} #{window_id} #{pane_id} #{window_index}", "-s", sessionName(label), "-c", cwdOr(p.cwd), ...envFor(wsId, tabId, paneId, p.env)]).trim().split(" ");
 	tmuxBatch([
 		["set-option", "-t", sid, "@ag_ws", wsId], ["set-option", "-t", sid, "@ag_ws_label", label], ["set-option", "-w", "-t", wid, "@ag_tab", tabId], ["set-option", "-p", "-t", tp, "@ag_pane", paneId],
-		...["HERDR_WORKSPACE_ID", "HERDR_TAB_ID", "HERDR_PANE_ID"].map((k) => ["set-environment", "-u", "-t", sid, k]),
+		...PANE_ENV.map((k) => ["set-environment", "-u", "-t", sid, k]),
 		["rename-window", "-t", wid, p.tabLabel || idx],
 	]);
 	[sid, wid, tp].forEach((x, i) => byTmux.set(x, [wsId, tabId, paneId][i]));
@@ -714,7 +710,7 @@ const H: Record<string, (p: Params, ctx: { sock: net.Socket }) => any> = {
 	"pane.register": (p) => {
 		refresh();
 		const pane = paneOf(p.tmux_pane);
-		return { type: "pane_info", pane: paneInfo(pane), env: { HERDR_ENV: "1", AG_MUX: "1", HERDR_SOCKET_PATH: SOCK, HERDR_WORKSPACE_ID: pane.ws, HERDR_TAB_ID: pane.tab, HERDR_PANE_ID: pane.id } };
+		return { type: "pane_info", pane: paneInfo(pane), env: paneEnv(pane.ws, pane.tab, pane.id) };
 	},
 	"pane.split": (p) => ({ type: "pane_info", pane: paneInfo(splitPane({ target_pane_id: p.target_pane_id, direction: p.direction, ratio: p.ratio, cwd: p.cwd, focus: p.focus, env: p.env })) }),
 	"pane.close": (p) => (tmux(["kill-pane", "-t", paneOf(p.pane_id).tp]), refresh(), ok),
@@ -920,7 +916,7 @@ const H: Record<string, (p: Params, ctx: { sock: net.Socket }) => any> = {
 		subs.add({ sock: ctx.sock, types: new Set((p.subscriptions ?? []).map((s: any) => String(s.type).replace(/\./g, "_"))) });
 		return { type: "subscription_started" };
 	},
-	// Herdr-plugin/sidebar APIs whose behavior ag-mux builds in.
+	// Agent-view APIs: no-ops, the status bar and switcher sort by recency themselves.
 	"agent.view.set": () => ok,
 	"agent.view.clear": () => ok,
 	"layout.save": () => (saveLayout(true), { type: "ok", file: LAYOUT_FILE }),
@@ -1075,8 +1071,8 @@ async function daemon() {
 	loadState();
 	const fresh = ensureServer();
 	tmuxBatch([
-		["set-environment", "-g", "HERDR_ENV", "1"], ["set-environment", "-g", "AG_MUX", "1"], ["set-environment", "-g", "HERDR_SOCKET_PATH", SOCK],
-		...["HERDR_WORKSPACE_ID", "HERDR_TAB_ID", "HERDR_PANE_ID"].map((k) => ["set-environment", "-g", "-u", k]),
+		["set-environment", "-g", "AG_MUX", "1"], ["set-environment", "-g", "AG_MUX_SOCKET", SOCK],
+		...PANE_ENV.map((k) => ["set-environment", "-g", "-u", k]),
 	]);
 	refresh();
 	if (fresh || !WS.size) restoreOrInbox(fresh);
@@ -1157,24 +1153,7 @@ function call(method: string, params: Params, id = `cli:${method}`): Promise<any
 		s.on("close", () => reject(new Error("agd closed the connection")));
 	});
 }
-function backend(): "tmux" | "herdr" {
-	const b = process.env.AG_MUX_BACKEND;
-	if (b === "tmux" || b === "herdr") return b;
-	if (process.env.AG_MUX === "1") return "tmux"; // inside an ag-mux pane
-	if (process.env.HERDR_ENV === "1") return "herdr"; // inside a Herdr pane
-	if (existsSync(SOCK)) return "tmux";
-	return herdrBin() ? "herdr" : "tmux";
-}
-function herdrBin(): string | undefined {
-	for (const d of (process.env.PATH ?? "").split(":")) {
-		const f = `${d}/herdr`;
-		if (existsSync(f)) return f;
-	}
-	const f = `${HOME}/.local/bin/herdr`;
-	return existsSync(f) ? f : undefined;
-}
-
-// Parse Herdr-style args: positionals, --flag value, --bool, repeated --until, and `--` rest.
+// Parse args: positionals, --flag value, --bool, repeated --until, and `--` rest.
 const BOOL = new Set(["--focus", "--no-focus", "--current", "--wait", "--new-tab", "--new-workspace", "--ansi", "--raw", "--json", "--clear", "--toggle", "--on", "--off", "--awake", "--all"]);
 function parse(argv: string[]) {
 	const pos: string[] = [];
@@ -1202,7 +1181,7 @@ function parse(argv: string[]) {
 }
 const envMap = (vals?: string[]) => (vals ? Object.fromEntries(vals.map((kv) => [kv.slice(0, kv.indexOf("=")), kv.slice(kv.indexOf("=") + 1)])) : undefined);
 const focusFlag = (fl: Record<string, string>) => (fl["--no-focus"] ? false : fl["--focus"] ? true : undefined);
-const callerPane = () => process.env.HERDR_PANE_ID || process.env.TMUX_PANE;
+const callerPane = () => process.env.AG_PANE_ID || process.env.TMUX_PANE;
 
 // CLI → [method, params, output mode].
 function toRequest(group: string, cmd: string, args: string[]): [string, Params, "json" | "text" | "status"] {
@@ -1335,13 +1314,13 @@ function sleepScreen(sess: string) {
 const SKILL = `# ag-mux (Ag on tmux)
 
 ag-mux is Ag's session layer: tmux (\`tmux -L ag\`) runs the terminals and agd adds workspaces, tabs, panes
-with stable IDs, agent states, snapshots, and events. The CLI mirrors Herdr's: \`ag-mux workspace|tab|pane|agent
+with stable IDs, agent states, snapshots, and events. CLI: \`ag-mux workspace|tab|pane|agent
 |notification|api …\`, JSON on stdout, errors as JSON on stderr (exit 1; syntax errors exit 2).
 
 - Workspace = tmux session, tab = window, pane = pane. IDs look like \`w3\`, \`w3:t8\`, \`w3:p4\`; a pane keeps
   its ID when its tab moves to another workspace.
 - Agent states: idle / working / blocked / done (finished, not yet seen) / unknown. Agents report their own
-  state through hooks; \`agent start|prompt [--wait]|wait|read|send-keys\` work as in Herdr.
+  state through hooks; \`agent start|prompt [--wait]|wait|read|send-keys\` drive them.
 - \`pane read --source visible|recent|recent-unwrapped\`, \`pane wait-output --match|--regex\`, \`pane run\`,
   \`pane send-text\`, \`pane send-keys\`. Use \`--no-focus\` for background work.
 - Don't run \`tmux attach\` or bare \`ag-mux attach\` from inside a pane. Raw tmux is \`tmux -L ag …\`.
@@ -1364,9 +1343,7 @@ else if (top === "_raw") {
 	const req = JSON.parse(await Bun.stdin.text());
 	console.log(JSON.stringify(await call(req.method, req.params ?? {}, req.id ?? "raw")));
 }
-else if (top === "backend") console.log(backend());
 else if (top === "attach" || top === undefined) {
-	if (backend() === "herdr" && top === undefined) fail("usage", "run `herdr` to attach to Herdr");
 	await attach(argv[1]);
 } else if (top === "switch") await switcher(parse(argv.slice(1)).fl["--client"]);
 else if (top === "save") {
@@ -1377,9 +1354,5 @@ else if (top === "save") {
 	const r = await call("layout.restore", { from: fl["--from"], awake: !!fl["--awake"] });
 	console.log(JSON.stringify(r));
 	if (r.error) process.exit(1);
-} else if (backend() === "herdr") {
-	const h = herdrBin() ?? fail("no_backend", "no agd socket and no herdr binary");
-	const r = Bun.spawnSync([h, ...argv], { stdio: ["inherit", "inherit", "inherit"] });
-	process.exit(r.exitCode ?? 1);
 } else await cli(argv);
 

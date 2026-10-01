@@ -7,15 +7,15 @@
 #   ag-access allow        click Allow/OK on every prompt raised for an agent identity (see below)
 #
 # Who macOS asks about: TCC judges the *responsible* process. Everything agents run on ag-mac is
-# attributed to /usr/libexec/sshd-keygen-wrapper (Herdr's server is started over SSH, and `mac run`
-# from ag-engine is SSH too), not Ghostty, herdr, pi, or ffmpeg. Grants belong to sshd-keygen-wrapper.
+# attributed to /usr/libexec/sshd-keygen-wrapper (`mac run` from ag-engine is SSH),
+# not Ghostty, pi, or ffmpeg. Grants belong to sshd-keygen-wrapper.
 # Launchd jobs (launchctl submit, LaunchAgents) are their own responsible process and get none of it.
 #
 # Why `allow` exists: Codex computer use refuses to touch UserNotificationCenter (TCC prompts) and
 # the prompt swallows synthetic mouse clicks, but an Accessibility click on its button works.
 # It only clicks prompts naming an agent identity; anything else is listed for Nathan instead.
 set -euo pipefail
-agents='sshd-keygen-wrapper|ffmpeg|osascript|cliclick|screencapture|herdr|node|bun|python|Codex|Terminal|Ghostty'
+agents='sshd-keygen-wrapper|ffmpeg|osascript|cliclick|screencapture|node|bun|python|Codex|Terminal|Ghostty'
 hosts=(UserNotificationCenter universalAccessAuthWarn CoreServicesUIAgent)
 
 probe() {  # CGPreflight*/AXIsProcessTrusted for this process chain (compiled once)

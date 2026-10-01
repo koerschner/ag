@@ -11,7 +11,7 @@ A tab is closed once it hasn't been the active tab of its window for MAX_HOURS
 active tab of each window is never closed, nor the last tab of a window. Does nothing
 when Chrome isn't running, and only runs on ag.
 
-Apple Events from Herdr/pi (started over SSH) or plain LaunchAgents hang, so the Apple
+Apple Events from agents (started over SSH) or plain LaunchAgents hang, so the Apple
 Events go through ~/Applications/ChromeTabReaper.app (macos-apps/ChromeTabReaper), which
 holds the Automation → Google Chrome grant and runs `chrome-tab-reaper _run`.
 Stdlib only: runs with the system python3.

@@ -9,16 +9,16 @@ Ag is Nathan's whole agent system, not one computer. Names: the **engine** (`ag-
 
 | Part | What it is | Runs |
 |---|---|---|
-| **Engine** | Rented Linux machine(s), built from zero by IaC | Herdr server, every Pi session, repos and worktrees, builds, tests, Docker, MCP servers, inbox, tickler, `show`, and phone review |
+| **Engine** | Rented Linux machine(s), built from zero by IaC | Ag's tmux server (ag-mux), every Pi session, repos and worktrees, builds, tests, Docker, MCP servers, inbox, tickler, `show`, and phone review |
 | **Workers** | More rented Linux machines, created and destroyed on demand | Heavy or parallel jobs sent from the engine (big test suites, many agents at once) |
 | **ag-mac** | The 2024 MacBook (formerly `ag`) | Only what needs macOS: computer use, Mac-only apps (the ChatGPT app; the Discord app only as a fallback to the `ag discord` CLI), Xcode and macOS/iOS builds, native UI renders, Roblox Studio, Keychain items, macOS permission prompts |
-| **Client** | `ag-client` (formerly `nathan-dev-client`) and `ag-phone` (the iPhone) | Where Nathan sits. It attaches to the engine's Herdr and runs Hammerspoon, CleanShot, and the client side of the bridge. Unchanged. |
+| **Client** | `ag-client` (formerly `nathan-dev-client`) and `ag-phone` (the iPhone) | Where Nathan sits. It attaches to the engine's tmux (`ag`) and runs Hammerspoon, CleanShot, and the client side of the bridge. Unchanged. |
 
 Everything is joined by one Tailscale tailnet.
 
 ## How it works
 
-- **One session store.** Every session lives on the engine; there is no Herdr server on ag-mac. The
+- **One session store.** Every session lives on the engine; there are no sessions on ag-mac. The
   client's attach command (today `ag`) points at the engine.
 - **Reaching into the Mac, not routing.** Nothing decides upfront where a query should go. Agents
   on the engine have a `mac` tool/command that runs a task on ag-mac over Tailscale:
@@ -42,7 +42,7 @@ Nothing important may live only on a machine's local disk.
 |---|---|
 | Pi session transcripts | A persistent volume on the engine for speed, plus the **pi-sessions GitHub archive** (below) as the durable off-site copy |
 | Code | Git remotes. Worktrees push WIP branches often, so a rebuilt engine can recreate them. |
-| Herdr layout (workspaces, tabs, and which session each tab resumes) | Snapshotted regularly with `herdr api snapshot` and restored on a new engine, so tabs come back and resume their Pi sessions |
+| ag-mux layout (workspaces, tabs, and which session each tab resumes) | Saved by agd on every change (`~/.local/state/ag-mux/layout.json`) and restored on a new engine, so tabs come back and resume their Pi sessions |
 | Tickler items, inbox and tickler logs, `~/inbox` files | The engine's persistent volume, also backed up to the archive |
 | Secrets | The 1Password service account only (never in a repo or image) |
 | Machine setup | The ag repo (agent system + IaC) plus dotfiles (personal config) |
@@ -98,8 +98,8 @@ Nothing important may live only on a machine's local disk.
 3. ✅ Persistent volume layout (/data bind mounts). ✅ pi-sessions archive: `pi-sessions-sync` (docs/reference.md "Pi sessions archive"), hourly on the host (plus the client over SSH) and on the engine.
 4. ✅ `mac` tool (`bin/dot-local/bin/mac`: run, cua, push/pull, show, status) over the engine's own SSH key (ag-vault "ag-brain → ag-mac SSH key" (id vqpozjumzkuz7sgdcdgvdpaujq; the CLI can't rename SSH-key items), authorized on ag-mac only from tailnet IPs); tested run, files, computer use. ✅ MCP on the engine with zero per-machine auth: `mcp-tunnel` (systemd user unit) forwards 127.0.0.1:7381-7384 to ag-mac's shared gateway; Slack's OAuth file copied. When the engine becomes the host, the gateway moves there and auth lives in exactly one place.
 5. Move arcade dev onto the engine as the real test.
-6. ✅ (2026-09-29) Sessions and every Ag service moved to the engine: Herdr replaced by ag-mux on tmux, LaunchAgents became systemd
-   units, links use the Tailscale Service `ag`, and `ag` on the client attaches to the engine. docs/tmux-port.md.
+6. ✅ (2026-09-29) Sessions and every Ag service moved to the engine: sessions now run in tmux via ag-mux, LaunchAgents became systemd
+   units, links use the Tailscale Service `ag`, and `ag` on the client attaches to the engine. docs/ag-mux.md.
 7. ✅ Renamed `ag` → `ag-mac`, `nathan-dev-client` → `ag-client`, the iPhone → `ag-phone` everywhere
    (Tailscale, SSH aliases, LocalHostNames, `machines/README.md`, docs, AGENTS.md; 2026-09-29). Left: shrink
    ag-mac to the Mac-worker role.

@@ -56,7 +56,7 @@ phone_publish() {
 	# The Tailscale Service svc:ag (ag-svc): same link whichever machine hosts sessions.
 	local host=${SHOW_PHONE_HOST:-ag.$( (/usr/local/bin/tailscale status --json 2>/dev/null || tailscale status --json) | jq -r .MagicDNSSuffix 2>/dev/null || echo tail44736d.ts.net)}
 	local url="http://$host:7374/r/$slot/$page"
-	jq -n --arg session "${PI_SESSION_FILE:-}" --arg pane "${HERDR_PANE_ID:-}" --arg source ${t:A} --arg url $url \
+	jq -n --arg session "${PI_SESSION_FILE:-}" --arg pane "${AG_PANE_ID:-${TMUX_PANE:-}}" --arg source ${t:A} --arg url $url \
 		'{session: $session, pane: $pane, source: $source, url: $url}' > $dest/.meta.json
 	print -r -- "phone: $url"
 }

@@ -1,6 +1,6 @@
 {
-  "name": "AG Dash",
-  "short_name": "AG Dash",
+  "name": "AG-Dash",
+  "short_name": "AG-Dash",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#101114",

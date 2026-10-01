@@ -641,6 +641,9 @@ async function refreshMacRoutines() {
 			const iv = x.match(/<key>StartInterval<\/key>\s*<integer>(\d+)<\/integer>/)?.[1];
 			const cal = /<key>StartCalendarInterval<\/key>/.test(x);
 			if (!iv && !cal) continue;
+			// Host-only agents ("machine-role host || exit 0") are inert on ag-mac now that the engine hosts sessions;
+			// their engine timers are listed instead.
+			if (/machine-role"? host \|\||machine-role[^<]*\)" = host \]/.test(x)) continue;
 			const label = f.replace(/\.plist$/, "");
 			const desc = x.match(/<!--\s*([\s\S]*?)\s*-->/)?.[1]?.replace(/\s+/g, " ") ?? label;
 			defs.push({ id: `mac:${label}`, machine: "ag-mac", name: label.replace(/^com\.nathan\./, ""), description: desc, schedule: iv ? `every ${human(Number(iv))}` : "calendar", running: false });

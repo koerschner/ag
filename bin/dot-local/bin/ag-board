@@ -611,7 +611,7 @@ async function engineRoutines(): Promise<Routine[]> {
 		const tm = blocks.get(t.unit) ?? {};
 		const sv = blocks.get(t.activates) ?? {};
 		if (!(tm.FragmentPath ?? "").startsWith(`${HOME}/.config/systemd/user`)) continue; // only ag's own timers
-		const cal = [...(tm.TimersCalendar ?? "").matchAll(/OnCalendar=([^;]+?)\s*;/g)].map((m) => m[1].trim());
+		const cal = [...(tm.TimersCalendar ?? "").matchAll(/OnCalendar=([^;]+?)\s*;/g)].map((m) => m[1].trim().replace(/^\*-\*-\* (\d\d:\d\d):00( \S+)?$/, "daily $1$2"));
 		const mono = [...(tm.TimersMonotonic ?? "").matchAll(/On(UnitActive|UnitInactive)USec=(\S+)/g)].map((m) => `every ${human(usec(m[2]))}`);
 		const name = t.unit.replace(/\.timer$/, "");
 		const start = ts(sv.ExecMainStartTimestamp), end = ts(sv.ExecMainExitTimestamp);

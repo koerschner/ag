@@ -11,9 +11,9 @@
 // traces). The `toolsum-review` routine reads the coverage report daily and extends these rules; every
 // change must keep `toolsum check` (fixtures.json) passing. Add a fixture for each new rule.
 
-export type Summary = { sum?: string; hosts: string[]; rule?: string; miss?: string };
+export type Summary = { sum?: string; hosts: string[]; rule?: string; miss?: string; parts?: { sum: string; host?: string }[] };
 type Ctx = { host: string; fns?: Record<string, string> };
-type SegOut = { sum: string; host?: string; rule: string } | "noise" | null;
+type SegOut = { sum: string; host?: string; rule: string; parts?: { sum: string; host?: string }[] } | "noise" | null;
 
 const HOME_RE = /^(?:\/home\/nathan|\/Users\/natkoersch|\/Users\/nathan|\$HOME|~)(?=\/|$)/;
 const clip = (s: string, n = 70) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
@@ -313,10 +313,10 @@ const ghPr: Record<string, (n: string, a: string[]) => string> = {
 	update_branch: (n) => `Update branch of PR ${n}`,
 };
 
-function nested(inner: string, host: string, ctx: Ctx): SegOut {
+function nested(inner: string, host: string, _ctx: Ctx): SegOut {
 	const r = summarizeShell(inner, { host });
 	if (!r.sum) return null;
-	return { sum: r.sum, host, rule: "nested" };
+	return { sum: r.sum, host, rule: "nested", parts: r.parts?.map((p) => ({ sum: p.sum, host: p.host ?? host })) };
 }
 
 const RULES: Rule[] = [
@@ -642,7 +642,7 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 function summarizeOne(cmd: string, ctx: Ctx): SegOut {
 	const r = summarizeShell(cmd, ctx);
 	if (!r.sum) return r.allNoise ? "noise" : null;
-	return { sum: r.sum, host: r.hosts.find((h) => h !== ctx.host), rule: "nested" };
+	return { sum: r.sum, host: r.hosts.find((h) => h !== ctx.host), rule: "nested", parts: r.parts };
 }
 
 export function summarizeShell(command: string, ctx: Ctx): Summary & { allNoise?: boolean } {
@@ -676,7 +676,7 @@ export function summarizeShell(command: string, ctx: Ctx): Summary & { allNoise?
 		if (o === "noise") continue;
 		if (!o) { unknown = true; miss = seg; break; }
 		rules.add(o.rule);
-		if (outs[outs.length - 1]?.sum !== o.sum) outs.push({ sum: o.sum, host: o.host });
+		for (const part of o.parts ?? [{ sum: o.sum, host: o.host }]) if (outs[outs.length - 1]?.sum !== part.sum) outs.push(part);
 	}
 	const hosts = [...new Set([...outs.map((o) => o.host ?? ctx.host)])];
 	if (unknown) return { hosts: hosts.length ? hosts : [ctx.host], miss };
@@ -694,7 +694,7 @@ export function summarizeShell(command: string, ctx: Ctx): Summary & { allNoise?
 	let sum = merged.slice(0, 3).join(" · ");
 	if (merged.length > 3) sum += ` +${merged.length - 3}`;
 	if (sleep >= 10) sum = `Wait ${sleep}s, then ${sum.charAt(0).toLowerCase()}${sum.slice(1)}`;
-	return { sum, hosts: hosts.length ? hosts : [local], rule: [...rules].join("+") };
+	return { sum, hosts: hosts.length ? hosts : [local], rule: [...rules].join("+"), parts: outs };
 }
 
 // ---------- non-shell tools ----------

@@ -1,88 +1,423 @@
 #!/usr/bin/env python3
-"""ag-messages: Nathan's iMessages on ag-mac (signed in as nathankoerschner@gmail.com, iCloud
-Messages sync, so it sees threads sent/received on his other devices). Runs from any ag machine;
-reaches ag-mac with `mac run` (or directly when on ag-mac). Needs Full Disk Access (chat.db) and
-Automation → Messages for sshd-keygen-wrapper, both granted on ag-mac. Use this, not the client.
+"""ag-messages: Nathan's iMessage/SMS from any ag machine, via ag-mac (signed in as
+nathankoerschner@gmail.com with Messages in iCloud, so it sees what his phone sees). Off the Mac this
+script ships itself to ag-mac (`mac run python3 -`) and runs there next to chat.db; needs Full Disk
+Access + Automation → Messages for sshd-keygen-wrapper on ag-mac (both granted). Never use the client.
 
-  ag-messages thread <phone|email> [N]    last N messages (default 20), oldest first, with attachments
-  ag-messages cat <attachment path>       print an attachment file (paths from `thread`)
-  ag-messages send <phone|email> <text>   send as Nathan (iMessage; SMS fallback)
+  ag-messages chats [N] [--unread]        recent conversations (default 20): id, who, unread, last text
+  ag-messages thread <who> [N]            last N messages (default 20), oldest first, with attachments
+  ag-messages search <text> [N]           messages containing text (case-insensitive), newest first
+  ag-messages contact <name|phone|email>  matching contacts and their handles
+  ag-messages send <who> [--file F]... [text]   send as Nathan; waits and reports delivery
+  ag-messages cat <attachment path>       print an attachment (paths from `thread`)
+  ag-messages get <attachment path> [dir] copy an attachment here (HEIC → JPEG), print the local path
+
+<who> = phone, email, a chat id from `chats` (group chats too), a contact name, or a group's name.
+Names must match exactly one contact or group; otherwise the candidates are listed. Times are
+Nathan's local time (America/Chicago). Contacts come from the client Mac's address book (fresh; ag-mac's
+own copy is stale), cached on ag-mac for an hour and used from cache when the client is offline.
+Only send as Nathan after he has OKed the exact text.
 """
-import json, os, platform, re, shlex, subprocess, sys
+import glob, json, os, platform, re, shlex, sqlite3, subprocess, sys, time
 
 ON_MAC = platform.system() == "Darwin" and os.path.isdir(os.path.expanduser("~/Library/Messages"))
+CHAT_DB = os.path.expanduser("~/Library/Messages/chat.db")
+AB_GLOB = "Library/Application Support/AddressBook/Sources/*/AddressBook-v22.abcddb"
+CACHE = os.path.expanduser("~/.cache/ag-messages/contacts.json")
+CLIENT = os.environ.get("AG_MESSAGES_CLIENT", "ag-client")
 
 
-def mac(cmd: str, stdin: str | None = None) -> str:
-    argv = ["sh", "-c", cmd] if ON_MAC else ["mac", "run", "sh", "-c", cmd]
-    r = subprocess.run(argv, input=stdin or "", capture_output=True, text=True)
+def die(msg: str, code: int = 1):
+    print(f"ag-messages: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+# ---------- off the Mac: forward to ag-mac ----------
+
+def forward(args: list[str]) -> None:
+    if args[:1] == ["get"] and len(args) in (2, 3):
+        r = subprocess.run(["mac", "run", "python3", "-", "_viewable", args[1]],
+                           input=open(__file__, "rb").read(), capture_output=True)
+        if r.returncode:
+            unreachable(r.returncode, r.stderr.decode())
+        src = r.stdout.decode().strip()
+        dest = args[2] if len(args) == 3 else "."
+        subprocess.run(["mac", "pull", src, dest + "/"], check=True)
+        print(os.path.join(dest, os.path.basename(src)))
+        return
+    if args[:1] == ["send"]:  # local --file paths travel to ag-mac first
+        args = list(args)
+        for i, a in enumerate(args):
+            if args[i - 1] == "--file" and os.path.exists(a):
+                remote = subprocess.run(["mac", "push", a, "inbox/from-engine/ag-messages/"],
+                                        capture_output=True, text=True)
+                if remote.returncode:
+                    die(f"couldn't copy {a} to ag-mac: {remote.stderr.strip()}")
+                args[i] = "~/inbox/from-engine/ag-messages/" + os.path.basename(a)
+    r = subprocess.run(["mac", "run", "python3", "-", *args], input=open(__file__, "rb").read(),
+                       stderr=subprocess.PIPE)
     if r.returncode:
-        sys.exit(r.stderr.strip() or f"failed: {cmd}")
-    return r.stdout
+        unreachable(r.returncode, r.stderr.decode())
 
 
-def body_text(hexblob: str | None) -> str:
-    """Pull the NSString out of a typedstream attributedBody."""
-    if not hexblob:
+def unreachable(code: int, err: str):
+    sys.stderr.write(err)
+    if code == 255:
+        die("can't reach ag-mac over SSH (asleep or offline?). Check `mac status`.", 255)
+    sys.exit(code)
+
+
+# ---------- on the Mac ----------
+
+def body_text(blob: bytes | None) -> str:
+    """The NSString inside a typedstream attributedBody (where newer macOS keeps the text)."""
+    if not blob:
         return ""
-    b = bytes.fromhex(hexblob)
-    i = b.find(b"NSString")
+    i = blob.find(b"NSString")
     if i < 0:
         return ""
-    i = b.find(b"\x2b", i) + 1  # '+' precedes the length
-    n = b[i]
-    i += 1
+    i = blob.find(b"+", i) + 1  # '+' type tag, then the length
+    if i <= 0 or i >= len(blob):
+        return ""
+    n = blob[i]; i += 1
     if n == 0x81:
-        n = int.from_bytes(b[i : i + 2], "little"); i += 2
+        n = int.from_bytes(blob[i:i + 2], "little"); i += 2
     elif n == 0x82:
-        n = int.from_bytes(b[i : i + 4], "little"); i += 4
-    return b[i : i + n].decode("utf-8", "replace")
+        n = int.from_bytes(blob[i:i + 4], "little"); i += 4
+    return blob[i:i + n].decode("utf-8", "replace")
 
 
-def digits(h: str) -> str:
-    return re.sub(r"\D", "", h)[-10:] if "@" not in h else h
+def text_of(text, ab) -> str:
+    return (text or body_text(ab)).replace("\ufffc", "").strip()
 
 
-def thread(handle: str, n: int) -> None:
-    key = digits(handle).replace("'", "''")
-    sql = f"""select m.ROWID id, datetime(m.date/1000000000+978307200,'unixepoch') utc, m.is_from_me me,
-      m.text, hex(m.attributedBody) ab,
-      (select group_concat(a.filename, char(10)) from message_attachment_join j join attachment a
-        on a.ROWID=j.attachment_id where j.message_id=m.ROWID) files
-      from message m join handle h on h.ROWID=m.handle_id
-      where h.id like '%{key}%' order by m.date desc limit {int(n)};"""
-    out = mac("sqlite3 -json ~/Library/Messages/chat.db", sql)
-    for r in reversed(json.loads(out or "[]")):
-        text = (r["text"] or body_text(r["ab"])).replace("\ufffc", "").strip()
-        who = "me  " if r["me"] else "them"
-        print(f"{r['utc']} UTC  {who}  {text}")
-        for f in (r["files"] or "").splitlines():
-            print(f"    📎 {f}")
+def db() -> sqlite3.Connection:
+    try:
+        c = sqlite3.connect(f"file:{CHAT_DB}?mode=ro", uri=True)
+        c.execute("select 1 from message limit 1")
+    except sqlite3.Error as e:
+        die(f"can't read chat.db ({e}); Full Disk Access for sshd-keygen-wrapper? Run `ag-access`.")
+    c.row_factory = sqlite3.Row
+    c.create_function("body", 2, text_of, deterministic=True)
+    return c
 
 
-def send(handle: str, text: str) -> None:
-    script = """on run argv
-  set {h, msg} to argv
+LOCAL = "datetime(m.date/1000000000+978307200,'unixepoch','localtime')"
+
+
+def key(h: str) -> str:
+    h = h.strip().lower()
+    if "@" in h:
+        return h
+    d = re.sub(r"\D", "", h)
+    return d[-10:] if len(d) >= 7 else h
+
+
+AB_SQL = """select coalesce(nullif(trim(coalesce(r.ZFIRSTNAME,'')||' '||coalesce(r.ZLASTNAME,'')),''),
+  r.ZORGANIZATION, r.ZNICKNAME) name, p.ZFULLNUMBER h from ZABCDRECORD r join ZABCDPHONENUMBER p on p.ZOWNER=r.Z_PK
+  union all select coalesce(nullif(trim(coalesce(r.ZFIRSTNAME,'')||' '||coalesce(r.ZLASTNAME,'')),''),
+  r.ZORGANIZATION, r.ZNICKNAME), e.ZADDRESS from ZABCDRECORD r join ZABCDEMAILADDRESS e on e.ZOWNER=r.Z_PK;"""
+
+
+def contacts() -> dict[str, set[str]]:
+    """name -> handle keys. Client Mac address book (cached 1h), plus ag-mac's own as a fallback."""
+    rows = []
+    fresh = os.path.exists(CACHE) and time.time() - os.path.getmtime(CACHE) < 3600
+    if not fresh:
+        cmd = ("for f in ~/Library/Application\\ Support/AddressBook/Sources/*/AddressBook-v22.abcddb; "
+               f'do sqlite3 -json "$f" {shlex.quote(AB_SQL)}; done')
+        try:
+            r = subprocess.run(["ssh", "-o", "ConnectTimeout=4", "-o", "BatchMode=yes", CLIENT, cmd],
+                               capture_output=True, text=True, timeout=10)
+            got, s, dec = [], r.stdout.strip(), json.JSONDecoder()
+            while s:  # one JSON array per address-book source
+                chunk, end = dec.raw_decode(s)
+                got += chunk
+                s = s[end:].strip()
+            if r.returncode == 0 and got:
+                os.makedirs(os.path.dirname(CACHE), exist_ok=True)
+                json.dump(got, open(CACHE, "w"))
+        except (subprocess.TimeoutExpired, json.JSONDecodeError):
+            pass
+    if os.path.exists(CACHE):
+        rows += json.load(open(CACHE))
+    for f in glob.glob(os.path.expanduser("~/" + AB_GLOB)):
+        try:
+            rows += [dict(name=n, h=h) for n, h in sqlite3.connect(f"file:{f}?mode=ro", uri=True).execute(AB_SQL)]
+        except sqlite3.Error:
+            pass
+    out: dict[str, set[str]] = {}
+    for r in rows:
+        if r.get("name") and r.get("h"):
+            out.setdefault(r["name"].strip(), set()).add(key(r["h"]))
+    return out
+
+
+_names: dict[str, str] | None = None
+
+
+def name_of(handle: str) -> str:
+    global _names
+    if _names is None:
+        _names = {k: n for n, ks in contacts().items() for k in ks}
+    return _names.get(key(handle), handle)
+
+
+def chat_label(c: sqlite3.Connection, chat_id: int, display: str | None) -> str:
+    if display:
+        return display
+    hs = [r[0] for r in c.execute("select h.id from chat_handle_join j join handle h on h.ROWID=j.handle_id where j.chat_id=?", (chat_id,))]
+    return ", ".join(name_of(h) for h in hs) or "?"
+
+
+def resolve(c: sqlite3.Connection, who: str) -> tuple[list[sqlite3.Row], str | None]:
+    """-> (chat rows, a bare handle to start a new 1:1 with when there's no chat yet)."""
+    q = "select ROWID, guid, chat_identifier, display_name, style from chat"
+    exact = c.execute(q + " where chat_identifier=? or guid=?", (who, who)).fetchall()
+    if exact:
+        return exact, None
+    if "@" in who or len(re.sub(r"\D", "", who)) >= 7:
+        k = key(who)
+        rows = [r for r in c.execute(q + " where style=45") if key(r["chat_identifier"]) == k]
+        return rows, who
+    w = who.lower()
+    groups = [r for r in c.execute(q + " where style=43 and display_name is not null and display_name<>''")
+              if w in r["display_name"].lower()]
+    people = {n: ks for n, ks in contacts().items() if w in n.lower()}
+    exact_people = {n: ks for n, ks in people.items() if n.lower() == w}
+    exact_groups = [g for g in groups if g["display_name"].lower() == w]
+    if exact_people or exact_groups:
+        people, groups = exact_people, exact_groups
+    if len(people) + len(groups) != 1:
+        if not people and not groups:
+            die(f"no contact or group chat matches {who!r}; try a phone/email or `ag-messages chats`")
+        opts = [f"  {n}: {', '.join(sorted(ks))}" for n, ks in people.items()] + \
+               [f"  group {g['display_name']!r}: {g['chat_identifier']}" for g in groups]
+        die(f"{who!r} is ambiguous; use one of:\n" + "\n".join(opts))
+    if groups:
+        return groups, None
+    (name, ks), = people.items()
+    rows = [r for r in c.execute(q + " where style=45") if key(r["chat_identifier"]) in ks]
+    rows.sort(key=lambda r: c.execute("select max(message_date) from chat_message_join where chat_id=?",
+                                      (r["ROWID"],)).fetchone()[0] or 0, reverse=True)  # most recent first
+    if not rows:
+        die(f"{name} has no conversation yet; send to a handle: {', '.join(sorted(ks))}")
+    return rows, None
+
+
+def print_msg(r: sqlite3.Row, group: bool, label: str = "") -> None:
+    who = "me" if r["is_from_me"] else (name_of(r["sender"]) if r["sender"] else "them")
+    if not group and not r["is_from_me"]:
+        who = "them"
+    text = text_of(r["text"], r["attributedBody"])
+    files = (r["files"] or "").splitlines()
+    if not text and not files:
+        text = "(empty: unsent, or a sticker/app message)"
+    print(f"{r['t']}  {label}{who}: {text}")
+    for f in files:
+        print(f"    📎 {f}")
+
+
+MSG_COLS = f"""m.ROWID, {LOCAL} t, m.is_from_me, m.text, m.attributedBody, h.id sender,
+  (select group_concat(a.filename, char(10)) from message_attachment_join aj join attachment a
+    on a.ROWID=aj.attachment_id where aj.message_id=m.ROWID) files"""
+VISIBLE = "m.item_type=0 and not m.associated_message_type between 3000 and 3999"
+
+
+def cmd_chats(n: int, unread: bool) -> None:
+    c = db()
+    rows = c.execute(f"""select c.ROWID id, c.chat_identifier ident, c.display_name dn, c.style,
+      max(j.message_date) last, sum(m.is_from_me=0 and m.is_read=0 and m.item_type=0
+        and m.associated_message_type=0) unread
+      from chat c join chat_message_join j on j.chat_id=c.ROWID join message m on m.ROWID=j.message_id
+      group by c.ROWID {"having unread>0" if unread else ""} order by last desc limit ?""", (n,)).fetchall()
+    for r in rows:
+        m = c.execute(f"""select {MSG_COLS} from chat_message_join j join message m on m.ROWID=j.message_id
+          left join handle h on h.ROWID=m.handle_id where j.chat_id=? and {VISIBLE}
+          order by j.message_date desc limit 1""", (r["id"],)).fetchone()
+        if not m:
+            continue
+        snippet = text_of(m["text"], m["attributedBody"]) or ("📎" if m["files"] else "")
+        who = "me: " if m["is_from_me"] else (name_of(m["sender"]) + ": " if r["style"] == 43 and m["sender"] else "")
+        badge = f"  [{r['unread']} unread]" if r["unread"] else ""
+        kind = "group " if r["style"] == 43 else ""
+        print(f"{m['t']}  {kind}{chat_label(c, r['id'], r['dn'])} ({r['ident']}){badge}\n    {who}{snippet[:140].replace(chr(10), ' ')}")
+
+
+def cmd_thread(who: str, n: int) -> None:
+    c = db()
+    chats, _ = resolve(c, who)
+    if not chats:
+        die(f"no conversation with {who}")
+    ids = [r["ROWID"] for r in chats]
+    group = any(r["style"] == 43 for r in chats)
+    print(f"# {chat_label(c, ids[0], chats[0]['display_name'])} ({chats[0]['chat_identifier']})")
+    rows = c.execute(f"""select {MSG_COLS} from chat_message_join j join message m on m.ROWID=j.message_id
+      left join handle h on h.ROWID=m.handle_id where j.chat_id in ({",".join("?" * len(ids))}) and {VISIBLE}
+      order by j.message_date desc limit ?""", (*ids, n)).fetchall()
+    for r in reversed(rows):
+        print_msg(r, group)
+
+
+def cmd_search(q: str, n: int) -> None:
+    c = db()
+    rows = c.execute(f"""select {MSG_COLS}, c.ROWID cid, c.display_name dn, c.style from message m
+      join chat_message_join j on j.message_id=m.ROWID join chat c on c.ROWID=j.chat_id
+      left join handle h on h.ROWID=m.handle_id
+      where {VISIBLE} and instr(lower(body(m.text, m.attributedBody)), lower(?)) > 0
+      order by m.date desc limit ?""", (q, n)).fetchall()
+    for r in rows:
+        print_msg(r, True, f"[{chat_label(c, r['cid'], r['dn'])}] ")
+
+
+def cmd_contact(q: str) -> None:
+    k, w = key(q), q.lower()
+    hits = {n: ks for n, ks in contacts().items() if w in n.lower() or k in ks}
+    if not hits:
+        die(f"no contact matches {q!r}")
+    for n, ks in sorted(hits.items()):
+        print(f"{n}: {', '.join(sorted(ks))}")
+
+
+SEND_AS = """on run argv
+  set {how, dst, fp, msg} to argv
+  if fp is not "" then set f to (POSIX file fp) as alias
   tell application "Messages"
-    try
-      send msg to participant h of (first account whose service type is iMessage)
-      return "sent via iMessage to " & h
-    on error
-      send msg to participant h of (first account whose service type is SMS)
-      return "sent via SMS to " & h
-    end try
+    if how is "chat" then
+      set dest to chat id dst
+    else if how is "imessage" then
+      set dest to participant dst of (first account whose service type is iMessage)
+    else
+      set dest to participant dst of (first account whose service type is SMS)
+    end if
+    if fp is not "" then send f to dest
+    if msg is not "" then send msg to dest
   end tell
 end run"""
-    print(mac(f"osascript - {shlex.quote(handle)} {shlex.quote(text)}", script).strip())
 
 
-a = sys.argv[1:]
-if a[:1] == ["thread"] and len(a) in (2, 3):
-    thread(a[1], int(a[2]) if len(a) == 3 else 20)
-elif a[:1] == ["cat"] and len(a) == 2:
-    p = a[1]
-    sys.stdout.write(mac('cat "$HOME"/' + shlex.quote(p[2:]) if p.startswith("~/") else "cat " + shlex.quote(p)))
-elif a[:1] == ["send"] and len(a) == 3:
-    send(a[1], a[2])
-else:
-    sys.exit(__doc__)
+def osa(kind: str, target: str, path: str, msg: str) -> None:
+    r = subprocess.run(["osascript", "-", kind, target, path, msg], input=SEND_AS, capture_output=True, text=True, timeout=60)
+    if r.returncode:
+        die(f"Messages refused the send ({r.stderr.strip()}). Is Messages signed in on ag-mac?")
+
+
+def wait_sent(c: sqlite3.Connection, after: int, expect: int, timeout: float = 25) -> list[sqlite3.Row]:
+    """Wait until our `expect` new outgoing messages are sent (or failed); return them."""
+    end = time.time() + timeout
+    rows = []
+    while time.time() < end:
+        rows = c.execute("""select m.ROWID, m.is_sent, m.is_delivered, m.error, m.service, c.chat_identifier ident
+          from message m left join chat_message_join j on j.message_id=m.ROWID left join chat c on c.ROWID=j.chat_id
+          where m.ROWID>? and m.is_from_me=1 order by m.ROWID""", (after,)).fetchall()
+        if len(rows) >= expect and all(r["is_sent"] or r["error"] for r in rows[-expect:]):
+            time.sleep(2)  # give delivery receipts a moment
+            return c.execute(f"""select m.ROWID, m.is_sent, m.is_delivered, m.error, m.service, c.chat_identifier ident
+              from message m left join chat_message_join j on j.message_id=m.ROWID left join chat c on c.ROWID=j.chat_id
+              where m.ROWID in ({",".join(str(r["ROWID"]) for r in rows[-expect:])})""").fetchall()
+        time.sleep(1)
+    return rows[-expect:] if rows else []
+
+
+def cmd_send(who: str, files: list[str], text: str) -> None:
+    c = db()
+    chats, handle = resolve(c, who)
+    staged = []
+    for f in files:  # Messages only sends files it can read from its sandbox; stage them under ~/Pictures
+        src = os.path.expanduser(f)
+        if not os.path.isfile(src):
+            die(f"no such file on ag-mac: {f}")
+        d = os.path.expanduser("~/Pictures/ag-messages")
+        os.makedirs(d, exist_ok=True)
+        dst = os.path.join(d, f"{int(time.time())}-{os.path.basename(src)}")
+        subprocess.run(["cp", src, dst], check=True)
+        staged.append(dst)
+    parts = [(p, "") for p in staged] + ([("", text)] if text else [])
+    if not parts:
+        die("nothing to send")
+    top = c.execute("select max(ROWID) from message").fetchone()[0]
+    if chats:
+        label = chat_label(c, chats[0]["ROWID"], chats[0]["display_name"])
+        for p, m in parts:
+            osa("chat", chats[0]["guid"], p, m)
+    else:
+        label = handle
+        for p, m in parts:
+            osa("imessage", handle, p, m)
+    rows = wait_sent(c, top, len(parts))
+    if rows and any(r["error"] for r in rows) and not chats:  # not on iMessage: retry as SMS
+        top = c.execute("select max(ROWID) from message").fetchone()[0]
+        for p, m in parts:
+            osa("sms", handle, p, m)
+        rows = wait_sent(c, top, len(parts))
+    if not rows:
+        die(f"handed to Messages for {label}, but no sent message showed up in chat.db within 25s; check `ag-messages thread {shlex.quote(who)} 3`")
+    for r in rows:
+        state = f"FAILED (error {r['error']})" if r["error"] else "delivered" if r["is_delivered"] else "sent, not yet delivered"
+        print(f"{label} ({r['ident'] or handle}) via {r['service']}: {state}")
+    if any(r["error"] for r in rows):
+        sys.exit(1)
+
+
+def mac_path(p: str) -> str:
+    return os.path.expanduser(p)
+
+
+def cmd_viewable(p: str) -> None:
+    src = mac_path(p)
+    if not os.path.isfile(src):
+        die(f"no such attachment: {p}")
+    if src.lower().endswith((".heic", ".heif")):
+        out = os.path.expanduser("~/.cache/ag-messages/" + os.path.splitext(os.path.basename(src))[0] + ".jpg")
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        subprocess.run(["sips", "-s", "format", "jpeg", src, "--out", out], capture_output=True, check=True)
+        src = out
+    print(src)
+
+
+def main(a: list[str]) -> None:
+    def num(i, default):
+        return int(a[i]) if len(a) > i else default
+    try:
+        cmd = a[0] if a else ""
+        if cmd == "chats" and len(a) <= 3:
+            flags = [x for x in a[1:] if x == "--unread"]
+            nums = [x for x in a[1:] if x != "--unread"]
+            cmd_chats(int(nums[0]) if nums else 20, bool(flags))
+        elif cmd == "thread" and len(a) in (2, 3):
+            cmd_thread(a[1], num(2, 20))
+        elif cmd == "search" and len(a) in (2, 3):
+            cmd_search(a[1], num(2, 20))
+        elif cmd == "contact" and len(a) == 2:
+            cmd_contact(a[1])
+        elif cmd == "send" and len(a) >= 3:
+            files, rest, i = [], [], 2
+            while i < len(a):
+                if a[i] == "--file" and i + 1 < len(a):
+                    files.append(a[i + 1]); i += 2
+                else:
+                    rest.append(a[i]); i += 1
+            if len(rest) > 1:
+                die("quote the message as one argument")
+            cmd_send(a[1], files, rest[0] if rest else "")
+        elif cmd == "cat" and len(a) == 2:
+            with open(mac_path(a[1]), "rb") as f:
+                sys.stdout.buffer.write(f.read())
+        elif cmd == "get" and len(a) in (2, 3):
+            cmd_viewable(a[1])  # on the Mac, "here" is the attachment itself
+        elif cmd == "_viewable" and len(a) == 2:
+            cmd_viewable(a[1])
+        else:
+            print(__doc__, file=sys.stderr)
+            sys.exit(2)
+    except BrokenPipeError:
+        pass
+    except ValueError:
+        die("N must be a number")
+
+
+if __name__ == "__main__":
+    if ON_MAC:
+        main(sys.argv[1:])
+    else:
+        forward(sys.argv[1:])

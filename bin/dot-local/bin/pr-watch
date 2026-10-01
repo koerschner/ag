@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# pr-watch <pr-number|url> [repo-checkout]
+#
+# Start (or restart) the arcade PR watcher for one PR in the background, streaming from
+# the team's GitHub relay, and print the log path plus a ready-made tickler check.
+# The watcher is dev's copy of arcade's watch-pr.sh (extracted fresh from origin/dev, so a
+# stale or detached main checkout still gets the relay client), run from the main
+# checkout so it finds GH_RELAY_TOKEN in its .env.local. Without the token it polls
+# GitHub instead. See the github-relay skill.
+set -euo pipefail
+
+pr=${1:?usage: pr-watch <pr-number|url> [repo-checkout]}
+repo=${2:-$HOME/arcade.school}
+number=${pr##*/}
+log="${TMPDIR:-/tmp}/watch-pr-$number.log"
+
+git -C "$repo" fetch --quiet origin dev
+snap="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/pr-watch-dev"
+rm -rf "$snap"
+mkdir -p "$snap"
+git -C "$repo" archive origin/dev .agents/lib .agents/skills/arcade-resolve-pr-feedback \
+    internal/github-relay/bin internal/github-relay/src | tar -x -C "$snap"
+
+# One watcher per PR: stop an older one (never this script's own process).
+for pid in $(pgrep -f "watch-pr.sh $pr\$|pr-watch.ts [^ ]+ $number\$" || true); do
+    [ "$pid" != "$$" ] && kill "$pid" 2>/dev/null || true
+done
+
+grep -q '^GH_RELAY_TOKEN=' "$repo/.env.local" 2>/dev/null ||
+    echo "pr-watch: no GH_RELAY_TOKEN in $repo/.env.local; the watcher will poll GitHub (see the github-relay skill)" >&2
+
+cd "$repo"
+nohup bash "$snap/.agents/skills/arcade-resolve-pr-feedback/scripts/watch-pr.sh" "$pr" >>"$log" 2>&1 &
+echo "watching PR $number → $log (pid $!)"
+echo "tickler check (fires on anything new after the current head):"
+echo "  awk '/^HEAD <sha>/{f=1} f' $log | grep -vE '^(NOTE arcade-mechanic|REPLY (cursor|greptile|qodo))' | grep -qE '^(APPROVED|CHANGES REQUESTED|NOTE|REPLY|FINDING|CHECK FAILED|CHECKS .*failed|CONFLICT|READY|MERGED|CLOSED)'"

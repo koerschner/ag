@@ -18,7 +18,7 @@
     "honeycomb": {
       "transport": "streamable-http",
       "url": "http://127.0.0.1:7383/mcp",
-      "lifecycle": "eager"
+      "lifecycle": "lazy"
     },
     "slack": {
       "transport": "streamable-http",

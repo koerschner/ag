@@ -718,8 +718,13 @@ let txQuery = "", txSeq = 0;
 function resetTranscript(q) { txQuery = q; txSeq++; loadTranscript.done = false; $("#tx").innerHTML = '<div class="empty">Loading…</div>'; }
 async function loadTranscript(q) {
   const seq = ++txSeq;
-  const msgs = await (await fetch("/api/transcript?" + q, { cache: "no-store" })).json();
+  let msgs;
+  try {
+    const r = await fetch("/api/transcript?" + q, { cache: "no-store" });
+    msgs = r.ok ? await r.json() : null;
+  } catch {}
   if (q !== txQuery || seq !== txSeq) return;
+  if (!Array.isArray(msgs)) { lastTxKey = ""; msgs = []; } // failed: show what we have, retry on the next state update
   const tx = $("#tx");
   const atBottom = tx.scrollHeight - tx.scrollTop - tx.clientHeight < 80;
   const openDetails = new Set([...tx.querySelectorAll("details[open]")].map((d) => [...tx.querySelectorAll("details")].indexOf(d)));

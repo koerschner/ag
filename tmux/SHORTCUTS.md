@@ -15,6 +15,16 @@ One set of shortcuts on every device. The source of truth is
 - **Anywhere**: `Ctrl+B`, then the key, always works.
 
 <!-- BEGIN generated: ag-shortcuts-check --write -->
+| Shortcut | Action | Mac (Ghostty) | tmux prefix (everywhere, incl. Moshi) |
+|---|---|---|---|
+| Cmd+T | New tab running Pi | Hammerspoon → prefix chord | `Ctrl+B` `t` |
+| Cmd+W | Close pane | Hammerspoon → prefix chord | `Ctrl+B` `x` |
+| Cmd+Shift+T | Reopen closed pane | Hammerspoon → prefix chord | `Ctrl+B` `u` |
+| Cmd+D | Split side by side | Hammerspoon → prefix chord | `Ctrl+B` `v` |
+| Cmd+Shift+D | Split stacked | Hammerspoon → prefix chord | `Ctrl+B` `-` |
+| Cmd+[ | Focus history back | Hammerspoon → prefix chord | `Ctrl+B` `[` |
+| Cmd+] | Focus history forward | Hammerspoon → prefix chord | `Ctrl+B` `]` |
+| Cmd+1–9 | Switch to tab 1-9 | Hammerspoon → prefix chord | `Ctrl+B` `1–9` |
 <!-- END generated -->
 
 ## Changing a shortcut

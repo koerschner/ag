@@ -18,14 +18,16 @@ STATE=~/.local/state/routines
 NAME=toolsum-review
 mkdir -p $STATE/$NAME
 dry=0 force=0
-for a in "$@"; do [[ $a == --dry-run ]] && dry=1; [[ $a == --force ]] && force=1; done
+for a in "$@"; do case $a in --dry-run) dry=1 ;; --force) force=1 ;; esac; done
 
+reported=0
 status() { # ok summary [session]
+  reported=1
   jq -n --arg ok "$1" --arg s "$2" --arg sid "${3:-}" --arg at "$(date -u +%FT%TZ)" \
     '{at:$at, ok:($ok=="true"), summary:$s} + (if $sid=="" then {} else {session:$sid} end)' > $STATE/$NAME.json.tmp
   mv $STATE/$NAME.json.tmp $STATE/$NAME.json
 }
-trap 'status false "failed at line $LINENO (journalctl --user -u toolsum-review)"' ZERR
+trap '(( reported )) || status false "failed (journalctl --user -u toolsum-review)"' EXIT
 
 day=$(date -u +%Y%m%d)
 report=$STATE/$NAME/coverage-$day.json
@@ -37,7 +39,7 @@ gaps=$(jq --slurpfile skip <([[ -f $skip ]] && cat $skip || echo '[]') --argjson
 n=$(jq length <<<$gaps)
 echo "coverage ${before}%; $n open gap(s) with ≥ $MIN_GAP calls"
 if (( n == 0 && ! force )); then status true "${before}% of tool calls summarised; no new gaps"; exit 0; fi
-(( dry )) && { jq -r '.[] | "  \(.calls)  \(.shape)"' <<<$gaps; exit 0; }
+if (( dry )); then jq -r '.[] | "  \(.calls)  \(.shape)"' <<<$gaps; reported=1; exit 0; fi
 
 # Fresh worktree off origin/main, so concurrent hand edits in ~/ag never mix in.
 wt=~/ag-routine-toolsum
@@ -46,7 +48,7 @@ git -C ~/ag worktree remove --force $wt 2>/dev/null || true
 git -C ~/ag branch -D routine/toolsum 2>/dev/null || true
 git -C ~/ag worktree add -q $wt -b routine/toolsum origin/main
 cleanup() { cd ~; git -C ~/ag worktree remove --force $wt 2>/dev/null; git -C ~/ag branch -D routine/toolsum 2>/dev/null; true; }
-trap cleanup EXIT
+trap 'cleanup; (( reported )) || status false "failed (journalctl --user -u toolsum-review)"' EXIT
 cd $wt
 T=$wt/bin/dot-local/bin/toolsum
 

@@ -150,9 +150,9 @@ header h1 .brand{height:1.2em;width:auto;flex:0 0 auto}
 .rt-h{display:flex;gap:.45rem;align-items:center;flex-wrap:wrap}
 .rt-h b{font-size:13.5px}
 .rt-h .sched{color:var(--dim);font-size:12px}
-.rt-h .acts{margin-left:auto;display:flex;gap:.3rem}
+.rt-m .acts{margin-left:auto;display:flex;gap:.3rem}
 .rt-d{color:#c3c7cf;font-size:12.5px;margin:.2rem 0}
-.rt-m{color:var(--dim);font-size:12px}
+.rt-m{color:var(--dim);font-size:12px;display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}
 .rt-o{font-size:12.5px;margin-top:.25rem;color:#d6e4ff}
 .rt-o.bad{color:#ff9a9a}
 .rb{font-size:10.5px;padding:.08rem .38rem;border-radius:4px;background:var(--card2);color:var(--dim)}
@@ -701,10 +701,9 @@ function routineHtml(r) {
   const next = r.next ? `next in <span class="until" data-u="${r.next}"></span>` : "";
   const engine = r.id.startsWith("engine:");
   return `<div class="rt" data-id="${esc(r.id)}">
-    <div class="rt-h"><span class="host h-${esc(r.machine)}">${esc(r.machine)}</span><b>${esc(r.name)}</b>${badge}<span class="sched">${esc(r.schedule)}</span>
-      <span class="acts">${engine ? `<button class="btn sm" data-rt="run">Run now</button><button class="btn sm" data-rt="log">${routineLogs[r.id] ? "Hide log" : "Log"}</button>` : ""}</span></div>
+    <div class="rt-h"><span class="host h-${esc(r.machine)}">${esc(r.machine)}</span><b>${esc(r.name)}</b>${badge}<span class="sched">${esc(r.schedule)}</span></div>
     <div class="rt-d">${esc(r.description)}</div>
-    <div class="rt-m">${[last, next].filter(Boolean).join(" · ")}</div>
+    <div class="rt-m"><span>${[last, next].filter(Boolean).join(" · ")}</span>${engine ? `<span class="acts"><button class="btn sm" data-rt="run">Run now</button><button class="btn sm" data-rt="log">${routineLogs[r.id] ? "Hide log" : "Log"}</button></span>` : ""}</div>
     ${o?.summary ? `<div class="rt-o${o.ok === false ? " bad" : ""}">${o.ok === false ? "✗ " : "✓ "}${esc(o.summary)}${o.session ? ` · <a href="/${esc(o.session)}">session</a>` : ""}${o.at ? ` · ${since(Date.parse(o.at))} ago` : ""}</div>` : ""}
     ${routineLogs[r.id] ? `<pre>${esc(routineLogs[r.id])}</pre>` : ""}
   </div>`;

@@ -339,6 +339,11 @@ Moshi on the iPhone connects to the session host over Tailscale and attaches to 
   Inbox session (`/prompt?new=1`). The agent then marks his message: `ag telegram done <id>` (👌,
   completed) or `ag telegram more <id> "context"` (✍ plus a threaded reply). Bots can't react
   with ✅/➡️ (Telegram's fixed reaction set). Log: `~/.local/state/ag/telegram-log.jsonl`.
+- **Telegram status emoji**: ag-notify's own texts carry a status that is edited in place (no new
+  ping, since reactions can't be ✅/🔄/➡️): 🔄 when Nathan comes back to that session and a turn
+  starts, ✅ or ⚠️ when it ends, ➡️ once the session sends a newer text. `ag-text` with
+  `AG_TEXT_KIND=notify` logs the text so `ag telegram status|supersede` can rewrite the header;
+  state in `~/.local/state/ag/telegram-status.json`.
 - **Shortcuts**: the same prefix chords as the Mac, per
   [`tmux/SHORTCUTS.md`](../tmux/SHORTCUTS.md): `Ctrl+B` + key (terminals don't send Cmd to tmux).
 - **Line breaks**: Shift+Tab inserts a newline in Pi (Moshi's Shift+Enter arrives

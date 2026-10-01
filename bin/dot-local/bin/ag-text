@@ -9,6 +9,8 @@
 #      item "ag telegram bot".
 #      Each Telegram send is logged with its session ($AG_TEXT_SESSION, else $PI_SESSION_ID) in
 #      ~/.local/state/ag/telegram-sent.jsonl, so ag-telegram can route Nathan's replies back to it.
+#      AG_TEXT_KIND=notify (ag-notify's ✅/⚠️ texts) also logs the text, so ag-telegram can edit its
+#      status emoji later (🔄 in progress, ✅ done, ➡️ followed up).
 #   2. iMessage from the client Mac to Nathan's number (needs the client awake; texts his own
 #      number, so it may arrive silently). $AG_TEXT_CLIENT, default ag-client.
 set -eu
@@ -26,8 +28,15 @@ if [ -n "$token" ] && [ -n "$chat" ]; then
     id=$(printf '%s' "$out" | sed -n 's/^{"ok":true,"result":{"message_id":\([0-9]*\).*/\1/p')
     sess=${AG_TEXT_SESSION:-${PI_SESSION_ID:-}}; sess=${sess##*_}; sess=${sess%.jsonl}
     mkdir -p ~/.local/state/ag
-    [ -n "$id" ] && printf '{"message_id":%s,"session":"%s","at":%s}\n' "$id" "$sess" "$(date +%s)" \
-      >>~/.local/state/ag/telegram-sent.jsonl
+    [ -n "$id" ] && ID=$id SESS=$sess KIND=${AG_TEXT_KIND:-} MSG=$msg python3 -c '
+import json, os, time
+e = {"message_id": int(os.environ["ID"]), "session": os.environ["SESS"], "at": int(time.time())}
+if os.environ["KIND"]: e.update(kind=os.environ["KIND"], text=os.environ["MSG"])
+print(json.dumps(e, ensure_ascii=False))' >>~/.local/state/ag/telegram-sent.jsonl
+    # A new agent notification supersedes the session's earlier ones (their status turns ➡️).
+    if [ -n "$id" ] && [ "${AG_TEXT_KIND:-}" = notify ] && [ -n "$sess" ]; then
+      "$(dirname "$0")/ag-telegram" supersede "$sess" "$id" >/dev/null 2>&1 || true
+    fi
     exit 0
   fi
   echo "ag-text: telegram failed, falling back to iMessage" >&2

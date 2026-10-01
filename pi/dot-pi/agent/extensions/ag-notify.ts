@@ -5,6 +5,9 @@
 // A fast LLM writes the headline and decides Done vs Attention from the final reply.
 // Sends only when it's worth it: Nathan is away (`presence`), or the turn ran ≥ LONG_TURN_MS.
 // Override per session with AG_NOTIFY=always|off. TUI root sessions only (not subagents/print mode).
+// Status emoji on those texts are edited in place via `ag-telegram status|supersede`: when Nathan
+// comes back to a session its latest text turns 🔄 (in progress), then ✅ or ⚠️ when the turn
+// ends; a newer text from the same session turns the older ones ➡️ (followed up).
 // Log: ~/.local/state/ag-notify/log.jsonl.
 import { execFile, execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
@@ -60,9 +63,14 @@ export default function (pi: ExtensionAPI) {
 		root = ctx.mode === "tui" && process.env.AG_MUX === "1";
 	});
 
-	pi.on("before_agent_start", (event) => {
+	const tgStatus = (sessionFile: string, state: string) =>
+		execFile(`${BIN}/ag-telegram`, ["status", sessionFile, state], { timeout: 30_000 }, () => {});
+
+	pi.on("before_agent_start", (event, ctx) => {
 		started = Date.now();
 		prompt = event.prompt ?? "";
+		const sessionFile = ctx.sessionManager.getSessionFile();
+		if (root && process.env.AG_NOTIFY !== "off" && sessionFile) tgStatus(sessionFile, "working");
 	});
 
 	pi.on("agent_settled", (_e, ctx) => {
@@ -76,7 +84,9 @@ export default function (pi: ExtensionAPI) {
 		void (async () => {
 			try {
 				const isAway = away();
-				if (mode !== "always" && !isAway && took < LONG_TURN_MS) return;
+				const send = mode === "always" || isAway || took >= LONG_TURN_MS;
+				// Not texting: still settle a 🔄 left on this session's latest text.
+				if (!send && run(`${BIN}/ag-telegram`, ["status", sessionFile]) !== "working") return;
 
 				const last = ctx.sessionManager
 					.getEntries()
@@ -124,10 +134,14 @@ ${last.slice(-3000)}`,
 					if (typeof j.headline === "string" && j.headline.trim()) headline = j.headline.trim();
 				}
 
+				if (!send) {
+					tgStatus(sessionFile, status);
+					return log({ session: sessionFile, status, took, action: "status" });
+				}
 				const link = run(`${BIN}/session-link`, [sessionFile]);
 				const head = status === "attention" ? "⚠️ Attention needed" : "✅ Done";
 				const msg = `${head} · ${tabLabel()}\n${headline}\n${link}`;
-				execFile(`${BIN}/ag-text`, [msg], { timeout: 60_000, env: { ...process.env, AG_TEXT_SESSION: sessionFile } }, (err, _o, stderr) =>
+				execFile(`${BIN}/ag-text`, [msg], { timeout: 60_000, env: { ...process.env, AG_TEXT_SESSION: sessionFile, AG_TEXT_KIND: "notify" } }, (err, _o, stderr) =>
 					log({ session: sessionFile, status, headline, took, away: isAway, sent: !err, error: err ? String(stderr || err) : undefined }),
 				);
 			} catch (e) {

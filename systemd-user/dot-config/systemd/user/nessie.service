@@ -1,4 +1,4 @@
-# Nessie headless runtime (nera from @nessielabs/daemon): syncs this machine's Pi, Codex and Claude Code traces to Nessie. Session host only. README "Nessie".
+# Nessie headless runtime (nera from @nessielabs/daemon): syncs this machine's Pi, Codex and Claude Code traces to Nessie. Session host only. docs/reference.md "Nessie".
 [Unit]
 Description=Nessie agent-trace sync (headless)
 After=network-online.target

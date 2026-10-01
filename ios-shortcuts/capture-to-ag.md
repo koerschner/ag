@@ -20,7 +20,7 @@ and real button presses can only be tested on the physical phone.
 The screenshot is only handed to the agent when it's needed: Jev judges from the prompt
 (transcript) whether it refers to what was on screen ("what song is this?" → attached; "remind me to
 call mom Sunday" → not). The screenshot is always saved in `ag-mac:~/inbox/capture/` either way, and so
-is the recording. Same gate as the Mac quick capture. If Jev judges the capture to be new context for a session that's already open, it's added to that session instead of opening a new one; see the README's "ag inbox" section.
+is the recording. Same gate as the Mac quick capture. If Jev judges the capture to be new context for a session that's already open, it's added to that session instead of opening a new one; see docs/reference.md, "ag inbox" section.
 
 Every capture is first saved to a queue folder on the phone (prompt as `<stamp>.txt` or
 recording as `<stamp>.m4a`, screenshot as `<stamp>.jpg`, all in `ag-queue/`), then the queue is

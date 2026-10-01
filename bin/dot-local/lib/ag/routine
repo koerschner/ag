@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ag routine — define, schedule and run Ag routines (README → "Routines"; modeled on Claude Code routines).
+"""ag routine — define, schedule and run Ag routines (docs/reference.md → "Routines"; modeled on Claude Code routines).
 
 A routine is a saved, self-contained job that repeats on its own: a prompt for a fresh, unattended Pi session
 (kind: prompt) or an ag command (kind: command), plus its triggers. Definitions live in git, one file per

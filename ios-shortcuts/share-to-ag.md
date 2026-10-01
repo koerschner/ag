@@ -18,7 +18,7 @@ It posts to the ag inbox (`bin/dot-local/bin/ag-inbox`, port 7373):
 
 The inbox then routes the capture: a cheap multimodal model (it sees the shared images)
 names the tab and picks a **playbook** when one fits (e.g. a contact card or a name +
-phone number → the `contact` playbook). See the README's "ag inbox" section.
+phone number → the `contact` playbook). See docs/reference.md, "ag inbox" section.
 
 ```mermaid
 flowchart TD

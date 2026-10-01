@@ -30,7 +30,7 @@ start)
 	alive && { echo "screen-record: already recording → $(<$state/out) (run: screen-record stop)" >&2; exit 1; }
 	if ! screencapture -x -D $(( screen + 1 )) $state/probe.png 2>/dev/null; then
 		echo "screen-record: no Screen Recording permission for this process (parent: $(ps -o comm= -p $PPID))." >&2
-		echo "  Run ag-access, and see the ag README, \"macOS permissions for agents\"." >&2
+		echo "  Run ag-access, and see docs/reference.md, \"macOS permissions for agents\"." >&2
 		exit 3
 	fi
 	# Pixels per point on this screen, from the probe capture vs the screen's size in points.

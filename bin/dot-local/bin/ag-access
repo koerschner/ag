@@ -72,7 +72,7 @@ status)
 		ag-screen-approvals --list | grep -E 'sshd-keygen|codex|Computer%20Use' | sed 's/^/  /'
 	fi
 	pending=$(dialogs); [[ -n $pending ]] && { print "Pending prompts:"; print -r -- $pending | sed 's/^/  /'; }
-	[[ $scr == true && $ax == true && $fda == true ]] || { print "Fix: see ag README, \"macOS permissions for agents\""; exit 1; }
+	[[ $scr == true && $ax == true && $fda == true ]] || { print "Fix: see docs/reference.md, \"macOS permissions for agents\""; exit 1; }
 	;;
 dialogs) dialogs ;;
 allow)

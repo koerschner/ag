@@ -5,12 +5,14 @@
 #   ~/ag/bootstrap-linux     (cloud-init clones ~/ag first; the ag repo is private, so a bare curl won't work)
 #
 # Installs both repos: ~/ag (the agent system) and ~/dotfiles (Nathan's personal shell/editor config).
+# AG_DOTFILES=0 (`ag setup --no-dotfiles`) installs only ag, for anyone who isn't Nathan.
 # The Mac-only parts (Homebrew casks, Hammerspoon, LaunchAgents, macOS defaults) don't apply.
 # Secrets are never fetched; the final checklist says what's still missing.
 set -uo pipefail
 
 AG=${AG:-$(cd "$(dirname "$(readlink -f "$0")")" && pwd)}
 DOTFILES=${DOTFILES:-$HOME/dotfiles}
+USE_DOTFILES=${AG_DOTFILES:-1}
 REPO=https://github.com/koerschner/dotfiles.git
 # Stow packages that make sense on Linux (no ghostty/hammerspoon/alfred), per repo.
 AG_PACKAGES=(ag-board ag-inbox agents bin claude codex pi systemd-user tmux)
@@ -62,6 +64,7 @@ if ! [[ $(stow --version 2>/dev/null) == *" 2.4"* || $(stow --version 2>/dev/nul
 fi
 echo "  $(stow --version)"
 
+if [[ $USE_DOTFILES == 1 ]]; then
 step "dotfiles repo -> $DOTFILES"
 [[ -d $DOTFILES/.git ]] || git clone "$REPO" "$DOTFILES" || { echo "clone failed"; exit 1; }
 cd "$DOTFILES" || exit 1
@@ -71,6 +74,10 @@ step "oh-my-zsh"
   RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" ||
   warn "oh-my-zsh"
 [[ $(getent passwd "$USER" | cut -d: -f7) == */zsh ]] || sudo chsh -s "$(command -v zsh)" "$USER" || warn "chsh zsh"
+else
+  DOTFILES_PACKAGES=()
+  echo "  skipping Nathan's dotfiles (AG_DOTFILES=0)"
+fi
 
 step "mise"
 have mise || curl -fsSL https://mise.run | sh || warn "mise"
@@ -116,7 +123,8 @@ bash "$AG/agents/dot-agents/skills/discord-export/scripts/install.sh" >/dev/null
 have nessie-daemon || mise exec -- npm install -g --prefix "$HOME/.local" @nessielabs/daemon@latest >/dev/null || warn "nessie-daemon"
 
 step "~/.gitconfig.local (untracked identity + gh credential helper; ~/.gitconfig is tracked, so never git config --global)"
-[[ -f ~/.gitconfig.local ]] || cat > ~/.gitconfig.local <<'GITLOCAL'
+if [[ $USE_DOTFILES != 1 ]]; then echo "  skipped (no dotfiles): set your own git identity and run gh auth setup-git"
+elif [[ ! -f ~/.gitconfig.local ]]; then cat > ~/.gitconfig.local <<'GITLOCAL'
 [user]
 	email = 58815433+koerschner@users.noreply.github.com
 	name = Nathan Koerschner
@@ -127,6 +135,7 @@ step "~/.gitconfig.local (untracked identity + gh credential helper; ~/.gitconfi
 	helper =
 	helper = !/usr/bin/gh auth git-credential
 GITLOCAL
+fi
 echo "  ok"
 
 step "~/.zshenv (untracked; loaded for SSH and persistent agents, like on ag-mac)"
@@ -162,7 +171,7 @@ check ~/.zshenv.local              "model keys (TFY_TOKEN, OPENROUTER_API_KEY) i
 check ~/.pi/agent/auth.json        "Pi OAuth logins (anthropic, openai-codex, openrouter)"
 check ~/.pi/agent/mcp.json         "Pi MCP config"
 check ~/.config/ag/op-work.token   "ag-vault 1Password service-account token (op-work on Linux)"
-check ~/.local/share/nessie/credentials.json "Nessie sign-in (README \"Nessie\": nessie-daemon auth login --pair, then add integrations)"
+check ~/.local/share/nessie/credentials.json "Nessie sign-in (docs/reference.md \"Nessie\": nessie-daemon auth login --pair, then add integrations)"
 check ~/.ssh/ag-mac                "engine → ag-mac SSH key (fetched from ag-vault once op-work.token exists)"
 check ~/.config/ag/op-ag.token     "arcade.school 1Password service-account token (op-ag on Linux)"
 

@@ -86,12 +86,12 @@ fi
 if $AG/bin/dot-local/bin/machine-role host extremity; then
   step "ag host secrets (Keychain)"
   for svc in "ag 1Password service account" "ag machine-shared service account" "ag-shared 1Password service account"; do
-    security find-generic-password -a $USER -s "$svc" >/dev/null 2>&1 && echo "  ok      Keychain '$svc'" || { echo "  MISSING Keychain '$svc'  - 1Password service-account token for op-ag / op-shared / op-work (README \"Secrets\")"; failed+=("secret $svc"); }
+    security find-generic-password -a $USER -s "$svc" >/dev/null 2>&1 && echo "  ok      Keychain '$svc'" || { echo "  MISSING Keychain '$svc'  - 1Password service-account token for op-ag / op-shared / op-work (docs/reference.md \"Secrets\")"; failed+=("secret $svc"); }
   done
   ag-login-password check >/dev/null 2>&1 && echo "  ok      Keychain 'ag Mac login'" || echo "  MISSING Keychain 'ag Mac login'  - ag-mac's own login password so agents can answer ag-mac's password prompts: run ag-login-password set"
-  step "macOS permissions for agents (README \"macOS permissions for agents\")"
+  step "macOS permissions for agents (docs/reference.md \"macOS permissions for agents\")"
   $AG/bin/dot-local/bin/ag-screen-approvals >/dev/null 2>&1 && echo "  ok      screen re-consent pushed to 2100" || warn "ag-screen-approvals (needs Full Disk Access; run it from an agent shell)"
-  PATH=$AG/bin/dot-local/bin:$PATH $AG/bin/dot-local/bin/ag-access | sed 's/^/  /' || echo "  MISSING grants for sshd-keygen-wrapper: see README \"macOS permissions for agents\""
+  PATH=$AG/bin/dot-local/bin:$PATH $AG/bin/dot-local/bin/ag-access | sed 's/^/  /' || echo "  MISSING grants for sshd-keygen-wrapper: see docs/reference.md \"macOS permissions for agents\""
   security find-generic-password -a $USER -s "ag telegram bot" >/dev/null 2>&1 && echo "  ok      ag telegram bot" || echo "  MISSING Keychain 'ag telegram bot' + 'ag telegram chat'  - Telegram bot for ag-text (optional; falls back to iMessage)"
 fi
 

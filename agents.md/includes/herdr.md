@@ -28,7 +28,7 @@ For anything at the session level, use `ag <verb>` (`ag help` lists them; `ag <v
 
 - Find and read: `ag me`, `ag ls [workspace] [--hot|--waiting|--needs-you]`, `ag find <words>` (open, hibernated and closed sessions), `ag peek <s>` (its screen), `ag read <s> [--user|--assistant] [--last N]` (its transcript), `ag link [s] [--phone]`.
 - Act: `ag send <s> "msg" [--interrupt]`, `ag spawn "prompt"`, `ag report "msg"`, `ag merge <A…>`, `ag close [s]`, `ag rename "label" [s]`, `ag file <workspace> [s]`, `ag hot [on|off] [s]`, `ag wait [s]` / `ag unwait [s]`, `ag resume <s>`.
-- System: `ag sync [ag|dotfiles]`, `ag status`, `ag logs <service> [-f]`, `ag restart <service>`.
+- System: `ag sync [ag|dotfiles]`, `ag status`, `ag logs <service> [-f]`, `ag restart <service>`; this machine: `ag setup` (install or update Ag here), `ag doctor` (what it still lacks).
 
 # Working with panes and agents
 

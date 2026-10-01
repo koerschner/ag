@@ -4,6 +4,7 @@
 #   ag <verb> [args…]     run a subcommand: ~/.local/lib/ag/<verb> first, else an `ag-<verb>` tool on PATH
 #                         (so `ag text`, `ag access`, `ag mux` … reach the existing ag-* tools)
 #   ag help               list every verb
+#   ag setup | doctor     set up / check this machine (always local, never forwarded)
 # Verbs that work on sessions run on the session host: off it, `ag <verb>` forwards over SSH.
 lib="$HOME/.local/lib/ag"
 
@@ -38,6 +39,11 @@ help | --help | -h)
 esac
 
 verb=$1; shift
+# Machine-setup verbs run here, from this checkout, so they also work on a fresh machine before ~/.local/lib/ag
+# exists (first run: ~/ag/bin/dot-local/bin/ag setup).
+case $verb in setup | doctor)
+	self=$(readlink -f "$0"); exec "${self%/bin/ag}/lib/ag/$verb" "$@" ;;
+esac
 if [ -x "$lib/$verb" ]; then
 	# Session-host verbs (they read ~/.pi sessions, systemd, ag-mux) run there.
 	if ! "$HOME/.local/bin/machine-role" host 2>/dev/null; then

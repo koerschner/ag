@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# ag doctor — check this machine's Ag setup without changing anything: checkout, links, tools, secrets, tailnet.
+#
+#   ag doctor
+#
+# Runs on this machine (never forwarded). Exit 1 when something required is missing; `ag setup` fixes the
+# tools and links, the secrets are moved by hand (docs/reference.md → "Secrets"). For the health of the running system
+# (machines, services, queues) use `ag status`.
+set -uo pipefail
+AG=$(cd "$(dirname "$(readlink -f "$0")")/../../../.." && pwd)
+[[ ${1:-} == -h || ${1:-} == --help ]] && { sed -n '2,8{s/^# \{0,1\}//;p;}' "$0"; exit 0; }
+export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.local/share/mise/shims:/opt/homebrew/bin:$PATH"
+os=$(uname -s)
+missing=0
+if [[ -t 1 ]]; then G=$'\e[32m' R=$'\e[31m' Y=$'\e[33m' C=$'\e[36m' N=$'\e[0m'; else G= R= Y= C= N=; fi
+ok() { printf '  %sok%s    %s\n' "$G" "$N" "$*"; }
+no() { printf '  %sMISS%s  %s\n' "$R" "$N" "$*"; missing=$((missing + 1)); }
+opt() { printf '  %s--%s    %s\n' "$Y" "$N" "$*"; }
+head_() { printf '\n%s%s%s\n' "$C" "$*" "$N"; }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+head_ "Machine"
+name=$(scutil --get LocalHostName 2>/dev/null || hostname -s)
+role=$(have zsh && zsh "$AG/bin/dot-local/bin/machine-role" 2>/dev/null || echo client)
+echo "  $name ($os), role: $role   (roles: machines/README.md; unlisted machines are clients)"
+
+head_ "Checkout $AG"
+branch=$(git -C "$AG" rev-parse --abbrev-ref HEAD 2>/dev/null)
+dirty=$(git -C "$AG" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+behind=$(git -C "$AG" rev-list --count HEAD..@{u} 2>/dev/null || echo '?')
+echo "  branch $branch, $dirty uncommitted file(s), $behind commit(s) behind upstream (cached; ag setup --pull updates)"
+
+head_ "Linked into ~ (ag setup)"
+link() { # <path under ~> <what>
+	local t; t=$(readlink -f "$HOME/$1" 2>/dev/null)
+	if [[ $t == "$AG"/* ]]; then ok "~/$1"; elif [[ -e $HOME/$1 ]]; then no "~/$1 exists but isn't linked to this checkout ($2)"; else no "~/$1 ($2)"; fi
+}
+link .local/bin/ag "the ag CLI"
+link .local/lib/ag/status "ag verbs"
+link .pi/agent/AGENTS.md "global agent instructions"
+link .pi/agent/settings.json "Pi settings"
+link .agents/skills/autoreview/SKILL.md "agent skills"
+[[ -f $AG/pi/dot-pi/agent/AGENTS.md ]] && ok "AGENTS.md built" || no "AGENTS.md not built (agents.md/build)"
+
+head_ "Tools"
+req=(git stow jq curl bun pi claude codex gh op uv)
+if [[ $os == Darwin ]]; then req+=(brew); else req+=(tmux node); fi
+for t in "${req[@]}"; do have "$t" && ok "$t" || no "$t (ag setup installs it)"; done
+have tailscale && ok tailscale || no "tailscale (install it and sign in to the tailnet)"
+[[ $os == Darwin ]] && { [[ -d /Applications/Hammerspoon.app ]] && ok Hammerspoon || opt "Hammerspoon (clients only: capture, paste, shortcuts)"; }
+
+head_ "Tailnet"
+if have tailscale && tailscale status >/dev/null 2>&1; then ok "signed in to Tailscale"; else no "Tailscale not running or signed out"; fi
+if curl -fsS -m 3 -o /dev/null http://ag:7373/ 2>/dev/null; then ok "the ag inbox answers at http://ag:7373"; else opt "http://ag:7373 unreachable (needs the tailnet and a running session host)"; fi
+
+head_ "Secrets (never in git; docs/reference.md → \"Secrets\")"
+f() { [[ -s $1 ]] && ok "$2" || no "$2  ($1)"; }
+f "$HOME/.pi/agent/auth.json" "Pi model logins (run pi, then /login)"
+[[ -s $HOME/.config/gh/hosts.yml ]] || gh auth status >/dev/null 2>&1 && ok "GitHub CLI signed in" || no "GitHub CLI (gh auth login)"
+[[ -s $HOME/.zshenv.local ]] && grep -q TFY_TOKEN "$HOME/.zshenv.local" && ok "TFY_TOKEN in ~/.zshenv.local" || opt "TFY_TOKEN in ~/.zshenv.local (TrueFoundry gateway; without it tools use their own logins)"
+if [[ $os == Linux ]]; then
+	f "$HOME/.config/ag/op-work.token" "op-work 1Password service-account token"
+	[[ $role == host ]] && {
+		f "$HOME/.config/ag/op-ag.token" "op-ag 1Password service-account token"
+		f "$HOME/.ssh/ag-mac" "engine → ag-mac SSH key (bootstrap-linux fetches it once op-work works)"
+		f "$HOME/.local/share/nessie/credentials.json" "Nessie sign-in (docs/reference.md → \"Nessie\")"
+	}
+elif [[ $role == host || $role == extremity ]]; then
+	for svc in "ag 1Password service account" "ag machine-shared service account" "ag-shared 1Password service account"; do
+		security find-generic-password -a "$USER" -s "$svc" >/dev/null 2>&1 && ok "Keychain: $svc" || no "Keychain: $svc"
+	done
+fi
+
+echo
+if ((missing)); then printf '%s%d item(s) missing.%s ag setup fixes tools and links; secrets go in by hand.\n' "$Y" "$missing" "$N"; exit 1; fi
+printf '%sAll good.%s\n' "$G" "$N"

@@ -44,7 +44,6 @@ modes at `0600`:
 | `~/.config/mcp/arcade-school.headers`, `tsa-courses.headers` | `Authorization: Bearer <token>` |
 | `~/.local/share/arcade-linear-return/mcp-destination/client-metadata.json` | Linear MCP OAuth client |
 | `~/.pi/agent/auth.json` | or just run `pi` and `/login` |
-| `~/.secrets/discord_token` | Discord token for the `discord-export` skill (DiscordChatExporter reads it as `DISCORD_TOKEN`); dir `0700` |
 | `~/.alchemy/config.json`, `~/.alchemy/credentials/playcademy-arcade/cloudflare.json` | Alchemy `playcademy-arcade` Cloudflare profile (API token); arcade's `bun scripts/db --stage production` needs it plus `cloudflared` |
 
 Vault-only service keys (no local file; agents read them on demand with
@@ -52,6 +51,7 @@ Vault-only service keys (no local file; agents read them on demand with
 
 | Vault item (arcade.school vault) | Used for |
 |---|---|
+| `Discord bot (Arcade)` (**ag-vault**, via `op-work`) | Bot token for the `discord` CLI (read/post on the Arcade server as "Nathan's Assistant") and `discord dce` exports |
 | `PostHog Personal API Key (Nathan Koerschner)` | PostHog REST API for project Playcademy (168029): feature flags (`arcade_*`) read/write, e.g. `GET https://us.posthog.com/api/projects/168029/feature_flags/?search=arcade_` |
 
 1Password service-account tokens (login Keychain on ag, account `natkoersch`;

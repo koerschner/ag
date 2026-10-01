@@ -1,6 +1,6 @@
 ---
 name: discord-export
-description: Export and analyze Discord messages with DiscordChatExporter CLI, without browser automation. Use for internal Discord notes, project or investor updates, channel history, incident context, game-request analysis, or whenever the user asks to read/search Discord. Includes server/channel discovery, bounded JSON exports with threads, and source-linked analysis. Requires a user-supplied authorized Discord token or an existing export; webhooks cannot read history.
+description: Export and analyze Discord history in bulk with DiscordChatExporter CLI (via `discord dce`, using the ag bot token), without browser automation. Use for internal Discord notes, project or investor updates, channel history over a date range, incident context, game-request analysis, or searching Discord. Includes server/channel discovery, bounded JSON exports with threads, and source-linked analysis. For reading a few recent messages or posting, use the `arcade-discord` skill instead.
 compatibility: macOS or Linux, bash, Python 3, GitHub CLI for installation, DiscordChatExporter CLI for live exports.
 ---
 
@@ -11,12 +11,13 @@ Use [DiscordChatExporter](https://github.com/Tyrrrz/DiscordChatExporter) (DCE), 
 ## 1. Check access and scope
 
 - If the user already provided JSON exports, analyze those without requesting credentials or re-exporting.
-- Otherwise use an already configured `DISCORD_TOKEN`, or a protected token file the user explicitly supplies. Never print a token, paste it into chat, commit it, or put it in command arguments. Don't inspect browser profiles, storage, or other credential stores to obtain one.
-- If neither is available, ask the user to supply a token through a protected local file or provide exports. A webhook URL can send messages but **cannot read channel history**.
+- Otherwise authenticate with the ag bot (**Nathan's Assistant**, op-work item `Discord bot (Arcade)` in ag-vault): `discord dce <DCE args>` runs DiscordChatExporter with the bot token in `DISCORD_TOKEN`, so the token never touches arguments, files, or output. A bot sees only channels it has access to; a 403 is a coverage gap to report, not something to work around.
+- Don't use Nathan's personal (user) token: automating a user account is against Discord's Terms of Service. Never print a token, paste it into chat, commit it, or put it in command arguments, and don't inspect browser profiles or storage for one.
+- A webhook URL can send messages but **cannot read channel history**.
 - Confirm the server, relevant channels, date range, and desired output. Prefer relevant internal channels over exporting an entire server. Do not include DMs or unrelated servers without an explicit request.
 - Raw exports may contain student identities and private discussion. Keep them outside repositories, use `umask 077`, and publish only the necessary redacted synthesis.
 
-Known server, supplied by Nathan: **Playcademy Arcade — `1524527312429912125`**. This is a convenience, not permission to export every channel. List channels to confirm names and access.
+Known server: **Arcade — `1524527312429912125`**. This is a convenience, not permission to export every channel. List channels to confirm names and access.
 
 ## 2. Install / verify
 
@@ -31,20 +32,12 @@ DCE="$HOME/.local/share/discord-chat-exporter/current/DiscordChatExporter.Cli"
 
 The installer pins **2.48**, chooses the native macOS/Linux architecture, verifies the archive's SHA-256, and installs outside dotfiles. On macOS it removes quarantine only from this downloaded tool directory. The native release doesn't need a separate .NET SDK. Other platforms: use the matching official release and its CLI help.
 
-**Important correction to older guides:** DCE 2.48 reads `DISCORD_TOKEN` directly and auto-detects user versus bot tokens. Omit `-t "$TOKEN"` (puts the secret in process arguments) and omit `-b` (deprecated). Verified against the [2.48 authentication implementation](https://github.com/Tyrrrz/DiscordChatExporter/blob/2.48/DiscordChatExporter.Cli/Commands/Base/DiscordCommandBase.cs).
+DCE 2.48 reads `DISCORD_TOKEN` from the environment and auto-detects bot tokens; `discord dce` sets it. Never pass `-t` (puts the secret in process arguments) or `-b` (deprecated).
 
 ```bash
-# In a tool process, load ONLY a token file the user has designated.
-# File should contain only the token and have permissions 600.
-# Do not enable shell tracing (set -x).
-set +x
-export DISCORD_TOKEN="$(< "$DISCORD_TOKEN_FILE")"
-: "${DISCORD_TOKEN:?Supply authorized Discord credentials first}"
-"$DCE" guilds
-"$DCE" channels -g 1524527312429912125
+discord dce guilds
+discord dce channels -g 1524527312429912125
 ```
-
-An existing bot token is preferable when it can read the relevant channels. Don't create/invite a bot or widen permissions without approval. `"$DCE" guide` documents manual token/ID acquisition; the user handles that step. Respect the user's no-browser instruction.
 
 ## 3. Export a bounded window
 
@@ -56,7 +49,7 @@ OUT="$HOME/.local/share/discord-exports/arcade-2026-09-12"
 mkdir -p "$OUT"
 
 # Replace channel IDs after listing the server. Repeated -c is supported.
-"$DCE" export -f Json --include-threads All --utc \
+discord dce export -f Json --include-threads All --utc \
   --after '2026-08-14T00:00:00-04:00' \
   --before '2026-09-13T00:00:00-04:00' \
   -o "$OUT/" -c CHANNEL_ID -c OTHER_CHANNEL_ID
@@ -72,7 +65,7 @@ mkdir -p "$OUT"
 If the user explicitly requests the **whole specified server**, use:
 
 ```bash
-"$DCE" exportguild -g 1524527312429912125 -f Json \
+discord dce exportguild -g 1524527312429912125 -f Json \
   --include-threads All --utc \
   --after '2026-08-14T00:00:00-04:00' \
   --before '2026-09-13T00:00:00-04:00' -o "$OUT/"

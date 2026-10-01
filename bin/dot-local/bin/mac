@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # mac: reach into ag-mac (the Mac half of Ag) from the engine or any Linux Ag machine.
-# Use it when a task needs macOS: computer use, Mac-only apps and CLIs (Xcode, Discord, the Keychain),
+# Use it when a task needs macOS: computer use, Mac-only apps and CLIs (Xcode, the Keychain),
 # native UI renders, iPhone Mirroring via the client, anything whose files only exist on the Mac.
 #
 #   mac run <cmd...>           run a shell command on ag-mac (login env; exit code passes through)

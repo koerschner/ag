@@ -112,6 +112,7 @@ mkdir -p ~/.config/mise/conf.d
 mise install -y >/dev/null 2>&1 && echo "  node $(mise exec -- node --version)" || warn "mise install (node)"
 have uv     || curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null || warn "uv"
 have pi     || mise exec -- npm install -g --prefix "$HOME/.local" @earendil-works/pi-coding-agent >/dev/null || warn "pi"
+bash "$AG/agents/dot-agents/skills/discord-export/scripts/install.sh" >/dev/null && echo "  DiscordChatExporter" || warn "discord-export install.sh"
 have nessie-daemon || mise exec -- npm install -g --prefix "$HOME/.local" @nessielabs/daemon@latest >/dev/null || warn "nessie-daemon"
 
 step "~/.gitconfig.local (untracked identity + gh credential helper; ~/.gitconfig is tracked, so never git config --global)"

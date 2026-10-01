@@ -284,7 +284,7 @@ Applies to ANYTHING another human may read that you author. Always follow the AI
 
 ## Arcade Discord
 
-Use Discord (server **Arcade**) for messages to Nathan's team unless he says otherwise; a teammate's "brain channel" is their named channel there. Load the **`arcade-discord`** skill before posting (handles, how to post from ag-mac).
+Use Discord (server **Arcade**) for messages to Nathan's team unless he says otherwise; a teammate's "brain channel" is their named channel there. Read and post with the **`discord`** CLI (the ag bot, on ag-engine; no computer use): load the **`arcade-discord`** skill first (handles, threads, replies, attribution). Never route Discord through the client Mac; the only fallback is the Discord app on ag-mac.
 
 ## Other skill triggers
 

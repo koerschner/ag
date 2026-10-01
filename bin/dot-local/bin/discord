@@ -1,0 +1,259 @@
+#!/usr/bin/env python3
+"""discord: read and post on the Arcade Discord server as the ag bot (no computer use).
+
+  discord whoami                         the bot identity and whether it can see the server
+  discord channels                       text channels and active threads (id, name, parent)
+  discord threads <channel>              active + archived public threads under a channel
+  discord read <target> [-n 30] [--before ID] [--after ID] [--json]
+  discord get <message link>             one message (with what it replies to)
+  discord post <target> [--reply-to ID|LINK] [--file PATH]... [--dry-run] [TEXT | stdin]
+  discord dce <DiscordChatExporter args> run DiscordChatExporter with the bot token (discord-export skill)
+
+<target> is a channel or thread: an id, a name (`frank`, `#frank`, a thread title), or a
+message link (https://discord.com/channels/<guild>/<channel>/<message>). `post --reply-to LINK`
+replies to that message in its channel, so the target can be omitted:
+  discord post --reply-to https://discord.com/channels/…/…/… "$(cat msg.md)"
+
+Posts come from the bot, so every post must open with the AI attribution line
+("<Assistant> (<model>), assisting Nathan:"); `post` refuses text that doesn't. Mentions are
+limited to users (never @everyone/@here/roles).
+
+Token: $DISCORD_BOT_TOKEN, else op-work item "Discord bot (Arcade)" (field credential) in
+ag-vault. Server: $DISCORD_GUILD, default Arcade (1524527312429912125).
+"""
+import argparse, json, mimetypes, os, re, subprocess, sys, time, urllib.error, urllib.request, uuid
+
+API = "https://discord.com/api/v10"
+GUILD = os.environ.get("DISCORD_GUILD", "1524527312429912125")
+VAULT = "c3qkbcqktsxmi6hnpzpltdbose"  # ag-vault (by id)
+ITEM = "Discord bot (Arcade)"
+LINK = re.compile(r"discord(?:app)?\.com/channels/(\d+|@me)/(\d+)(?:/(\d+))?")
+ATTRIBUTION = re.compile(r"^\S.*\(.+\), assisting Nathan:\s*$")
+DCE = os.path.expanduser("~/.local/share/discord-chat-exporter/current/DiscordChatExporter.Cli")
+
+_token = None
+
+
+def die(msg, code=1):
+    print(f"discord: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def token():
+    global _token
+    if _token:
+        return _token
+    _token = os.environ.get("DISCORD_BOT_TOKEN", "").strip()
+    if not _token:
+        try:
+            _token = subprocess.run(["op-work", "read", f"op://{VAULT}/{ITEM}/credential"],
+                                    capture_output=True, text=True, check=True).stdout.strip()
+        except (OSError, subprocess.CalledProcessError) as e:
+            die(f"no bot token (op-work item '{ITEM}' in ag-vault): {getattr(e, 'stderr', e)}".strip())
+    if not _token:
+        die(f"empty bot token in op-work item '{ITEM}'")
+    return _token
+
+
+def api(method, path, body=None, files=None):
+    headers = {"Authorization": f"Bot {token()}", "User-Agent": "DiscordBot (https://github.com/koerschner/ag, 1)"}
+    data = None
+    if files:
+        boundary = uuid.uuid4().hex
+        parts = [f'--{boundary}\r\nContent-Disposition: form-data; name="payload_json"\r\n'
+                 f"Content-Type: application/json\r\n\r\n{json.dumps(body)}\r\n".encode()]
+        for i, p in enumerate(files):
+            name = os.path.basename(p)
+            ctype = mimetypes.guess_type(name)[0] or "application/octet-stream"
+            with open(p, "rb") as f:
+                parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="files[{i}]"; '
+                             f'filename="{name}"\r\nContent-Type: {ctype}\r\n\r\n'.encode() + f.read() + b"\r\n")
+        data = b"".join(parts) + f"--{boundary}--\r\n".encode()
+        headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+    elif body is not None:
+        data = json.dumps(body).encode()
+        headers["Content-Type"] = "application/json"
+    for attempt in range(3):
+        req = urllib.request.Request(API + path, data=data, method=method, headers=headers)
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                raw = r.read()
+                return json.loads(raw) if raw else None
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode(errors="replace")
+            if e.code == 429 and attempt < 2:
+                time.sleep(float(json.loads(raw or "{}").get("retry_after", 1)) + 0.2)
+                continue
+            hint = {401: " (bad or reset bot token)",
+                    403: " (bot lacks access: add it to the channel or grant View Channel/Read History)",
+                    404: " (unknown channel/message, or the bot can't see it)"}.get(e.code, "")
+            die(f"{method} {path}: HTTP {e.code}{hint}: {raw[:300]}")
+
+
+# ---------- resolution ----------
+_chans = None
+
+
+def guild_channels():
+    global _chans
+    if _chans is None:
+        chans = api("GET", f"/guilds/{GUILD}/channels")
+        threads = api("GET", f"/guilds/{GUILD}/threads/active").get("threads", [])
+        _chans = chans + threads
+    return _chans
+
+
+def resolve(target):
+    """channel/thread id from an id, name, or message link."""
+    m = LINK.search(target)
+    if m:
+        return m.group(2)
+    if target.isdigit():
+        return target
+    name = target.lstrip("#").lower()
+    hits = [c for c in guild_channels() if (c.get("name") or "").lower() == name]
+    if not hits:
+        hits = [c for c in guild_channels() if name in (c.get("name") or "").lower() and c.get("type") in (0, 5, 10, 11, 12, 15)]
+    if len(hits) == 1:
+        return hits[0]["id"]
+    if not hits:
+        die(f"no channel or active thread named '{target}' (try `discord channels` / `discord threads <channel>`)")
+    die(f"'{target}' is ambiguous: " + ", ".join(f"#{c['name']} ({c['id']})" for c in hits))
+
+
+def link(ch, msg_id):
+    return f"https://discord.com/channels/{GUILD}/{ch}/{msg_id}"
+
+
+def author(m):
+    a = m.get("author", {})
+    return a.get("global_name") or a.get("username") or "?"
+
+
+def show(m, ch):
+    ts = m["timestamp"][:16].replace("T", " ")
+    ref = m.get("referenced_message")
+    head = f"[{ts}Z] {author(m)}" + (" [bot]" if m.get("author", {}).get("bot") else "")
+    if ref:
+        head += f"  ↳ reply to {author(ref)} ({ref['id']}): {ref.get('content', '')[:80]!r}"
+    print(f"{head}\n  id {m['id']}  {link(ch, m['id'])}")
+    if m.get("thread"):
+        print(f"  thread: #{m['thread'].get('name')} ({m['thread']['id']})")
+    for line in (m.get("content") or "").splitlines() or [""]:
+        print(f"  {line}")
+    for a in m.get("attachments", []):
+        print(f"  [attachment] {a.get('filename')} {a.get('url')}")
+    print()
+
+
+# ---------- commands ----------
+def cmd_whoami(a):
+    me = api("GET", "/users/@me")
+    g = api("GET", f"/guilds/{GUILD}")
+    print(f"bot {me['username']} ({me['id']}) in server {g['name']} ({GUILD})")
+
+
+TYPES = {0: "text", 2: "voice", 4: "category", 5: "announce", 10: "thread", 11: "thread", 12: "private-thread", 15: "forum"}
+
+
+def cmd_channels(a):
+    chans = guild_channels()
+    names = {c["id"]: c.get("name") for c in chans}
+    for c in sorted(chans, key=lambda c: (c.get("type") in (10, 11, 12), c.get("position", 0))):
+        if c.get("type") in (2, 4, 13):
+            continue
+        parent = names.get(c.get("parent_id"), "")
+        print(f"{c['id']}  {TYPES.get(c['type'], c['type']):<14} #{c.get('name')}" + (f"  (in {parent})" if parent else ""))
+
+
+def cmd_threads(a):
+    ch = resolve(a.channel)
+    rows = [t for t in api("GET", f"/guilds/{GUILD}/threads/active").get("threads", []) if t.get("parent_id") == ch]
+    rows += api("GET", f"/channels/{ch}/threads/archived/public?limit=100").get("threads", [])
+    for t in rows:
+        meta = t.get("thread_metadata", {})
+        print(f"{t['id']}  #{t.get('name')}" + ("  (archived)" if meta.get("archived") else "")
+              + f"  {t.get('message_count', '?')} msgs")
+
+
+def cmd_read(a):
+    ch = resolve(a.target)
+    q = f"?limit={min(a.n, 100)}" + (f"&before={a.before}" if a.before else "") + (f"&after={a.after}" if a.after else "")
+    msgs = api("GET", f"/channels/{ch}/messages{q}")
+    msgs.sort(key=lambda m: int(m["id"]))
+    if a.json:
+        print(json.dumps(msgs, indent=1))
+        return
+    for m in msgs:
+        show(m, ch)
+
+
+def cmd_get(a):
+    m = LINK.search(a.link)
+    if not m or not m.group(3):
+        die("need a message link: https://discord.com/channels/<guild>/<channel>/<message>")
+    show(api("GET", f"/channels/{m.group(2)}/messages/{m.group(3)}"), m.group(2))
+
+
+def cmd_post(a):
+    text = a.text if a.text is not None else sys.stdin.read()
+    text = text.strip("\n")
+    if not text and not a.file:
+        die("empty message", 2)
+    if not a.no_attribution and not ATTRIBUTION.match(text.splitlines()[0] if text else ""):
+        die("first line must be the attribution line, e.g. 'Claude (model), assisting Nathan:' "
+            "(see the AI attribution rule; --no-attribution only if Nathan said so)", 2)
+    if len(text) > 2000:
+        die(f"message is {len(text)} chars; Discord's limit is 2000. Split it or shorten it.", 2)
+    ch, reply = None, a.reply_to
+    if reply:
+        m = LINK.search(reply)
+        if m:
+            ch, reply = m.group(2), m.group(3)
+            if not reply:
+                die("--reply-to link has no message id")
+    if a.target:
+        ch = resolve(a.target)
+    if not ch:
+        die("give a channel/thread, or --reply-to a message link", 2)
+    body = {"content": text, "allowed_mentions": {"parse": ["users"], "replied_user": True}}
+    if reply:
+        body["message_reference"] = {"message_id": reply, "channel_id": ch, "fail_if_not_exists": True}
+    if a.dry_run:
+        print(json.dumps({"channel": ch, **body, "files": a.file or []}, indent=1))
+        return
+    res = api("POST", f"/channels/{ch}/messages", body, files=a.file)
+    print(link(ch, res["id"]))
+
+
+def cmd_dce(rest):
+    if not os.path.exists(DCE):
+        die(f"DiscordChatExporter missing at {DCE}: run the discord-export skill's scripts/install.sh")
+    os.environ["DISCORD_TOKEN"] = token()
+    os.execv(DCE, [DCE] + rest)
+
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "dce":
+        return cmd_dce(sys.argv[2:])
+    p = argparse.ArgumentParser(prog="discord", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("whoami").set_defaults(f=cmd_whoami)
+    sub.add_parser("channels").set_defaults(f=cmd_channels)
+    s = sub.add_parser("threads"); s.add_argument("channel"); s.set_defaults(f=cmd_threads)
+    s = sub.add_parser("read"); s.add_argument("target"); s.add_argument("-n", type=int, default=30)
+    s.add_argument("--before"); s.add_argument("--after"); s.add_argument("--json", action="store_true"); s.set_defaults(f=cmd_read)
+    s = sub.add_parser("get"); s.add_argument("link"); s.set_defaults(f=cmd_get)
+    s = sub.add_parser("post"); s.add_argument("target", nargs="?"); s.add_argument("text", nargs="?")
+    s.add_argument("--reply-to"); s.add_argument("--file", action="append")
+    s.add_argument("--dry-run", action="store_true"); s.add_argument("--no-attribution", action="store_true")
+    s.set_defaults(f=cmd_post)
+    a = p.parse_args()
+    # `post --reply-to LINK "text"`: a single positional is the text, not a target.
+    if a.cmd == "post" and a.reply_to and a.target and a.text is None and LINK.search(a.reply_to):
+        a.text, a.target = a.target, None
+    a.f(a)
+
+
+if __name__ == "__main__":
+    main()

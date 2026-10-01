@@ -317,7 +317,12 @@ Moshi on the iPhone connects to ag over Tailscale and attaches to Herdr.
   headline (fast LLM), and the `session-link`, when a turn ends while Nathan is away
   (`presence`) or after a turn of 2+ minutes. `AG_NOTIFY=always|off` overrides per session.
   Sent by `ag-text`: Telegram bot "ag" if Keychain items `ag telegram bot` (token) and
-  `ag telegram chat` (chat id) exist, else iMessage from the client Mac (needs it awake).
+  `ag telegram chat` (chat id) exist (on Linux: `~/.config/ag/telegram`, 0600, `token=`/`chat=`),
+  else iMessage from the client Mac (needs it awake). Recovery copy: `op-shared` item
+  `ag telegram bot` (token + chat id). Telegram tasks (BotFather, reading chats) run in
+  **Telegram.app on ag-mac**, which must stay signed in to Nathan's account; if it shows the
+  QR login screen, Nathan scans it once from his phone (Telegram → Settings → Devices →
+  Link Desktop Device). Never drive the client's Telegram or iPhone Mirroring for this.
   Log: `~/.local/state/ag-notify/log.jsonl`.
 - **Shortcuts**: the same Herdr shortcuts as the Mac, per
   [`herdr/SHORTCUTS.md`](herdr/SHORTCUTS.md). Moshi forwards Cmd keys to Herdr,

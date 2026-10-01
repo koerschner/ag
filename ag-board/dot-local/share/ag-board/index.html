@@ -64,6 +64,10 @@ header h1 .brand{height:1.2em;width:auto;flex:0 0 auto}
 .card .x{font-size:12.5px;color:#c3c7cf;margin-top:.3rem;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;word-break:break-word}
 .card .x.w{color:var(--dim);font-style:italic}
 .card.hot{background:var(--firebg);border-color:var(--fire)}
+/* Heat: a new session starts red hot and cools (red → amber → plain) as it ages; --heat (1→0) is set per card from
+   startedAt in heatOf(). Hotpath cards keep their own fire styling. */
+.card.warm{--ember:color-mix(in oklch,#ff2d3d calc(var(--heat)*100%),#f5b33b);background:color-mix(in srgb,var(--ember) calc(var(--heat)*30%),var(--card));border-color:color-mix(in srgb,var(--ember) calc(var(--heat)*75%),transparent)}
+.card.warm:hover{background:color-mix(in srgb,var(--ember) calc(var(--heat)*30%),var(--card2))}
 .card.hot::before{background:var(--fire)}
 /* Hotpath "siren": a bright segment orbiting the card's rim (after the arcade's animate-laser-orbit ring):
    a conic-gradient spun by a registered angle (unregistered custom properties don't interpolate), masked to
@@ -563,12 +567,16 @@ function details(c) {
       <button class="btn sm" data-a="hot">${c.hot ? "Remove 🔥" : "🔥 Hotpath"}</button>
     </div></div>`;
 }
+// Heat 1 → 0 on a log scale over the session's age: red hot when it starts, half cooled at ~8 h, cold at 3 days.
+const HEAT_COLD_H = 72;
+const heatOf = (c) => (c.startedAt ? Math.max(0, 1 - Math.log1p(Math.max(0, Date.now() - c.startedAt) / 3.6e6) / Math.log1p(HEAT_COLD_H)) : 0);
 function cardHtml(c) {
   const working = c.status === "working";
   const snip = working ? (c.lastUser ? "▶ " + c.lastUser.text.slice(0, 300) : "") : lastPara(c.lastAssistant?.text || c.first);
   const open = isOpen(c);
-  const cls = ["card", c.hot && "hot", c.throb && "throb", c.waiting?.length && "waiting", c.noWake && "nowake", c.resolved && "resolved", c.focused && "focused", open && "open", sel === c.tab && "sel"].filter(Boolean).join(" ");
-  return `<div class="${cls}" data-key="${esc(c.tab)}" data-tab="${esc(c.tab)}" data-s="${esc(c.status)}" draggable="${view === "lists"}">
+  const heat = c.hot ? 0 : heatOf(c);
+  const cls = ["card", c.hot && "hot", heat > 0.03 && "warm", c.throb && "throb", c.waiting?.length && "waiting", c.noWake && "nowake", c.resolved && "resolved", c.focused && "focused", open && "open", sel === c.tab && "sel"].filter(Boolean).join(" ");
+  return `<div class="${cls}" data-key="${esc(c.tab)}" data-tab="${esc(c.tab)}" data-s="${esc(c.status)}"${heat > 0.03 ? ` style="--heat:${heat.toFixed(2)}"` : ""} draggable="${view === "lists"}">
     <div class="t">${c.hot ? "🔥" : ""}${c.needsYou ? '<i class="dot" title="New since you last looked"></i>' : ""}<span class="tt">${esc(c.title)}</span>
       <span class="qa">${working ? '<button class="ib stop" data-a="stop" title="Interrupt (Esc Esc)">⏹</button>' : ""}<button class="ib chev" data-a="chev" title="Details">▾</button></span></div>
     <div class="m"><span>${esc(view === "ws" ? "" : c.workspaceLabel)}</span><span>${esc(c.status)} ${since(c.statusSince)}</span>${c.model ? `<span>${esc(shortModel(c.model))}</span>` : ""}${c.stats?.cost ? `<span>$${c.stats.cost.toFixed(2)}</span>` : ""}</div>

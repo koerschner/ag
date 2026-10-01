@@ -23,13 +23,15 @@ discord get https://discord.com/channels/<guild>/<channel>/<message>
 discord post frank "$(cat msg.md)"         # to a channel or a thread (name, id, or link)
 discord post --reply-to <message link> "$(cat msg.md)"   # reply to one specific message
 discord post <thread id> --file shot.png < msg.md
+discord delete <message link>              # remove one of the bot's own posts
 ```
 
 - **Posts come from the bot, not Nathan**, so the attribution line carries the "who": open with `<Assistant> (<model>), assisting Nathan:` and quote the body (`> ` on every line). `discord post` refuses text without it (`--no-attribution` only when Nathan explicitly asks). Use `--dry-run` to check the payload. Limit 2000 characters per message.
 - To answer "where X asked about Y": `discord read`/`discord threads` to find the message, then `discord post --reply-to <its link>`.
 - Mentions: write `<@USER_ID>` (ids from `discord read --json`); @everyone/@here and role pings are always suppressed.
 - Bulk history or search over a date range: the `discord-export` skill (`discord dce …`).
-- A 403 means the bot can't see that channel (private channel it isn't in). Tell Nathan which channel; don't work around it.
+- Access: the bot sees every public channel and the **private** category (brain channels, #team, #legal…) through a category permission. #core and #lorena aren't synced to the category, so it can't see them (403); tell Nathan if you need one, don't work around it.
+- Setup facts: the app (id `1555080030504230932`) is owned by Nathan's Discord account **koerschner** (login: op-shared item `Discord (koerschner)`); to rotate the token, Reset Token in the developer portal as koerschner and replace the op-work item.
 
 ## Fallback: computer use on ag-mac only
 

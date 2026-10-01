@@ -4,9 +4,11 @@
 // POST a prompt to http://ag:7373/prompt (or use the test page at /). Every capture path uses it:
 // the Mac quick capture (Hammerspoon), the iPhone Action Button, file-inbox's "New session".
 // Pipeline, one function per step, one JSON log line per step (~/.local/state/ag-inbox/log.jsonl):
-//   receive → route (cheap multimodal model names the tab and picks a playbook) + screenshot gate (Jev)
+//   receive → open (new Inbox tab named instantly by quickName, pi starting) in parallel with
+//   route (cheap multimodal model names the tab and picks a playbook) + screenshot gate (Jev)
 //   + follow-on match (Jev: is this new context for an open session?)
-//   → follow (sure: prompt that session, toast) or launch (new tab in Inbox, start pi, send; when the
+//   → follow (sure: prompt that session, toast, close the speculative tab) or send (rename the tab to
+//     the router's label, send; when the
 //     match is plausible but unsure, the prompt names the likely session so the agent can confirm and forward)
 // Response: a form (phone, Hammerspoon, test page) gets an immediate 303, send-only (failures are toasted).
 // A raw-text body (curl, agents, scripts) waits until pi has the prompt: 200 + JSON {id, action ("new" or
@@ -34,10 +36,15 @@
 // Listens only on ag-mac's Tailscale IP. Never focuses anything, so attached Herdr clients aren't disturbed.
 // Run by the com.nathan.ag-inbox LaunchAgent.
 
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import { promisify } from "node:util";
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { createHash } from "node:crypto";
+// Same instant, deterministic namer the herdr-tab-name pi extension uses for numbered tabs.
+import { quickName } from "../../../pi/dot-pi/agent/extensions/herdr-tab-name.ts";
+
+const execFileP = promisify(execFile);
 
 const PORT = 7373;
 const HOME = homedir();
@@ -309,11 +316,16 @@ function withShot(text: string, shot: Shot): string {
 }
 
 // Step 3: new tab in Inbox (created if missing, no focus), start pi in it, send the text.
+// Hot path: the tab opens with quickName's instant deterministic label and pi starts while the
+// router/Jev are still thinking (open() runs in parallel with prepare()). send() then renames the tab
+// to the router's label (before the prompt, so herdr-tab-name treats it as the starting name) and
+// sends. A follow-on closes the speculative tab instead.
 // A fresh tab's shell may still be starting up (zsh init running a child), so ag-mux refuses with
 // agent_pane_busy for a moment; retry until it's an available shell. If pi can't start, close the
 // empty tab and throw, so the caller gets an error instead of a bare shell with no prompt in it.
 const SHELL_READY_MS = 30_000;
-async function launch(id: string, text: string, label: string): Promise<Launched> {
+type Opened = { tab: string; pane: string; agent: string; label: string };
+async function open(id: string, label: string): Promise<Opened> {
 	const inbox = herdr("workspace", "list").workspaces.find((w: any) => w.label.toLowerCase() === INBOX.toLowerCase());
 	let pane: string, tab: string;
 	if (inbox) {
@@ -326,14 +338,15 @@ async function launch(id: string, text: string, label: string): Promise<Launched
 		tab = w.tab.tab_id;
 		herdr("tab", "rename", tab, label);
 	}
-	log(id, "tab", { pane, tab, label });
+	log(id, "tab", { pane, tab, label, via: "quick" });
 
 	const agent = `inbox-${id}`;
 	try {
 		const deadline = Date.now() + SHELL_READY_MS;
 		for (let tries = 1; ; tries++) {
 			try {
-				herdrT(75_000, "agent", "start", agent, "--kind", "pi", "--pane", pane, "--timeout", "60000");
+				// Async, so routing's fetches keep running while pi boots.
+				await execFileP(HERDR, ["agent", "start", agent, "--kind", "pi", "--pane", pane, "--timeout", "60000"], { timeout: 75_000 });
 				log(id, "pi_started", { agent, tries });
 				break;
 			} catch (e) {
@@ -341,14 +354,28 @@ async function launch(id: string, text: string, label: string): Promise<Launched
 				await Bun.sleep(250);
 			}
 		}
-		injected("ag-inbox", text, { id, action: "new" });
-		herdr("agent", "prompt", agent, text);
-		log(id, "sent");
 	} catch (e) {
-		try { herdr("tab", "close", tab); } catch {}
+		discard({ tab, pane, agent, label });
 		throw new Error(`couldn't start pi in the new Inbox tab "${label}" (closed it): ${String((e as any)?.stderr || e).trim()}`);
 	}
-	return { action: "new", label, tab, pane, agent };
+	return { tab, pane, agent, label };
+}
+function discard(o: Opened) {
+	try { herdr("tab", "close", o.tab); } catch {}
+}
+function send(id: string, o: Opened, text: string, label: string): Launched {
+	if (label && label !== o.label) {
+		try { herdr("tab", "rename", o.tab, label); log(id, "renamed", { tab: o.tab, from: o.label, label }); } catch {}
+	}
+	try {
+		injected("ag-inbox", text, { id, action: "new" });
+		herdr("agent", "prompt", o.agent, text);
+		log(id, "sent");
+	} catch (e) {
+		discard(o);
+		throw new Error(`couldn't send the prompt to the new Inbox tab "${label}" (closed it): ${String((e as any)?.stderr || e).trim()}`);
+	}
+	return { action: "new", label, tab: o.tab, pane: o.pane, agent: o.agent };
 }
 type Launched = { action: "new" | "follow"; label: string; tab: string; pane: string; agent?: string };
 
@@ -414,16 +441,22 @@ async function prepare(id: string, typed: string, shot: Shot | null, share: Shar
 
 // Throws when the prompt couldn't be delivered anywhere (logged, and toasted for fire-and-forget callers).
 async function handle(id: string, text: string, shot: Shot | null, share: Share | null, audio: string | null, fresh: boolean): Promise<Launched> {
+	// Start the tab and pi now; failures surface (or are dropped, on a follow-on) after routing.
+	const quick = quickName(text || share?.shared || "") || (audio ? "Voice Note" : share ? "Shared Item" : "Inbox Task");
+	const opening = open(id, quick);
+	opening.catch(() => {}); // handled below
 	try {
 		const { label, prompt, thread, session } = await prepare(id, text, shot, share, audio, fresh);
 		if (thread.action === "follow" && session) {
 			try {
 				follow(id, prompt, session, thread.p);
+				opening.then(discard, () => {});
 				return { action: "follow", label: session.title, tab: session.tab, pane: session.pane };
 			} catch (e) { log(id, "follow_failed", { error: String(e) }); }
 		}
-		return await launch(id, prompt, label);
+		return send(id, await opening, prompt, label);
 	} catch (e) {
+		opening.then(discard, () => {}); // prepare failed: don't leave an empty pi tab behind
 		const error = e instanceof Error ? e.message : String(e);
 		log(id, "failed", { error });
 		try { execFileSync(HERDR, ["notification", "show", "ag inbox failed", "--body", error.slice(0, 200)], { timeout: 10_000 }); } catch {}

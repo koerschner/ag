@@ -106,6 +106,7 @@ type Session = {
 	model?: string;
 	thinkingLevel?: string;
 	first?: string;
+	name?: string; // pi session name (latest session_info): a rename that outlives the tab
 	lastUser?: Msg;
 	lastAssistant?: Msg;
 	thinking?: string;
@@ -251,6 +252,23 @@ function readRange(path: string, start: number, len: number) {
 	}
 }
 
+// Persist a name in the session file as a pi session_info entry, so it outlives the tab (hibernate, close,
+// resume) and pi itself, ag find and ag-tab-name (which pins it) all see it. Parented on the last entry so
+// the conversation's leaf stays where it was.
+function nameSession(file: string, name: string) {
+	const size = statSync(file).size;
+	const tail = readRange(file, Math.max(0, size - 65536), Math.min(size, 65536));
+	let parentId: string | null = null;
+	for (const l of tail.trimEnd().split("\n").reverse()) {
+		try {
+			parentId = JSON.parse(l).id ?? null;
+			if (parentId) break;
+		} catch {} // a big line cut off at the window's start, or a half-written one
+	}
+	const entry = { type: "session_info", id: crypto.randomUUID().slice(0, 8), parentId, timestamp: new Date().toISOString(), name };
+	appendFileSync(file, (tail && !tail.endsWith("\n") ? "\n" : "") + JSON.stringify(entry) + "\n");
+}
+
 // ---------- session parsing ----------
 // Session summaries, read incrementally: the first read scans the whole file, later reads only the
 // bytes appended since (Pi appends). A file that shrank was rewritten, so it's rescanned.
@@ -260,10 +278,11 @@ const blank = (): Session => ({ mtime: 0, size: 0, offset: 0, tools: [], toolCou
 function ingest(s: Session, line: string) {
 	if (!line) return;
 	// Header / settings entries (small).
-	if (line.startsWith('{"type":"session"') || line.includes('"type":"model_change"') || line.includes('"type":"thinking_level_change"')) {
+	if (line.startsWith('{"type":"session"') || line.includes('"session_info"') || line.includes('"type":"model_change"') || line.includes('"type":"thinking_level_change"')) {
 		try {
 			const e = JSON.parse(line);
 			if (e.type === "session") (s.cwd = e.cwd), (s.startedAt = Date.parse(e.timestamp));
+			if (e.type === "session_info") s.name = e.name?.trim() || undefined;
 			if (e.type === "model_change") s.model = e.modelId;
 			if (e.type === "thinking_level_change") s.thinkingLevel = e.thinkingLevel;
 		} catch {}
@@ -395,7 +414,7 @@ async function resolveSession(sid: string): Promise<Resolved | null> {
 	const file = h?.file ?? sessionFileFor(sid);
 	if (!file || !existsSync(file)) return null;
 	const s = session(file)!;
-	const title = (h && cleanLabel(tabLabels[h.tab] ?? "")) || oneLine(s.first ?? "(no prompt)", 70);
+	const title = s.name || (h && cleanLabel(tabLabels[h.tab] ?? "")) || oneLine(s.first ?? "(no prompt)", 70);
 	const ws = h ? board.workspaces.find((w) => h.tab.startsWith(`${w.id}:`))?.label : undefined;
 	return { state: h ? "hibernated" : "closed", sid, tab: h?.tab, file, title, workspaceLabel: ws, cwd: s.cwd, startedAt: s.startedAt, lastAt: s.lastAt || s.mtime, model: s.model, stats: { cost: Math.round(s.cost * 100) / 100, ctx: s.ctx, turns: s.turns, tools: s.toolCount } };
 }
@@ -412,6 +431,7 @@ async function resumeSession(sid: string, workspace?: string): Promise<string> {
 	const t = await mux("tab", "create", "--workspace", ws, "--cwd", cwd, "--no-focus");
 	if (t.code !== 0) throw new Error(t.err.trim() || "tab create failed");
 	const { tab, root_pane } = JSON.parse(t.out).result;
+	await mux("tab", "rename", tab.tab_id, r.title.slice(0, 60)); // its name (or first prompt), not a number
 	const a = await mux("agent", "start", `resume-${sid.slice(-8)}`, "--kind", "pi", "--pane", root_pane.pane_id, "--timeout", "30000", "--", "--session", r.file);
 	if (a.code !== 0) throw new Error(a.err.trim() || "pi didn't start");
 	return tab.tab_id;
@@ -1195,10 +1215,19 @@ async function handle(req: Request): Promise<Response> {
 				}
 			}
 			case "/api/rename": {
+				// A live card (tab) or any session by id (sid: hibernated or closed too). The name goes on the
+				// tab and into the session file, so it persists.
 				const label = String(body.label ?? "").trim().slice(0, 60);
-				if (!card || !label) return bad("tab and label required");
-				const r = await mux("tab", "rename", tab, label);
-				if (r.code !== 0) return fail(r, "rename");
+				const sid = body.sid ? String(body.sid) : card?.sid;
+				const r = !card && sid && SID_RE.test(sid) ? await resolveSession(sid) : null;
+				const tabId = card?.tab ?? r?.tab;
+				const file = card ? card.sessionFile : r?.state === "live" ? board.cards.find((c) => c.tab === r.tab)?.sessionFile : r?.file;
+				if (!label || (!tabId && !file)) return bad("tab or sid, and label required");
+				if (tabId) {
+					const m = await mux("tab", "rename", tabId, label);
+					if (m.code !== 0) return fail(m, "rename");
+				}
+				if (file && existsSync(file)) nameSession(file, label);
 				await after();
 				return ok();
 			}

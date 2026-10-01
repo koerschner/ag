@@ -7,7 +7,9 @@
 // Both look at the whole session (the first prompt plus a spread of later ones), not just the latest
 // prompts: a name should carry the keywords the session is about, and follow-up steps ("review the
 // PR", "run it") shouldn't rename it.
-// A label you change by hand is pinned: this session never touches it again.
+// A label you change by hand is pinned: this session never touches it again, and it's saved as the pi
+// session name, so it persists. A session that has a name (renamed by hand here, in AG Dash, or with
+// `ag rename`) starts with its tab named that, pinned, so waking or resuming it keeps the name.
 // Every decision is logged to ~/.local/state/ag-tab-name/log.jsonl.
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
@@ -138,6 +140,19 @@ export default function (pi: ExtensionAPI) {
 	let lastSet: string | undefined; // label this session last wrote
 	let pinned = false;
 
+	pi.on("session_start", () => {
+		const name = pi.getSessionName();
+		if (!name || process.env.AG_MUX !== "1") return;
+		pinned = true;
+		setTimeout(() => { // after startup: don't hold up the first render
+			try {
+				const tab = mux(["pane", "current"]).pane.tab_id;
+				if (tabLabel(tab) !== name) mux(["tab", "rename", tab, name]);
+				log({ tab, label: name, action: "restore" });
+			} catch {}
+		}, 0);
+	});
+
 	pi.on("before_agent_start", (event, ctx) => {
 		if (pinned || process.env.AG_MUX !== "1" || !event.prompt.trim()) return;
 		// Resolve the tab live: AG_TAB_ID goes stale if the pane moves (e.g. auto-filed out of Inbox).
@@ -162,6 +177,7 @@ export default function (pi: ExtensionAPI) {
 				initial ??= label;
 				if (label !== initial && label !== lastSet) {
 					pinned = true; // renamed by hand
+					if (pi.getSessionName() !== label) pi.setSessionName(label); // persist it
 					log({ tab, label, action: "pinned" });
 					return;
 				}

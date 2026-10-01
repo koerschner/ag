@@ -348,7 +348,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
 <div id="scrim"></div>
 <aside id="drawer" aria-hidden="true">
   <div id="dh">
-    <div class="top"><h3 id="dt" title="Click to rename the tab"></h3><button class="btn" id="dclose" aria-label="Close">✕</button></div>
+    <div class="top"><h3 id="dt" title="Click to rename this session"></h3><button class="btn" id="dclose" aria-label="Close">✕</button></div>
     <div class="m" id="dm"></div>
     <div id="dro"></div>
     <div class="stats" id="dstats"></div>
@@ -979,10 +979,14 @@ $("#board").addEventListener("click", (e) => {
   localStorage.collapsed = JSON.stringify([...collapsed]); render();
 }, true);
 $("#helpbtn").onclick = () => openHelp();
+// Renames stick: the name goes into the session file, so it survives hibernate, close and resume.
 $("#dt").onclick = async () => {
-  const c = card(openTab); if (!c) return;
-  const label = prompt("Rename this tab:", c.title);
-  if (label && label.trim() && label.trim() !== c.title && await api("/api/rename", { tab: c.tab, label: label.trim() })) toast("Renamed (pinned: auto-naming won't change it)");
+  const c = card(openTab), sid = c ? null : openSid; if (!c && !sid) return;
+  const old = c ? c.title : $("#dt").textContent;
+  const label = prompt("Rename this session:", old)?.trim();
+  if (!label || label === old || !await api("/api/rename", c ? { tab: c.tab, label } : { sid, label })) return;
+  if (sid && openSid === sid) $("#dt").textContent = label;
+  toast("Renamed (pinned: auto-naming won't change it)");
 };
 $("#hotonly").onclick = () => { hotOnly = !hotOnly; localStorage.hotOnly = hotOnly ? "1" : "0"; render(); };
 $("#expandall").onclick = () => { expandAll = !expandAll; expanded.clear(); localStorage.expandAll = expandAll ? "1" : "0"; localStorage.expanded = "[]"; render(); };

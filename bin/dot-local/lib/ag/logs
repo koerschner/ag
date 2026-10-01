@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+"""ag logs — read an Ag service's log on whichever machine runs it.
+
+    ag logs                        list the services
+    ag logs <service> [-n N] [-f]  last N lines (default 60), -f follows
+<service>: a systemd user unit on the session host (ag-board, ag-inbox, tickler, …), else ag-mac's LaunchAgent
+com.nathan.<service> (its StandardOutPath/StandardErrorPath); mac:<service> forces ag-mac.
+"""
+import os, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def main(argv):
+    o, pos = flags(argv, {"-n": True, "--lines": "-n", "-f": False, "--follow": "-f"})
+    if o.get("--help"):
+        return usage(__doc__)
+    if not pos:
+        print("session host (systemd --user):", " ".join(services()))
+        print("ag-mac (launchd, mac:<name>):    see ~/ag/macos-launchagents/")
+        return 0
+    where, unit = find_service(pos[0])
+    n = str(int(o.get("-n") or 60))
+    if where == "engine":
+        cmd = ["journalctl", "--user", "-u", f"{unit}.service", "-n", n, "--no-pager", "-o", "short-iso"] + (["-f"] if o.get("-f") else [])
+        os.execvp(cmd[0], cmd)
+    plist = f"~/Library/LaunchAgents/com.nathan.{unit}.plist"
+    script = (f'p={plist}; [ -e "$p" ] || {{ echo "no service {unit} (no systemd unit here, no $p on ag-mac)" >&2; exit 2; }}\n'
+              f'files=$(for k in StandardOutPath StandardErrorPath; do plutil -extract $k raw "$p" 2>/dev/null; done | sort -u)\n'
+              f'[ -n "$files" ] || {{ echo "com.nathan.{unit} logs nowhere (no StandardOutPath); try: log show --last 10m --predicate \'process CONTAINS \\"{unit}\\"\'" >&2; exit 2; }}\n'
+              f'exec tail -n {n} {"-F" if o.get("-f") else ""} $files')
+    os.execvp("ssh", ["ssh", "-o", "ConnectTimeout=8", "ag-mac", script])
+
+
+run_main(main)

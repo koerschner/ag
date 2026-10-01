@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""ag send — prompt another session (resolved fresh each call; wakes a hibernated one).
+
+    ag send <session> "message" [--interrupt]   (message "-" or omitted: read stdin)
+    --interrupt   stop what it's doing first (Esc), then send
+    --from        prefix "From session '<my tab>' (<my link>):" so it knows who's asking
+Goes through AG Dash (marks the card seen), else ag-mux agent prompt. A closed session must be reopened
+first: ag resume <session>.
+"""
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def main(argv):
+    o, pos = flags(argv, {"--interrupt": False, "--from": False, "--json": False})
+    if o.get("--help") or not pos:
+        return usage(__doc__)
+    ref, text = pos[0], " ".join(pos[1:])
+    if not text or text == "-":
+        text = sys.stdin.read()
+    text = text.strip()
+    if not text:
+        raise AgError("empty message")
+    ix = Index()
+    s = resolve(ref, ix)
+    if o.get("--from"):
+        me = self_session(ix)
+        text = f"From session '{me.title}' ({me.link}): {text}"
+    prompt(s, text, o.get("--interrupt"))
+    print(f"sent to {s.where} ({s.tab})  {s.link or ''}")
+
+
+run_main(main)

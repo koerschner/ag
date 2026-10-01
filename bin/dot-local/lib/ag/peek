@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""ag peek — read another session's screen (its terminal), resolved fresh each call.
+
+    ag peek <session> [--lines N] [--visible]    last N lines of scrollback (default 60), or just what's on screen
+A hibernated session shows its sleep screen, so peek prints the end of its transcript instead; a closed one too.
+"""
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def main(argv):
+    o, pos = flags(argv, {"--lines": True, "-n": "--lines", "--visible": False, "--json": False})
+    if o.get("--help") or not pos:
+        return usage(__doc__)
+    n = int(o.get("--lines") or 60)
+    s = resolve(" ".join(pos))
+    if s.state == "open":
+        r = mux("pane", "read", s.pane, "--source", "visible" if o.get("--visible") else "recent-unwrapped", "--lines", str(n))
+        print(f"── {s.where}  ({s.tab}, {s.agent_status})  {s.link or ''}", file=sys.stderr)
+        print("\n".join(l.rstrip() for l in r.stdout.rstrip().splitlines()))
+        return 0
+    print(f"── {s.where}  ({s.state}; transcript tail)  {s.link or ''}", file=sys.stderr)
+    if not s.file:
+        raise AgError("no transcript")
+    for m in messages(s.file)[-max(2, n // 15):]:
+        print(f"[{m['role']}] {m['text'][:1500]}\n")
+
+
+run_main(main)

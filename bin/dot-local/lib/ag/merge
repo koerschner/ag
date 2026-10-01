@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""ag merge — merge sessions into one: absorb their context, then retire them (Nathan: "merge A into this one").
+
+    ag merge <A…> [--into B] [--note "what carried over"] [--last N]
+B defaults to this session. For each A: prints A's transcript (prompts and answers, last N=60 messages) so B
+picks up its context (when B is another session, B is prompted to read it with `ag read`), closes A's tab, and
+marks A's session file: a "merged-into" note naming B plus a "[merged → <B>] <old name>" rename. A's file
+stays as the record. `ag merge me --into B` asks B to do the merge (a session can't retire itself mid-call).
+"""
+import datetime as dt, os, secrets, sys, time
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def main(argv):
+    o, pos = flags(argv, {"--into": True, "--note": True, "--last": True, "--quiet": False})
+    if o.get("--help") or not pos:
+        return usage(__doc__)
+    ix = Index()
+    me = None
+    try:
+        me = self_session(ix)
+    except AgError:
+        pass
+    b = resolve(o.get("--into"), ix, allow_closed=False)
+    b_is_me = me is not None and b.sid == me.sid
+    last = int(o.get("--last") or 60)
+    for ref in pos:
+        a = resolve(ref, ix)
+        if a.sid == b.sid:
+            raise AgError(f"can't merge {a.where} into itself")
+        if not a.file:
+            raise AgError(f"{a.where} has no session file")
+        if me is not None and a.sid == me.sid:
+            prompt(b, f"[ag merge] Session '{me.title}' ({me.link}) asks to be merged into this one. Run `ag merge {me.sid}` "
+                      f"to absorb its context and retire it.")
+            print(f"asked {b.where} to merge this session into it  {b.link}")
+            continue
+        name = file_meta(a.file)["name"] or a.title
+        # 1. carry the context over
+        if b_is_me:
+            if not o.get("--quiet"):
+                ms = messages(a.file)[-last:]
+                print(f"===== merged session: {a.where} ({a.state})  {a.link}\n===== {a.file}\n")
+                for m in ms:
+                    t = m["text"] if len(m["text"]) <= 1500 else m["text"][:1500] + " …[clipped; ag read for all]"
+                    print(f"## {m['role']}  {(m.get('ts') or '')[:16].replace('T', ' ')}\n{t}\n")
+        else:
+            prompt(b, f"[ag merge] Session '{a.title}' ({a.link}) was merged into this one. Read its transcript with "
+                      f"`ag read {a.sid} --all` and carry its context and decisions on here.")
+        # 2. stop its pi (close the tab) so nothing writes to the file after the marker
+        if a.state != "closed":
+            mux("pane" if a.pane_count > 1 else "tab", "close", a.pane if a.pane_count > 1 else a.tab)
+            for _ in range(20):
+                if a.sid not in Index(with_board=False).by_sid:
+                    break
+                time.sleep(0.25)
+            time.sleep(0.5)
+        # 3. mark A's end
+        now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        note = (o.get("--note") or "").strip()
+        if note and note[-1] not in ".!?":
+            note += "."
+        i1, i2 = secrets.token_hex(4), secrets.token_hex(4)
+        append_entries(a.file, [
+            {"type": "custom_message", "id": i1, "timestamp": now, "customType": "merged-into", "display": True,
+             "content": f"🔀 Merged into \"{b.title}\" ({b.workspace_label}) on {now}.{' Carried over: ' + note if note else ''} "
+                        f"Continue there: {b.link} ({b.file})"},
+            {"type": "session_info", "id": i2, "parentId": i1, "timestamp": now, "name": f"[merged → {b.title}] {name}"},
+        ])
+        print(f"merged {a.where} → {b.where}; closed its tab, marked {os.path.basename(a.file)}  {a.link}", file=sys.stderr)
+
+
+run_main(main)

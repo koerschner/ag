@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""ag status — is Ag healthy: machines reachable, services up, computer-use queue, engine memory, Nathan's presence.
+
+    ag status [--json]
+Machines from machines/README.md (SSH reachability); the session host's systemd user units (long-running ones
+must be active; timer jobs show their last result); HTTP checks of AG Dash, the ag inbox and file-inbox;
+the CUA queue and memory from AG Dash; `presence`.
+"""
+import json, os, subprocess, sys
+from concurrent.futures import ThreadPoolExecutor
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+HTTP = {"AG Dash": "http://127.0.0.1:7376/api/config", "ag inbox": "http://ag:7373/", "file-inbox": "http://ag:7374/"}
+
+
+def unit_state(u):
+    r = subprocess.run(["systemctl", "--user", "show", f"{u}.service", "-p", "ActiveState,SubState,Result,LoadState,UnitFileState"], capture_output=True, text=True)
+    d = dict(l.split("=", 1) for l in r.stdout.split("\n") if "=" in l)
+    timer = subprocess.run(["systemctl", "--user", "is-active", f"{u}.timer"], capture_output=True, text=True).stdout.strip()
+    has_timer = timer in ("active", "inactive", "failed") and (SYSTEMD_DIR / f"{u}.timer").exists()
+    if d.get("LoadState") != "loaded":
+        return {"unit": u, "ok": False, "state": d.get("LoadState", "?")}
+    if d.get("UnitFileState") not in ("enabled", "static", "enabled-runtime") and not has_timer and d.get("ActiveState") != "active":
+        return {"unit": u, "ok": True, "state": "disabled", "disabled": True}
+    if has_timer:
+        ok = timer == "active" and d.get("Result") in ("success", None)
+        return {"unit": u, "ok": ok, "state": f"timer {timer}, last {d.get('Result')}" + (" (running)" if d.get("ActiveState") == "active" else "")}
+    return {"unit": u, "ok": d.get("ActiveState") == "active", "state": f"{d.get('ActiveState')} ({d.get('SubState')})"}
+
+
+def http_ok(url):
+    try:
+        r = subprocess.run(["curl", "-s", "-o", "/dev/null", "-m", "5", "-w", "%{http_code}", url], capture_output=True, text=True)
+        return r.stdout.strip()
+    except Exception:
+        return "err"
+
+
+def main(argv):
+    o, _ = flags(argv, {"--json": False})
+    if o.get("--help"):
+        return usage(__doc__)
+    me = this_machine()
+    ms = machines()
+    with ThreadPoolExecutor(12) as ex:
+        reach = dict(zip([m["alias"] for m in ms], ex.map(lambda m: True if me and m["alias"] == me["alias"] else reachable(m["alias"]), ms)))
+        units = list(ex.map(unit_state, [u for u in services() if u != "mcp-tunnel" or (SYSTEMD_DIR / "mcp-tunnel.service").exists()]))
+        web = dict(zip(HTTP, ex.map(http_ok, HTTP.values())))
+    sysd = {}
+    try:
+        sysd = board_state().get("sys", {})
+    except AgError:
+        pass
+    pres = subprocess.run([str(HOME / ".local/bin/presence")], capture_output=True, text=True, timeout=20).stdout.strip() if (HOME / ".local/bin/presence").exists() else ""
+    cua = sysd.get("cua") or {}
+    mem = sysd.get("mem") or {}
+    res = {"machines": reach, "services": units, "http": web, "cua": {"ok": cua.get("ok"), "live": [{"status": j["status"], "task": clip(j["task"], 80)} for j in cua.get("live", [])]},
+           "memory": mem, "presence": pres}
+    if o.get("--json"):
+        print(json.dumps(res, indent=1))
+        return 0
+    mark = lambda ok: "✓" if ok else "✗"
+    print("machines  " + "   ".join(f"{mark(v)} {k}" for k, v in reach.items()))
+    print("web       " + "   ".join(f"{mark(c == '200')} {k}" + ("" if c == "200" else f" ({c})") for k, c in web.items()))
+    bad = [u for u in units if not u["ok"]]
+    on = [u for u in units if not u.get("disabled")]
+    print(f"services  {len(on) - len(bad)}/{len(on)} ok" + ("" if bad else f"  ({', '.join(u['unit'] for u in on)})"))
+    for u in bad:
+        print(f"          ✗ {u['unit']}: {u['state']}   (ag logs {u['unit']})")
+    if mem:
+        print(f"memory    {mark(mem.get('level') == 'ok')} {mem.get('usedPct')}% of {mem.get('totalGB')} GB used, {mem.get('availGB')} GB free, PSI {mem.get('psiSome')}/{mem.get('psiFull')}")
+    live = res["cua"]["live"]
+    print(f"cua       {mark(cua.get('ok') is not False)} " + (f"{len(live)} job(s): " + "; ".join(f"{j['status']}: {j['task']}" for j in live) if live else "idle"))
+    if pres:
+        print(f"presence  {pres}")
+    return 0 if all(reach.values()) and not bad and all(c == "200" for c in web.values()) else 1
+
+
+run_main(main)

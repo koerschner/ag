@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""ag file — file a session into a topic workspace (default: this one), keeping its tab name.
+
+    ag file <workspace> [session] [--focus]
+workspace: id or label (prefix ok). Moves the session's pane into a new tab there (the Inbox auto-filer's move).
+"""
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def main(argv):
+    o, pos = flags(argv, {"--focus": False})
+    if o.get("--help") or not pos:
+        return usage(__doc__)
+    ix = Index()
+    ws = workspace_id(pos[0], ix)
+    s = resolve(" ".join(pos[1:]) or None, ix, allow_closed=False)
+    if s.workspace == ws:
+        print(f"{s.where} is already there")
+        return 0
+    r = mux_json("pane", "move", s.pane, "--new-tab", "--workspace", ws, "--label", s.title, "--focus" if o.get("--focus") else "--no-focus")
+    tab = ((r.get("move_result") or {}).get("pane") or {}).get("tab_id", "?")
+    print(f"filed {s.title}: {s.workspace_label} → {ix.ws[ws]['label']} ({tab})  {s.link or ''}")
+
+
+run_main(main)

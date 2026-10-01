@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""ag restart — restart an Ag service on whichever machine runs it.
+
+    ag restart <service>…      systemd user unit on the session host, else ag-mac's com.nathan.<service>
+                               (launchctl kickstart -k); mac:<service> forces ag-mac
+Restarting ag-mux kills every session's terminal; it's refused unless you pass --yes-kill-sessions.
+"""
+import os, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def main(argv):
+    o, pos = flags(argv, {"--yes-kill-sessions": False})
+    if o.get("--help") or not pos:
+        return usage(__doc__)
+    rc = 0
+    for name in pos:
+        where, unit = find_service(name)
+        if where == "engine" and unit == "ag-mux" and not o.get("--yes-kill-sessions"):
+            raise AgError("restarting ag-mux would kill every session; pass --yes-kill-sessions if you really mean it")
+        if where == "engine":
+            r = subprocess.run(["systemctl", "--user", "restart", f"{unit}.service"], capture_output=True, text=True)
+            st = subprocess.run(["systemctl", "--user", "is-active", f"{unit}.service"], capture_output=True, text=True).stdout.strip()
+        else:
+            r = ssh("ag-mac", f'p=~/Library/LaunchAgents/com.nathan.{unit}.plist; [ -e "$p" ] || {{ echo "no service {unit}" >&2; exit 2; }}\n'
+                              f'launchctl kickstart -k gui/$(id -u)/com.nathan.{unit} && sleep 1 && launchctl print gui/$(id -u)/com.nathan.{unit} | sed -n "s/^[[:space:]]*state = //p" | head -1')
+            st = r.stdout.strip()
+        if r.returncode:
+            rc = 1
+            print(f"{where}: {unit}: restart failed: {(r.stderr or r.stdout).strip()}", file=sys.stderr)
+        else:
+            print(f"{'ag-engine' if where == 'engine' else 'ag-mac'}: restarted {unit} ({st or 'ok'})")
+    return rc
+
+
+run_main(main)

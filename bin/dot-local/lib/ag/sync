@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+"""ag sync — push ag/dotfiles and apply them on every machine in machines/README.md.
+
+    ag sync [ag|dotfiles|all] [--no-push] [--only ag-mac,ag-client] [--json]
+Here (the session host): rebuilds AGENTS.md (commits it alone if only the generated file is stale), lists
+uncommitted files (never commits them: commit your own files first), pulls --rebase and pushes to main.
+Then on each machine (in parallel; this one included): git pull --ff-only, restow every stow package of that
+repo for the machine's OS, reload Hammerspoon if hammerspoon/ changed, and re-run install / bootstrap-linux /
+bootstrap when they (or LaunchAgents / systemd units) changed. Unreachable machines are named at the end.
+"""
+import json, os, subprocess, sys
+from concurrent.futures import ThreadPoolExecutor
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+STATE = HOME / ".local/state/ag-sync"
+
+# Runs on each machine (sh), once per repo. $1 repo name, $2 checkout. Prints marker lines.
+APPLY = r'''
+apply() {
+  name=$1; dir=$2
+  cd "$dir" 2>/dev/null || { echo "ERR $name no checkout at $dir"; return; }
+  os=$(uname)
+  if [ "$LOCAL" = 1 ]; then
+    new=$(git rev-parse HEAD); old=$(cat "$HOME/.local/state/ag-sync/$name.head" 2>/dev/null || echo "$new")
+  else
+    old=$(git rev-parse HEAD)
+    out=$(git pull --ff-only --autostash -q origin main 2>&1) || { echo "ERR $name pull failed: $(echo "$out" | tail -2 | tr '\n' ' ')"; return; }
+    new=$(git rev-parse HEAD)
+  fi
+  mkdir -p "$HOME/.local/state/ag-sync" && echo "$new" > "$HOME/.local/state/ag-sync/$name.head"
+  changed=$(git diff --name-only "$old" "$new" 2>/dev/null)
+  echo "HEAD $name $(echo $old | cut -c1-7) $(echo $new | cut -c1-7) $(echo "$changed" | grep -c .)"
+  case "$name:$os" in
+    ag:Darwin) pk=$(sed -n 's/^STOW_PACKAGES=(\(.*\))$/\1/p' install) ;;
+    ag:*) pk=$(sed -n 's/^AG_PACKAGES=(\(.*\))$/\1/p' bootstrap-linux) ;;
+    dotfiles:Darwin) pk=$(sed -n 's/^STOW_PACKAGES=(\(.*\))$/\1/p' bootstrap) ;;
+    dotfiles:*) pk=$(sed -n 's/^DOTFILES_PACKAGES=(\(.*\))$/\1/p' "$HOME/ag/bootstrap-linux") ;;
+  esac
+  [ "$name" = ag ] && [ -x agents.md/build ] && { agents.md/build >/dev/null 2>&1 || echo "WARN $name agents.md/build failed"; }
+  here=$(pwd -P)
+  for p in $pk; do
+    ign=""; [ "$p" = codex ] && ign='(^|/)config\.toml$'
+    st() { if [ -n "$ign" ]; then stow --dotfiles --no-folding --ignore="$ign" -d . -t "$HOME" "$@"; else stow --dotfiles --no-folding -d . -t "$HOME" "$@"; fi; }
+    # Links that already point into this checkout but weren't made by stow (absolute links): replace them.
+    st -n -R "$p" 2>&1 | sed -n 's/.*existing target is not owned by stow: //p' | while read -r rel; do
+      [ -L "$HOME/$rel" ] && case "$(cd "$(dirname "$HOME/$rel")" && realpath "$(readlink "$HOME/$rel")" 2>/dev/null)" in "$here"/*) rm "$HOME/$rel" ;; esac
+    done
+    o=$(st -R "$p" 2>&1) || echo "WARN $name stow $p: $(echo "$o" | grep -m1 -E 'existing target|ERROR|cannot' | sed 's/^ *//')"
+  done
+  echo "STOWED $name $(echo $pk | wc -w | tr -d ' ')"
+  if [ "$os" = Darwin ] && echo "$changed" | grep -q '^hammerspoon/'; then
+    perl -e 'alarm 10; exec @ARGV' hs -c 'hs.reload()' >/dev/null 2>&1 && echo "DID $name reloaded Hammerspoon" || echo "WARN $name Hammerspoon reload failed"
+  fi
+  run=""
+  case "$name:$os" in
+    ag:Darwin) echo "$changed" | grep -qE '^(install|macos-launchagents/|macos-apps/)' && run=./install ;;
+    ag:*) echo "$changed" | grep -qE '^(bootstrap-linux|systemd-user/)' && run=./bootstrap-linux ;;
+    dotfiles:Darwin) echo "$changed" | grep -qE '^(bootstrap|Brewfile)$' && run=./bootstrap ;;
+  esac
+  if [ -n "$run" ]; then
+    out=$($run </dev/null 2>&1); rc=$?
+    [ $rc = 0 ] && echo "DID $name ran $run" || echo "WARN $name $run exited $rc: $(echo "$out" | tail -3 | tr '\n' ' ')"
+  fi
+}
+'''
+
+
+def git(repo, *a, check=True):
+    r = subprocess.run(["git", "-C", repo, *a], capture_output=True, text=True)
+    if check and r.returncode:
+        raise AgError(f"git {' '.join(a)} in {repo}: {(r.stderr or r.stdout).strip()[:300]}")
+    return r.stdout.strip("\n")
+
+
+def attribution():
+    m = os.environ.get("PI_MODEL")
+    if not m:
+        return "ag sync, assisting Nathan:"
+    who = "Claude" if "claude" in m else "Codex" if ("gpt" in m or "codex" in m) else "Pi"
+    return f"{who} ({m}), assisting Nathan:"
+
+
+def push_local(name, repo, no_push):
+    notes = []
+    if name == "ag":
+        subprocess.run([f"{repo}/agents.md/build"], capture_output=True)
+        gen = "pi/dot-pi/agent/AGENTS.md"
+        if git(repo, "status", "--porcelain", "--", gen):
+            if git(repo, "status", "--porcelain", "--", "agents.md"):
+                notes.append("AGENTS.md rebuilt, but agents.md/ sources are uncommitted: commit them together")
+            else:
+                git(repo, "commit", "-q", "-m", f"{attribution()}\n\nRebuild AGENTS.md (ag sync)", "--", gen)
+                notes.append("committed the rebuilt AGENTS.md")
+    dirty = [l for l in git(repo, "status", "--porcelain").splitlines() if l.strip()]
+    if dirty:
+        notes.append(f"{len(dirty)} uncommitted file(s) not synced: " + ", ".join(l[3:] for l in dirty[:6]) + (" …" if len(dirty) > 6 else ""))
+    if not no_push:
+        git(repo, "pull", "-q", "--rebase", "--autostash", "origin", "main")
+        ahead = git(repo, "rev-list", "--count", "origin/main..HEAD")
+        if ahead != "0":
+            git(repo, "push", "-q", "origin", "HEAD:main")
+            notes.append(f"pushed {ahead} commit(s)")
+    return notes
+
+
+def apply_on(m, repos, local):
+    calls = "\n".join(f'apply {n} "{m[n].replace("~", "$HOME", 1)}"' for n in repos)
+    script = f"LOCAL={1 if local else 0}\n{APPLY}\n{calls}\n"
+    try:
+        if local:
+            r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=900, stdin=subprocess.DEVNULL)
+        else:
+            r = ssh(m["alias"], script, timeout=900)
+    except subprocess.TimeoutExpired:
+        return {"machine": m["alias"], "ok": False, "lines": ["timed out"]}
+    if r.returncode == 255 and not local:
+        return {"machine": m["alias"], "ok": False, "unreachable": True, "lines": [r.stderr.strip()[-200:]]}
+    lines = [l for l in r.stdout.splitlines() if l.split(" ", 1)[0] in ("HEAD", "STOWED", "DID", "WARN", "ERR")]
+    return {"machine": m["alias"], "ok": not any(l.startswith(("ERR", "WARN")) for l in lines), "lines": lines}
+
+
+def main(argv):
+    o, pos = flags(argv, {"--no-push": False, "--only": True, "--json": False})
+    if o.get("--help"):
+        return usage(__doc__)
+    which = pos[0] if pos else "all"
+    if which not in ("ag", "dotfiles", "all"):
+        raise AgError("ag sync [ag|dotfiles|all]")
+    repos = ["ag", "dotfiles"] if which == "all" else [which]
+    me = this_machine()
+    if not me:
+        raise AgError("this machine isn't in machines/README.md")
+    out = {"local": {}, "machines": []}
+    for n in repos:
+        out["local"][n] = push_local(n, os.path.expanduser(me[n]), o.get("--no-push"))
+    ms = machines()
+    if o.get("--only"):
+        keep = set(o["--only"].split(","))
+        ms = [m for m in ms if m["alias"] in keep]
+    with ThreadPoolExecutor(len(ms) or 1) as ex:
+        out["machines"] = list(ex.map(lambda m: apply_on(m, repos, m["alias"] == me["alias"]), ms))
+    if o.get("--json"):
+        print(json.dumps(out, indent=1))
+    else:
+        for n, notes in out["local"].items():
+            for x in notes:
+                print(f"{n}: {x}")
+        for r in out["machines"]:
+            if r.get("unreachable"):
+                print(f"✗ {r['machine']}: unreachable, sync it later (ag sync --only {r['machine']})")
+                continue
+            parts = []
+            for l in r["lines"]:
+                k, rest = l.split(" ", 1)
+                f = rest.split(" ")
+                if k == "HEAD":
+                    parts.append(f"{f[0]} {f[1]}" + (f"→{f[2]} ({f[3]} files)" if f[1] != f[2] else " (up to date)"))
+                elif k in ("DID", "WARN", "ERR"):
+                    parts.append(("! " if k != "DID" else "") + rest)
+            print(f"{'✓' if r['ok'] else '!'} {r['machine']}: " + "; ".join(parts))
+    return 0 if all(r["ok"] for r in out["machines"]) else 1
+
+
+run_main(main)

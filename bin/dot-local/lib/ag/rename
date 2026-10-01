@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+"""ag rename — rename a session's tab (default: this one).
+
+    ag rename "New label" [session]
+"""
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def main(argv):
+    o, pos = flags(argv, {})
+    if o.get("--help") or not pos:
+        return usage(__doc__)
+    label = pos[0].strip()[:60]
+    s = resolve(" ".join(pos[1:]) or None, allow_closed=False)
+    mux("tab", "rename", s.tab, label)
+    print(f"renamed {s.tab}: {s.title} → {label}")
+
+
+run_main(main)

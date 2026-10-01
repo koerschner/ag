@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""ag resume — reopen a closed session in a new tab (or wake a hibernated one), via AG Dash.
+
+    ag resume <session> [--ws W]       closed sessions reopen in Inbox unless --ws names a workspace
+Find closed sessions with `ag find`. Prints the tab and link.
+"""
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def main(argv):
+    o, pos = flags(argv, {"--ws": True, "--workspace": "--ws"})
+    if o.get("--help") or not pos:
+        return usage(__doc__)
+    ix = Index()
+    s = resolve(" ".join(pos), ix)
+    if s.state == "open":
+        print(f"{s.where} is already open ({s.tab})  {s.link}")
+        return 0
+    body = {"sid": s.sid}
+    if o.get("--ws"):
+        body["workspace"] = workspace_id(o["--ws"], ix)
+    r = board_post("/api/resume", body)
+    if s.state == "closed" and r.get("tab"):
+        mux("tab", "rename", r["tab"], clip(s.title, 40), check=False)  # the new tab would otherwise be numbered
+    print(f"{'woke' if s.state == 'hibernated' else 'resumed'} {s.title} in {r.get('tab')}  {s.link}")
+
+
+run_main(main)

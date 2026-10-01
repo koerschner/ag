@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""ag spawn — split work out into a new pi session that reports back to this one.
+
+    ag spawn "prompt" | -f prompt.md | (prompt on stdin)  [--ws W] [--cwd D] [--label L] [--no-report] [--json]
+Default: through the ag inbox (new Inbox tab, named by its router, never routed into an existing session).
+--ws/--cwd/--label: open the tab yourself in that workspace/directory instead (default workspace Inbox).
+Appends the report-back footer naming this session ([ag-parent: <sid>]), so the new session's `ag report`
+reaches you; --no-report leaves it off. Give it everything in this first prompt: the Inbox auto-filer treats
+a session's second prompt as Nathan's first reply. Prints the new tab and its AG Dash link.
+"""
+import json, os, secrets, sys, time
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def wait_sid(pane, secs=20):
+    end = time.time() + secs
+    while time.time() < end:
+        try:
+            p = mux_json("pane", "get", pane)["pane"]
+            s = sid_of((p.get("agent_session") or {}).get("value"))
+            if s:
+                return s
+        except AgError:
+            pass
+        time.sleep(0.5)
+    return None
+
+
+def main(argv):
+    o, pos = flags(argv, {"-f": True, "--file": "-f", "--ws": True, "--workspace": "--ws", "--cwd": True, "--label": True,
+                          "--no-report": False, "--json": False})
+    if o.get("--help"):
+        return usage(__doc__)
+    if o.get("-f"):
+        text = open(os.path.expanduser(o["-f"]), encoding="utf-8").read()
+    elif pos and pos != ["-"]:
+        text = " ".join(pos)
+    elif not sys.stdin.isatty():
+        text = sys.stdin.read()
+    else:
+        return usage(__doc__)
+    text = text.strip()
+    if not text:
+        raise AgError("empty prompt")
+    ix = Index()
+    if not o.get("--no-report"):
+        try:
+            me = self_session(ix)
+            text += (f"\n\n---\n[ag-parent: {me.sid}] Spawned by session “{me.title}” ({me.link}). When you're done or blocked, "
+                     f"report back with `ag report \"<what happened, links, anything Nathan must do>\"`; it reaches that session "
+                     f"(or the ag inbox if it's gone).")
+        except AgError:
+            print("ag spawn: not in a session, so no report-back footer", file=sys.stderr)
+
+    if o.get("--ws") or o.get("--cwd") or o.get("--label"):
+        ws = workspace_id(o.get("--ws") or "Inbox", ix)
+        args = ["tab", "create", "--workspace", ws, "--cwd", os.path.expanduser(o.get("--cwd") or "~"), "--no-focus"]
+        if o.get("--label"):
+            args += ["--label", o["--label"]]
+        t = mux_json(*args)
+        tab, pane = t["tab"]["tab_id"], t["root_pane"]["pane_id"]
+        try:
+            mux("agent", "start", f"sp-{secrets.token_hex(3)}", "--kind", "pi", "--pane", pane, "--timeout", "30000")
+            mux("agent", "prompt", pane, text)
+        except AgError:
+            mux("tab", "close", tab, check=False)
+            raise
+        res = {"tab": tab, "pane": pane, "label": o.get("--label")}
+    else:
+        res = http("POST", INBOX + "?new=1", text, ctype="text/plain", timeout=90)
+        if not isinstance(res, dict) or not res.get("tab"):
+            raise AgError(f"ag inbox: {res}")
+    sid = wait_sid(res["pane"])
+    res["sid"] = sid
+    res["link"] = link(sid) if sid else None
+    if o.get("--json"):
+        print(json.dumps(res))
+    else:
+        ws_label = ""
+        try:
+            s = resolve(res["tab"])
+            ws_label = s.where
+        except AgError:
+            ws_label = res.get("label") or res["tab"]
+        print(f"spawned {ws_label} ({res['tab']})  {res['link'] or ''}")
+
+
+run_main(main)

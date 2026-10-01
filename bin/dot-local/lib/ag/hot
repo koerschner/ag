@@ -1,0 +1,24 @@
+#!/usr/bin/env python3
+"""ag hot — hotpath a session on AG Dash (🔥: red siren when it needs Nathan), or take it off.
+
+    ag hot [on|off|toggle] [session]      default: on, this session
+"""
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def main(argv):
+    o, pos = flags(argv, {})
+    if o.get("--help"):
+        return usage(__doc__)
+    mode = pos.pop(0) if pos and pos[0] in ("on", "off", "toggle") else "on"
+    s = resolve(" ".join(pos) or None, allow_closed=False)
+    if not s.card:
+        raise AgError(f"{s.where} has no AG Dash card")
+    val = (not s.card.get("hot")) if mode == "toggle" else mode == "on"
+    board_post("/api/card", {"tab": s.tab, "hot": val})
+    print(f"{'🔥 hot' if val else 'not hot'}: {s.where}  {s.link or ''}")
+
+
+run_main(main)

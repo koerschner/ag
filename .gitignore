@@ -6,3 +6,4 @@ node_modules/
 .zshenv.local
 *.local.env
 .claude/
+__pycache__/

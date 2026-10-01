@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""ag find — find "the session where I was doing X": open, hibernated and closed sessions by label and transcript.
+
+    ag find <words…> [--days N] [--open] [--limit N] [--json]
+Every word must appear (case-insensitive) in the session's tab label/name or its prompts and answers (tool
+output isn't searched). Ranked: label matches, then hits in Nathan's prompts, then answers, then recency.
+Prints state, where, last activity, AG Dash link and a snippet. The calling session is left out.
+"""
+import json, os, re, subprocess, sys, time
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def snippet(text, terms, n=110):
+    low = text.lower()
+    i = min([low.find(t) for t in terms if t in low] or [0])
+    a = max(0, i - n // 3)
+    return ("…" if a else "") + clip(text[a:a + n], n)
+
+
+def main(argv):
+    o, pos = flags(argv, {"--days": True, "--open": False, "--limit": True, "-n": "--limit", "--json": False})
+    if o.get("--help") or not pos:
+        return usage(__doc__)
+    terms = [t.lower() for t in " ".join(pos).split()]
+    limit = int(o.get("--limit") or 10)
+    since = time.time() - float(o["--days"]) * 86400 if o.get("--days") else 0
+    ix = Index()
+    me = os.environ.get("PI_SESSION_ID") or sid_of(os.environ.get("PI_SESSION_FILE", ""))
+    open_by_sid = {s.sid: s for s in ix.all_open() if s.sid}
+
+    # Candidate files: rg -l per term, intersected (fast over GBs of jsonl).
+    cand = None
+    for t in terms:
+        r = subprocess.run(["rg", "-l", "-i", "-F", "--no-messages", "--glob", "*.jsonl", "-e", t, str(SESSIONS)], capture_output=True, text=True)
+        hits = set(r.stdout.split())
+        cand = hits if cand is None else cand & hits
+    cand = cand or set()
+    results = {}
+    for f in cand:
+        s = sid_of(f)
+        if not s or s == me or s in results:
+            continue
+        mt = os.path.getmtime(f)
+        if since and mt < since:
+            continue
+        meta = file_meta(f)
+        live = open_by_sid.get(s)
+        label = " ".join(x for x in (live.where if live else "", meta["name"] or "") if x)
+        texts = {"user": [], "assistant": []}
+        for m in messages(f):
+            if m["role"] in texts:
+                texts[m["role"]].append(m["text"])
+        blob = "\n".join(texts["user"] + texts["assistant"] + [label]).lower()
+        if not all(t in blob for t in terms):
+            continue
+        lab_hit = all(t in label.lower() for t in terms)
+        u = sum(x.lower().count(t) for x in texts["user"] for t in terms)
+        a = sum(x.lower().count(t) for x in texts["assistant"] for t in terms)
+        first_hit = next((x for x in texts["user"] + texts["assistant"] if any(t in x.lower() for t in terms)), "")
+        if live:
+            sess = live
+        else:
+            sess = closed_session(s, f)
+        if o.get("--open") and sess.state == "closed":
+            continue
+        results[s] = {"score": (lab_hit, u * 3 + a, mt), "session": sess, "snippet": snippet(first_hit, terms), "last": mt, "hits": u + a}
+    # open tabs whose label matches even if the transcript doesn't (e.g. the workspace name), and shells
+    for s in ix.all_open():
+        key = s.sid or s.tab
+        if key not in results and key != me and all(t in s.where.lower() for t in terms):
+            mt = os.path.getmtime(s.file) if s.file else time.time()
+            if not since or mt >= since:
+                results[key] = {"score": (True, 0, mt), "session": s, "snippet": "", "last": mt, "hits": 0}
+    ranked = sorted(results.values(), key=lambda r: r["score"], reverse=True)[:limit]
+    if o.get("--json"):
+        print(json.dumps([{**r["session"].as_dict(), "snippet": r["snippet"], "last": r["last"], "hits": r["hits"]} for r in ranked], ensure_ascii=False, indent=1))
+        return 0
+    if not ranked:
+        print(f"nothing matches {' '.join(pos)!r}", file=sys.stderr)
+        return 1
+    for r in ranked:
+        s = r["session"]
+        print(f"{s.state:<10} {clip(s.where, 56):<56} {ago(r['last']):>8}  {s.link or s.tab}")
+        if r["snippet"]:
+            print(f"           {r['snippet']}")
+
+
+run_main(main)

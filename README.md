@@ -316,8 +316,9 @@ Moshi on the iPhone connects to ag over Tailscale and attaches to Herdr.
   `✅ Done` or `⚠️ Attention needed` + tab name, a one-line "what happened / what to do"
   headline (fast LLM), and the `session-link`, when a turn ends while Nathan is away
   (`presence`) or after a turn of 2+ minutes. `AG_NOTIFY=always|off` overrides per session.
-  Sent by `ag-text`: Telegram bot "ag" if Keychain items `ag telegram bot` (token) and
-  `ag telegram chat` (chat id) exist (on Linux: `~/.config/ag/telegram`, 0600, `token=`/`chat=`),
+  Sent by `ag-text`: Telegram bot "ag" (@nathan_ag_bot) if Keychain items `ag telegram bot`
+  (token) and `ag telegram chat` (chat id) exist, else `~/.config/ag/telegram` (0600,
+  `token=`/`chat=`; what ag-engine and ag-mac use, since ag-mac's Keychain is locked over SSH),
   else iMessage from the client Mac (needs it awake). Recovery copy: `op-shared` item
   `ag telegram bot` (token + chat id). Telegram tasks (BotFather, reading chats) run in
   **Telegram.app on ag-mac**, which must stay signed in to Nathan's account; if it shows the

@@ -12,7 +12,7 @@
 // change must keep `toolsum check` (fixtures.json) passing. Add a fixture for each new rule.
 
 export type Summary = { sum?: string; hosts: string[]; rule?: string; miss?: string; parts?: { sum: string; host?: string }[] };
-type Ctx = { host: string; fns?: Record<string, string>; miss?: string /* innermost piece that failed */ };
+type Ctx = { host: string; fns?: Record<string, string>; miss?: string /* innermost piece that failed */; heredocs?: Record<string, string> };
 type SegOut = { sum: string; host?: string; rule: string; parts?: { sum: string; host?: string }[] } | "noise" | null;
 
 const HOME_RE = /^(?:\/home\/nathan|\/Users\/natkoersch|\/Users\/nathan|\$HOME|~)(?=\/|$)/;
@@ -44,8 +44,8 @@ export function normHost(h: string): string {
 
 // ---------- shell parsing ----------
 
-/** Drop heredoc bodies (cat > f <<'EOF' … EOF) and join the rest into one line with ";". */
-function stripHeredocs(cmd: string): string {
+/** Drop heredoc bodies (cat > f <<'EOF' … EOF) and join the rest into one line with ";". Bodies go in `bodies` by tag. */
+function stripHeredocs(cmd: string, bodies: Record<string, string> = {}): string {
 	const lines = cmd.split("\n");
 	const out: string[] = [];
 	for (let i = 0; i < lines.length; i++) {
@@ -53,7 +53,9 @@ function stripHeredocs(cmd: string): string {
 		out.push(line);
 		const tags = [...line.matchAll(/<<-?\s*(['"]?)([A-Za-z_][\w]*)\1/g)].map((m) => m[2]);
 		for (const tag of tags) {
-			while (i + 1 < lines.length && lines[i + 1].trim() !== tag) i++;
+			const body: string[] = [];
+			while (i + 1 < lines.length && lines[i + 1].trim() !== tag) body.push(lines[++i]);
+			bodies[tag] = body.join("\n");
 			i++; // the terminator line
 		}
 	}
@@ -141,7 +143,7 @@ function dropRedirs(w: string[]): string[] {
 	const out: string[] = [];
 	for (let i = 0; i < w.length; i++) {
 		if (/^\d*>>?&?\d*$|^&>>?$|^<$/.test(w[i])) { if (!/&\d$/.test(w[i])) i++; continue; }
-		if (/^\d*>>?&?\S+$|^&>\S+$/.test(w[i]) || /^<<-?/.test(w[i])) continue;
+		if (/^\d*>>?&?\S+$|^&>\S+$|^<[^<(]\S*$/.test(w[i]) || /^<<-?/.test(w[i])) continue;
 		out.push(w[i]);
 	}
 	return out;
@@ -235,6 +237,39 @@ export function cuaSummary(task: string): string | undefined {
 	return clip(label, 80);
 }
 
+/** Top-level $( … ) command substitutions in a string (arithmetic $(( … )) skipped). */
+function substitutions(s: string): string[] {
+	const out: string[] = [];
+	for (let i = 0; i < s.length - 1; i++) {
+		if (s[i] === "\\") { i++; continue; }
+		if (s[i] !== "$" || s[i + 1] !== "(") continue;
+		if (s[i + 2] === "(") { i += 2; continue; }
+		let depth = 1;
+		let j = i + 2;
+		let q: string | null = null;
+		for (; j < s.length && depth; j++) {
+			const c = s[j];
+			if (q) { if (c === q) q = null; else if (c === "\\") j++; continue; }
+			if (c === "'" || (c === '"' && depth > 1)) q = c;
+			else if (c === "(") depth++;
+			else if (c === ")") depth--;
+		}
+		if (depth) break;
+		out.push(s.slice(i + 2, j - 1));
+		i = j - 1;
+	}
+	return out;
+}
+
+/** A computer-use task argument: literal text, a heredoc body, or a file it is read from. */
+function cuaTask(t: string, ctx: Ctx): { task?: string; file?: string } {
+	const hd = t.match(/^\$\(cat\s+<<-?\s*['"]?(\w+)/);
+	if (hd) return { task: ctx.heredocs?.[hd[1]] };
+	const f = t.match(/^\$\((?:cat|<)\s+([^\s()]+)\s*\)$/);
+	if (f) return { file: f[1] };
+	return { task: t };
+}
+
 // ---------- shell segment rules ----------
 
 const FILTERS = new Set(["grep", "rg", "egrep", "head", "tail", "jq", "sed", "awk", "sort", "uniq", "wc", "cut", "tr", "cat", "column", "less", "tee", "fold", "nl", "fmt", "base64", "xxd", "od", "python3", "node"]);
@@ -259,7 +294,7 @@ const gitSub: Record<string, (a: string[]) => string | undefined> = {
 	},
 	grep: (a) => { const p = positional(a, ["-e", "-A", "-B", "-C", "-m"]); const pat = flagVal(a, "-e") ?? p[0]; return pat ? `Search repo for "${clip(pat, 40)}"` : undefined; },
 	worktree: (a) => { const [sub, p] = positional(a, ["-b", "-B"]); return sub === "add" ? `Create worktree ${shortPath(p ?? "")}` : sub === "remove" ? `Remove worktree ${shortPath(p ?? "")}` : sub === "list" ? "List worktrees" : sub === "prune" ? "Prune worktrees" : undefined; },
-	branch: (a) => (a.includes("-D") || a.includes("-d") ? `Delete branch ${positional(a)[0] ?? ""}`.trim() : "List branches"),
+	branch: (a) => (a.includes("-D") || a.includes("-d") ? `Delete branch ${positional(a)[0] ?? ""}`.trim() : a.includes("-m") || a.includes("-M") ? `Rename branch to ${positional(a).pop() ?? ""}`.trim() : a.includes("--show-current") ? "Show current branch" : "List branches"),
 	checkout: (a) => `Check out ${positional(a, ["-b"])[0] ?? flagVal(a, "-b") ?? ""}`.trim(),
 	switch: (a) => `Switch to ${positional(a, ["-c"])[0] ?? flagVal(a, "-c") ?? ""}`.trim(),
 	merge: (a) => (a.includes("--abort") ? "Abort merge" : `Merge ${positional(a, ["-m"])[0] ?? ""}`.trim()),
@@ -294,6 +329,7 @@ const gitSub: Record<string, (a: string[]) => string | undefined> = {
 	notes: () => "Git notes",
 	gc: () => "Git gc",
 	"symbolic-ref": () => "Resolve git ref",
+	"check-ignore": (a) => `Check if ${paths(positional(a))} is git-ignored`,
 };
 
 const ghPr: Record<string, (n: string, a: string[]) => string> = {
@@ -326,11 +362,14 @@ const RULES: Rule[] = [
 		const range = p[0]?.match(/^(\d+)(?:,(\d+|\$))?p$/);
 		if (range && p[1]) return `Read ${shortPath(p[1])}:${range[1]}${range[2] ? `–${range[2]}` : ""}`;
 		if (p[0] && /^\//.test(p[0]) && p[1]) return `Read part of ${shortPath(p[1])}`;
+		if (a.includes("-n") && p.length === 2 && /p$/.test(p[0]) && p[0].includes("$")) return `Read part of ${shortPath(p[1])}`;
 	} },
 	{ id: "cat", cmd: /^cat$/, fn: (a, _raw, _ctx, seg) => {
 		const out = seg.match(/(>>?)\s*([^\s<>]+)/);
 		if (out && /<</.test(seg)) return `${out[1] === ">>" ? "Append to" : "Write"} ${shortPath(out[2])}`;
 		const p = positional(a);
+		if (!p.length && /<</.test(seg)) return "noise";
+		if (!p.length && out && !/^&|^\/dev\//.test(out[2])) return `${out[1] === ">>" ? "Append to" : "Write"} ${shortPath(out[2])}`;
 		return p.length ? `Read ${paths(p)}` : undefined;
 	} },
 	{ id: "head-tail", cmd: /^(head|tail)$/, fn: (a, raw) => {
@@ -342,6 +381,8 @@ const RULES: Rule[] = [
 	{ id: "grep", cmd: /^(grep|rg|egrep)$/, fn: (a) => {
 		const p = positional(a, ["-e", "-A", "-B", "-C", "-m", "-g", "--glob", "-t", "--type", "--max-count", "-f", "--include", "--exclude"]);
 		const pat = flagVal(a, "-e") ?? p.shift();
+		if (pat === undefined) return;
+		if (pat === "" && a.includes("-c") && p.length) return `Count lines in ${paths(p)}`;
 		if (!pat) return;
 		const where = paths(p.filter((x) => x !== "."));
 		return `Search "${clip(pat.replace(/\\\|/g, "|"), 40)}"${where ? ` in ${where}` : ""}`;
@@ -382,6 +423,7 @@ const RULES: Rule[] = [
 			if (a[0] === "--check") return `Syntax-check ${shortPath(a[1] ?? "")}`;
 			return p[0] ? `Run ${shortPath(p[0])}` : undefined;
 		}
+		if (tool === "bun" && p[0] === "scripts/db" && (a.includes("--help") || a.includes("-h"))) return "Read scripts/db help";
 		if (tool === "bun" && p[0] === "scripts/db") {
 			const stage = flagVal(a, "--stage") ?? "local";
 			const db = positional(a, ["--stage"]).find((x, i, arr) => i > 1 && arr[i - 1] === "query") ?? positional(a, ["--stage"])[2];
@@ -396,7 +438,7 @@ const RULES: Rule[] = [
 		if (/^(test|vitest|jest|playwright)$/.test(sub)) return `Run tests${p.slice(p.indexOf(sub) + 1).find((x) => /\.(test|spec)\.|\//.test(x)) ? ` (${shortPath(p.slice(p.indexOf(sub) + 1).find((x) => /\.(test|spec)\.|\//.test(x))!)})` : ""}`;
 		if (/^(check|lint|typecheck|tsc|svelte-check|biome|eslint|prettier|format)$/.test(sub)) return `Run ${sub}`;
 		if (/^(build|dev|preview|start)$/.test(sub)) return `Run ${sub}`;
-		if (sub === "sync") return `Sync ${p[1] ?? ""}`.trim();
+		if (sub === "sync") return `Sync ${p[p.indexOf(sub) + 1] ?? ""}`.trim();
 		return `Run ${shortPath(sub)}`;
 	} },
 	{ id: "git", cmd: /^git$/, fn: (a) => {
@@ -423,7 +465,7 @@ const RULES: Rule[] = [
 		if (a.includes("--version")) return "Check gh version";
 	} },
 	{ id: "curl", cmd: /^(curl|wget|http|xh)$/, fn: (a) => {
-		const url = positional(a, ["-H", "-d", "--data", "--data-binary", "--data-raw", "-X", "-o", "-u", "-m", "--max-time", "-w", "-A", "-b", "-c", "-e", "-F", "--connect-timeout", "--retry", "-T", "--json"]).find((x) => /^(https?:\/\/|[\w.-]+:\d+|\/|localhost|127\.|\d+\.\d+)/.test(x) || /\.\w{2,}\//.test(x));
+		const url = positional(a, ["-H", "-d", "--data", "--data-binary", "--data-raw", "-X", "-o", "-u", "-m", "--max-time", "-w", "-A", "-b", "-c", "-e", "-F", "--connect-timeout", "--retry", "-T", "--json"]).find((x) => /^(https?:\/\/|[\w.-]+:\d+|\/|localhost|127\.|\d+\.\d+|\$\{?\w+\}?\/\w)/.test(x) || /\.\w{2,}\//.test(x));
 		if (!url) return;
 		const method = flagVal(a, "-X", "--request") ?? (a.some((x) => /^(-d|--data|--data-binary|--data-raw|-F|--json|-T)$/.test(x)) ? "POST" : "GET");
 		return `${method.toUpperCase()} ${shortUrl(url)}`;
@@ -435,6 +477,7 @@ const RULES: Rule[] = [
 		const h = normHost(host);
 		const inner = p.slice(1).join(" ");
 		if (!inner || /^(?:bash|sh|zsh)(?: -\w+)*$/.test(inner.trim())) return { sum: inner ? `Run a script on ${h}` : `SSH to ${h}`, host: h, rule: "ssh" };
+		if (/^(?:true|exit|:|hostname|echo [\w .:-]*)$/.test(inner.trim())) return { sum: `Check ${h} is reachable`, host: h, rule: "ssh" };
 		return nested(inner, h, ctx);
 	} },
 	{ id: "scp", cmd: /^(scp|rsync)$/, fn: (a) => {
@@ -456,11 +499,13 @@ const RULES: Rule[] = [
 		if (sub === "show") return { sum: `Show ${shortPath(r[0] ?? "")} on Nathan's screen`, host: "ag-mac", rule: "mac-show" };
 		if (sub === "status") return { sum: "Check ag-mac status", host: "ag-mac", rule: "mac-status" };
 	} },
-	{ id: "cua", cmd: /^(chatgpt-cua|client-cua)$/, fn: (a, raw) => {
+	{ id: "cua", cmd: /^(chatgpt-cua|client-cua)$/, fn: (a, raw, ctx) => {
 		const host = raw.startsWith("client-cua") ? "ag-client" : "ag-mac";
 		const t = positional(a, ["--why", "--caller", "--timeout"]).join(" ");
 		if (!t || a.includes("--status")) return { sum: "Check computer use", host, rule: "cua" };
-		const s = cuaSummary(t);
+		const { task, file } = cuaTask(t, ctx);
+		if (file) return { sum: `Run computer-use task from ${shortPath(file)}`, host, rule: "cua" };
+		const s = task ? cuaSummary(task) : undefined;
 		return s ? { sum: s, host, rule: "cua" } : null;
 	} },
 	{ id: "herdr", cmd: /^(herdr|ag-mux)$/, fn: (a) => {
@@ -474,10 +519,16 @@ const RULES: Rule[] = [
 			"agent prompt": `Prompt agent in ${tgt ?? ""}`, "agent list": "List agents", "agent start": `Start agent in ${tgt ?? ""}`, "agent get": `Inspect agent ${tgt ?? ""}`, "agent send-keys": `Send keys to agent ${tgt ?? ""}`, "agent wait": `Wait for agent ${tgt ?? ""}`,
 			"tab create": `Open tab${label ? ` "${label}"` : ""}`, "tab close": `Close tab ${tgt ?? ""}`, "tab list": "List tabs", "tab rename": `Rename tab ${tgt ?? ""}`, "tab get": `Inspect tab ${tgt ?? ""}`, "tab move": `Move tab ${tgt ?? ""}`, "tab focus": `Focus tab ${tgt ?? ""}`,
 			"workspace list": "List workspaces", "workspace create": `Create workspace${label ? ` "${label}"` : ""}`, "workspace get": "Inspect workspace",
-			"agent read": `Read agent ${tgt ?? ""}`, "pane process-info": `Inspect pane ${tgt ?? ""}`, "agent rename": `Rename agent ${tgt ?? ""}`,
+			"agent read": `Read agent ${tgt ?? ""}`, "pane process-info": `Inspect pane ${flagVal(a, "--pane") ?? tgt ?? ""}`, "agent rename": `Rename agent ${tgt ?? ""}`,
 			"api snapshot": "Herdr snapshot", "notification show": "Show a notification", "layout export": "Export layout",
+			"pane rename": `Rename pane ${tgt ?? ""}`, "pane focus": `Focus pane ${tgt ?? ""}`, "pane layout": `Inspect layout of pane ${flagVal(a, "--pane") ?? tgt ?? ""}`,
+			"workspace close": `Close workspace ${tgt ?? ""}`, "workspace focus": `Focus workspace ${tgt ?? ""}`, "workspace rename": `Rename workspace ${tgt ?? ""}`,
+			"api schema": "Read Herdr API schema",
 		};
 		if (g === "backend") return "Check multiplexer backend";
+		if (g === "status" && !sub) return "Check Herdr status";
+		if (!g && a.includes("--skill")) return "Read the Herdr skill";
+		if (!g && a.includes("--default-config")) return "Show Herdr's default config";
 		const s = map[`${g} ${sub}`];
 		return s?.trim();
 	} },
@@ -530,6 +581,8 @@ const RULES: Rule[] = [
 		if (p[0] === "item" && (p[1] === "create" || p[1] === "edit")) return `Store secret${flagVal(a, "--title") ? ` "${clip(flagVal(a, "--title")!, 40)}"` : p[2] ? ` "${clip(p[2], 40)}"` : ""}`;
 		if (p[0] === "item" && p[1] === "list") return `List secrets (${tool})`;
 		if (p[0] === "whoami" || p[0] === "vault") return `Check 1Password (${tool})`;
+		if (p[0] === "account" && p[1] === "list") return `List 1Password accounts (${tool})`;
+		if (p[0] === "item" && p[1] === "share") return `Share secret ${clip(p[2] ?? "", 40)}${flagVal(a, "--emails") ? ` with ${clip(flagVal(a, "--emails")!, 40)}` : ""}`;
 	} },
 	{ id: "ag-tools", cmd: /^(ag-text|show|shot|presence|tickler|ag-access|ag-host|ag-inbox|nessie-daemon|ag-login-password|machine-role|record-flow|screen-record|ag-dash-stats|toolsum|cua-queue|routine)$/, fn: (a, raw) => {
 		const tool = raw.split(/\s/)[0];
@@ -571,12 +624,63 @@ const RULES: Rule[] = [
 	{ id: "xattr", cmd: /^xattr$/, fn: (a) => (a.some((x) => x.includes("quarantine")) && a.some((x) => /^-\w*d/.test(x)) ? `Clear quarantine on ${paths(positional(a).filter((x) => !x.includes("quarantine")))}` : `Inspect attributes of ${paths(positional(a))}`) },
 	{ id: "tailscale", cmd: /^tailscale$/, fn: (a) => `Tailscale ${positional(a)[0] ?? ""}`.trim() },
 	{ id: "docker", cmd: /^(docker|podman)$/, fn: (a) => `Docker ${positional(a).slice(0, 2).join(" ")}`.trim() },
-	{ id: "agents-build", cmd: /^(?:\.\/)?agents\.md\/build$/, fn: () => "Rebuild AGENTS.md" },
+	{ id: "agents-build", cmd: /^(?:\.\/)?(?:agents\.md|agent-instructions)\/build$/, fn: () => "Rebuild AGENTS.md" },
 	{ id: "editor", cmd: /^(diff|cmp|comm)$/, fn: (a) => `Compare ${paths(positional(a), 2)}` },
 	{ id: "archive", cmd: /^(tar|zip|unzip|gzip|gunzip)$/, fn: (a, raw) => `${/^(unzip|gunzip)/.test(raw) || a.some((x) => /^-?\w*x/.test(x)) ? "Extract" : "Archive"} ${paths(positional(a, ["-C", "-f", "-d"]), 1)}` },
 	{ id: "env", cmd: /^(env|printenv|hostname|whoami|id|uname|sw_vers|tty|nproc|locale|ulimit)$/, fn: () => "Check environment" },
 	{ id: "sqlite", cmd: /^(sqlite3|psql|duckdb)$/, fn: (a, raw) => `Query ${shortPath(positional(a)[0] ?? raw.split(/\s/)[0])}` },
 	{ id: "pi", cmd: /^(pi|omp|claude|codex|amp)$/, fn: (a, raw) => { const tool = raw.split(/\s/)[0]; return a.includes("-p") || a.includes("--print") || a[0] === "exec" ? `Run ${tool} non-interactively` : `${tool} ${positional(a)[0] ?? ""}`.trim(); } },
+	{ id: "hammerspoon", cmd: /^hs$/, fn: (a) => {
+		const lua = flagVal(a, "-c");
+		if (lua === undefined) return;
+		if (/^\s*hs\.reload\(\)\s*$/.test(lua)) return "Reload Hammerspoon";
+		const app = lua.match(/tell (?:application|app) \\?"([^"\\]+)/)?.[1];
+		return app ? `AppleScript → ${app} (via Hammerspoon)` : "Run Lua in Hammerspoon";
+	} },
+	{ id: "tmux", cmd: /^tmux$/, fn: (a) => {
+		const p = positional(a, ["-L", "-S", "-t", "-s", "-n", "-F", "-c", "-f", "-S", "-E"]);
+		const t = flagVal(a, "-t");
+		const sub: Record<string, string> = { ls: "List tmux sessions", "list-sessions": "List tmux sessions", "list-windows": "List tmux windows", "list-panes": "List tmux panes", "list-clients": "List tmux clients",
+			"capture-pane": `Read tmux pane${t ? ` ${t}` : ""}`, "send-keys": `Send keys to tmux pane${t ? ` ${t}` : ""}`, "kill-session": `Close tmux session${t ? ` ${t}` : ""}`, "kill-window": `Close tmux window${t ? ` ${t}` : ""}`,
+			"kill-pane": `Close tmux pane${t ? ` ${t}` : ""}`, "new-window": "Open tmux window", "new-session": "Start tmux session", "has-session": `Check tmux session${t ? ` ${t}` : ""}`,
+			"show-options": "Read tmux options", "display-message": "Query tmux", display: "Query tmux", "source-file": "Reload tmux config", "set-option": "Set tmux option", "rename-window": `Rename tmux window${t ? ` ${t}` : ""}` };
+		return p[0] ? sub[p[0]] : undefined;
+	} },
+	{ id: "strings", cmd: /^strings$/, fn: (a) => { const p = positional(a, ["-n", "-t"]); return p.length ? `Extract strings from ${paths(p)}` : undefined; } },
+	{ id: "luac", cmd: /^luac$/, fn: (a) => (a.includes("-p") ? `Syntax-check ${paths(positional(a))}` : undefined) },
+	{ id: "chrome-headless", cmd: /(?:^|\/)(?:Google Chrome|chromium|google-chrome|chrome)$/, fn: (a) => {
+		if (!a.some((x) => x.startsWith("--headless"))) return;
+		const shot = flagVal(a, "--screenshot");
+		const url = positional(a)[0];
+		if (shot) return `Screenshot ${url ? shortUrl(url.replace(/^file:\/\//, "")) : "page"} in headless Chrome → ${shortPath(shot)}`;
+		const pdf = flagVal(a, "--print-to-pdf");
+		if (pdf) return `Print ${url ? shortUrl(url.replace(/^file:\/\//, "")) : "page"} to PDF → ${shortPath(pdf)}`;
+	} },
+	{ id: "agrec", cmd: /^agrec$/, fn: (a) => {
+		const [sub, ...r] = positional(a, ["-s", "--fps", "--max", "-o"]);
+		if (sub === "start") return "Start recording ag-mac's screen";
+		if (sub === "stop") return "Stop the screen recording";
+		if (sub === "status") return "Check the screen recording";
+		if (sub === "export") return `Export screen recording${r.length ? ` → ${shortPath(r[r.length - 1])}` : ""}`;
+	} },
+	{ id: "ag-messages", cmd: /^ag-messages$/, fn: (a) => {
+		const [sub, x] = positional(a, ["--file"]);
+		switch (sub) {
+			case "chats": return "List recent iMessage chats";
+			case "thread": return x ? `Read iMessage thread with ${clip(x, 30)}` : undefined;
+			case "search": return x ? `Search iMessages for "${clip(x, 40)}"` : undefined;
+			case "contact": return x ? `Look up contact "${clip(x, 30)}"` : undefined;
+			case "send": return x ? `Send iMessage to ${clip(x, 30)}` : undefined;
+			case "cat": case "get": return x ? `Read iMessage attachment ${shortPath(x)}` : undefined;
+		}
+	} },
+	{ id: "moshi-hook", cmd: /^moshi-hook$/, fn: (a) => {
+		const p = positional(a, ["--target"]);
+		if (p[0] === "service" && p[1]) return `${cap(p[1])} the moshi-hook service`;
+		if (p[0] === "install") return `Install moshi-hook${flagVal(a, "--target") ? ` for ${flagVal(a, "--target")}` : ""}`;
+		if (p[0] === "uninstall") return "Uninstall moshi-hook";
+		if (p[0] === "status") return "Check moshi-hook status";
+	} },
 	{ id: "ag-script", cmd: /^(?:~|\$HOME)?\/?(?:\.local\/bin\/)?(mcp-gateway|ag-board|ag-mux-smoke\.sh|herdr-nav|tickler|agd)$/, fn: (a, raw) => `${raw.split(/\s/)[0].replace(/^.*\//, "")} ${positional(a)[0] ?? ""}`.trim() },
 ];
 
@@ -586,7 +690,8 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 	// grouping and control words
 	s = s.replace(/^(?:time|then|do|else|!)\s+/, "").trim();
 	if (!s || s.startsWith("#")) return "noise";
-	const g = s.replace(/\s+\d*>>?\s*\S+$/, "");
+	let g = s;
+	for (let k = 0; k < 3; k++) g = g.replace(/([)}])\s*\d*>>?&?\s*[^\s)}]+$/, "$1");
 	const group = g.match(/^\(([\s\S]*)\)$/) ?? g.match(/^\{\s([\s\S]*?);?\s*\}$/);
 	if (group) return summarizeOne(group[1], ctx);
 	if (/^(?:for|while|until|select)\s/.test(s) || /^(?:if|elif)\s/.test(s) || /^case\s/.test(s)) {
@@ -598,9 +703,13 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 	const def = s.match(/^(?:function\s+)?([A-Za-z_][\w-]*)\s*\(\)\s*\{\s*([\s\S]*?);?\s*\}$/);
 	if (def) { (ctx.fns ??= {})[def[1]] = def[2]; return "noise"; }
 	if (/^(?:function\s+)?[A-Za-z_][\w-]*\s*\(\)/.test(s)) return "noise";
-	const ws = words(s.replace(/^(?:local|export|readonly|declare)\s+/, ""));
+	const bare = s.replace(/^(?:local|export|readonly|declare)\s+/, "");
+	const asg = bare.match(/^[A-Za-z_]\w*\+?=("?)\$\(([\s\S]*)\)\1$/);
+	if (asg && substitutions(bare).length === 1) return summarizeOne(asg[2], ctx);
+	const ws = words(bare);
 	if (ws.length === 1 && /^[A-Za-z_]\w*(?:\[[^\]]*\])?\+?=/.test(ws[0])) {
 		const val = ws[0].replace(/^[^=]*=/, "");
+		if (val.startsWith("$((")) return "noise";
 		const sub = val.match(/^\$\(([\s\S]*)\)$/);
 		return sub ? summarizeOne(sub[1], ctx) : "noise";
 	}
@@ -618,7 +727,24 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 	const fn = ctx.fns?.[cmd0];
 	if (fn) return summarizeOne(fn.replace(/"?\$\{?(\d|@|\*)\}?"?/g, (_m, k) => { const v = k === "@" || k === "*" ? args.join(" ") : args[Number(k) - 1] ?? ""; return `'${v.replace(/'/g, "")}'`; }), ctx);
 	const cmd = cmd0.replace(/^(?:~|\/home\/nathan|\/Users\/\w+)\/\.local\/bin\//, "").replace(/^\/(?:usr\/(?:local\/)?|opt\/homebrew\/)?s?bin\//, "");
+	if (/^(?:echo|printf)$/.test(cmd)) {
+		// echo "x: $(cmd)" runs cmd; summarise the substitutions when they are all understood
+		const subs = substitutions(s).map((x) => summarizeOne(x, { ...ctx, miss: undefined }));
+		const real = subs.filter((x): x is Exclude<SegOut, "noise" | null> => !!x && x !== "noise");
+		if (!real.length || subs.includes(null)) return "noise";
+		return { sum: real.map((x) => x.sum).join(" · "), rule: "echo-subst", parts: real.flatMap((x) => x.parts ?? [{ sum: x.sum, host: x.host }]) };
+	}
 	if (NOISE.test(cmd)) return "noise";
+	// `tool [sub…] --help` / `tool --version`, for any plainly named tool
+	if (/^[\w.-]+(?:\/[\w.-]+)*$/.test(cmd) && args.length) {
+		const last = args[args.length - 1];
+		const subs = args.slice(0, -1);
+		if (subs.every((x) => /^[a-z][\w-]*$/.test(x))) {
+			const name = [cmd.replace(/^.*\//, ""), ...subs].join(" ");
+			if (/^(?:--help|-h)$/.test(last)) return { sum: `Read ${name} help`, rule: "help" };
+			if (/^(?:--version|-V)$/.test(last) && !subs.length) return { sum: `Check ${name} version`, rule: "help" };
+		}
+	}
 	if (cmd === "bash" || cmd === "sh" || cmd === "zsh") {
 		const c = args.indexOf("-c") >= 0 ? args[args.indexOf("-c") + 1] : args.find((x) => x === "-lc" || x === "-c") ? args[args.indexOf(args.find((x) => x === "-lc")!) + 1] : undefined;
 		if (c) return summarizeOne(c, ctx);
@@ -646,7 +772,9 @@ function summarizeOne(cmd: string, ctx: Ctx): SegOut {
 }
 
 export function summarizeShell(command: string, ctx: Ctx): Summary & { allNoise?: boolean } {
-	const segs = splitShell(stripHeredocs(command));
+	const bodies: Record<string, string> = { ...ctx.heredocs };
+	const segs = splitShell(stripHeredocs(command, bodies));
+	ctx = { ...ctx, heredocs: bodies };
 	const outs: { sum: string; host?: string }[] = [];
 	const rules = new Set<string>();
 	let sleep = 0;
@@ -658,15 +786,27 @@ export function summarizeShell(command: string, ctx: Ctx): Summary & { allNoise?
 			const c = words(seg)[0] ?? "";
 			afterPipe = pipeAfter;
 			if (FILTERS.has(c.replace(/^.*\//, "")) || /^(?:while|for|until)$/.test(c)) continue;
-			if (c !== "xargs") { unknown = true; miss = `| ${seg}`; break; }
+			if (c !== "xargs") {
+				// a sink that is a command of its own (| pbcopy, | ssh host 'cat > f', | tee f)
+				ctx.miss = undefined;
+				const po = summarizeSegment(seg, ctx);
+				if (po === "noise") continue;
+				if (!po) { unknown = true; miss = `| ${seg}`; break; }
+				rules.add(po.rule);
+				for (const part of po.parts ?? [{ sum: po.sum, host: po.host }]) outs.push(part);
+				continue;
+			}
 			const w = words(seg).slice(1);
 			while (w[0]?.startsWith("-")) w.splice(0, /^-[InPLsd]$/.test(w[0]) ? 2 : 1);
 			if (!w.length) continue;
-			const xo = summarizeSegment(w.join(" "), ctx);
+			const q = (x: string) => (/[\s'"$`\\]/.test(x) ? `'${x.replace(/'/g, "'\\''")}'` : x);
+			let xo = summarizeSegment(w.map(q).join(" "), ctx);
+			let each = " (each)";
+			if (!xo) { xo = summarizeSegment([...w.map(q), "XARGS_INPUT"].join(" "), ctx); each = ""; }
 			if (xo === "noise") continue;
-			if (!xo) { unknown = true; miss = `| ${seg}`; break; }
+			if (!xo || (each === "" && !xo.sum.includes("XARGS_INPUT"))) { unknown = true; miss = `| ${seg}`; break; }
 			rules.add(xo.rule);
-			outs.push({ sum: `${xo.sum} (each)`, host: xo.host });
+			outs.push({ sum: `${xo.sum.replace("XARGS_INPUT", "the listed files")}${each}`, host: xo.host });
 			continue;
 		}
 		afterPipe = pipeAfter;

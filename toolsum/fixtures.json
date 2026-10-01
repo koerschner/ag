@@ -625,5 +625,475 @@
   "hosts": [
    "ag-mac"
   ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "timeout 2400 client-cua \"$(cat /tmp/ab-swap.md)\" 2>&1"
+  },
+  "sum": "Run computer-use task from /tmp/ab-swap.md",
+  "hosts": [
+   "ag-client"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "timeout 2400 client-cua \"$(cat <<'EOF'\nOn this Mac, in Google Chrome, open https://arcade.school/play and click Start.\nEOF\n)\" 2>&1"
+  },
+  "sum": "Open arcade.school/play and click Start",
+  "hosts": [
+   "ag-client"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "/opt/homebrew/bin/hs -c \"return hs.osascript.applescript([[tell application \\\"Google Chrome\\\" to return count of windows]])\""
+  },
+  "sum": "AppleScript → Google Chrome (via Hammerspoon)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "/opt/homebrew/bin/hs -c \"hs.reload()\" >/dev/null 2>&1"
+  },
+  "sum": "Reload Hammerspoon",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "hs -c 'return tostring(hs.hotkey.assigned({\"ctrl\",\"cmd\"},\"c\"))' 2>&1"
+  },
+  "sum": "Run Lua in Hammerspoon",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "for w in wF wM; do echo \"$w: $(herdr pane process-info --pane $w:p1 2>/dev/null | jq -c .result | head -c 150)\"; done"
+  },
+  "sum": "Inspect pane $w:p1",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/Library/Logs/Roblox && for f in $(ls -t *Player*last.log | head -8); do echo \"$f $(wc -l <$f) join=$(grep -ac 'Joining game' $f) hang=$(grep -ac HangDetected $f)\"; done"
+  },
+  "sum": "Count lines in $f · Search \"Joining game\" in $f · Search \"HangDetected\" in $f",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "curl -s -m 20 -H \"Authorization: Bearer ${!t}\" $B/api/svc/v1/users/me 2>&1"
+  },
+  "sum": "GET $B/api/svc/v1/users/me",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "sed -n \"$(rg -n 'arcadeFetch\\(' lib/domains/help/store.svelte.ts | head -1 | cut -d: -f1),+20p\" lib/domains/help/store.svelte.ts"
+  },
+  "sum": "Read part of lib/domains/help/store.svelte.ts",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "sed -n \"${a},${b}p\" $f"
+  },
+  "sum": "Read part of $f",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "strings ~/.local/bin/moshi-hook"
+  },
+  "sum": "Extract strings from ~/.local/bin/moshi-hook",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "tmux -L ag ls 2>&1"
+  },
+  "sum": "List tmux sessions",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "tmux -L ag capture-pane -p -t Inbox 2>/dev/null"
+  },
+  "sum": "Read tmux pane Inbox",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "timeout 10 ssh -o ConnectTimeout=6 nathan-dev-client true"
+  },
+  "sum": "Check ag-client is reachable",
+  "hosts": [
+   "ag-client"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "for w in w1 w2; do herdr workspace close $w >/dev/null; done"
+  },
+  "sum": "Close workspace $w",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr pane rename $P \"watch #1533\" >/dev/null"
+  },
+  "sum": "Rename pane $P",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr pane layout --pane $P"
+  },
+  "sum": "Inspect layout of pane $P",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr --skill 2>/dev/null"
+  },
+  "sum": "Read the Herdr skill",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr api schema 2>&1"
+  },
+  "sum": "Read Herdr API schema",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr status 2>&1"
+  },
+  "sum": "Check Herdr status",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr workspace close --help 2>&1"
+  },
+  "sum": "Read herdr workspace close help",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cat notes.md | pbcopy"
+  },
+  "sum": "Read notes.md · Copy to clipboard",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "echo hi | ssh ag-mac 'cat > ~/.playcademy-dau-pipeline/RULES.md'"
+  },
+  "sum": "Write ~/.playcademy-dau-pipeline/RULES.md",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "(bun run typecheck > /tmp/gs-typecheck.log 2>&1; echo \"EXIT $?\" >> /tmp/gs-typecheck.log)"
+  },
+  "sum": "Run typecheck",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "(bun install --frozen-lockfile >/dev/null 2>&1)"
+  },
+  "sum": "Install dependencies",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "agrec start 2>&1"
+  },
+  "sum": "Start recording ag-mac's screen",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --headless=new --disable-gpu --window-size=1440,1100 --screenshot=/tmp/devchart.png file:///tmp/devchart.html 2>/dev/null"
+  },
+  "sum": "Screenshot /tmp/devchart.html in headless Chrome → /tmp/devchart.png",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "luac -p hammerspoon/dot-hammerspoon/init.lua 2>&1"
+  },
+  "sum": "Syntax-check hammerspoon/dot-hammerspoon/init.lua",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "moshi-hook --help 2>&1"
+  },
+  "sum": "Read moshi-hook help",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "moshi-hook service install 2>&1"
+  },
+  "sum": "Install the moshi-hook service",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "moshi-hook install --target pi,claude,codex 2>&1"
+  },
+  "sum": "Install moshi-hook for pi,claude,codex",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "git check-ignore -q .env.local"
+  },
+  "sum": "Check if .env.local is git-ignored",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "time ag-messages thread +18283358117 5"
+  },
+  "sum": "Read iMessage thread with +18283358117",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "time ag-messages search \"transfer authorization\" 3"
+  },
+  "sum": "Search iMessages for \"transfer authorization\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "git ls-files | xargs wc -l"
+  },
+  "sum": "List tracked files · Count lines in the listed files",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ls *.jsonl | xargs -I{} sh -c 'grep -l \"PRRT_kw\" {} 2>/dev/null'"
+  },
+  "sum": "List *.jsonl · Search \"PRRT_kw\" in {} (each)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "grep -c \"\" docs/architecture/escalation.md"
+  },
+  "sum": "Count lines in docs/architecture/escalation.md",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "agent-instructions/build"
+  },
+  "sum": "Rebuild AGENTS.md",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "J=\"$(op-shared item get \"Chase Freedom Unlimited\" --vault $V --reveal --format json)\""
+  },
+  "sum": "Read secret \"Chase Freedom Unlimited\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "op --version"
+  },
+  "sum": "Check op version",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "/opt/homebrew/bin/op account list 2>&1"
+  },
+  "sum": "List 1Password accounts (op)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "for id in a b; do op-ag item share $id --vault jj --emails lindsey@x.com --expires-in 30d > /tmp/share-$id.txt 2>&1; done"
+  },
+  "sum": "Share secret $id with lindsey@x.com",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/arcade-escalation && timeout 115 bun run sync docs --yes \"Escalation protocol (SC-9)\" 2>&1 | tail -20"
+  },
+  "sum": "Sync docs",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/arcade-faction-switch && timeout 60 bun scripts/db --help 2>&1 | head -40"
+  },
+  "sum": "Read scripts/db help",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "git branch -m nathanielkoerschner/arc-938-lobby-voice"
+  },
+  "sum": "Rename branch to nathanielkoerschner/arc-938-lobby-voice",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "git branch --show-current"
+  },
+  "sum": "Show current branch",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "tmux -L ag display -p -t Inbox \"#{pane_pid}\""
+  },
+  "sum": "Query tmux",
+  "hosts": [
+   "ag-engine"
+  ]
  }
 ]

@@ -1,6 +1,6 @@
 # tickler: see bin/dot-local/bin/tickler. Session host only.
 [Unit]
-Description=tickler fire
+Description=Fire due tickler items (deferred tasks, wake-ups, waiting-for check-ins)
 
 [Service]
 Type=oneshot

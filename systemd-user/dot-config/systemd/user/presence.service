@@ -1,6 +1,6 @@
 # presence: see bin/dot-local/bin/presence. Session host only.
 [Unit]
-Description=presence poll
+Description=Check whether Nathan is at his Mac (presence poll)
 
 [Service]
 Type=oneshot

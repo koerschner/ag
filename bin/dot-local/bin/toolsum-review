@@ -37,7 +37,7 @@ gaps=$(jq --slurpfile skip <([[ -f $skip ]] && cat $skip || echo '[]') --argjson
 n=$(jq length <<<$gaps)
 echo "coverage ${before}%; $n open gap(s) with ≥ $MIN_GAP calls"
 if (( n == 0 && ! force )); then status true "${before}% of tool calls summarised; no new gaps"; exit 0; fi
-(( dry )) && { echo $gaps | jq -r '.[] | "  \(.calls)  \(.shape)"'; exit 0; }
+(( dry )) && { jq -r '.[] | "  \(.calls)  \(.shape)"' <<<$gaps; exit 0; }
 
 # Fresh worktree off origin/main, so concurrent hand edits in ~/ag never mix in.
 wt=~/ag-routine-toolsum

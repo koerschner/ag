@@ -59,7 +59,11 @@ function* calls(days: number): Generator<Call> {
 }
 
 const shape = (miss: string) => {
-	const w = miss.replace(/^\|\s*/, "| ").trim().split(/\s+/);
+	const w = miss
+		.replace(/^\|\s*/, "| ")
+		.replace(/^((?:\|\s)?)(?:(?:[A-Za-z_]\w*=\S*|timeout\s+(?:-\S+\s+)*\d+\S*|time|nohup|sudo|exec)\s+)+/, "$1")
+		.trim()
+		.split(/\s+/);
 	const head = w[0] === "|" ? `| ${w[1] ?? ""}` : w[0];
 	const sub = w[0] === "|" ? "" : w[1] && /^[a-z][\w-]*$/.test(w[1]) && ["git", "gh", "mac", "herdr", "ag-mux", "bun", "op-ag", "systemctl", "launchctl", "npm", "docker"].includes(w[0]) ? ` ${w[1]}` : "";
 	return (head + sub).slice(0, 60);

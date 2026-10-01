@@ -89,9 +89,10 @@ if (( after < before )); then status false "coverage dropped ${before}% → ${af
 
 git add toolsum
 git commit -q -F - <<EOF
+Claude ($(jq -r .defaultModel ~/.pi/agent/settings.json)), assisting Nathan (toolsum-review routine, session $sid):
+
 toolsum: routine review ${before}% → ${after}% tool calls summarised
 
-Claude ($(jq -r .defaultModel ~/.pi/agent/settings.json)), assisting Nathan (toolsum-review routine, session $sid):
 $(tail -5 $log)
 EOF
 for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && break; sleep 5; done

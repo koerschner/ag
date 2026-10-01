@@ -57,6 +57,7 @@ export function createEditor(parent: HTMLElement, opts: Opts = {}) {
 				submitKeys,
 				history(),
 				drawSelection(),
+				EditorView.lineWrapping, // long lines wrap instead of scrolling sideways
 				keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
 				markdown(),
 				syntaxHighlighting(highlight),

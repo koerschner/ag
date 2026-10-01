@@ -57,6 +57,7 @@ header h1 .brand{height:1.2em;width:auto;flex:0 0 auto}
 .ib{border:0;background:none;color:var(--dim);cursor:pointer;padding:.1rem .3rem;border-radius:5px;font-size:13px;line-height:1}
 .ib:hover{background:#343944;color:var(--fg)}
 .ib.stop{color:#ff8a8a}
+.ib.arch:hover{color:#7ee2a8}
 .chev{transition:transform .15s}
 .card.open .chev{transform:rotate(180deg)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--violet);flex:0 0 8px}
@@ -563,7 +564,7 @@ function cardHtml(c) {
   const cls = ["card", c.hot && "hot", c.throb && "throb", c.waiting?.length && "waiting", c.noWake && "nowake", c.resolved && "resolved", c.focused && "focused", open && "open", sel === c.tab && "sel"].filter(Boolean).join(" ");
   return `<div class="${cls}" data-key="${esc(c.tab)}" data-tab="${esc(c.tab)}" data-s="${esc(c.status)}" draggable="${view === "lists"}">
     <div class="t">${c.needsYou ? '<i class="dot" title="New since you last looked"></i>' : ""}<span class="tt">${esc(c.title)}</span>
-      <span class="qa">${working ? '<button class="ib stop" data-a="stop" title="Interrupt (Esc Esc)">■</button>' : ""}<button class="ib chev" data-a="chev" title="Details">▾</button></span></div>
+      <span class="qa">${working ? '<button class="ib stop" data-a="stop" title="Interrupt (Esc Esc)">■</button>' : ""}<button class="ib arch" data-a="archive" title="Archive (e)" aria-label="Archive">✓</button><button class="ib chev" data-a="chev" title="Details">▾</button></span></div>
     <div class="m"><span>${esc(view === "ws" ? "" : c.workspaceLabel)}</span><span>${esc(c.status)} ${since(c.statusSince)}</span>${c.model ? `<span>${esc(shortModel(c.model))}</span>` : ""}${c.stats?.cost ? `<span>$${c.stats.cost.toFixed(2)}</span>` : ""}</div>
     ${activity(c)}
     ${open ? details(c) : snip ? `<div class="x${working ? " w" : ""}">${esc(snip)}</div>` : ""}

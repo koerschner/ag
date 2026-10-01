@@ -22,7 +22,8 @@ const UI = /\bosascript\b|System Events|\bcliclick\b|\bhs\b[^\n]*\b(eventtap|key
 
 // Text that is data, not code, must not trip the guard: heredoc bodies fed to non-shell commands
 // (`cat > notes.md <<'EOF'` that mentions `client-cua`) and, for the client-cua check, quoted
-// strings (grep patterns, commit messages). Heredocs/strings handed to a shell or ssh stay in.
+// strings (grep patterns, commit messages, test fixtures like `t 'ssh ag-client …'`). Heredocs and
+// strings handed to a shell, `hs -c` or ssh stay in.
 const SHELLISH = /\b(?:ba|z|da)?sh\b|\bssh\b|\beval\b|\bsource\b|\bxargs\b/;
 function stripHeredocs(cmd: string): string {
 	const lines = cmd.split("\n");
@@ -43,7 +44,8 @@ function stripHeredocs(cmd: string): string {
 function stripQuotedData(cmd: string): string {
 	// Placeholder is not a quote: a leftover `''` followed by a space looked like command position,
 	// so `sed -i '' … bin/client-cua` or `grep 'x' …/client-cua` (editing the script) got blocked.
-	return cmd.replace(/(-c\s+|\bssh\b[^'"\n]*)?('[^']*'|"(?:[^"\\]|\\.)*")/g, (all, exec) => (exec ? all : "_"));
+	// Only a shell's (or Hammerspoon's) `-c` runs its string; `grep -c`/`jq -c` patterns are data.
+	return cmd.replace(/(\b(?:(?:ba|z|da)?sh|hs)\s+-\w*c\s+|\bssh\b[^'"\n]*)?('[^']*'|"(?:[^"\\]|\\.)*")/g, (all, exec) => (exec ? all : "_"));
 }
 
 // The session's goal: its first prompt (the task) plus the latest one, if different. The latest alone
@@ -79,7 +81,8 @@ export default function (pi: ExtensionAPI) {
 		const scan = stripHeredocs(command);
 		// A bare `osascript -e 'display notification …'` (the "lock your iPhone" ping) isn't UI control.
 		const notifyOnly = /display notification/.test(command) && !/tell app|System Events|keystroke|click|\bhs\b|cliclick/i.test(command);
-		const kind = CUA.test(stripQuotedData(scan)) ? "cua" : CLIENT.test(scan) && UI.test(scan) && !notifyOnly ? "ssh" : null;
+		const code = stripQuotedData(scan);
+		const kind = CUA.test(code) ? "cua" : CLIENT.test(code) && UI.test(code) && !notifyOnly ? "ssh" : null;
 		if (!kind) return;
 
 		const why = command.match(/CLIENT_CUA_WHY=("([^"]*)"|'([^']*)')/)?.slice(2).find(Boolean) ?? command.match(/--why\s+("([^"]*)"|'([^']*)')/)?.slice(2).find(Boolean) ?? "";

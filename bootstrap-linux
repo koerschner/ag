@@ -163,6 +163,7 @@ systemctl --user enable --now toolsum-review.timer >/dev/null 2>&1 && echo "  to
 ~/.local/bin/ag routine apply 2>&1 | sed 's/^/  routines: /' || warn "ag routine apply"
 systemctl --user enable --now ag-mux.service >/dev/null 2>&1 && echo "  ag-mux (agd, tmux -L ag) on" || warn "ag-mux.service"
 systemctl --user enable --now nessie.service >/dev/null 2>&1 && echo "  nessie (trace sync) on" || warn "nessie.service"
+systemctl --user enable --now ag-telegram.service >/dev/null 2>&1 && echo "  ag-telegram (Telegram replies) on" || warn "ag-telegram.service"
 
 step "Secrets checklist (move by hand or via op; never commit)"
 check() { [[ -e $1 ]] && echo "  ok   $2" || { echo "  TODO $2"; failed+=("secret: $2"); }; }

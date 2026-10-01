@@ -7,6 +7,8 @@
 #      Otherwise (Linux, or a Mac whose Keychain is locked over SSH): ~/.config/ag/telegram
 #      (mode 600), lines `token=…` and `chat=…`. Bot: @nathan_ag_bot; recovery copy in op-shared
 #      item "ag telegram bot".
+#      Each Telegram send is logged with its session ($AG_TEXT_SESSION, else $PI_SESSION_ID) in
+#      ~/.local/state/ag/telegram-sent.jsonl, so ag-telegram can route Nathan's replies back to it.
 #   2. iMessage from the client Mac to Nathan's number (needs the client awake; texts his own
 #      number, so it may arrive silently). $AG_TEXT_CLIENT, default ag-client.
 set -eu
@@ -19,9 +21,15 @@ token= chat=
 if command -v security >/dev/null; then token=$(kc "ag telegram bot"); chat=$(kc "ag telegram chat"); fi
 [ -n "$token" ] && [ -n "$chat" ] || { token=$(tg token); chat=$(tg chat); }
 if [ -n "$token" ] && [ -n "$chat" ]; then
-  curl -fsS -m 15 "https://api.telegram.org/bot$token/sendMessage" \
-    --data-urlencode "chat_id=$chat" --data-urlencode "text=$msg" \
-    -d disable_web_page_preview=true >/dev/null && exit 0
+  if out=$(curl -fsS -m 15 "https://api.telegram.org/bot$token/sendMessage" \
+    --data-urlencode "chat_id=$chat" --data-urlencode "text=$msg" -d disable_web_page_preview=true); then
+    id=$(printf '%s' "$out" | sed -n 's/^{"ok":true,"result":{"message_id":\([0-9]*\).*/\1/p')
+    sess=${AG_TEXT_SESSION:-${PI_SESSION_ID:-}}; sess=${sess##*_}; sess=${sess%.jsonl}
+    mkdir -p ~/.local/state/ag
+    [ -n "$id" ] && printf '{"message_id":%s,"session":"%s","at":%s}\n' "$id" "$sess" "$(date +%s)" \
+      >>~/.local/state/ag/telegram-sent.jsonl
+    exit 0
+  fi
   echo "ag-text: telegram failed, falling back to iMessage" >&2
 fi
 

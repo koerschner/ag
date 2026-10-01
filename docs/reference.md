@@ -339,6 +339,12 @@ Moshi on the iPhone connects to ag over Tailscale and attaches to Herdr.
   QR login screen, Nathan scans it once from his phone (Telegram → Settings → Devices →
   Link Desktop Device). Never drive the client's Telegram or iPhone Mirroring for this.
   Log: `~/.local/state/ag-notify/log.jsonl`.
+- **Telegram follow-ups**: when Nathan replies to an ag text in Telegram, `ag-telegram listen`
+  (`ag-telegram.service`, session host) prompts the session that sent it (`ag-text` logs
+  message id → session in `~/.local/state/ag/telegram-sent.jsonl`); non-replies or unreachable
+  sessions go to the ag inbox. The agent then marks his message: `ag telegram done <id>` (👌,
+  completed) or `ag telegram more <id> "context"` (✍ plus a threaded reply). Bots can't react
+  with ✅/➡️ (Telegram's fixed reaction set). Log: `~/.local/state/ag/telegram-log.jsonl`.
 - **Shortcuts**: the same Herdr shortcuts as the Mac, per
   [`herdr/SHORTCUTS.md`](herdr/SHORTCUTS.md). Moshi forwards Cmd keys to Herdr,
   except Cmd+N/W/O/K/V/1–9, which it keeps for itself; use `Ctrl+B` + key for those.

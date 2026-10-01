@@ -127,7 +127,7 @@ ${last.slice(-3000)}`,
 				const link = run(`${BIN}/session-link`, [sessionFile]);
 				const head = status === "attention" ? "⚠️ Attention needed" : "✅ Done";
 				const msg = `${head} · ${tabLabel()}\n${headline}\n${link}`;
-				execFile(`${BIN}/ag-text`, [msg], { timeout: 60_000 }, (err, _o, stderr) =>
+				execFile(`${BIN}/ag-text`, [msg], { timeout: 60_000, env: { ...process.env, AG_TEXT_SESSION: sessionFile } }, (err, _o, stderr) =>
 					log({ session: sessionFile, status, headline, took, away: isAway, sent: !err, error: err ? String(stderr || err) : undefined }),
 				);
 			} catch (e) {

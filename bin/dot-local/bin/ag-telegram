@@ -7,9 +7,9 @@
   ag telegram listen                        long-poll the bot (ag-telegram.service on the session host)
 
 `ag-text` logs every message it sends with the sending session (~/.local/state/ag/telegram-sent.jsonl).
-When Nathan replies to one in Telegram, `listen` prompts that session (`ag send`); a message that isn't a
-reply, or whose session can't be reached, goes to the ag inbox (which routes it to the right session or
-opens a new one). Either way the prompt carries his message id and asks the agent to finish with
+When Nathan replies to one in Telegram, `listen` prompts that session (`ag send`); if that session can't
+be reached the reply goes to the ag inbox (which routes it to the right session or opens a new one).
+A plain message (not a reply) always opens a new Inbox session (`/prompt?new=1`). Either way the prompt carries his message id and asks the agent to finish with
 `done` or `more`. Telegram only allows a fixed reaction set for bots (no ✅ or ➡️), hence 👌 and ✍.
 Credentials: ~/.config/ag/telegram (token=…, chat=…), else Keychain "ag telegram bot"/"ag telegram chat".
 """
@@ -83,7 +83,8 @@ def handle(msg):
     e = sent_by(orig.get("message_id")) if orig else None
     quoted = (orig.get("text") or "")[:500]
     ctx = f' replying to the ag text "{quoted}"' if quoted else ""
-    prompt = (f"Telegram follow-up from Nathan (Telegram message {mid}){ctx}:\n\n{text}\n\n"
+    kind = "follow-up" if orig else "message"
+    prompt = (f"Telegram {kind} from Nathan (Telegram message {mid}){ctx}:\n\n{text}\n\n"
               f"Handle it. Then mark his Telegram message: if it's completed, run `ag telegram done {mid}` (👌); "
               f"if there's more to it, run `ag telegram more {mid} \"<short context: what's next or what you need>\"` "
               f"(✍ plus a threaded reply).")
@@ -92,9 +93,11 @@ def handle(msg):
         if r.returncode == 0:
             return log(mid=mid, to=e["session"], via="send")
         log(mid=mid, to=e["session"], via="send", error=(r.stderr or r.stdout).strip()[-300:])
-    r = subprocess.run(["curl", "-fsS", "-m", "120", "--data-binary", "@-", "http://ag:7373/prompt"],
+    # Plain message → always a new session; an orphaned reply → let the inbox route it.
+    url = "http://ag:7373/prompt" + ("" if orig else "?new=1")
+    r = subprocess.run(["curl", "-fsS", "-m", "120", "--data-binary", "@-", url],
                        input=prompt, capture_output=True, text=True)
-    log(mid=mid, via="inbox", ok=r.returncode == 0, out=(r.stdout or r.stderr).strip()[-300:])
+    log(mid=mid, via="inbox" if orig else "new", ok=r.returncode == 0, out=(r.stdout or r.stderr).strip()[-300:])
 
 
 def listen():

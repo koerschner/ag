@@ -341,8 +341,9 @@ Moshi on the iPhone connects to ag over Tailscale and attaches to Herdr.
   Log: `~/.local/state/ag-notify/log.jsonl`.
 - **Telegram follow-ups**: when Nathan replies to an ag text in Telegram, `ag-telegram listen`
   (`ag-telegram.service`, session host) prompts the session that sent it (`ag-text` logs
-  message id → session in `~/.local/state/ag/telegram-sent.jsonl`); non-replies or unreachable
-  sessions go to the ag inbox. The agent then marks his message: `ag telegram done <id>` (👌,
+  message id → session in `~/.local/state/ag/telegram-sent.jsonl`); a reply whose session is
+  unreachable goes to the ag inbox (routed). A plain message (not a reply) always opens a new
+  Inbox session (`/prompt?new=1`). The agent then marks his message: `ag telegram done <id>` (👌,
   completed) or `ag telegram more <id> "context"` (✍ plus a threaded reply). Bots can't react
   with ✅/➡️ (Telegram's fixed reaction set). Log: `~/.local/state/ag/telegram-log.jsonl`.
 - **Shortcuts**: the same Herdr shortcuts as the Mac, per

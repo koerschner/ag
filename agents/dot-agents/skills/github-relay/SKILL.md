@@ -1,72 +1,59 @@
 ---
 name: github-relay
-description: How the arcade team's GitHub relay pushes PR events (reviews, approvals, bot findings, CI, conflicts, merge, deploy) to agents, and how Ag agents watch a PR with it and wake up on a tickler instead of polling. Use whenever you open or babysit an arcade.school PR, wait for a review or approval, or need to know when CI, a merge, or the staging deploy finishes.
+description: How arcade PR watching works with the team's GitHub relay (internal/github-relay), which pushes PR events (reviews, approvals, bot findings, CI, conflicts, merge, deploy) to agents instead of polling. Use whenever you open or watch an arcade PR, wait on a review or approval, or want a wake-up when something happens on a PR.
 ---
 
-# GitHub relay: PR events pushed to agents
+# GitHub relay (arcade PR events, pushed)
 
 ## What it is
 
-Donald ("hbauer" on Discord, `handlebauer` on GitHub) built it on 2026-09-28 (ARC-869, PR #1733) and announced it in the Arcade Discord's `#dev` on 2026-09-29. Before, every agent's PR monitor polled GitHub on an interval. Now:
+Donald Geddes (Hbauer) built it (ARC-869, PR #1733, 2026-09-28) and announced it in `#dev` on 2026-09-29. Before it, every agent's PR monitor (`watch-pr.sh`) polled GitHub every 20 s. Now:
 
-1. A GitHub App, `arcade-github-relay` (read-only, installed on `superbuilders/arcade.school`), sends every PR-related webhook (reviews, review comments, threads, check runs, statuses, pushes) to a Cloudflare Worker at `https://github-relay.arcade.playcademy.net`.
-2. The Worker keeps one Durable Object ("room") per PR. On a webhook it re-reads the PR once, turns the snapshot into the same one-line events `watch-pr.sh` prints, logs them with sequence numbers, and streams them to every connected watcher over Server-Sent Events.
-3. A watcher (arcade's `watch-pr.sh`, which runs `internal/github-relay/bin/pr-watch.ts`) connects with the team token and resumes from the last event it saw.
+- GitHub sends a webhook to a Cloudflare Worker at `https://github-relay.arcade.playcademy.net` (staging only, there is no production relay) through a read-only GitHub App, `arcade-github-relay`.
+- One Durable Object per PR re-reads the PR and turns it into the same one-line events `watch-pr.sh` prints, and streams them to every watcher over Server-Sent Events.
+- Events arrive 10-20 s sooner than polling, the watch follows a merged PR until its deploy finishes (`DEPLOYED` / `NOT DEPLOYED`), and it reports `CONFLICT` when `dev` moves and the branch no longer merges. Everything is traced in Honeycomb.
 
-What that buys over polling: events arrive 10-20 s sooner. The watch also keeps going after the merge until the merge commit's staging deploy (`DEPLOYED` / `NOT DEPLOYED`). And an open PR gets `CONFLICT` as soon as `dev` moves underneath it. Everything is instrumented in Honeycomb (PR creation → staging deploy). The relay runs on staging only; there is no production relay. Code and design: `internal/github-relay/AGENTS.md` in arcade.school.
+Source and design: `internal/github-relay/AGENTS.md` in the arcade repo. The watcher script and its event list: `.agents/skills/arcade-resolve-pr-feedback/scripts/watch-pr.sh` (the header comment documents every line).
 
 ## The token
 
-`GH_RELAY_TOKEN` lives in the **arcade local dev credentials** note in 1Password, the arcade.school vault (`op-ag`; vault `jjbrfvemdg4y3prkikxur6thbq`). The watcher reads it from the **main checkout's** `.env.local` (`~/arcade.school/.env.local`), or from the environment. Without it the watcher silently falls back to polling GitHub every 20 s. Check with `grep -c '^GH_RELAY_TOKEN=' ~/arcade.school/.env.local`; if it's missing on a machine, copy it in from 1Password (never print it).
+`GH_RELAY_TOKEN` in the main checkout's `.env.local` (`~/arcade.school/.env.local` on ag-engine and ag-mac; worktrees find it through the shared git dir). Source of truth: the "arcade local dev credentials" note in the arcade.school 1Password vault (`op-ag`). Without it the watcher silently falls back to polling. Never print it.
 
-## Watching a PR (Ag)
+## Watching a PR
 
-Use the `pr-watch` helper (ag repo, `bin/`):
+Normal path (polls if the relay is unreachable, retries the relay every minute):
 
 ```bash
-pr-watch 1777            # or a PR URL; second arg = repo checkout (default ~/arcade.school)
+cd <arcade worktree on a recent dev>
+nohup bash .agents/skills/arcade-resolve-pr-feedback/scripts/watch-pr.sh <pr> > /tmp/watch<pr>.log 2>&1 &
 ```
 
-It extracts **dev's** copy of `watch-pr.sh` and the relay client fresh from `origin/dev` (so a stale or detached main checkout still gets the relay), stops any older watcher for that PR, starts the new one in the background, and logs to `/tmp/watch-pr-<n>.log`. It also prints a ready-made tickler check. Running `bash .agents/skills/arcade-resolve-pr-feedback/scripts/watch-pr.sh <n>` from an up-to-date arcade checkout does the same in the foreground (its `.agents/lib/from-dev.sh` re-runs dev's copy). The repo's `arcade-create-pull-request` and `arcade-resolve-pr-feedback` skills say to start one monitor per PR. On Ag, start it with `pr-watch` and wait on a tickler (below), instead of a long-lived foreground monitor.
+Gotcha: `watch-pr.sh` re-runs dev's copy of itself (`.agents/lib/from-dev.sh`), but a checkout too old to have the relay code (before 2026-09-28) never streams. Run it from a worktree based on current `dev`, or call the relay client directly:
 
-### The event lines
-
-| Line | Meaning |
-| --- | --- |
-| `HEAD <sha>` | a new commit was pushed |
-| `FINDING <bot> <where>: <title> <thread-id>` | a new open review finding (Greptile, Cursor Bugbot, Qodo) |
-| `REVIEWED <bot> <sha>: <note>` | a review bot finished the head |
-| `BOTS DONE <sha>: <n> open` | every required bot reviewed the head |
-| `NOTE <author>: …` | a person's (or the fast lane app's) top-level comment or review body |
-| `REPLY <who> <where>: …` | someone replied in a thread after its last answer |
-| `APPROVED <person> <sha>` | a person approved that commit |
-| `CHANGES REQUESTED <sha>` | a reviewer requested changes (blocks READY) |
-| `CONFLICT <sha>` | the head no longer merges into `dev`: merge `dev` in |
-| `CHECK FAILED <sha> <check>` / `CHECKS <sha> passed\|failed` | CI results |
-| `REVIEW <sha> <words>` / `NOTICE <title>` | the fast lane's `pr-review` gate changed, or asks a person to act |
-| `READY <sha>` | bots done, nothing open, CI green, no conflict; its note says what the merge still waits on (an approval) |
-| `MERGED <sha>` → `DEPLOYED` / `NOT DEPLOYED` | merged, then the staging deploy outcome; the watch ends |
-
-`fetch-feedback.sh <pr>` (same skill folder) prints the full text of every open finding.
-
-## Waiting on a PR without holding the turn
-
-Never sit in a long foreground monitor or `sleep` loop. Start `pr-watch`, then schedule a tickler wake-up whose `check` greps the log from the current head, and end the turn:
-
-```text
-tickler schedule  when: "check"
-  check: awk '/^HEAD <sha>/{f=1} f' /tmp/watch-pr-<n>.log | grep -vE '^(NOTE arcade-mechanic|REPLY (cursor|greptile|qodo))' | grep -qE '^(APPROVED|CHANGES REQUESTED|NOTE|REPLY|FINDING|CHECK FAILED|CHECKS .*failed|CONFLICT|READY|MERGED|CLOSED)'
-  expires: a week out
+```bash
+cd ~/arcade.school
+GH_RELAY_URL=https://github-relay.arcade.playcademy.net \
+GH_RELAY_TOKEN="$(sed -n 's/^GH_RELAY_TOKEN=//p' .env.local | tr -d "\"'")" \
+nohup bun <dev-checkout>/internal/github-relay/bin/pr-watch.ts superbuilders/arcade.school <pr> > /tmp/watch<pr>.log 2>&1 &
 ```
 
-- Anchor on the current `HEAD <sha>` line, so events you already handled don't fire it again. After each push, reschedule from the new head.
-- Don't pass `needsNathan` when you're waiting on a teammate's review or approval: the card then sits in AG Dash's **Waiting for** column. Use `needsNathan: true` only when Nathan himself must act.
-- The check is POSIX `sh` (no `<(…)`), and runs every minute without a model.
-- When it fires: read the log from that head, handle the event (fix findings, reply in threads with the AI attribution line, merge on approval), and reschedule if you're still waiting.
+It prints lines like `HEAD`, `FINDING`, `REPLY`, `NOTE`, `APPROVED <person> <sha>`, `CHANGES REQUESTED`, `REVIEWED <bot>`, `BOTS DONE`, `CHECKS ... passed|failed`, `CONFLICT`, `READY`, `REVIEW <sha> <words>` (the `pr-review` fast-lane gate), `MERGED`, `DEPLOYED`. `fetch-feedback.sh <pr>` gives a finding's full text.
 
-## Gotchas
+## Waiting on a review (Waiting for column)
 
-- **Approval gate:** PRs touching protected paths (migrations, etc.) get the fast lane's `pr-review` status "Needs a human: waiting for approval". It needs an approving review from someone **other than the author**; GitHub won't let Nathan approve his own PR. Ask him who should review; don't request reviewers yourself unless he says so.
-- **Killing a watcher:** `pkill -f "watch-pr.sh <n>"` also matches the shell running that command and kills your own tool call. Loop over `pgrep` and skip `$$` (as `pr-watch` does).
-- **Stale checkout = polling:** a main checkout from before 2026-09-28 has no relay client and no `from-dev.sh`, so its `watch-pr.sh` only polls. `pr-watch` avoids that by always running dev's copy.
-- **Migration races:** `dev` moves fast. On `CONFLICT` involving `apps/arcade/migrations`, take `dev`'s `meta/` files, delete your migration, and regenerate it on top (`bunx drizzle-kit generate --name <name>` in `apps/arcade`). Then recreate that PR's preview database (`bun scripts/db preview create --stage pr-<n>`), because the preview already applied the old numbering.
+Don't hold a turn open. Schedule a tickler `when: "check"` wake-up that greps the log from the current head, ignoring the bots' own noise, so the session sits in AG Dash's Waiting for and resumes when something real happens:
+
+```bash
+H=$(gh pr view <pr> -R superbuilders/arcade.school --json headRefOid -q '.headRefOid[0:9]')
+awk -v h="HEAD $H" '$0==h{f=1} f' /tmp/watch<pr>.log \
+  | grep -vE '^(NOTE arcade-mechanic|REPLY (cursor|greptile|qodo))' \
+  | grep -qE '^(APPROVED|CHANGES REQUESTED|NOTE|REPLY|FINDING|CHECK FAILED|CHECKS .*failed|CONFLICT|MERGED|CLOSED)'
+```
+
+Leave `needsNathan` off unless the thing you wait for is Nathan himself. When it fires: handle it, then schedule the next one from the new head. Exclude thread ids you already answered if a bot's reply to you would retrigger it.
+
+## Notes
+
+- A PR that adds migrations or touches protected paths gets `pr-review: Needs a human: waiting for approval`; only an approval from someone other than the author clears it.
+- `CONFLICT` on a migration PR: merge `origin/dev`, take dev's `migrations/meta`, delete your migration, regenerate it on top (`bunx drizzle-kit generate --name ...` in `apps/arcade`), and recreate the preview DB (`bun scripts/db preview create --stage pr-<n>`).
+- Ask Donald (Hbauer, `hbauer` on Discord) about relay bugs; fixes land in `internal/github-relay` with parity tests against the jq scripts.

@@ -42,7 +42,7 @@
       "auth": {
         "type": "oauth"
       },
-      "lifecycle": "eager"
+      "lifecycle": "lazy"
     },
     "slack_alpha": {
       "transport": "streamable-http",

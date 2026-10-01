@@ -1136,7 +1136,8 @@ async function handle(req: Request): Promise<Response> {
 			if (p === "/api/transcript") {
 				const sid = url.searchParams.get("sid");
 				const file = sid ? await fileForSid(sid) : board.cards.find((c) => c.tab === url.searchParams.get("tab"))?.sessionFile;
-				if (!file) return Response.json([]);
+				// No file yet (or gone): an empty transcript, never an error the drawer would hang on.
+				if (!file || !existsSync(file)) return Response.json([]);
 				return jsonRes(req, transcript(file, sid ? `sid=${sid}` : `tab=${encodeURIComponent(url.searchParams.get("tab")!)}`));
 			}
 			const sp = p.match(/^\/api\/session\/([0-9a-f-]{36})$/)?.[1];

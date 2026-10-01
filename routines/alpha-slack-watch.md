@@ -15,7 +15,7 @@ asked to be connected to "the Superbuilders who built an arcade"; Nathan only he
 Use the `mcp_slack_alpha_*` tools (workspace go-alpha.slack.com; Nathan is U0BEES3UT3P). Read-only: never post,
 react, join channels, or mark anything read.
 
-1. Search messages from the last 2 days (`filter_date_after` = yesterday's date) for each of: Minecraft, Roblox,
+1. Search messages from the last 4 days (`filter_date_after` = 4 days ago, so Monday's run covers the weekend; seen.txt dedups the overlap) for each of: Minecraft, Roblox,
    arcade, "arcade.school", Playcademy, superbuilders, "game time", "motivational model", gaming, "video games",
    "social platform", socialize, Timeback games. Exclude the channels Nathan already lives in by adding
    `-in:#arcade2026825 -in:#tsa-online-guides -in:#sms-bot-escalations -in:#ask-tessa` to the query, and skip

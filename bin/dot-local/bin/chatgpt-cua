@@ -16,6 +16,7 @@
 # CUA_URGENT=1 jumps the queue and pauses a running non-urgent job (it resumes afterwards).
 set -euo pipefail
 if [[ ${1:-} == (--status|--list) ]]; then exec ${0:A:h}/cua-queue list; fi
+if [[ ${1:-} == (-h|--help) ]]; then sed -n '2,20p' ${0:A}; exit 0; fi
 # Computer use happens on ag-mac (the extremity); from anywhere else, hand the task over with `mac cua`.
 if [[ $OSTYPE != darwin* ]]; then
   task=${*:-$(cat)}

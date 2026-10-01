@@ -27,6 +27,7 @@ case $cmd in
   cua)
     [[ $# -ge 1 ]] || { echo 'usage: mac cua "<task>" | --status' >&2; exit 2; }
     if [[ $1 == --status || $1 == --list ]]; then ssh_ 'cua-queue list'; exit; fi
+    if [[ $1 == -h || $1 == --help ]]; then sed -n '2,15p' "$0"; exit 0; fi
     # Queued on ag-mac (cua-queue). The task travels base64-encoded so quoting can't mangle it.
     id=${CUA_JOB_ID:-$(date +%Y%m%d-%H%M%S)-$(hostname -s)-$$}
     caller=${CUA_CALLER:-$(hostname -s) pid $PPID}

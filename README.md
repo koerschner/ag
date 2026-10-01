@@ -606,6 +606,16 @@ Nathan sits at a client machine; agents run on a host (ag). Every machine stows 
   silently (SSH dropped) abandons its job if it hadn't started, while a started job finishes and stays
   attachable. Jobs whose runner died are marked `lost` so they never block the queue. Pi's tool labels
   jobs with the session name and its AG Dash link (`CUA_CALLER`) and picks the id (`CUA_JOB_ID`).
+  **Urgent jobs** (`chatgpt_cua` `urgent: true`, `CUA_URGENT=1`, `cua-queue run --urgent`) go ahead of
+  every non-urgent job and preempt a running one: the queue stops its codex, the inner `chatgpt-cua`
+  exits 75 without cleaning up, and the job becomes `paused` with its codex session id saved (from the
+  log's `session id:` line). After the urgent job, the paused job resumes first with
+  `codex exec resume <session>` (told the screen may have changed), against its original cleanup
+  snapshot (kept in the job dir). Urgent jobs never preempt each other. AG Dash shows the queue in its
+  header (a `CUA` pill; click for running/paused/queued jobs and recent results, with links to the
+  calling sessions) next to an `engine mem` pill (ag-engine's `/proc/meminfo` used % and memory PSI;
+  amber at ≥85% or ≥10% stall, red at ≥95% or any sustained full stall). The board reads
+  `ssh ag-mac cua-queue json` every 5 s.
 - **Client desktop automation**: `client-cua --why "<reason>" "<task>"` runs Codex computer use on the
   client's GUI session (via `launchctl submit`; plain ssh can't see the screen). It's an antipattern,
   so it's gated: `client-cua-gate` asks Jev (TrueFoundry, `TFY_TOKEN`) whether the thing exists only

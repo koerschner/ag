@@ -180,13 +180,28 @@ Intentionally not tracked in git:
 
 ## Routines
 
-A **routine** is a recurring job Ag runs on its own, on a schedule, without anyone asking (as opposed to a
-tickler item, which wakes one session once). On the session host each routine is a systemd user timer in
-`systemd-user/` (`<name>.timer` + `<name>.service`, enabled in `bootstrap-linux`); on ag-mac it's a LaunchAgent
-with `StartInterval`/`StartCalendarInterval` in `macos-launchagents/` (put a one-line `<!-- … -->` description in
-the plist). AG Dash → **Routines** lists them all. A routine reports what its last run did by writing
-`~/.local/state/routines/<name>.json` (`{at, ok, summary, session?}`; `session` is a Pi session id, linked from
-the card).
+A **routine** is an ag job that repeats on its own, without anyone asking (as opposed to a tickler item, which
+wakes one session once). Modeled on [Claude Code routines](https://code.claude.com/docs/en/routines): a saved,
+self-contained prompt (or an `ag` command) plus triggers, where each run is a fresh, unattended session.
+
+- **Define** one per file in `routines/<name>.md`: front matter `description`, `schedule` (`hourly`,
+  `daily HH:MM`, `weekdays HH:MM`, `weekly Mon[,Thu] HH:MM`, `every 30min`, or `calendar <OnCalendar>`; Central
+  time), `kind` (`prompt`, default, or `command` with `command:`), `cwd`, `model`, `timeout`, `enabled`; the body
+  is the prompt. `ag routine new <name> --schedule … < prompt.md` scaffolds one. Commit it.
+- **Schedule:** `ag routine apply` writes `<name>.timer`/`.service` into `~/.config/systemd/user` on the session
+  host (marked generated; removed when the definition goes); `bootstrap-linux` runs it.
+- **Triggers:** the schedule; Run now (`ag routine run <name>`, or AG Dash → Routines); fire with run-specific
+  text (`ag routine fire <name> --text …`), delivered in a `<routine-fire-payload>` block marked untrusted, so a
+  prompt must opt in to acting on it (Claude's API-trigger rule). One-off "later" jobs go to the tickler.
+- **Runs:** prompt routines run `pi -p` as a new session named `Routine: <name> <date>` (open it from the AG
+  Dash card) with a preamble (unattended, AGENTS.md applies, spin out an Inbox session if Nathan is needed, end
+  with `RESULT: ok|fail — summary`). Each run writes `~/.local/state/routines/<name>.json`
+  (`{at, ok, summary, session?}`) and appends `<name>/runs.jsonl`; one run at a time per routine.
+- **Inspect:** `ag routine list | show <name> | log <name>`.
+
+Older routines are hand-written systemd timers in `systemd-user/` or ag-mac LaunchAgents with
+`StartInterval`/`StartCalendarInterval` in `macos-launchagents/` (one-line `<!-- … -->` description in the
+plist); they write the same state file. AG Dash → **Routines** lists all of them.
 
 | routine | where | what |
 |---|---|---|
@@ -194,6 +209,7 @@ the card).
 | `presence` | engine, every 30 s | is Nathan at his Mac |
 | `pi-sessions-sync` | engine, hourly | archives Pi sessions to GitHub |
 | `toolsum-review` | engine, daily 9am Central | extends AG Dash's tool-call summary rules (`toolsum/README.md`) |
+| `ag-cli-usage` | engine, Mondays 9:07 Central (`routines/`) | audits `ag` CLI adoption vs hand-rolled equivalents (`ag usage`), writes `docs/ag-cli-usage.md`, spins out one fix |
 | `mem-watch`, `nessie`, `chrome-tab-reaper` | ag-mac | memory alerts, Nessie trace sync, closing stale Chrome tabs |
 
 ## Nessie (agent-trace sync)

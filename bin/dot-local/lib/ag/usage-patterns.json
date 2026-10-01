@@ -1,0 +1,23 @@
+[
+  {"id": "self-lookup", "verb": "me", "re": "(herdr|ag-mux) pane list.*(agent_session|PI_SESSION_FILE)", "what": "find my own pane/tab from pane list + jq"},
+  {"id": "stale-self-env", "verb": "me", "re": "\\$\\{?HERDR_(TAB|PANE)_ID", "what": "trust $HERDR_TAB_ID/$HERDR_PANE_ID (stale after filing)"},
+  {"id": "tab-by-label", "verb": "ls", "re": "(herdr|ag-mux) tab list[^|\\n]*\\|[^\\n]*\\.label", "what": "find a tab by label with tab list + jq"},
+  {"id": "board-state", "verb": "ls", "re": ":7376/api/state", "what": "read AG Dash state with curl + jq"},
+  {"id": "find-session-grep", "verb": "find", "re": "grep -l\\w* [^|\\n]*(\\.pi/agent/sessions|\\.jsonl)", "what": "grep -l over session files to find a session"},
+  {"id": "transcript-jq", "verb": "read", "re": "(\\.pi/agent/sessions|\\.jsonl|api/transcript)[\\s\\S]*(message\\.role|\\.role ?==)|(message\\.role|\\.role ?==)[\\s\\S]*(\\.pi/agent/sessions|\\.jsonl)", "what": "pull user/assistant text out of a transcript"},
+  {"id": "pane-read", "verb": "peek", "re": "(herdr|ag-mux) pane read", "what": "read another session's screen"},
+  {"id": "inbox-curl", "verb": "spawn", "re": ":7373/prompt", "what": "spin out via curl to the ag inbox"},
+  {"id": "report-back", "verb": "report", "re": "Report from split-out", "what": "hand-built report back to the originating session"},
+  {"id": "agent-prompt", "verb": "send", "re": "(herdr|ag-mux) agent prompt", "what": "prompt another session via agent prompt"},
+  {"id": "merge-jsonl", "verb": "merge", "re": "merged-into", "what": "hand-built merged-into / session_info JSONL"},
+  {"id": "card-curl", "verb": "hot/wait", "re": ":7376/api/card", "what": "hotpath / waiting via POST /api/card"},
+  {"id": "tab-close", "verb": "close", "re": "(herdr|ag-mux) tab close", "what": "close a tab"},
+  {"id": "tab-move", "verb": "file", "re": "(herdr|ag-mux) (tab|pane) move", "what": "file a tab into a workspace"},
+  {"id": "tab-rename", "verb": "rename", "re": "(herdr|ag-mux) tab rename", "what": "rename a tab"},
+  {"id": "tab-create-start", "verb": "spawn", "re": "(herdr|ag-mux) agent start", "what": "tab create + agent start by hand"},
+  {"id": "manual-sync", "verb": "sync", "re": "ssh (-\\S+ )*(ag-mac|ag-client|ag-engine)[^\\n]*git (pull|-C)", "what": "pull/restow ag or dotfiles on each machine by hand"},
+  {"id": "agents-build", "verb": "sync", "re": "agents\\.md/build", "what": "rebuild AGENTS.md by hand"},
+  {"id": "service-ctl", "verb": "status/logs/restart", "re": "systemctl --user (status|restart|start|stop)|launchctl (kickstart|list|print|bootout|bootstrap)", "what": "check or restart an Ag service by hand"},
+  {"id": "service-logs", "verb": "logs", "re": "journalctl --user|\\.local/state/[^ ]*\\.log", "what": "read an Ag service log by hand"},
+  {"id": "routine-state", "verb": "routine", "re": "state/routines/|systemctl --user list-timers", "what": "inspect routines by hand"}
+]

@@ -77,3 +77,11 @@ forward to the existing commands, which keep their names.
   its API, keyed by session id rather than tab (tabs change when the Inbox auto-filer moves them).
 - After it lands, replace the jq recipes in AGENTS.md ("Split out", "Merge", Herdr helper sections, the
   dotfiles-change sync steps) with the `ag` commands, and add `ag` to toolsum so AG Dash summarizes it.
+
+## Status
+
+- 2026-10-01: `ag` is a dispatcher (`ag` alone still attaches; `ag <verb>` runs `~/.local/lib/ag/<verb>`, else
+  an `ag-<verb>` tool; `ag help`). Built: `ag routine` (routines, README → "Routines") and `ag usage`
+  (adoption meter; patterns in `bin/dot-local/lib/ag/usage-patterns.json`). Baseline adoption, 7 days: 0.6%
+  (16 `ag` calls vs 2,491 hand-rolled). The weekly `ag-cli-usage` routine tracks it in `docs/ag-cli-usage.md`.
+  The session and system verbs are being built in a split-out session ("ag CLI Build").

@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+"""ag usage — measure how agents use the ag CLI, from every Pi session's tool calls (docs/ag-cli.md).
+
+Counts, over the window: each `ag <verb>` call (calls, sessions, error rate from its tool result), and every
+hand-rolled equivalent from usage-patterns.json (the same job done with ag-mux/herdr + jq, curl to AG Dash or
+the inbox, jq over transcripts, per-machine ssh …) with the ag verb that covers or should cover it. Stdlib only.
+The weekly `ag-cli-usage` routine (~/ag/routines/ag-cli-usage.md) runs it.
+
+    ag usage [--days 7] [--json] [--examples 3]
+"""
+
+import json
+import os
+import re
+import sys
+import time
+from collections import Counter, defaultdict
+from pathlib import Path
+
+HERE = Path(os.path.realpath(__file__)).parent
+SESSIONS = Path.home() / ".pi/agent/sessions"
+# `ag <verb>` in command position (line start, after ; && || | $( or `), outside heredoc bodies.
+AG_CALL = re.compile(r"(?:^|[;&|(`]|\$\()\s*(?:\w+=\S+\s+)*(?:~/\.local/bin/)?ag\s+([a-z][a-z-]*)", re.M)
+HEREDOC = re.compile(r"<<-?\s*['\"]?(\w+)['\"]?[^\n]*\n.*?\n\s*\1\s*$", re.S | re.M)
+
+
+def known_verbs():
+    vs = {p.name for p in HERE.iterdir() if p.is_file() and os.access(p, os.X_OK)}
+    for d in os.environ.get("PATH", "").split(":"):
+        try:
+            vs |= {f[3:] for f in os.listdir(d) if f.startswith("ag-")}
+        except OSError:
+            pass
+    return vs - {"attach"}
+ERR = re.compile(r'"error"|agent_not_found|No such file|not found|command not found|^empty|Traceback', re.M)
+
+
+def main(argv):
+    days, as_json, nex = 7, False, 3
+    it = iter(argv)
+    for a in it:
+        if a == "--days":
+            days = float(next(it))
+        elif a == "--json":
+            as_json = True
+        elif a == "--examples":
+            nex = int(next(it))
+        elif a in ("-h", "--help"):
+            print(__doc__)
+            return 0
+    pats = json.loads((HERE / "usage-patterns.json").read_text())
+    rx = [(p, re.compile(p["re"])) for p in pats]
+    known = known_verbs()
+    since = time.time() - days * 86400
+    since_iso = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(since))
+
+    verbs, vsess, verr = Counter(), defaultdict(set), Counter()
+    hand, hsess, herr, hex_ = Counter(), defaultdict(set), Counter(), defaultdict(list)
+    sessions = calls = 0
+    for f in SESSIONS.glob("*/*.jsonl"):
+        try:
+            if f.stat().st_mtime < since:
+                continue
+        except OSError:
+            continue
+        pending, seen = {}, False
+        for line in open(f, errors="ignore"):
+            if '"toolCall"' not in line and '"toolResult"' not in line:
+                continue
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if (e.get("timestamp") or "") < since_iso:
+                continue
+            m = e.get("message") or {}
+            if m.get("role") == "assistant":
+                for c in m.get("content") or []:
+                    if isinstance(c, dict) and c.get("type") == "toolCall" and c.get("name") == "bash":
+                        cmd = (c.get("arguments") or {}).get("command") or ""
+                        seen, calls = True, calls + 1
+                        hits = sorted({v for v in AG_CALL.findall(HEREDOC.sub("", cmd)) if v in known})
+                        pids = [p["id"] for p, r in rx if r.search(cmd)]
+                        for v in hits:
+                            verbs[v] += 1
+                            vsess[v].add(f.name)
+                        for p in pids:
+                            hand[p] += 1
+                            hsess[p].add(f.name)
+                            if len(hex_[p]) < nex:
+                                hex_[p].append(cmd.strip().replace("\n", " ⏎ ")[:220])
+                        if hits or pids:
+                            pending[c.get("id")] = (hits, pids)
+            elif m.get("role") == "toolResult" and m.get("toolCallId") in pending:
+                hits, pids = pending.pop(m["toolCallId"])
+                txt = " ".join(x.get("text", "") for x in m.get("content") or [] if isinstance(x, dict))[:3000]
+                if m.get("isError") or ERR.search(txt):
+                    for v in hits:
+                        verr[v] += 1
+                    for p in pids:
+                        herr[p] += 1
+        sessions += seen
+
+    report = {
+        "days": days,
+        "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "sessions": sessions,
+        "bash_calls": calls,
+        "ag_calls": sum(verbs.values()),
+        "hand_rolled_calls": sum(hand.values()),
+        "verbs": [{"verb": v, "calls": n, "sessions": len(vsess[v]), "errors": verr[v]} for v, n in verbs.most_common()],
+        "hand_rolled": [
+            {"id": p["id"], "verb": p["verb"], "what": p["what"], "calls": hand[p["id"]], "sessions": len(hsess[p["id"]]), "errors": herr[p["id"]], "examples": hex_[p["id"]]}
+            for p in sorted(pats, key=lambda p: -hand[p["id"]])
+            if hand[p["id"]]
+        ],
+    }
+    tot = report["ag_calls"] + report["hand_rolled_calls"]
+    report["adoption_pct"] = round(100 * report["ag_calls"] / tot, 1) if tot else 0.0
+    if as_json:
+        print(json.dumps(report, indent=1))
+        return 0
+    print(f"last {days:g} days: {sessions} sessions, {calls} bash calls")
+    print(f"ag CLI calls {report['ag_calls']} vs hand-rolled equivalents {report['hand_rolled_calls']} → adoption {report['adoption_pct']}%\n")
+    print("ag verbs:" if report["verbs"] else "ag verbs: none used yet")
+    for v in report["verbs"]:
+        print(f"  {v['calls']:5} calls {v['sessions']:4} sessions  err {v['errors']:3}  ag {v['verb']}")
+    print("\nhand-rolled (→ ag verb that covers it):")
+    for h in report["hand_rolled"]:
+        print(f"  {h['calls']:5} calls {h['sessions']:4} sessions  err {h['errors']:3}  {h['what']}  → ag {h['verb']}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

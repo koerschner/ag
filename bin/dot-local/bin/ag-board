@@ -39,7 +39,9 @@
 // back in its editor. Interrupt & send = interrupt, wait until ready, clear the editor (Ctrl+U), then send.
 // Telemetry: the page sends one POST /api/click {name, view} per control click (sendBeacon); it's appended to
 // ~/.local/state/ag-board/clicks.jsonl. GET /api/stats?days=N ranks controls by clicks (`ag-dash-stats` prints it).
-// New item routing: POST /api/new asks Jev whether the text is looking for an existing session; if so it answers
+// New item routing: POST /api/new asks Jev what the text is for. Housekeeping on sessions (hotpath, close, file,
+// gather …) → a short-lived session in the Meta workspace ({kind:"meta"}; it closes itself 10 min after DONE).
+// Looking for an existing session → it answers
 // {kind:"find"} and the page calls POST /api/search {q} → `ag search --json` (an LLM picks the matching sessions)
 // and shows them as cards, with "Start a new session instead" (route=new skips the check).
 // API: GET /api/state, /api/transcript?tab=, /api/screen?tab=, /api/stats?days=
@@ -857,6 +859,7 @@ async function poll() {
 		page = statSync(realpathSync(PAGE)).mtimeMs;
 	} catch {}
 	board = { cards, lists: state.lists, workspaces: snap.workspaces.map((w: any) => ({ id: w.workspace_id, label: w.label })), page, sys: { mem: readMem(), cua } };
+	expireMeta(cards, now);
 	const json = JSON.stringify(board);
 	if (json !== boardJson) {
 		boardJson = json;
@@ -913,12 +916,14 @@ async function saveUpload(f: File): Promise<string> {
 }
 // New item: handed to the ag inbox (?new=1: always a new session in Inbox; it names the tab). With a recording
 // the inbox answers at once and transcribes in the background; text alone waits until pi has it and returns the tab.
-// What the New item box is for, by Jev (~250 ms): find an existing session, or work for an agent (new or a
-// follow-up; the inbox tells those apart). Tested on ~12 phrasings: "where's the session about X", "the roblox
-// launch triage one", "what was that thing about kids betting" → find at 0.9+; tasks, research and
-// "any update on X?" → new/follow. A bare topic word ("factions") leans new. Any error → "new".
+// What the New item box is for, by Jev (~250 ms): find an existing session, housekeeping on sessions (meta), or
+// work for an agent (new or a follow-up; the inbox tells those apart). Tested on ~20 phrasings, all routed right:
+// "where's the session about X", "the roblox launch triage one" → find; "mark the roblox ones hotpath", "close
+// all the fix ag access tabs", "pull up all the faction sessions", "what's waiting on me", "merge …", "move … into
+// Dev Setup" → meta; tasks and research → new; "any update on X?" → follow. A bare topic word leans new.
+// Any error → "new".
 const JEV_URL = "https://tfy.promptlens.trilogy.com/proxy-api/jev-account/jev-endpoint/v1/systemone";
-async function newIntent(text: string): Promise<"find" | "new"> {
+async function newIntent(text: string): Promise<"find" | "meta" | "new"> {
 	try {
 		const res = await fetch(JEV_URL, {
 			method: "POST",
@@ -931,7 +936,8 @@ async function newIntent(text: string): Promise<"find" | "new"> {
 						type: "choice",
 						instructions: "Nathan typed `message` into the New item box of his AI agent dashboard, where every card is an agent session (a task or conversation). What does he want?",
 						criteria: {
-							find: "He wants to locate and open an existing session or card: where is it, which one was it, pull up / show me / open the session about X, or just a short phrase naming a past topic or session (e.g. 'the roblox launch triage one', 'that thing about kids betting'). He wants it surfaced, not new work done.",
+							find: "He wants to locate and open one existing session or card: where is it, which one was it, show me / open the session about X, or just a short phrase naming a past topic or session (e.g. 'the roblox launch triage one', 'that thing about kids betting'). He wants it surfaced, not new work done.",
+							meta: "Housekeeping on his sessions or the dashboard itself, not real work: mark or unmark sessions hotpath, close/archive, rename, move or file them to a workspace, mark waiting, merge sessions, pull up or gather several sessions (e.g. 'all the roblox ones'), or list which sessions need him or are stuck.",
 							follow: "He asks for a status update on, or adds information or instructions to, work that is already going (e.g. 'any update on X?', 'also make X do Y', 'X is fixed now'). An agent should continue that work.",
 							new: "He asks an agent to do a new task, research something, or answer a question: start new work.",
 						},
@@ -941,10 +947,51 @@ async function newIntent(text: string): Promise<"find" | "new"> {
 			signal: AbortSignal.timeout(10_000),
 		});
 		if (!res.ok) throw new Error(`jev ${res.status}: ${await res.text()}`);
-		return (await res.json()).answers.intent.choice === "find" ? "find" : "new";
+		const c = (await res.json()).answers.intent.choice;
+		return c === "find" || c === "meta" ? c : "new";
 	} catch (e) {
 		console.error(new Date().toISOString(), "new item routing failed", e);
 		return "new";
+	}
+}
+// Meta: housekeeping requests ("mark the roblox ones hotpath", "close the TSA sessions") get a short-lived session
+// in the Meta workspace, done with the `ag` CLI. Meta cards hang around briefly: META_KEEP_MS after one finishes
+// (its answer ends with DONE) it closes itself, unless it's hotpath, waiting, or focused in tmux.
+const META_WS = "Meta";
+const META_KEEP_MS = 10 * 60_000;
+const metaClosing = new Set<string>();
+async function metaItem(text: string): Promise<string> {
+	const json = (r: { code: number; out: string; err: string }, what: string) => {
+		if (r.code !== 0) throw new Error(r.err.trim() || `${what} failed`);
+		return r.out.trim() ? JSON.parse(r.out).result : null;
+	};
+	const label = oneLine(text, 40);
+	const ws = json(await mux("workspace", "list"), "workspace list").workspaces.find((w: any) => w.label === META_WS)?.workspace_id;
+	// A new workspace comes with a tab; use it rather than leaving an empty shell beside the session.
+	const t = ws
+		? json(await mux("tab", "create", "--workspace", ws, "--cwd", HOME, "--label", label, "--no-focus"), "tab create")
+		: json(await mux("workspace", "create", "--cwd", HOME, "--label", META_WS, "--no-focus"), "workspace create");
+	const tab = t.tab.tab_id, pane = t.root_pane.pane_id;
+	if (!ws) await mux("tab", "rename", tab, label);
+	const prompt = `[Meta] From AG Dash's New item box, Nathan asked for housekeeping on his sessions or the dashboard:\n\n${text}\n\n---\nDo it with the \`ag\` CLI (\`ag help\`: ls, find, search, hot, close, rename, file, wait/unwait, merge, link, send, peek, read). This isn't real work: don't start tasks inside other sessions beyond what he asked. Be quick. Reply in a line or two with what you did and the AG Dash links (\`ag link\`), then DONE. This tab lives in the ${META_WS} workspace and closes itself ${META_KEEP_MS / 60_000} minutes after you finish; if you need his answer, ask and leave off DONE.`;
+	try {
+		json(await mux("agent", "start", `meta-${crypto.randomUUID().slice(0, 6)}`, "--kind", "pi", "--pane", pane, "--timeout", "30000"), "agent start");
+		json(await mux("agent", "prompt", pane, prompt), "agent prompt");
+	} catch (e) {
+		await mux("tab", "close", tab);
+		throw e;
+	}
+	return tab;
+}
+function expireMeta(cards: Card[], now: number) {
+	for (const c of cards) {
+		if (c.workspaceLabel !== META_WS || !c.resolved || c.hot || c.focused || c.waiting.length || metaClosing.has(c.tab)) continue;
+		if (now - c.statusSince < META_KEEP_MS) continue;
+		metaClosing.add(c.tab);
+		void mux("tab", "close", c.tab).then((r) => {
+			if (r.code !== 0) console.error(new Date().toISOString(), "meta close failed", c.tab, r.err);
+			setTimeout(() => metaClosing.delete(c.tab), 60_000);
+		});
 	}
 }
 async function newItem(text: string, audio: File | null): Promise<string | null> {
@@ -1163,7 +1210,13 @@ async function handle(req: Request): Promise<Response> {
 						console.error(new Date().toISOString(), "new item stt failed", e);
 					}
 				}
-				if (fd?.get("route") !== "new" && !rec && said && (await newIntent(said)) === "find") return Response.json({ ok: true, kind: "find", q: said });
+				const intent = fd?.get("route") !== "new" && !rec && said ? await newIntent(said) : "new";
+				if (intent === "find") return Response.json({ ok: true, kind: "find", q: said });
+				if (intent === "meta") {
+					const tab = await metaItem(said);
+					void after();
+					return Response.json({ ok: true, kind: "meta", tab });
+				}
 				const tab = await newItem(said, rec);
 				void after();
 				return Response.json({ ok: true, kind: "new", tab });

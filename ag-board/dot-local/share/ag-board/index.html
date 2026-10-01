@@ -425,7 +425,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
     <tr><td><span class="kbd">u</span></td><td>mark unread</td></tr>
     <tr><td><span class="kbd">w</span></td><td>mark waiting (the agent is asked to schedule its tickler wake-up) / unmark</td></tr>
     <tr><td><span class="kbd">e</span></td><td>archive (closes the tab; Undo for a few seconds)</td></tr>
-    <tr><td><span class="kbd">n</span></td><td>new item, or find a session: ask “where's the one about …” and it shows the cards</td></tr>
+    <tr><td><span class="kbd">n</span></td><td>new item. Also: ask “where's the one about …” and it shows the cards; housekeeping (“mark the roblox ones hotpath”) goes to a brief session in Meta</td></tr>
     <tr><td><span class="kbd">d</span></td><td>new item by dictation (click Dictate or <span class="kbd">⌘↩</span> to send)</td></tr>
     <tr><td><span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span> <span class="kbd">4</span></td><td>State / Lists / Workspaces / Routines view</td></tr>
     <tr><td><span class="kbd">/</span></td><td>search</td></tr>
@@ -1202,7 +1202,7 @@ function openNew(dictate = false, files) {
   if (dictate && !rec) toggleVoice("ned");
 }
 // Jev routes it (POST /api/new): work for an agent → a new Inbox session (the inbox still sends follow-ups to
-// their session); looking for an existing session ("where's the one about X") → "find": /api/search has an LLM
+// their session); housekeeping on sessions → a short-lived session in the Meta workspace; looking for an existing session ("where's the one about X") → "find": /api/search has an LLM
 // pick the matching sessions and they show here as cards, with "Start a new session instead".
 const N = { seq: 0, results: [] };
 function newStatus(t, busy = false) { $("#nstat").textContent = t; $("#nstat").className = busy ? "busy" : ""; }
@@ -1220,7 +1220,7 @@ async function startNew(audio, route) {
   if (j.ok && j.kind !== "find") { // created, even if the dialog was closed meanwhile
     if (ned.value.trim() === text) { ned.setValue(""); delete localStorage.newDraft; }
     if ($("#ndlg").open) $("#ndlg").close();
-    toast("Started"); if (j.tab) select(j.tab);
+    toast(j.kind === "meta" ? "On it (in Meta)" : "Started"); if (j.tab) select(j.tab);
     return;
   }
   if (seq !== N.seq) return;

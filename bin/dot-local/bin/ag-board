@@ -39,7 +39,9 @@
 // back in its editor. Interrupt & send = interrupt, wait until ready, clear the editor (Ctrl+U), then send.
 // Telemetry: the page sends one POST /api/click {name, view} per control click (sendBeacon); it's appended to
 // ~/.local/state/ag-board/clicks.jsonl. GET /api/stats?days=N ranks controls by clicks (`ag-dash-stats` prints it).
-// Cmd+K: POST /api/search {q} → `ag search --json` (LLM picks the sessions a plain-words description means).
+// New item routing: POST /api/new asks Jev whether the text is looking for an existing session; if so it answers
+// {kind:"find"} and the page calls POST /api/search {q} → `ag search --json` (an LLM picks the matching sessions)
+// and shows them as cards, with "Start a new session instead" (route=new skips the check).
 // API: GET /api/state, /api/transcript?tab=, /api/screen?tab=, /api/stats?days=
 //      POST /api/card {tab, hot?, list?, seen?}, /api/lists {lists}, /api/prompt {tab, text, interrupt?},
 //           /api/interrupt {tab}, /api/keys {tab, keys[]}, /api/focus {tab}, /api/close {tab}
@@ -911,6 +913,40 @@ async function saveUpload(f: File): Promise<string> {
 }
 // New item: handed to the ag inbox (?new=1: always a new session in Inbox; it names the tab). With a recording
 // the inbox answers at once and transcribes in the background; text alone waits until pi has it and returns the tab.
+// What the New item box is for, by Jev (~250 ms): find an existing session, or work for an agent (new or a
+// follow-up; the inbox tells those apart). Tested on ~12 phrasings: "where's the session about X", "the roblox
+// launch triage one", "what was that thing about kids betting" → find at 0.9+; tasks, research and
+// "any update on X?" → new/follow. A bare topic word ("factions") leans new. Any error → "new".
+const JEV_URL = "https://tfy.promptlens.trilogy.com/proxy-api/jev-account/jev-endpoint/v1/systemone";
+async function newIntent(text: string): Promise<"find" | "new"> {
+	try {
+		const res = await fetch(JEV_URL, {
+			method: "POST",
+			headers: { authorization: `Bearer ${tfyToken()}`, "content-type": "application/json" },
+			body: JSON.stringify({
+				model: "jev-latest",
+				state: { message: text.slice(0, 8000) },
+				questions: {
+					intent: {
+						type: "choice",
+						instructions: "Nathan typed `message` into the New item box of his AI agent dashboard, where every card is an agent session (a task or conversation). What does he want?",
+						criteria: {
+							find: "He wants to locate and open an existing session or card: where is it, which one was it, pull up / show me / open the session about X, or just a short phrase naming a past topic or session (e.g. 'the roblox launch triage one', 'that thing about kids betting'). He wants it surfaced, not new work done.",
+							follow: "He asks for a status update on, or adds information or instructions to, work that is already going (e.g. 'any update on X?', 'also make X do Y', 'X is fixed now'). An agent should continue that work.",
+							new: "He asks an agent to do a new task, research something, or answer a question: start new work.",
+						},
+					},
+				},
+			}),
+			signal: AbortSignal.timeout(10_000),
+		});
+		if (!res.ok) throw new Error(`jev ${res.status}: ${await res.text()}`);
+		return (await res.json()).answers.intent.choice === "find" ? "find" : "new";
+	} catch (e) {
+		console.error(new Date().toISOString(), "new item routing failed", e);
+		return "new";
+	}
+}
 async function newItem(text: string, audio: File | null): Promise<string | null> {
 	if (!audio) {
 		const r = await fetch(INBOX_URL, { method: "POST", headers: { "content-type": "text/plain" }, body: text, signal: AbortSignal.timeout(90_000) });
@@ -1115,9 +1151,22 @@ async function handle(req: Request): Promise<Response> {
 			const audio = a instanceof File && a.size ? a : null;
 			if (!text && !audio) return bad("say or type something");
 			try {
-				const tab = await newItem(text, audio);
+				// Route first: looking for an existing session ("find" → the page runs /api/search and shows the
+				// cards); otherwise a new item for the ag inbox (which still routes follow-ups into their session).
+				// A recording is transcribed here so it can be routed; if that fails the inbox gets the audio as before.
+				let said = text, rec = audio;
+				if (audio) {
+					try {
+						said = [text, await transcribe(audio)].filter(Boolean).join("\n\n");
+						rec = null;
+					} catch (e) {
+						console.error(new Date().toISOString(), "new item stt failed", e);
+					}
+				}
+				if (fd?.get("route") !== "new" && !rec && said && (await newIntent(said)) === "find") return Response.json({ ok: true, kind: "find", q: said });
+				const tab = await newItem(said, rec);
 				void after();
-				return Response.json({ ok: true, tab });
+				return Response.json({ ok: true, kind: "new", tab });
 			} catch (e: any) {
 				return bad(String(e?.message ?? e), 502);
 			}
@@ -1151,7 +1200,7 @@ async function handle(req: Request): Promise<Response> {
 			return r.code === 0 ? Response.json({ ok: true }) : bad(r.err.trim() || "start failed", 409);
 		}
 		if (p === "/api/search") {
-			// Cmd+K: describe a session in plain words; `ag search` has an LLM pick the matches (~6-10 s).
+			// The New item box's "find" path: `ag search` has an LLM pick the sessions a description means (~6-10 s).
 			const q = String(body.q ?? "").trim().slice(0, 2000);
 			if (!q) return bad("q required");
 			const r = await run(["timeout", "90", `${HOME}/.local/lib/ag/search`, "--json", "--", q]);

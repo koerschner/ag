@@ -1,6 +1,6 @@
 ---
 description: Watch the Alpha Slack (go-alpha) beyond the TSA Arcade channels for Minecraft, Roblox, Arcade, kids' gaming/social-platform mentions; ping Nathan on new ones
-schedule: calendar Mon..Fri *-*-* 08..18/2:17:00 America/Chicago
+schedule: weekdays 09:17
 kind: prompt
 cwd: ~
 timeout: 20min

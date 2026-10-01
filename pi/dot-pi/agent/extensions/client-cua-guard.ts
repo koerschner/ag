@@ -81,8 +81,8 @@ export default function (pi: ExtensionAPI) {
 		const scan = stripHeredocs(command);
 		// A bare `osascript -e 'display notification …'` (the "lock your iPhone" ping) isn't UI control.
 		const notifyOnly = /display notification/.test(command) && !/tell app|System Events|keystroke|click|\bhs\b|cliclick/i.test(command);
-		const code = stripQuotedData(scan);
-		const kind = CUA.test(code) ? "cua" : CLIENT.test(code) && UI.test(code) && !notifyOnly ? "ssh" : null;
+		const scanCode = stripQuotedData(scan);
+		const kind = CUA.test(scanCode) ? "cua" : CLIENT.test(scanCode) && UI.test(scanCode) && !notifyOnly ? "ssh" : null;
 		if (!kind) return;
 
 		const why = command.match(/CLIENT_CUA_WHY=("([^"]*)"|'([^']*)')/)?.slice(2).find(Boolean) ?? command.match(/--why\s+("([^"]*)"|'([^']*)')/)?.slice(2).find(Boolean) ?? "";

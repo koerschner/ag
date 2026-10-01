@@ -1,6 +1,7 @@
 // Keeps this Herdr tab's label (the session's title in AG Dash) accurate. On every prompt (in the
 // background, never delaying the turn):
-//   1. Default numeric label ("9")        → name it with a fast LLM.
+//   1. Default numeric label ("9")        → name it right away from the prompt's first words
+//      (quickName: deterministic, no model); a fast LLM only if that yields under 2 words.
 //   2. Otherwise ask Jev (via TrueFoundry) whether the label still names the session.
 //      If P(accurate) < RENAME_BELOW      → rename it with the fast LLM.
 // Both look at the whole session (the first prompt plus a spread of later ones), not just the latest
@@ -59,6 +60,35 @@ export function digest(all: string[]): { first: string; later: string[] } {
 	const [first = all.at(-1)?.trim() ?? "", ...rest] = prompts;
 	const pick = rest.length <= SAMPLE ? rest : Array.from({ length: SAMPLE }, (_, i) => rest[Math.round((i * (rest.length - 1)) / (SAMPLE - 1))]);
 	return { first: first.slice(0, 1200), later: pick.map((p) => p.slice(0, 300)) };
+}
+
+// Deterministic first name: the opening clause of the first prompt, minus paths, URLs, code and
+// capture boilerplate, capped at 8 words / 48 chars. "AG Sessions should get better initial names,
+// maybe …" → "AG Sessions should get better initial names". Empty if nothing word-like is left.
+export function quickName(prompt: string): string {
+	const t = prompt
+		.split(/\n\s*Herdr context \(snapshot/)[0]
+		.replace(/```[\s\S]*?```/g, " ")
+		.replace(/Screenshot of my[^\n]*/g, " ")
+		.replace(/https?:\/\/\S+/g, " ")
+		.replace(/(?:\/(?:home|Users|tmp|var|etc|opt)\/|~\/|\.\.?\/)\S*/g, " ")
+		.replace(/\[[^\]]*\]/g, " ") // [meta notes]
+		.replace(/[`*_#>]/g, " ")
+		.replace(/\brun it\b[\s.:,!-]*/gi, " ") // magic word, not a topic
+		.replace(/^\s*(?:(?:hey|hi|ok|okay|so|please|pls|can you|could you|would you)\b[\s,]*)+/i, "");
+	const clause = t
+		.split(/\n|[.!?](?:\s|$)|[,;:(]\s|\s[-–—]\s/)
+		.map((c) => c.trim())
+		.find((c) => /[A-Za-z]{2}/.test(c));
+	if (!clause) return "";
+	let name = "";
+	for (const w of clause.split(/\s+/).slice(0, 8)) {
+		if ((name + " " + w).trim().length > 48) break;
+		name = (name + " " + w).trim();
+	}
+	// Paths were cut out, so don't leave a dangling "… bug in".
+	name = name.replace(/(?:[^\p{L}\p{N})]|\s(?:in|on|at|for|to|of|the|a|an|and|or|with|from|into|my|this|that))+$/iu, "");
+	return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 // Jev: how likely is it that `label` still names the session?
@@ -139,7 +169,14 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				let p: number | null = null;
-				if (!/^\d+$/.test(label)) {
+				if (/^\d+$/.test(label)) {
+					const quick = quickName(d.first);
+					if (quick.includes(" ")) { // one word ("Look") says too little: let the LLM name it
+						herdr(["tab", "rename", tab, quick]);
+						lastSet = quick;
+						return log({ tab, label, action: "rename", name: quick, via: "quick" });
+					}
+				} else {
 					p = await pAccurate(label, d);
 					if (p >= RENAME_BELOW) return log({ tab, label, p_accurate: p, action: "keep" });
 				}

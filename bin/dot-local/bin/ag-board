@@ -988,6 +988,7 @@ function expireMeta(cards: Card[], now: number) {
 		if (c.workspaceLabel !== META_WS || !c.resolved || c.hot || c.focused || c.waiting.length || metaClosing.has(c.tab)) continue;
 		if (now - c.statusSince < META_KEEP_MS) continue;
 		metaClosing.add(c.tab);
+		console.log(new Date().toISOString(), "meta: closing finished", c.tab, c.title);
 		void mux("tab", "close", c.tab).then((r) => {
 			if (r.code !== 0) console.error(new Date().toISOString(), "meta close failed", c.tab, r.err);
 			setTimeout(() => metaClosing.delete(c.tab), 60_000);

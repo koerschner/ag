@@ -18,6 +18,8 @@ no() { printf '  %sMISS%s  %s\n' "$R" "$N" "$*"; missing=$((missing + 1)); }
 opt() { printf '  %s--%s    %s\n' "$Y" "$N" "$*"; }
 head_() { printf '\n%s%s%s\n' "$C" "$*" "$N"; }
 have() { command -v "$1" >/dev/null 2>&1; }
+# The Mac app doesn't put its CLI on PATH; use the one inside the bundle.
+ts=$(command -v tailscale || { [[ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]] && echo /Applications/Tailscale.app/Contents/MacOS/Tailscale; })
 
 head_ "Machine"
 name=$(scutil --get LocalHostName 2>/dev/null || hostname -s)
@@ -46,11 +48,11 @@ head_ "Tools"
 req=(git stow jq curl bun pi claude codex gh op uv)
 if [[ $os == Darwin ]]; then req+=(brew); else req+=(tmux node); fi
 for t in "${req[@]}"; do have "$t" && ok "$t" || no "$t (ag setup installs it)"; done
-have tailscale && ok tailscale || no "tailscale (install it and sign in to the tailnet)"
+[[ -n $ts ]] && ok tailscale || no "tailscale (install it and sign in to the tailnet)"
 [[ $os == Darwin ]] && { [[ -d /Applications/Hammerspoon.app ]] && ok Hammerspoon || opt "Hammerspoon (clients only: capture, paste, shortcuts)"; }
 
 head_ "Tailnet"
-if have tailscale && tailscale status >/dev/null 2>&1; then ok "signed in to Tailscale"; else no "Tailscale not running or signed out"; fi
+if [[ -n $ts ]] && "$ts" status >/dev/null 2>&1; then ok "signed in to Tailscale"; else no "Tailscale not running or signed out"; fi
 if curl -fsS -m 3 -o /dev/null http://ag:7373/ 2>/dev/null; then ok "the ag inbox answers at http://ag:7373"; else opt "http://ag:7373 unreachable (needs the tailnet and a running session host)"; fi
 
 head_ "Secrets (never in git; docs/reference.md → \"Secrets\")"

@@ -190,13 +190,8 @@ details.think .inner{color:#bfb0e6;font-style:italic;white-space:pre-wrap;font-s
 #reply .row{display:flex;gap:.5rem;align-items:flex-end}
 .ed{flex:1;min-width:0}
 .edbar{display:flex;gap:.35rem;align-items:center;margin-top:.35rem;flex-wrap:wrap}
-.mode{font:11px ui-monospace,monospace;padding:.1rem .45rem;border-radius:5px;background:#26303f;color:#a9c8ff;min-width:4.5rem;text-align:center}
-.mode:empty{display:none}
-.mode.insert{background:#1f3326;color:var(--green)}
-.mode.visual{background:#3a2a10;color:var(--amber)}
 .mic{border:1px solid var(--line);background:var(--card);border-radius:8px;padding:.28rem .6rem;cursor:pointer}
 .mic.rec{background:#4a1515;border-color:var(--red);color:#fff;animation:recpulse 1s ease-in-out infinite}
-.mic.busy{opacity:.6;cursor:progress}
 @keyframes recpulse{50%{box-shadow:0 0 0 4px rgba(255,59,59,.35)}}
 .edbar .sp{flex:1}
 .edbar label{font-size:12px;color:var(--dim);display:flex;gap:.25rem;align-items:center;cursor:pointer}
@@ -292,7 +287,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   #reply{padding:.45rem .7rem calc(.5rem + env(safe-area-inset-bottom))}
   #drawer.kb #reply{padding-bottom:.5rem}
   #drawer.kb #dstats,#drawer.kb .acts,#drawer.kb #dtabs,#drawer.kb #dh .m,#drawer.kb #dact{display:none}
-  #rhint,#rint,.edbar label,.edbar .mode,.edbar .kbd,.edbar .kbd+span{display:none}
+  #rhint,#rint,.edbar label,.edbar .kbd,.edbar .kbd+span{display:none}
   #dstats>*{white-space:nowrap}
   #reply .row{align-items:stretch}
   #reply .btns{justify-content:flex-end}
@@ -306,20 +301,20 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
 <body>
 <header>
   <h1 aria-label="AG-Dash"><svg class="brand" viewBox="-3 0 204 64" aria-hidden="true"><g transform="skewX(-6) translate(4 0)" fill="#3ecf8e"><path d="M5.9 4.5l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4ZM29.5 5.9l4.5 4.5V26.1l-4.5 4.5l-4.5 -4.5V10.4ZM29.5 33.4l4.5 4.5V64H25V37.9ZM4.5 33.4l4.5 4.5V64H0V37.9ZM4.5 5.9l4.5 4.5V26.1l-4.5 4.5l-4.5 -4.5V10.4ZM5.9 32l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4ZM47.9 4.5l4.5 -4.5H65.6l4.5 4.5l-4.5 4.5H52.4ZM71.5 5.9l4.5 4.5V14.4l-4.5 4.5l-4.5 -4.5V10.4ZM71.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM47.9 59.5l4.5 -4.5H65.6l4.5 4.5l-4.5 4.5H52.4ZM46.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM46.5 5.9l4.5 4.5V26.1l-4.5 4.5l-4.5 -4.5V10.4ZM55 32l4.5 -4.5H65.6l4.5 4.5l-4.5 4.5H59.5Z"/><g transform="translate(84 25.6) scale(0.6)"><path d="M1.4 32l4.5 -4.5H16.6l4.5 4.5l-4.5 4.5H5.9Z"/></g><g transform="translate(102 25.6) scale(0.6)"><path d="M29.5 5.9l4.5 4.5V26.1l-4.5 4.5l-4.5 -4.5V10.4ZM29.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM5.9 59.5l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4ZM4.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM5.9 32l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4Z"/></g><g transform="translate(127.2 25.6) scale(0.6)"><path d="M5.9 4.5l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4ZM29.5 5.9l4.5 4.5V26.1l-4.5 4.5l-4.5 -4.5V10.4ZM29.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM5.9 59.5l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4ZM4.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM5.9 32l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4Z"/></g><g transform="translate(152.4 25.6) scale(0.6)"><path d="M5.9 4.5l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4ZM29.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM5.9 59.5l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4ZM4.5 5.9l4.5 4.5V26.1l-4.5 4.5l-4.5 -4.5V10.4ZM5.9 32l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4Z"/></g><g transform="translate(177.6 25.6) scale(0.6)"><path d="M29.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM4.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM4.5 5.9l4.5 4.5V26.1l-4.5 4.5l-4.5 -4.5V10.4ZM5.9 32l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4Z"/></g></g></svg></h1>
-  <button class="btn" id="newbtn" title="Start a new pi session (n)">＋ New session</button>
+  <button class="btn" id="newbtn" title="New item (n) · dictate one (d)">+ New item</button>
   <div class="counts" id="counts"></div>
   <div class="seg" id="views">
     <button data-v="state">State</button><button data-v="lists">Lists</button><button data-v="ws">Workspaces</button>
   </div>
   <button class="btn" id="expandall" title="Expand or collapse every card's details">Details</button>
-  <button class="btn" id="hotonly" title="Show only hotpath cards">🔥 only</button>
+  <button class="btn" id="hotonly" title="Show only hotpath cards">Hot only</button>
   <button class="btn" id="editlists">Lists…</button>
   <input id="q" placeholder="Filter  ( / )" autocomplete="off">
   <button class="btn" id="helpbtn" title="Keyboard shortcuts (?)">?</button>
 </header>
 <div id="cuapanel" hidden></div>
 <nav id="coltabs" aria-label="Columns"></nav>
-<div class="hint" id="hint">Shift+click (or long-press) → 🔥 hotpath: pinned on top, siren ring while it isn't working, texts you when it has something new. ▾ details · ⏹ interrupt · click for transcript, live screen and reply · keyboard: j/k to move, e to archive, ? for all shortcuts.</div>
+<div class="hint" id="hint">Shift+click (or long-press) → hotpath: pinned on top, siren ring while it isn't working, texts you when it has something new. ▾ details · ■ interrupt · click for transcript, live screen and reply · keyboard: j/k to move, n new item, d dictate, / search, ? for all shortcuts.</div>
 <main id="board"></main>
 
 <div id="scrim"></div>
@@ -330,15 +325,15 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
     <div id="dro"></div>
     <div class="stats" id="dstats"></div>
     <div class="acts">
-      <button class="btn stop" id="dstop">⏹ Interrupt</button>
-      <button class="btn" id="dhot">🔥 Hotpath</button>
-      <button class="btn" id="dwait" title="Mark waiting for something (w)">⏳ Waiting</button>
+      <button class="btn stop" id="dstop">Interrupt</button>
+      <button class="btn" id="dhot">Hotpath</button>
+      <button class="btn" id="dwait" title="Mark waiting for something (w)">Waiting</button>
       <button class="btn" id="dfocus">Open in Herdr</button>
       <button class="btn" id="dunread">Mark unread</button>
-      <a class="btn" id="dmoshi" style="display:none;text-decoration:none" title="Open this session's terminal in Moshi (via file-inbox)">📱 Moshi</a>
-      <button class="btn" id="dlink" title="Copy a stable link to this session (http://ag:7376/&lt;session id&gt;)">🔗 Link</button>
+      <a class="btn" id="dmoshi" style="display:none;text-decoration:none" title="Open this session's terminal in Moshi (via file-inbox)">Moshi</a>
+      <button class="btn" id="dlink" title="Copy a stable link to this session (http://ag:7376/&lt;session id&gt;)">Link</button>
       <select class="btn" id="dlist"></select>
-      <button class="btn" id="dkill" title="Archive: closes the Herdr tab after a few seconds, with Undo (e)">🗄 Archive</button>
+      <button class="btn" id="dkill" title="Archive: closes the Herdr tab after a few seconds, with Undo (e)">Archive</button>
     </div>
     <div id="dact"></div>
     <div id="dtabs"><button data-t="tx">Transcript</button><button data-t="live">Live screen</button></div>
@@ -358,9 +353,9 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   <form id="reply">
     <div id="rhint"></div>
     <div class="row"><div class="ed" id="rted"></div>
-      <div class="btns"><button class="btn" id="rsend">Send</button><button class="btn stop" type="button" id="rint" title="Stop what it's doing, then send this instead">⏹ Interrupt &amp; send</button></div>
+      <div class="btns"><button class="btn" id="rsend">Send</button><button class="btn stop" type="button" id="rint" title="Stop what it's doing, then send this instead">Interrupt &amp; send</button></div>
     </div>
-    <div class="edbar"><button type="button" class="mic" data-mic="rted" title="Voice: click to talk, click again to stop (Alt+V)">🎙 Voice</button><button type="button" class="mic" data-attach="rted" title="Attach files or images (or paste / drop them into the editor)">📎</button><span class="mode" data-mode="rted"></span><span class="sp"></span><label><input type="checkbox" class="vimtoggle"> vim</label><span class="kbd">⌘↩</span><span style="font-size:11.5px;color:var(--dim)">or <span class="kbd">:w</span> <span class="kbd">:q</span> sends</span></div>
+    <div class="edbar"><button type="button" class="mic" data-mic="rted" title="Dictate: click to talk, click again to send (Alt+V)">Dictate</button><button type="button" class="mic" data-attach="rted" title="Attach files or images (or paste / drop them)">Attach</button><span class="sp"></span><span class="kbd">⌘↩</span><span style="font-size:11.5px;color:var(--dim)">sends</span></div>
   </form>
 </aside>
 <dialog id="ldlg"><form method="dialog">
@@ -370,12 +365,10 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   <div class="row" style="justify-content:flex-end"><button class="btn" value="cancel">Cancel</button><button class="btn" id="lsave" value="save">Save</button></div>
 </form></dialog>
 <dialog id="ndlg" class="wide"><form method="dialog" id="nform">
-  <h3 style="margin:.2rem 0 .7rem">New pi session</h3>
-  <div class="row"><label class="fld">Workspace<select id="nws"></select></label><label class="fld">Directory<input class="inp" id="ncwd" list="ncwds" value="~"><datalist id="ncwds"></datalist></label></div>
-  <div class="fld" style="margin:.5rem 0 .2rem">First prompt (optional; the tab names itself from it)</div>
+  <h3 style="margin:.2rem 0 .7rem">New item</h3>
   <div class="ed" id="ned"></div>
-  <div class="edbar"><button type="button" class="mic" data-mic="ned" title="Voice (Alt+V)">🎙 Voice</button><button type="button" class="mic" data-attach="ned" title="Attach files">📎</button><span class="mode" data-mode="ned"></span><span class="sp"></span><label><input type="checkbox" id="nfocus"> open it in Herdr</label><label><input type="checkbox" class="vimtoggle"> vim</label></div>
-  <div class="row" style="justify-content:flex-end;margin-top:.8rem"><button class="btn" value="cancel" type="button" id="ncancel">Cancel</button><button class="btn" id="ngo" type="button">Start session <span class="kbd">⌘↩</span></button></div>
+  <div class="edbar"><button type="button" class="mic" data-mic="ned" title="Dictate: click to talk, click again to send (Alt+V)">Dictate</button><span class="sp"></span><span style="font-size:11.5px;color:var(--dim)">drop files to add their paths</span></div>
+  <div class="row" style="justify-content:flex-end;margin-top:.8rem"><button class="btn" value="cancel" type="button" id="ncancel">Cancel</button><button class="btn" id="ngo" type="button">Send <span class="kbd">⌘↩</span></button></div>
 </form></dialog>
 <dialog id="help"><form method="dialog">
   <h3 style="margin:.2rem 0 .6rem">Keyboard</h3>
@@ -384,18 +377,19 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
     <tr><td><span class="kbd">h</span> <span class="kbd">l</span></td><td>previous / next column</td></tr>
     <tr><td><span class="kbd">o</span> <span class="kbd">Enter</span></td><td>open the card (transcript, live screen, reply)</td></tr>
     <tr><td><span class="kbd">Space</span></td><td>expand / collapse details</td></tr>
-    <tr><td><span class="kbd">f</span></td><td>🔥 toggle hotpath</td></tr>
-    <tr><td><span class="kbd">x</span></td><td>⏹ interrupt (press twice)</td></tr>
+    <tr><td><span class="kbd">f</span></td><td>toggle hotpath</td></tr>
+    <tr><td><span class="kbd">x</span></td><td>interrupt (press twice)</td></tr>
     <tr><td><span class="kbd">g</span></td><td>open in Herdr</td></tr>
     <tr><td><span class="kbd">u</span></td><td>mark unread</td></tr>
-    <tr><td><span class="kbd">w</span></td><td>⏳ mark waiting (the agent is asked to schedule its tickler wake-up) / unmark</td></tr>
-    <tr><td><span class="kbd">e</span></td><td>🗄 archive (closes the tab; Undo for a few seconds)</td></tr>
-    <tr><td><span class="kbd">n</span></td><td>new session</td></tr>
+    <tr><td><span class="kbd">w</span></td><td>mark waiting (the agent is asked to schedule its tickler wake-up) / unmark</td></tr>
+    <tr><td><span class="kbd">e</span></td><td>archive (closes the tab; Undo for a few seconds)</td></tr>
+    <tr><td><span class="kbd">n</span></td><td>new item</td></tr>
+    <tr><td><span class="kbd">d</span></td><td>new item by dictation (click Dictate or <span class="kbd">⌘↩</span> to send)</td></tr>
     <tr><td><span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span></td><td>State / Lists / Workspaces view</td></tr>
-    <tr><td><span class="kbd">/</span></td><td>filter</td></tr>
-    <tr><td><span class="kbd">Esc</span></td><td>close panel (in the editor: vim normal mode)</td></tr>
-    <tr><td><span class="kbd">Alt</span>+<span class="kbd">V</span></td><td>voice in the focused editor</td></tr>
-    <tr><td><span class="kbd">⌘↩</span> / <span class="kbd">:w</span> / <span class="kbd">:q</span></td><td>send</td></tr>
+    <tr><td><span class="kbd">/</span></td><td>search</td></tr>
+    <tr><td><span class="kbd">Esc</span></td><td>close panel</td></tr>
+    <tr><td><span class="kbd">Alt</span>+<span class="kbd">V</span></td><td>dictate in the open editor (stop sends it)</td></tr>
+    <tr><td><span class="kbd">⌘↩</span></td><td>send</td></tr>
   </table>
   <div class="row" style="justify-content:flex-end"><button class="btn">Close</button></div>
 </form></dialog>
@@ -519,7 +513,7 @@ const sortCards = (a) => a.sort((x, y) => rank(x) - rank(y) || y.statusSince - x
 
 // Live activity line: what a working agent is doing right now, and for how long.
 function activity(c) {
-  if (c.status === "blocked") return `<div class="act blocked"><span class="lbl">⚠ waiting on you</span><span class="d">a question or approval is on its screen</span>${since(c.statusSince)}</div>`;
+  if (c.status === "blocked") return `<div class="act blocked"><span class="lbl">waiting on you</span><span class="d">a question or approval is on its screen</span>${since(c.statusSince)}</div>`;
   const a = c.activity;
   if (c.status === "working") {
     if (a?.kind === "tool") {
@@ -528,8 +522,8 @@ function activity(c) {
     }
     return `<div class="act thinking"><span class="dots"><i></i><i></i><i></i></span><span class="lbl">thinking</span><span class="d"></span>${since(a?.since || c.statusSince)}</div>`;
   }
-  if (c.noWake) return `<div class="act nowake"><span class="lbl">⚠ no wake-up yet</span><span class="d">${c.noWake.asks ? `asked the agent to schedule one (${c.noWake.asks}/3)` : "will ask the agent once it's at its prompt"}</span>${c.noWake.askedAt ? since(c.noWake.askedAt) : ""}</div>`;
-  if (c.waiting?.length) { const w = c.waiting[0]; return `<div class="act waiting"><span class="lbl">⏳ waiting</span><span class="d">${esc(w.title)}${c.waiting.length > 1 ? ` +${c.waiting.length - 1}` : ""}</span>${w.since ? since(w.since) : ""}</div>`; }
+  if (c.noWake) return `<div class="act nowake"><span class="lbl">no wake-up yet</span><span class="d">${c.noWake.asks ? `asked the agent to schedule one (${c.noWake.asks}/3)` : "will ask the agent once it's at its prompt"}</span>${c.noWake.askedAt ? since(c.noWake.askedAt) : ""}</div>`;
+  if (c.waiting?.length) { const w = c.waiting[0]; return `<div class="act waiting"><span class="lbl">waiting</span><span class="d">${esc(w.title)}${c.waiting.length > 1 ? ` +${c.waiting.length - 1}` : ""}</span>${w.since ? since(w.since) : ""}</div>`; }
   if (a?.kind === "error") return `<div class="act error"><span class="lbl">✖ stopped</span><span class="d">${esc(a.error)}</span>${since(a.since)}</div>`;
   return "";
 }
@@ -544,23 +538,22 @@ function statsHtml(c) {
   const s = c.stats || {};
   return `<span><b>$${(s.cost || 0).toFixed(2)}</b> spent</span><span>context <b>${ktok(s.ctx)}</b></span><span><b>${s.turns || 0}</b> prompts</span><span><b>${s.tools || 0}</b> tool calls</span><span>${esc(shortModel(c.model))} · thinking <b>${esc(c.thinkingLevel || "?")}</b></span><span class="mono">${esc((c.cwd || "").replace(/^\/Users\/[^/]+/, "~"))}</span>${c.startedAt ? `<span>started ${since(c.startedAt)} ago</span>` : ""}`;
 }
-const WAIT_ICON = { check: "🔁", event: "📡", online: "🟢", at: "⏰", person: "👤", manual: "✋" };
 function details(c) {
   const working = c.status === "working";
   return `<div class="det">
     ${c.lastUser ? `<div class="sec"><label>Latest prompt · ${since(c.lastUser.ts)} ago</label><div class="body md">${md(c.lastUser.text)}</div></div>` : ""}
     ${c.thinking && (c.thinkingTs || 0) >= (c.lastUser?.ts || 0) ? `<div class="sec"><label>Latest thinking</label><div class="body think">${esc(c.thinking)}</div></div>` : ""}
     ${c.lastAssistant ? `<div class="sec"><label>Latest answer · ${since(c.lastAssistant.ts)} ago</label><div class="body md">${md(c.lastAssistant.text)}</div></div>` : ""}
-    ${c.waiting?.length ? `<div class="sec"><label>Waiting for</label>${c.waiting.map((w) => `<div class="body">${WAIT_ICON[w.kind] || "⏳"} <b>${esc(w.title)}</b> · ${esc(w.detail)}${w.due ? ` · ${w.due > Date.now() ? "due in" : "overdue by"} ${esc(ago(Date.now() - Math.abs(w.due - Date.now())).replace(/ .*/, ""))}` : ""}</div>`).join("")}</div>` : ""}
+    ${c.waiting?.length ? `<div class="sec"><label>Waiting for</label>${c.waiting.map((w) => `<div class="body"><b>${esc(w.title)}</b> · ${esc(w.detail)}${w.due ? ` · ${w.due > Date.now() ? "due in" : "overdue by"} ${esc(ago(Date.now() - Math.abs(w.due - Date.now())).replace(/ .*/, ""))}` : ""}</div>`).join("")}</div>` : ""}
     ${c.tools?.length ? `<div class="sec"><label>Recent tools</label>${toolsList(c.tools)}</div>` : ""}
     <div class="stats">${statsHtml(c)}</div>
     <div class="acts">
-      ${working ? '<button class="btn sm stop" data-a="stop">⏹ Interrupt</button>' : ""}
+      ${working ? '<button class="btn sm stop" data-a="stop">Interrupt</button>' : ""}
       <button class="btn sm" data-a="open">Transcript &amp; reply</button>
       <button class="btn sm" data-a="focus">Open in Herdr</button>
-      <button class="btn sm" data-a="archive" title="Archive (e)">🗄 Archive</button>
-      <button class="btn sm" data-a="wait" title="Mark waiting for something (w)">${c.waiting?.some((w) => w.kind === "manual") ? "Not waiting" : "⏳ Waiting"}</button>
-      <button class="btn sm" data-a="hot">${c.hot ? "Remove 🔥" : "🔥 Hotpath"}</button>
+      <button class="btn sm" data-a="archive" title="Archive (e)">Archive</button>
+      <button class="btn sm" data-a="wait" title="Mark waiting for something (w)">${c.waiting?.some((w) => w.kind === "manual") ? "Not waiting" : "Waiting"}</button>
+      <button class="btn sm" data-a="hot">${c.hot ? "Remove hotpath" : "Hotpath"}</button>
     </div></div>`;
 }
 function cardHtml(c) {
@@ -569,8 +562,8 @@ function cardHtml(c) {
   const open = isOpen(c);
   const cls = ["card", c.hot && "hot", c.throb && "throb", c.waiting?.length && "waiting", c.noWake && "nowake", c.resolved && "resolved", c.focused && "focused", open && "open", sel === c.tab && "sel"].filter(Boolean).join(" ");
   return `<div class="${cls}" data-key="${esc(c.tab)}" data-tab="${esc(c.tab)}" data-s="${esc(c.status)}" draggable="${view === "lists"}">
-    <div class="t">${c.hot ? "🔥" : ""}${c.needsYou ? '<i class="dot" title="New since you last looked"></i>' : ""}<span class="tt">${esc(c.title)}</span>
-      <span class="qa">${working ? '<button class="ib stop" data-a="stop" title="Interrupt (Esc Esc)">⏹</button>' : ""}<button class="ib chev" data-a="chev" title="Details">▾</button></span></div>
+    <div class="t">${c.needsYou ? '<i class="dot" title="New since you last looked"></i>' : ""}<span class="tt">${esc(c.title)}</span>
+      <span class="qa">${working ? '<button class="ib stop" data-a="stop" title="Interrupt (Esc Esc)">■</button>' : ""}<button class="ib chev" data-a="chev" title="Details">▾</button></span></div>
     <div class="m"><span>${esc(view === "ws" ? "" : c.workspaceLabel)}</span><span>${esc(c.status)} ${since(c.statusSince)}</span>${c.model ? `<span>${esc(shortModel(c.model))}</span>` : ""}${c.stats?.cost ? `<span>$${c.stats.cost.toFixed(2)}</span>` : ""}</div>
     ${activity(c)}
     ${open ? details(c) : snip ? `<div class="x${working ? " w" : ""}">${esc(snip)}</div>` : ""}
@@ -638,7 +631,7 @@ function render() {
   }
   const n = (f) => B.cards.filter((c) => !archiving.has(c.tab) && f(c)).length;
   const needs = n((c) => c.needsYou);
-  $("#counts").innerHTML = `<span class="pill hot">🔥 <b>${n((c) => c.hot)}</b></span><span class="pill">needs you <b>${needs}</b></span><span class="pill">thinking <b>${n((c) => c.status === "working" && c.activity?.kind !== "tool")}</b></span><span class="pill">running tools <b>${n((c) => c.status === "working" && c.activity?.kind === "tool")}</b></span><span class="pill">blocked <b>${n((c) => c.status === "blocked")}</b></span><span class="pill">waiting <b>${n((c) => c.waiting?.length)}</b></span>${n((c) => c.noWake) ? `<span class="pill warn" title="In Waiting for without a tickler wake-up">no wake-up <b>${n((c) => c.noWake)}</b></span>` : ""}<span class="pill">total <b>${B.cards.length}</b></span>${sysHtml()}`;
+  $("#counts").innerHTML = `<span class="pill hot">hot <b>${n((c) => c.hot)}</b></span><span class="pill">needs you <b>${needs}</b></span><span class="pill">thinking <b>${n((c) => c.status === "working" && c.activity?.kind !== "tool")}</b></span><span class="pill">running tools <b>${n((c) => c.status === "working" && c.activity?.kind === "tool")}</b></span><span class="pill">blocked <b>${n((c) => c.status === "blocked")}</b></span><span class="pill">waiting <b>${n((c) => c.waiting?.length)}</b></span>${n((c) => c.noWake) ? `<span class="pill warn" title="In Waiting for without a tickler wake-up">no wake-up <b>${n((c) => c.noWake)}</b></span>` : ""}<span class="pill">total <b>${B.cards.length}</b></span>${sysHtml()}`;
   renderCuaPanel();
   document.title = (needs ? `(${needs}) ` : "") + "AG-Dash";
   document.querySelectorAll("#views button").forEach((b) => b.classList.toggle("on", b.dataset.v === view));
@@ -661,7 +654,7 @@ function sysHtml() {
     let body;
     if (!q.ok) body = `<b>?</b>`;
     else if (!q.live.length) body = `<b>idle</b>`;
-    else body = `<b>${run ? (run.urgent ? "⚡ " : "▶ ") + esc(cuaCaller(run).name.slice(0, 28)) + " " + since(run.started * 1000) : "starting"}</b>${waiting.length ? ` · <b>${waiting.length}</b> queued` : ""}${paused ? ` (${paused} paused)` : ""}`;
+    else body = `<b>${run ? (run.urgent ? "urgent " : "▶ ") + esc(cuaCaller(run).name.slice(0, 28)) + " " + since(run.started * 1000) : "starting"}</b>${waiting.length ? ` · <b>${waiting.length}</b> queued` : ""}${paused ? ` (${paused} paused)` : ""}`;
     h += `<span class="pill click ${q.ok ? "" : "warn"}" id="cuapill" title="${q.ok ? "Computer-use queue on ag-mac (click for details)" : "Can't read the computer-use queue on ag-mac: " + esc(q.error)}">CUA ${body}</span>`;
   }
   return h;
@@ -671,9 +664,9 @@ function renderCuaPanel() {
   el.hidden = !cuaOpen || !q;
   if (el.hidden) return;
   const row = (j, live) => {
-    const st = j.status === "running" ? `<span class="st ${j.urgent ? "urg" : "run"}">${j.urgent ? "⚡ urgent" : "▶ running"} ${since(j.started * 1000)}</span>`
-      : j.status === "paused" ? `<span class="st pause">⏸ paused${j.pauses > 1 ? " ×" + j.pauses : ""}</span>`
-      : live ? `<span class="st ${j.urgent ? "urg" : ""}">${j.urgent ? "⚡ " : ""}queued ${since(j.created * 1000)}</span>`
+    const st = j.status === "running" ? `<span class="st ${j.urgent ? "urg" : "run"}">${j.urgent ? "urgent" : "▶ running"} ${since(j.started * 1000)}</span>`
+      : j.status === "paused" ? `<span class="st pause">paused${j.pauses > 1 ? " ×" + j.pauses : ""}</span>`
+      : live ? `<span class="st ${j.urgent ? "urg" : ""}">${j.urgent ? "urgent · " : ""}queued ${since(j.created * 1000)}</span>`
       : `<span class="st">${esc(j.status)}${j.finished ? " " + ago(j.finished * 1000) + " ago" : ""}</span>`;
     return `<div class="job">${st}<span>${cuaWho(j)}</span><span class="task" title="${esc(j.task)}">${esc(j.task)}</span><code>${esc(j.id)}</code></div>`;
   };
@@ -706,10 +699,10 @@ function txHtml(msgs) {
   return msgs.map((m) => {
     if (m.role === "user") return `<div class="msg user"><div class="who">prompt · ${since(m.ts)} ago${m.images ? ` · ${m.images} image${m.images > 1 ? "s" : ""}` : ""}</div><div class="body md">${md(m.text)}</div>${mediaHtml(m.media)}</div>`;
     if (m.role === "assistant") return `<div class="msg"><div class="who">agent · ${since(m.ts)} ago</div><div class="body md">${md(m.text)}</div>${mediaHtml(m.media)}</div>`;
-    if (m.role === "thinking") return `<details class="tl think"><summary>💭 <span class="dd">${esc(m.text.replace(/\s+/g, " ").slice(0, 140))}</span></summary><div class="inner">${esc(m.text)}</div></details>`;
+    if (m.role === "thinking") return `<details class="tl think"><summary>thinking <span class="dd">${esc(m.text.replace(/\s+/g, " ").slice(0, 140))}</span></summary><div class="inner">${esc(m.text)}</div></details>`;
     if (m.role === "error") return `<div class="msg error"><div class="body">✖ ${esc(m.text)}</div></div>`;
     const st = !m.result ? '<span class="run">⟳</span>' : m.result.error ? '<span class="err">✗</span>' : '<span class="ok">✓</span>';
-    return `<details class="tl"><summary>${st}<span class="n">${esc(m.name)}</span><span class="dd mono">${esc(m.detail)}</span>${m.result?.media?.length ? `<span class="mbadge">🖼 ${m.result.media.length}</span>` : ""}</summary><div class="inner">${mediaHtml(m.result?.media)}<pre>${esc(m.args)}</pre>${m.result ? `<pre>${esc(m.result.text)}</pre>` : '<div class="empty">running…</div>'}</div></details>`;
+    return `<details class="tl"><summary>${st}<span class="n">${esc(m.name)}</span><span class="dd mono">${esc(m.detail)}</span>${m.result?.media?.length ? `<span class="mbadge">img ${m.result.media.length}</span>` : ""}</summary><div class="inner">${mediaHtml(m.result?.media)}<pre>${esc(m.args)}</pre>${m.result ? `<pre>${esc(m.result.text)}</pre>` : '<div class="empty">running…</div>'}</div></details>`;
   }).join("") || '<div class="empty">No messages yet.</div>';
 }
 // The query the drawer is showing now ("tab=…" / "sid=…"). A reply for any other query is stale (a slow fetch
@@ -718,19 +711,14 @@ let txQuery = "", txSeq = 0;
 function resetTranscript(q) { txQuery = q; txSeq++; loadTranscript.done = false; $("#tx").innerHTML = '<div class="empty">Loading…</div>'; }
 async function loadTranscript(q) {
   const seq = ++txSeq;
-  let msgs;
-  try {
-    const r = await fetch("/api/transcript?" + q, { cache: "no-store" });
-    msgs = r.ok ? await r.json() : null;
-  } catch {}
+  const msgs = await (await fetch("/api/transcript?" + q, { cache: "no-store" })).json();
   if (q !== txQuery || seq !== txSeq) return;
-  if (!Array.isArray(msgs)) { lastTxKey = ""; msgs = []; } // failed: show what we have, retry on the next state update
   const tx = $("#tx");
   const atBottom = tx.scrollHeight - tx.scrollTop - tx.clientHeight < 80;
   const openDetails = new Set([...tx.querySelectorAll("details[open]")].map((d) => [...tx.querySelectorAll("details")].indexOf(d)));
   tx.innerHTML = txHtml(msgs);
   // Sent-but-not-yet-recorded prompts stay visible until the session has them (or 30s pass).
-  pending = pending.filter((x) => Date.now() - x.at < 30000 && !msgs.some((m) => m.role === "user" && (m.text.trim() === x.text || m.ts >= x.at - 2000)));
+  pending = pending.filter((x) => Date.now() - x.at < (x.ttl || 30000) && !msgs.some((m) => m.role === "user" && (m.text.trim() === x.text || m.ts >= x.at - 2000)));
   for (const x of pending) if ("tab=" + encodeURIComponent(x.tab) === q) tx.append(x.el);
   [...tx.querySelectorAll("details")].forEach((d, i) => openDetails.has(i) && (d.open = true));
   if (atBottom || !loadTranscript.done) tx.scrollTop = tx.scrollHeight;
@@ -761,7 +749,7 @@ function renderDrawer() {
   const c = card(openTab);
   if (!c) { closeDrawer(); return; }
   const working = c.status === "working";
-  $("#dt").textContent = (c.hot ? "🔥 " : "") + c.title;
+  $("#dt").textContent = c.title;
   $("#dm").innerHTML = `${esc(c.workspaceLabel)} · ${esc(c.status)} ${since(c.statusSince)} · ${esc(c.tab)}`;
   $("#dstats").innerHTML = statsHtml(c);
   $("#dact").innerHTML = activity(c);
@@ -802,10 +790,10 @@ function openSession(info) {
   const d = $("#drawer"); d.classList.add("open", "ro"); $("#scrim").classList.add("open"); d.setAttribute("aria-hidden", "false");
   setTab("tx");
   $("#dt").textContent = info.title;
-  $("#dm").innerHTML = `${info.state === "hibernated" ? "💤 hibernated" : "closed"}${info.workspaceLabel ? " · " + esc(info.workspaceLabel) : ""} · last active ${since(info.lastAt)} ago · $${(info.stats?.cost || 0).toFixed(2)} · ${esc(shortModel(info.model))}`;
+  $("#dm").innerHTML = `${info.state === "hibernated" ? "hibernated" : "closed"}${info.workspaceLabel ? " · " + esc(info.workspaceLabel) : ""} · last active ${since(info.lastAt)} ago · $${(info.stats?.cost || 0).toFixed(2)} · ${esc(shortModel(info.model))}`;
   $("#dro").innerHTML = info.state === "hibernated"
-    ? `<div class="note">Its pi is asleep in Herdr (pi-hibernate). Opening the tab wakes it with full context.</div><button class="btn" id="dresume">💤 Wake in Herdr</button><button class="btn" id="dlink2">🔗 Link</button>`
-    : `<div class="note">No open tab has this session. Resume opens a new tab in Inbox running <code>pi --session</code> with its full history.</div><button class="btn" id="dresume">▶ Resume in a new tab</button><button class="btn" id="dlink2">🔗 Link</button>`;
+    ? `<div class="note">Its pi is asleep in Herdr (pi-hibernate). Opening the tab wakes it with full context.</div><button class="btn" id="dresume">Wake in Herdr</button><button class="btn" id="dlink2">Link</button>`
+    : `<div class="note">No open tab has this session. Resume opens a new tab in Inbox running <code>pi --session</code> with its full history.</div><button class="btn" id="dresume">▶ Resume in a new tab</button><button class="btn" id="dlink2">Link</button>`;
   $("#dresume").onclick = () => resume(info);
   $("#dlink2").onclick = () => copyLink(info.sid);
   loadTranscript("sid=" + info.sid);
@@ -841,7 +829,7 @@ function closeDrawer() {
 function toggleWait(tab) {
   const c = card(tab); if (!c) return;
   const manual = c.waiting?.some((w) => w.kind === "manual");
-  api("/api/card", { tab, waiting: !manual }).then((ok) => ok && toast(manual ? "No longer waiting" : "⏳ Waiting: asking the agent to schedule its wake-up"));
+  api("/api/card", { tab, waiting: !manual }).then((ok) => ok && toast(manual ? "No longer waiting" : "Waiting: asking the agent to schedule its wake-up"));
 }
 const toggleHot = (tab) => { const c = card(tab); if (c) { c.hot = !c.hot; render(); if (openTab === tab) renderDrawer(); api("/api/card", { tab, hot: c.hot }); } };
 async function stop(tab) { if (await api("/api/interrupt", { tab })) toast("Interrupted"); }
@@ -925,18 +913,29 @@ $("#dunread").onclick = async () => { const t = openTab; closeDrawer(); await ap
 $("#dlist").onchange = (e) => api("/api/card", { tab: openTab, list: e.target.value });
 $("#dkill").onclick = () => openTab && archive(openTab);
 // Optimistic: the editor clears the moment you send; if sending fails, your text comes back.
-async function send(interrupt) {
-  const text = rted.value.trim(); if (!text || !openTab) return;
+// With a dictation (audio) it goes out at once and is transcribed on the server, then sent.
+async function send(interrupt, audio) {
+  const text = rted.value.trim(); if ((!text && !audio) || !openTab) return;
   const tab = openTab, c = card(tab);
   rted.setValue(""); saveDraft(tab, "");
   // Show it in the transcript right away; the next transcript load (once the session has it) replaces it.
   const tx = $("#tx"), pend = document.createElement("div");
-  pend.className = "msg user pending"; pend.innerHTML = `<div class="who">prompt · sending…</div><div class="body md">${md(text)}</div>`;
-  pending.push({ tab, text, at: Date.now(), el: pend });
+  pend.className = "msg user pending"; pend.innerHTML = `<div class="who">${audio ? "dictation · transcribing…" : "prompt · sending…"}</div><div class="body md">${md(text)}</div>`;
+  pending.push({ tab, text, at: Date.now(), el: pend, ttl: audio ? 120000 : 30000 });
   tx.append(pend); tx.scrollTop = tx.scrollHeight;
-  toast(interrupt ? "Interrupting…" : c?.status === "working" ? "Queued as steering" : "Sent");
-  if (!(await api("/api/prompt", { tab, text, interrupt }))) { pend.remove(); pending = pending.filter((x) => x.el !== pend); if (openTab === tab && !rted.value.trim()) rted.setValue(text); else saveDraft(tab, text); return; }
-  if (interrupt) toast("Interrupted and sent");
+  let ok;
+  if (audio) {
+    toast("Sent; transcribing");
+    const fd = new FormData(); fd.append("tab", tab); fd.append("text", text); if (interrupt) fd.append("interrupt", "1");
+    fd.append("audio", audio, audioName(audio));
+    const j = await (await fetch("/api/dictate", { method: "POST", body: fd })).json().catch(() => ({}));
+    ok = j.ok; if (!ok) toast(j.error || "Dictation failed");
+  } else {
+    toast(interrupt ? "Interrupting…" : c?.status === "working" ? "Queued as steering" : "Sent");
+    ok = await api("/api/prompt", { tab, text, interrupt });
+  }
+  if (!ok) { pend.remove(); pending = pending.filter((x) => x.el !== pend); if (openTab === tab && !rted.value.trim()) rted.setValue(text); else saveDraft(tab, text); return; }
+  if (interrupt && !audio) toast("Interrupted and sent");
 }
 $("#reply").onsubmit = (e) => { e.preventDefault(); send(false); };
 $("#rint").onclick = () => send(true);
@@ -947,7 +946,7 @@ function archive(tab) {
   if (openTab === tab) closeDrawer();
   const el = document.createElement("div");
   el.className = "undo"; el.dataset.tab = tab;
-  el.innerHTML = `<span>🗄 Archived “${esc(c.title)}”</span><button type="button">Undo</button><i style="animation-duration:${ARCHIVE_MS}ms"></i>`;
+  el.innerHTML = `<span>Archived “${esc(c.title)}”</span><button type="button">Undo</button><i style="animation-duration:${ARCHIVE_MS}ms"></i>`;
   el.querySelector("button").onclick = () => unarchive(tab);
   $("#undos").appendChild(el);
   archiving.set(tab, { el, timer: setTimeout(() => commitArchive(tab), ARCHIVE_MS) });
@@ -997,15 +996,21 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && $("#lb").classList.contains("open")) { $("#lb").classList.remove("open"); $("#lb").innerHTML = ""; return; }
   if (e.key === "Escape") { if ($("#ndlg").open || $("#help").open) return; if (openTab || openSid) closeDrawer(); else { $("#q").blur(); select(null); } return; }
   if (typing() || e.metaKey || e.ctrlKey || e.altKey || $("dialog[open]")) return;
-  if ((openTab || openSid) && !["?"].includes(e.key)) return;
   const k = e.key;
+  // Anywhere outside a text field, even with a session open: / search, n new item, d new item by dictation.
+  const global = {
+    "/": () => { if (openTab || openSid) closeDrawer(); $("#q").focus(); $("#q").select(); },
+    n: () => openNew(), d: () => openNew(true), "?": () => openHelp(),
+  };
+  if (global[k]) { e.preventDefault(); global[k](); return; }
+  if (openTab || openSid) return;
   const map = {
     j: () => moveSel(1, 0), ArrowDown: () => moveSel(1, 0), k: () => moveSel(-1, 0), ArrowUp: () => moveSel(-1, 0),
     h: () => moveSel(0, -1), ArrowLeft: () => moveSel(0, -1), l: () => moveSel(0, 1), ArrowRight: () => moveSel(0, 1),
     o: () => sel && openDrawer(sel), Enter: () => sel && openDrawer(sel), " ": () => sel && toggleOpen(sel),
     f: () => sel && toggleHot(sel), g: () => sel && api("/api/focus", { tab: sel }).then((ok) => ok && toast("Focused in Herdr")),
-    u: () => sel && api("/api/card", { tab: sel, seen: false }), e: () => sel && archive(sel), w: () => sel && toggleWait(sel), n: () => openNew(), "?": () => openHelp(),
-    "/": () => $("#q").focus(), 1: () => setView("state"), 2: () => setView("lists"), 3: () => setView("ws"),
+    u: () => sel && api("/api/card", { tab: sel, seen: false }), e: () => sel && archive(sel), w: () => sel && toggleWait(sel),
+    1: () => setView("state"), 2: () => setView("lists"), 3: () => setView("ws"),
     x: () => { if (!sel) return; if (Date.now() - lastX < 1500) { lastX = 0; stop(sel); } else { lastX = Date.now(); toast("Press x again to interrupt"); } },
   };
   if (map[k]) { e.preventDefault(); map[k](); }
@@ -1020,29 +1025,21 @@ $("#ldlg").addEventListener("close", () => {
   const lists = [...document.querySelectorAll("#lrows .row")].map((r) => ({ id: r.dataset.id, name: r.querySelector("input").value.trim() })).filter((l) => l.name);
   api("/api/lists", { lists });
 });
-// ---------- editors (CodeMirror + optional vim), voice, attachments ----------
-let vimOn = localStorage.vim ? localStorage.vim === "1" : matchMedia("(pointer:fine)").matches;
+// ---------- editors (CodeMirror), dictation, attachments ----------
 const editors = {};
-function mkEditor(id, onSubmit, onSave) {
-  const ed = createEditor(document.getElementById(id), {
-    vim: vimOn, onSubmit, onSave,
-    onMode: (m) => { const b = document.querySelector(`[data-mode="${id}"]`); if (b) { b.textContent = m; b.className = "mode " + (m.split(" ")[0] || "").toLowerCase(); } },
-    onPasteFiles: (files) => attach(id, files),
-  });
+function mkEditor(id, onSubmit) {
+  const ed = createEditor(document.getElementById(id), { onSubmit, onPasteFiles: (files) => attach(id, files) });
   editors[id] = ed;
   return ed;
 }
-// Drafts: :w saves the reply box per session (and switching sessions keeps what you typed); :q sends.
+// Drafts: switching sessions keeps what you typed in the reply box (per session).
 const draftKey = (tab) => "draft:" + (card(tab)?.sid || tab);
 function saveDraft(tab, text) { if (!tab) return; const k = draftKey(tab); if (text.trim()) localStorage[k] = text; else delete localStorage[k]; }
-const rted = mkEditor("rted", () => send(false), () => { if (!openTab) return; saveDraft(openTab, rted.value); toast(rted.value.trim() ? "Draft saved" : "Draft cleared"); });
-const ned = mkEditor("ned", () => startNew(), () => { localStorage.newDraft = ned.value; toast("Draft saved"); });
-ned.setPlaceholder("What should the new agent do?  (leave empty to just open pi)");
-document.querySelectorAll(".vimtoggle").forEach((cb) => {
-  cb.checked = vimOn;
-  cb.onchange = () => { vimOn = cb.checked; localStorage.vim = vimOn ? "1" : "0"; document.querySelectorAll(".vimtoggle").forEach((x) => (x.checked = vimOn)); Object.values(editors).forEach((ed) => ed.setVim(vimOn)); };
-});
-// Files: pasted, dropped or picked → saved on ag-mac (~/inbox/clipboard) → their paths go into the prompt.
+// ⌘↩ while dictating stops the recording and sends it.
+const rted = mkEditor("rted", () => (rec?.id === "rted" ? rec.stop() : send(false)));
+const ned = mkEditor("ned", () => (rec?.id === "ned" ? rec.stop() : startNew()));
+ned.setPlaceholder("What should the new agent do?");
+// Files: pasted, dropped or picked → saved on the host (~/inbox/clipboard) → their paths go into the prompt.
 async function attach(id, files) {
   const fd = new FormData(); files.forEach((f) => fd.append("file", f, f.name || "paste.png"));
   toast(`Uploading ${files.length} file${files.length > 1 ? "s" : ""}…`);
@@ -1050,69 +1047,71 @@ async function attach(id, files) {
   if (!j.ok) return toast(j.error || "Upload failed");
   const ed = editors[id]; const cur = ed.value;
   ed.insert((cur && !/\s$/.test(cur) ? " " : "") + j.paths.join(" ") + " ");
-  ed.focus(); toast("Attached");
+  ed.focus(); toast("Added");
 }
+// Dropping files anywhere on the new-item dialog or the open session adds their paths (never navigates away).
+addEventListener("dragover", (e) => { if (e.dataTransfer?.types?.includes("Files")) e.preventDefault(); });
+addEventListener("drop", (e) => {
+  const files = [...(e.dataTransfer?.files ?? [])]; if (!files.length) return;
+  e.preventDefault();
+  const id = $("#ndlg").open ? "ned" : openTab ? "rted" : null;
+  if (id) attach(id, files); else openNew(false, files);
+});
 let pickFor = null;
 document.addEventListener("click", (e) => { const a = e.target.closest("[data-attach]"); if (a) { pickFor = a.dataset.attach; $("#filepick").click(); } });
 $("#filepick").onchange = (e) => { const f = [...e.target.files]; e.target.value = ""; if (f.length && pickFor) attach(pickFor, f); };
-// Voice: MediaRecorder → /api/transcribe (Whisper) → text at the cursor.
+// Dictation: MediaRecorder; stopping sends at once (with anything typed) and the server transcribes it.
+const audioName = (b) => (b.type.includes("mp4") ? "voice.m4a" : "voice.webm");
 let rec = null;
+function micLabel(id, on) { const b = document.querySelector(`[data-mic="${id}"]`); if (!b) return; b.classList.toggle("rec", on); b.textContent = on ? "■ Stop & send" : "Dictate"; }
 async function toggleVoice(id) {
-  const btn = document.querySelector(`[data-mic="${id}"]`);
   if (rec) { rec.stop(); return; }
-  if (!navigator.mediaDevices?.getUserMedia) return toast("Voice needs the https board URL");
+  if (!navigator.mediaDevices?.getUserMedia) return toast("Dictation needs the https board URL");
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { return toast("Microphone permission denied"); }
   const type = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"].find((t) => MediaRecorder.isTypeSupported(t)) || "";
   const chunks = [];
-  rec = new MediaRecorder(stream, type ? { mimeType: type } : {});
-  rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-  rec.onstop = async () => {
-    stream.getTracks().forEach((t) => t.stop()); rec = null;
-    btn.classList.remove("rec"); btn.classList.add("busy"); btn.textContent = "… transcribing";
+  const r = new MediaRecorder(stream, type ? { mimeType: type } : {});
+  r.id = id; rec = r;
+  r.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+  r.onstop = () => {
+    stream.getTracks().forEach((t) => t.stop()); rec = null; micLabel(id, false);
+    if (r.cancelled) return;
     const blob = new Blob(chunks, { type: chunks[0]?.type || type || "audio/webm" });
-    const fd = new FormData(); fd.append("audio", blob, blob.type.includes("mp4") ? "voice.m4a" : "voice.webm");
-    const j = await (await fetch("/api/transcribe", { method: "POST", body: fd })).json().catch(() => ({}));
-    btn.classList.remove("busy"); btn.textContent = "🎙 Voice";
-    if (!j.ok) return toast(j.error || "Transcription failed");
-    if (!j.text) return toast("Didn't catch anything");
-    const ed = editors[id]; const cur = ed.value;
-    ed.insert((cur && !/\s$/.test(cur) ? " " : "") + j.text); ed.focus();
+    if (!blob.size) return toast("Didn't catch anything");
+    if (id === "ned") startNew(blob); else send(false, blob);
   };
-  rec.start(); btn.classList.add("rec"); btn.textContent = "■ Stop";
+  r.start(); micLabel(id, true);
 }
-document.addEventListener("click", (e) => { const m = e.target.closest("[data-mic]"); if (m && !m.classList.contains("busy")) toggleVoice(m.dataset.mic); });
+function cancelVoice() { if (rec) { rec.cancelled = true; rec.stop(); } }
+document.addEventListener("click", (e) => { const m = e.target.closest("[data-mic]"); if (m) toggleVoice(m.dataset.mic); });
 
-// ---------- new session ----------
-function openNew() {
-  const inbox = B.workspaces.find((w) => w.label.toLowerCase() === "inbox");
-  const cur = card(openTab || sel);
-  $("#nws").innerHTML = B.workspaces.map((w) => `<option value="${esc(w.id)}">${esc(w.label)}</option>`).join("");
-  $("#nws").value = localStorage.newWs && B.workspaces.some((w) => w.id === localStorage.newWs) ? localStorage.newWs : inbox?.id || B.workspaces[0]?.id;
-  const home = (c) => (c || "").replace(/^\/Users\/[^/]+/, "~");
-  const cwds = [...new Set(["~", ...B.cards.map((c) => home(c.cwd)).filter(Boolean)])].slice(0, 30);
-  $("#ncwds").innerHTML = cwds.map((d) => `<option value="${esc(d)}">`).join("");
-  $("#ncwd").value = localStorage.newCwd || "~";
-  $("#nfocus").checked = localStorage.newFocus === "1";
+// ---------- new item (goes to the ag inbox: a new session in Inbox, named for you) ----------
+function openNew(dictate = false, files) {
   if (!ned.value.trim() && localStorage.newDraft) ned.setValue(localStorage.newDraft);
   if (!$("#ndlg").open) $("#ndlg").showModal();
   sync();
   setTimeout(() => ned.focus(), 60);
+  if (files?.length) attach("ned", files);
+  if (dictate && !rec) toggleVoice("ned");
 }
-async function startNew() {
-  const body = { workspace: $("#nws").value, cwd: $("#ncwd").value.trim() || "~", text: ned.value.trim(), focus: $("#nfocus").checked };
-  localStorage.newWs = body.workspace; localStorage.newCwd = body.cwd; localStorage.newFocus = body.focus ? "1" : "0";
-  // Optimistic: close at once; pi takes a few seconds to start. On failure the dialog reopens with your text.
-  ned.setValue(""); delete localStorage.newDraft; $("#ndlg").close(); toast("Starting pi…");
-  const j = await (await fetch("/api/new", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json().catch(() => ({}));
-  if (!j.ok) { toast(j.error || "Couldn't start it"); ned.setValue(body.text); $("#ndlg").showModal(); return; }
-  toast("Session started"); select(j.tab);
+async function startNew(audio) {
+  const text = ned.value.trim();
+  if (!text && !audio) return toast("Type or dictate something first");
+  // Optimistic: close at once. On failure the dialog reopens with your text.
+  ned.setValue(""); delete localStorage.newDraft; $("#ndlg").close();
+  toast(audio ? "Sent; transcribing" : "Sending…");
+  const fd = new FormData(); fd.append("text", text); if (audio) fd.append("audio", audio, audioName(audio));
+  const j = await (await fetch("/api/new", { method: "POST", body: fd })).json().catch(() => ({}));
+  if (!j.ok) { toast(j.error || "Couldn't send it"); ned.setValue(text); $("#ndlg").showModal(); return; }
+  if (!audio) toast("Started");
+  if (j.tab) select(j.tab);
 }
-$("#newbtn").onclick = openNew;
-$("#ngo").onclick = startNew;
+$("#newbtn").onclick = () => openNew();
+$("#ngo").onclick = () => (rec?.id === "ned" ? rec.stop() : startNew());
 $("#ncancel").onclick = () => $("#ndlg").close();
-// Esc in a vim editor means "normal mode", not "close the dialog".
-$("#ndlg").addEventListener("cancel", (e) => { if (vimOn && document.activeElement?.closest(".cm-editor")) e.preventDefault(); });
+// Closing the dialog (Cancel, Esc) discards a recording in progress and keeps what you typed as a draft.
+$("#ndlg").addEventListener("close", () => { if (rec?.id === "ned") cancelVoice(); if (ned.value.trim()) localStorage.newDraft = ned.value; else delete localStorage.newDraft; });
 
 setInterval(tick, 1000);
 setInterval(render, 60_000);

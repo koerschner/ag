@@ -21,9 +21,9 @@
 // GET /api/session/<id> resolves an id; GET /api/transcript?sid=<id> reads any session file.
 // Media: GET /api/file?path= (image/video files under ~ or /tmp, Range-capable), GET /api/embedded?tab=&line=&idx=
 // (base64 images inside the session, e.g. pasted screenshots and read-tool images).
-// Also: voice (POST /api/transcribe, Whisper via TrueFoundry like ag-inbox), pasted files (POST /api/upload →
-// ~/inbox/clipboard), new sessions (POST /api/new: tab in any workspace, pi, first prompt; the herdr-tab-name
-// extension names it), renaming tabs (POST /api/rename). Served on the Tailscale IP (http://ag:7376), on
+// Also: dictated replies (POST /api/dictate: answered at once, Whisper via TrueFoundry in the background, then
+// sent), pasted files (POST /api/upload → ~/inbox/clipboard), new items (POST /api/new: text and/or a recording,
+// handed to the ag inbox, which opens it in Inbox and names it), renaming tabs (POST /api/rename). Served on the Tailscale IP (http://ag:7376), on
 // 127.0.0.1 (for tailscale serve), and at https://ag.<tailnet>.ts.net:7377 (set up at startup), where voice works.
 // Waiting for: a session with a live tickler item (a wake-up on CI / a condition / an event, a presence item, a
 // scheduled time, or a GTD waiting-for on a person; ~/.local/state/tickler/*.json, matched by session file), or
@@ -76,6 +76,7 @@ const PAGE = `${HOME}/.local/share/ag-board/index.html`;
 const STATIC_DIR = dirname(realpathSync(PAGE));
 const STATIC = new Set(["editor.js", "marked.umd.js", "purify.min.js", "manifest.json", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"]);
 const UPLOAD_DIR = `${HOME}/inbox/clipboard`;
+const INBOX_URL = process.env.AG_INBOX_URL || "http://ag:7373/prompt?new=1"; // the ag inbox: new items land in Inbox
 const STT_URL = "https://tfy.promptlens.trilogy.com/audio/transcriptions";
 const STT_MODELS = ["whisper-1", "openai-esw/whisper-1"]; // second is the fallback route
 const STT_HINT = "Herdr, ag, pi, Arcade, arcade.school, Jev, TrueFoundry, Linear, Honeycomb, Hammerspoon, dotfiles, Roblox, TSA, hotpath.";
@@ -786,21 +787,39 @@ async function saveUpload(f: File): Promise<string> {
 	writeFileSync(path, Buffer.from(await f.arrayBuffer()));
 	return path;
 }
-// New pi session: an unlabeled tab (the herdr-tab-name extension names it from the first prompt).
-async function newSession(workspace: string, cwd: string, text: string, focus: boolean) {
-	const dir = cwd.replace(/^~(?=\/|$)/, HOME) || HOME;
-	if (!existsSync(dir)) throw new Error(`no such directory: ${cwd}`);
-	const t = await herdr("tab", "create", "--workspace", workspace, "--cwd", dir, focus ? "--focus" : "--no-focus");
-	if (t.code !== 0) throw new Error(t.err.trim() || "tab create failed");
-	const { tab, root_pane } = JSON.parse(t.out).result;
-	const name = `board-${crypto.randomUUID().slice(0, 8)}`;
-	const a = await herdr("agent", "start", name, "--kind", "pi", "--pane", root_pane.pane_id, "--timeout", "30000");
-	if (a.code !== 0) throw new Error(a.err.trim() || "pi didn't start");
-	if (text) {
-		const r = await herdr("agent", "prompt", root_pane.pane_id, text);
-		if (r.code !== 0) throw new Error(r.err.trim() || "prompt failed");
+// New item: handed to the ag inbox (?new=1: always a new session in Inbox; it names the tab). With a recording
+// the inbox answers at once and transcribes in the background; text alone waits until pi has it and returns the tab.
+async function newItem(text: string, audio: File | null): Promise<string | null> {
+	if (!audio) {
+		const r = await fetch(INBOX_URL, { method: "POST", headers: { "content-type": "text/plain" }, body: text, signal: AbortSignal.timeout(90_000) });
+		if (!r.ok) throw new Error((await r.text()).trim() || `inbox ${r.status}`);
+		return (await r.json()).tab ?? null;
 	}
-	return tab.tab_id as string;
+	const fd = new FormData();
+	fd.set("audio", audio, audio.name || "voice.webm");
+	if (text) fd.set("text", text);
+	const r = await fetch(INBOX_URL, { method: "POST", body: fd, redirect: "manual", signal: AbortSignal.timeout(30_000) });
+	if (r.status >= 400) throw new Error((await r.text()).trim() || `inbox ${r.status}`);
+	return null;
+}
+// Dictated reply: answered at once; transcribed here in the background, then sent (typed text first). If
+// transcription fails the recording isn't lost: the agent gets its path.
+async function sendDictation(pane: string, typed: string, audio: File, interruptFirst: boolean) {
+	const path = await saveUpload(new File([audio], audio.name || "voice.webm", { type: audio.type }));
+	void (async () => {
+		let text: string;
+		try {
+			const said = await transcribe(audio);
+			text = [typed, said].filter(Boolean).join("\n\n");
+			if (!text) return;
+		} catch (e) {
+			console.error(new Date().toISOString(), "dictation stt failed", e);
+			text = [typed, `I sent a voice recording but transcription failed. Transcribe it (e.g. Whisper via TrueFoundry) and do what it says:\n${path}`].filter(Boolean).join("\n\n");
+		}
+		const r = interruptFirst ? await interruptAndSend(pane, text) : await herdr("agent", "prompt", pane, text);
+		if (r.code !== 0) console.error(new Date().toISOString(), "dictation prompt failed", r.err);
+		void after();
+	})();
 }
 
 // ---------- control ----------
@@ -904,8 +923,7 @@ async function handle(req: Request): Promise<Response> {
 			if (p === "/api/transcript") {
 				const sid = url.searchParams.get("sid");
 				const file = sid ? await fileForSid(sid) : board.cards.find((c) => c.tab === url.searchParams.get("tab"))?.sessionFile;
-				// No file yet (or gone): an empty transcript, never an error the drawer would hang on.
-				if (!file || !existsSync(file)) return Response.json([]);
+				if (!file) return Response.json([]);
 				return jsonRes(req, transcript(file, sid ? `sid=${sid}` : `tab=${encodeURIComponent(url.searchParams.get("tab")!)}`));
 			}
 			const sp = p.match(/^\/api\/session\/([0-9a-f-]{36})$/)?.[1];
@@ -961,14 +979,28 @@ async function handle(req: Request): Promise<Response> {
 		}
 		if (req.method !== "POST") return bad("not found", 404);
 		// Multipart endpoints first (voice, files).
-		if (p === "/api/transcribe") {
-			const f = (await req.formData()).get("audio");
-			if (!(f instanceof File) || !f.size) return bad("audio required");
+		if (p === "/api/new") {
+			const fd = await req.formData().catch(() => null);
+			const text = String(fd?.get("text") ?? "").trim();
+			const a = fd?.get("audio");
+			const audio = a instanceof File && a.size ? a : null;
+			if (!text && !audio) return bad("say or type something");
 			try {
-				return Response.json({ ok: true, text: await transcribe(f) });
-			} catch (e) {
-				return bad(`transcription failed: ${e}`, 502);
+				const tab = await newItem(text, audio);
+				void after();
+				return Response.json({ ok: true, tab });
+			} catch (e: any) {
+				return bad(String(e?.message ?? e), 502);
 			}
+		}
+		if (p === "/api/dictate") {
+			const fd = await req.formData().catch(() => null);
+			const a = fd?.get("audio");
+			const c = board.cards.find((c) => c.tab === String(fd?.get("tab") ?? ""));
+			if (!c || !(a instanceof File) || !a.size) return bad("tab and audio required");
+			await sendDictation(c.pane, String(fd?.get("text") ?? "").trim(), a, fd?.get("interrupt") === "1");
+			markSeen(c.tab);
+			return ok();
 		}
 		if (p === "/api/upload") {
 			const files = (await req.formData()).getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
@@ -1036,17 +1068,6 @@ async function handle(req: Request): Promise<Response> {
 				if (r.code !== 0) return fail(r, "keys");
 				await after();
 				return ok();
-			}
-			case "/api/new": {
-				const ws = String(body.workspace ?? "");
-				if (!board.workspaces.some((w) => w.id === ws)) return bad("pick a workspace");
-				try {
-					const id = await newSession(ws, String(body.cwd ?? "~"), String(body.text ?? "").trim(), !!body.focus);
-					await after();
-					return Response.json({ ok: true, tab: id });
-				} catch (e: any) {
-					return bad(String(e?.message ?? e), 409);
-				}
 			}
 			case "/api/resume": {
 				const sid = String(body.sid ?? "");

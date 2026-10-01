@@ -191,8 +191,8 @@ t.check("editor clears after Send", (await edText("rted")) === "");
     t.check("📎 uploads (POST /api/upload) and inserts the path", wroteSince(n, "/api/upload") && (await edText("rted")).includes("inbox/clipboard/test.png"));
     await page.evaluate(() => { const c = document.querySelector("#rted .cm-content"); c.focus(); document.execCommand("selectAll"); document.execCommand("delete"); }); }
 }
-// 🎙 voice: no mic in the simulator, so it must fail gracefully (toast), not hang
-{ const r = await tc(page, '#reply [data-mic="rted"]', { settle: 800 }); t.check("🎙 Voice tap doesn't hang", r.ok, r.why || "");
+// dictation: no mic in the simulator, so it must fail gracefully (toast), not hang
+{ const r = await tc(page, '#reply [data-mic="rted"]', { settle: 800 }); t.check("Dictate tap doesn't hang", r.ok, r.why || "");
   if (await page.evaluate(() => document.querySelector('[data-mic="rted"]').classList.contains("rec"))) await tc(page, '#reply [data-mic="rted"]', { settle: 800 }); }
 // mark unread closes the drawer
 n = writes.length;
@@ -225,14 +225,14 @@ errors.splice(before);
 await tc(page, "#dclose");
 
 // ---- new session ----
-await tap("＋ New session", "#newbtn");
+await tap("+ New item", "#newbtn");
 t.check("New session dialog opens", await page.evaluate(() => document.querySelector("#ndlg").open));
 await shot("new-session");
 const dlgFits = await page.evaluate(() => { const r = document.querySelector("#ndlg").getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight; });
 t.check("New session dialog fits on screen", dlgFits);
 await tap("New: Cancel", "#ncancel");
 t.check("Cancel closes it", !(await page.evaluate(() => document.querySelector("#ndlg").open)));
-await tap("＋ New session (again)", "#newbtn");
+await tap("+ New item (again)", "#newbtn");
 await tap("new prompt editor", "#ned .cm-content");
 await page.keyboard.type("mobile-review new session");
 n = writes.length;

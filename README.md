@@ -51,7 +51,7 @@ Vault-only service keys (no local file; agents read them on demand with
 
 | Vault item (arcade.school vault) | Used for |
 |---|---|
-| `Discord bot (Arcade)` (**ag-vault**, via `op-work`) | Bot token for the `discord` CLI (read/post on the Arcade server as "Nathan's Assistant") and `discord dce` exports |
+| `Discord bot (Arcade)` (**ag-vault**, via `op-work`) | Bot token for the `ag discord` CLI (read/post on the Arcade server as "Nathan's Assistant") and `ag discord dce` exports |
 | `PostHog Personal API Key (Nathan Koerschner)` | PostHog REST API for project Playcademy (168029): feature flags (`arcade_*`) read/write, e.g. `GET https://us.posthog.com/api/projects/168029/feature_flags/?search=arcade_` |
 
 1Password service-account tokens (login Keychain on ag, account `natkoersch`;

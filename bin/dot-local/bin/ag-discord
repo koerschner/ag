@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""discord: read and post on the Arcade Discord server as the ag bot (no computer use).
+"""ag discord: read and post on the Arcade Discord server as the ag bot (no computer use).
 
-  discord whoami                         the bot identity and whether it can see the server
-  discord channels                       text channels and active threads (id, name, parent)
-  discord threads <channel>              active + archived public threads under a channel
-  discord read <target> [-n 30] [--before ID] [--after ID] [--json]
-  discord get <message link>             one message (with what it replies to)
-  discord post <target> [--reply-to ID|LINK] [--file PATH]... [--dry-run] [TEXT | stdin]
-  discord delete <message link>          delete one of the bot's own messages (fix a mistake)
-  discord dce <DiscordChatExporter args> run DiscordChatExporter with the bot token (discord-export skill)
+  ag discord whoami                         the bot identity and whether it can see the server
+  ag discord channels                       text channels and active threads (id, name, parent)
+  ag discord threads <channel>              active + archived public threads under a channel
+  ag discord read <target> [-n 30] [--before ID] [--after ID] [--json]
+  ag discord get <message link>             one message (with what it replies to)
+  ag discord post <target> [--reply-to ID|LINK] [--file PATH]... [--dry-run] [TEXT | stdin]
+  ag discord delete <message link>          delete one of the bot's own messages (fix a mistake)
+  ag discord dce <DiscordChatExporter args> run DiscordChatExporter with the bot token (discord-export skill)
 
 <target> is a channel or thread: an id, a name (`frank`, `#frank`, a thread title), or a
 message link (https://discord.com/channels/<guild>/<channel>/<message>). `post --reply-to LINK`
 replies to that message in its channel, so the target can be omitted:
-  discord post --reply-to https://discord.com/channels/…/…/… "$(cat msg.md)"
+  ag discord post --reply-to https://discord.com/channels/…/…/… "$(cat msg.md)"
 
 Posts come from the bot, so every post must open with the AI attribution line
 ("<Assistant> (<model>), assisting Nathan:"); `post` refuses text that doesn't. Mentions are
@@ -36,7 +36,7 @@ _token = None
 
 
 def die(msg, code=1):
-    print(f"discord: {msg}", file=sys.stderr)
+    print(f"ag discord: {msg}", file=sys.stderr)
     sys.exit(code)
 
 
@@ -118,7 +118,7 @@ def resolve(target):
     if len(hits) == 1:
         return hits[0]["id"]
     if not hits:
-        die(f"no channel or active thread named '{target}' (try `discord channels` / `discord threads <channel>`)")
+        die(f"no channel or active thread named '{target}' (try `ag discord channels` / `ag discord threads <channel>`)")
     die(f"'{target}' is ambiguous: " + ", ".join(f"#{c['name']} ({c['id']})" for c in hits))
 
 
@@ -245,7 +245,7 @@ def cmd_dce(rest):
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "dce":
         return cmd_dce(sys.argv[2:])
-    p = argparse.ArgumentParser(prog="discord", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(prog="ag discord", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("whoami").set_defaults(f=cmd_whoami)
     sub.add_parser("channels").set_defaults(f=cmd_channels)

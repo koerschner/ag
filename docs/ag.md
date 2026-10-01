@@ -11,7 +11,7 @@ Ag is Nathan's whole agent system, not one computer. Names: the **engine** (`ag-
 |---|---|---|
 | **Engine** | Rented Linux machine(s), built from zero by IaC | Herdr server, every Pi session, repos and worktrees, builds, tests, Docker, MCP servers, inbox, tickler, `show`, and phone review |
 | **Workers** | More rented Linux machines, created and destroyed on demand | Heavy or parallel jobs sent from the engine (big test suites, many agents at once) |
-| **ag-mac** | The 2024 MacBook (formerly `ag`) | Only what needs macOS: computer use, Mac-only apps (the ChatGPT app; the Discord app only as a fallback to the `discord` CLI), Xcode and macOS/iOS builds, native UI renders, Roblox Studio, Keychain items, macOS permission prompts |
+| **ag-mac** | The 2024 MacBook (formerly `ag`) | Only what needs macOS: computer use, Mac-only apps (the ChatGPT app; the Discord app only as a fallback to the `ag discord` CLI), Xcode and macOS/iOS builds, native UI renders, Roblox Studio, Keychain items, macOS permission prompts |
 | **Client** | `ag-client` (formerly `nathan-dev-client`) and `ag-phone` (the iPhone) | Where Nathan sits. It attaches to the engine's Herdr and runs Hammerspoon, CleanShot, and the client side of the bridge. Unchanged. |
 
 Everything is joined by one Tailscale tailnet.

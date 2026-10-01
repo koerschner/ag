@@ -5,7 +5,7 @@
   {"id": "board-state", "verb": "ls", "re": ":7376/api/state", "what": "read AG Dash state with curl + jq"},
   {"id": "find-session-grep", "verb": "find", "re": "grep -l\\w* [^|\\n]*(\\.pi/agent/sessions|\\.jsonl)", "what": "grep -l over session files to find a session"},
   {"id": "transcript-jq", "verb": "read", "re": "(\\.pi/agent/sessions|\\.jsonl|api/transcript)[\\s\\S]*(message\\.role|\\.role ?==)|(message\\.role|\\.role ?==)[\\s\\S]*(\\.pi/agent/sessions|\\.jsonl)", "what": "pull user/assistant text out of a transcript"},
-  {"id": "pane-read", "verb": "peek", "re": "(herdr|ag-mux) pane read", "what": "read another session's screen"},
+  {"id": "pane-read", "verb": "peek", "re": "(herdr|ag-mux) (pane|agent) read", "what": "read another session's screen"},
   {"id": "inbox-curl", "verb": "spawn", "re": ":7373/prompt", "what": "spin out via curl to the ag inbox"},
   {"id": "report-back", "verb": "report", "re": "Report from split-out", "what": "hand-built report back to the originating session"},
   {"id": "agent-prompt", "verb": "send", "re": "(herdr|ag-mux) agent prompt", "what": "prompt another session via agent prompt"},
@@ -19,5 +19,8 @@
   {"id": "agents-build", "verb": "sync", "re": "agents\\.md/build", "what": "rebuild AGENTS.md by hand"},
   {"id": "service-ctl", "verb": "status/logs/restart", "re": "systemctl --user (status|restart|start|stop)|launchctl (kickstart|list|print|bootout|bootstrap)", "what": "check or restart an Ag service by hand"},
   {"id": "service-logs", "verb": "logs", "re": "journalctl --user|\\.local/state/[^ ]*\\.log", "what": "read an Ag service log by hand"},
-  {"id": "routine-state", "verb": "routine", "re": "state/routines/|systemctl --user list-timers", "what": "inspect routines by hand"}
+  {"id": "routine-state", "verb": "routine", "re": "state/routines/|systemctl --user list-timers", "what": "inspect routines by hand"},
+  {"id": "agent-status", "verb": "ls", "re": "(herdr|ag-mux) (agent|pane) get", "what": "check another session's agent status with agent/pane get + jq"},
+  {"id": "mux-snapshot", "verb": "ls", "re": "(herdr|ag-mux) (api snapshot|workspace list)", "what": "dump the whole mux state (snapshot / workspace list) + jq"},
+  {"id": "herdr-link", "verb": "link", "re": "(^|[;&|(`\\s])herdr-link\\b", "what": "session link via the old herdr-link helper"}
 ]

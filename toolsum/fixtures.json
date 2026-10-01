@@ -1105,5 +1105,125 @@
   "hosts": [
    "ag-engine"
   ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag me"
+  },
+  "sum": "Find this session (tab, pane, link)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag ls --hot"
+  },
+  "sum": "List hot sessions",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag find cua wrapper"
+  },
+  "sum": "Find sessions matching \"cua wrapper\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag peek \"Fix Ag Inbox\" -n 20"
+  },
+  "sum": "Peek at Fix Ag Inbox's screen",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag send tCY \"hello there\""
+  },
+  "sum": "Send \"hello there\" to tCY",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag spawn -f /tmp/p.md"
+  },
+  "sum": "Spawn a session from /tmp/p.md",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag report \"done: shipped\""
+  },
+  "sum": "Report back: \"done: shipped\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag merge tD2 --into tD4"
+  },
+  "sum": "Merge tD2 into tD4",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag close --after 5"
+  },
+  "sum": "Close this tab in 5s",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag hot off tCY"
+  },
+  "sum": "Un-hotpath tCY",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/ag && ag sync ag"
+  },
+  "sum": "Sync ag to every machine",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag logs tickler -n 5"
+  },
+  "sum": "Read logs of tickler",
+  "hosts": [
+   "ag-engine"
+  ]
  }
 ]

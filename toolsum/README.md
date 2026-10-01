@@ -14,6 +14,9 @@ command:
   `mac run '…'`); a summary appears only when every meaningful piece matched a rule (`echo`, `sleep`, `cd`, and
   pipe filters like `| head` are ignored). Otherwise AG Dash shows the raw command. The raw command is always on
   hover and in the expanded row.
+- **The `ag` CLI.** `ag <verb>` calls (docs/ag-cli.md, `bin/dot-local/lib/ag/`) get one summary per verb (rule
+  `ag-cli`: "Send "…" to tCY", "Merge tD2 into this session", "Sync ag to every machine" …); passthrough verbs
+  (`ag text`, `ag mux` …) are summarized as the `ag-*` tool they run. When you add a verb, add its case and a fixture.
 - **Machine chips.** `chatgpt_cua`/`mac …` → ag-mac, `client-cua`/`ssh ag-client` → ag-client, TapKit →
   ag-phone, MCP tools → mcp, everything else → the session's own machine (from its working directory).
 

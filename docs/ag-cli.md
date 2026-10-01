@@ -35,6 +35,10 @@ Already well served (not targets): `mac run/push/pull` (one tool, 9% err mostly 
 
 ## Proposed surface
 
+**Status (2026-10-01): built.** Every verb below except the passthroughs exists as `bin/dot-local/lib/ag/<verb>`
+(shared resolver: `aglib.py`); `ag <verb> --help` documents each. Also `ag unwait`. AGENTS.md and the
+dotfiles-change skill now use them, toolsum summarizes them (rule `ag-cli`), and `ag usage` measures adoption.
+
 One entry point, `ag <verb>`. `ag` with no arguments keeps attaching (clients rely on it); `ag attach` is the
 explicit form. Every session argument accepts a session id or prefix, a tab id, an AG Dash link, or a label
 match, and is resolved fresh each call (never a cached pane id). Default target is the calling session,
@@ -68,7 +72,7 @@ found by `$PI_SESSION_FILE`, not `$HERDR_*`. JSON with `--json`.
 
 ### Passthroughs (discoverability only)
 
-`ag help` lists every Ag tool with one line each; `ag mac|show|shot|text|cua|presence|tickler|access …`
+`ag help` lists every Ag tool with one line each; `ag mac|show|shot|text|cua|presence|tickler|access|discord …`
 forward to the existing commands, which keep their names.
 
 ## Notes for building it

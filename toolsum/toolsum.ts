@@ -663,6 +663,44 @@ const RULES: Rule[] = [
 		if (sub === "status") return "Check the screen recording";
 		if (sub === "export") return `Export screen recording${r.length ? ` → ${shortPath(r[r.length - 1])}` : ""}`;
 	} },
+	{ id: "ag-cli", cmd: /^(?:~\/\.local\/bin\/)?ag$/, fn: (a, _raw, ctx) => {
+		// the ag CLI (docs/ag-cli.md, bin/dot-local/lib/ag/<verb>)
+		const p = positional(a, ["--lines", "-n", "--last", "--days", "--limit", "--ws", "--workspace", "--cwd", "--label", "-f", "--file", "--to", "--into", "--note", "--after", "--only"]);
+		const [v, ...r] = p;
+		const s = (x?: string, me = "this session") => (x ? clip(x, 40) : me);
+		const q = (x?: string, n = 50) => `"${clip((x ?? "").replace(/\s+/g, " "), n)}"`;
+		const has = (f: string) => a.includes(f);
+		switch (v) {
+			case undefined: return has("--help") ? "List ag verbs" : "Attach to Ag";
+			case "attach": return "Attach to Ag";
+			case "help": return "List ag verbs";
+			case "me": return r[0] ? `Get my ${r[0]}` : "Find this session (tab, pane, link)";
+			case "ls": { const f = ["--hot", "--waiting", "--needs-you", "--working"].filter(has).map((x) => x.slice(2)); return `List ${f.length ? f.join("/") + " " : ""}sessions${r.length ? ` in ${r.join(" ")}` : ""}`; }
+			case "find": return `Find sessions matching ${q(r.join(" "), 40)}`;
+			case "read": return `Read ${has("--user") ? "prompts of " : has("--assistant") ? "answers of " : "transcript of "}${s(r.join(" "))}`;
+			case "peek": return `Peek at ${s(r.join(" "))}'s screen`;
+			case "link": return `Get ${has("--phone") ? "phone " : ""}link to ${r.length ? r.map((x) => clip(x, 30)).join(", ") : "this session"}`;
+			case "send": return r[0] ? `Send ${r[1] ? q(r.slice(1).join(" ")) : "a message"} to ${clip(r[0], 30)}` : undefined;
+			case "spawn": { const f = flagVal(a, "-f", "--file"); return f ? `Spawn a session from ${shortPath(f)}` : r.length ? `Spawn a session: ${q(r.join(" "))}` : "Spawn a session"; }
+			case "report": return r.length ? `Report back: ${q(r.join(" "))}` : "Report back";
+			case "merge": return r.length ? `Merge ${r.map((x) => clip(x, 30)).join(", ")} into ${s(flagVal(a, "--into"))}` : undefined;
+			case "close": return `Close ${s(r.join(" "), "this tab")}${flagVal(a, "--after") ? ` in ${flagVal(a, "--after")}s` : ""}`;
+			case "rename": return r[0] ? `Rename ${s(r.slice(1).join(" "), "this tab")} → ${q(r[0], 40)}` : undefined;
+			case "file": return r[0] ? `File ${s(r.slice(1).join(" "))} into ${r[0]}` : undefined;
+			case "hot": { const m = ["on", "off", "toggle"].includes(r[0]) ? r.shift() : "on"; return `${m === "off" ? "Un-hotpath" : m === "toggle" ? "Toggle hotpath on" : "Hotpath"} ${s(r.join(" "))}`; }
+			case "wait": return `${has("--off") ? "Take" : "Put"} ${s(r.join(" "))} ${has("--off") ? "out of" : "in"} Waiting for`;
+			case "unwait": return `Take ${s(r.join(" "))} out of Waiting for`;
+			case "resume": return r.length ? `Resume ${clip(r.join(" "), 40)}` : undefined;
+			case "sync": return `Sync ${r[0] && r[0] !== "all" ? r[0] : "ag + dotfiles"} to ${flagVal(a, "--only") ?? "every machine"}`;
+			case "status": return "Check Ag's health";
+			case "logs": return r[0] ? `Read logs of ${r[0]}` : "List Ag services";
+			case "restart": return r.length ? `Restart ${r.join(", ")}` : undefined;
+			case "usage": return "Measure ag CLI usage";
+			case "routine": return `${r[0] ? `${r[0][0].toUpperCase()}${r[0].slice(1)} ` : "List "}routine${r[1] ? ` ${r[1]}` : "s"}`;
+		}
+		// passthrough verbs: `ag text …` runs ag-text, so summarize it as that
+		return summarizeShell([`ag-${v}`, ...a.slice(a.indexOf(v) + 1)].join(" "), ctx).sum;
+	} },
 	{ id: "ag-messages", cmd: /^ag-messages$/, fn: (a) => {
 		const [sub, x] = positional(a, ["--file"]);
 		switch (sub) {

@@ -107,6 +107,8 @@ def push_local(name, repo, no_push):
 def apply_on(m, repos, local):
     calls = "\n".join(f'apply {n} "{m[n].replace("~", "$HOME", 1)}"' for n in repos)
     script = f"LOCAL={1 if local else 0}\n{APPLY}\n{calls}\n"
+    if not local and not reachable(m["alias"]):
+        return {"machine": m["alias"], "ok": False, "unreachable": True, "lines": []}
     try:
         if local:
             r = subprocess.run(["sh", "-c", script], capture_output=True, text=True, timeout=900, stdin=subprocess.DEVNULL)

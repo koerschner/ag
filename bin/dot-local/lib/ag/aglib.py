@@ -510,7 +510,7 @@ def ssh(alias, script, timeout=120):
     pre = 'export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.local/bin:$HOME/.bun/bin:$PATH"\n'
     b64 = base64.b64encode((pre + script).encode()).decode()
     # The script travels as an argument, not stdin, so nothing it runs can swallow the rest of it.
-    return subprocess.run(["ssh", "-n", "-o", "ConnectTimeout=8", "-o", "BatchMode=yes", alias, f'sh -c "$(echo {b64} | base64 -d)"'],
+    return subprocess.run(["ssh", "-n", "-o", "ConnectTimeout=8", "-o", "BatchMode=yes", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=3", alias, f'sh -c "$(echo {b64} | base64 -d)"'],
                           capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
 
 

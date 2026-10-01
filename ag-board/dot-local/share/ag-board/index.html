@@ -251,6 +251,21 @@ dialog .fld{display:flex;flex-direction:column;gap:.2rem;flex:1;font-size:12px;c
 dialog input{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:.3rem .5rem;flex:1}
 dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
 .hint{color:var(--dim);font-size:12px;padding:0 .9rem .6rem}
+/* Cmd+K: ask in plain words, an LLM picks the sessions */
+#sdlg{padding:0;width:min(44rem,96vw);margin-top:12vh}
+#sdlg input{width:100%;box-sizing:border-box;border:0;border-bottom:1px solid var(--line);border-radius:12px 12px 0 0;background:transparent;font-size:16px;padding:.85rem 1rem;outline:none}
+#sstat{color:var(--dim);font-size:12px;padding:.5rem 1rem}
+#sstat:empty{display:none}
+#sres{max-height:60vh;overflow:auto}
+#sres:empty{display:none}
+#sres .sr{display:block;width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--line);color:var(--fg);padding:.55rem 1rem;cursor:pointer;font:inherit}
+#sres .sr:first-child{border-top:0}
+#sres .sr.on,#sres .sr:hover{background:var(--card2)}
+#sres .sr b{font-weight:600}
+#sres .sr .m{color:var(--dim);font-size:12px;margin-left:.4rem}
+#sres .sr .w{color:var(--dim);font-size:12.5px;margin-top:.15rem}
+@keyframes sdots{to{opacity:.3}}
+#sstat.busy::after{content:" \2026";animation:sdots .8s infinite alternate}
 /* iOS zooms the page into any focused field under 16px */
 @media (pointer:coarse){input,select,textarea,.cm-editor .cm-content{font-size:16px!important}}
 /* ---------- phone (≤700px, or a short touch screen): an app, not a squeezed desktop ----------
@@ -398,6 +413,11 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   <div class="edbar"><button type="button" class="mic" data-mic="ned" title="Dictate: click to talk, click again to send (Alt+V)">Dictate</button><span class="sp"></span><span style="font-size:11.5px;color:var(--dim)">drop files to add their paths</span></div>
   <div class="row" style="justify-content:flex-end;margin-top:.8rem"><button class="btn" value="cancel" type="button" id="ncancel">Cancel</button><button class="btn" id="ngo" type="button">Send <span class="kbd">⌘↩</span></button></div>
 </form></dialog>
+<dialog id="sdlg" aria-label="Search sessions">
+  <input id="sq" placeholder="Describe the session you're thinking of" autocomplete="off" spellcheck="false">
+  <div id="sstat"></div>
+  <div id="sres" role="listbox"></div>
+</dialog>
 <dialog id="help"><form method="dialog">
   <h3 style="margin:.2rem 0 .6rem">Keyboard</h3>
   <table>
@@ -415,6 +435,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
     <tr><td><span class="kbd">d</span></td><td>new item by dictation (click Dictate or <span class="kbd">⌘↩</span> to send)</td></tr>
     <tr><td><span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span> <span class="kbd">4</span></td><td>State / Lists / Workspaces / Routines view</td></tr>
     <tr><td><span class="kbd">/</span></td><td>search</td></tr>
+    <tr><td><span class="kbd">⌘</span>+<span class="kbd">K</span></td><td>ask: describe a session in plain words and AI finds it (open or closed)</td></tr>
     <tr><td><span class="kbd">Esc</span></td><td>close panel</td></tr>
     <tr><td><span class="kbd">Alt</span>+<span class="kbd">V</span></td><td>dictate in the open editor (stop sends it)</td></tr>
     <tr><td><span class="kbd">⌘↩</span></td><td>send</td></tr>
@@ -1080,11 +1101,56 @@ function moveSel(dy, dx) {
   const tc = target.querySelectorAll(".card");
   select(tc[Math.min(row, tc.length - 1)].dataset.tab);
 }
+// ---------- Cmd+K: describe a session in plain words, an LLM (ag search) picks the matches ----------
+const S = { q: "", results: [], on: 0, seq: 0 };
+function openSearch() {
+  const d = $("#sdlg");
+  if (!d.open) d.showModal();
+  $("#sq").focus(); $("#sq").select();
+}
+function renderSearch() {
+  $("#sres").innerHTML = S.results.map((r, i) => `<button type="button" class="sr${i === S.on ? " on" : ""}" data-i="${i}" role="option">`
+    + `<b>${esc(r.title)}</b><span class="m">${esc([r.workspace, r.state === "open" ? "" : r.state, ago(r.last * 1000) + " ago"].filter(Boolean).join(" \u00b7 "))}</span>`
+    + (r.why ? `<div class="w">${esc(r.why)}</div>` : "") + "</button>").join("");
+  $("#sres .sr.on")?.scrollIntoView({ block: "nearest" });
+}
+async function runSearch() {
+  const q = $("#sq").value.trim();
+  if (!q) return;
+  const seq = ++S.seq;
+  S.q = q; S.results = []; S.on = 0; renderSearch();
+  const st = $("#sstat"); st.textContent = "Searching your sessions"; st.className = "busy";
+  let j = {};
+  try {
+    const r = await fetch("/api/search", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ q }) });
+    j = await r.json().catch(() => ({ error: "bad reply" }));
+  } catch (e) { j = { error: String(e) }; }
+  if (seq !== S.seq) return;
+  st.className = "";
+  if (j.error) { st.textContent = j.error; return; }
+  S.results = j.results || [];
+  st.textContent = S.results.length ? "" : `Nothing matched (${j.searched} sessions searched).`;
+  renderSearch();
+}
+function pickSearch(i) {
+  const r = S.results[i]; if (!r) return;
+  $("#sdlg").close();
+  history.pushState(null, "", "/" + r.sid); applyRoute();
+}
+$("#sq").addEventListener("keydown", (e) => {
+  const n = S.results.length;
+  if (e.key === "ArrowDown" || (e.ctrlKey && e.key === "n")) { e.preventDefault(); if (n) { S.on = (S.on + 1) % n; renderSearch(); } }
+  else if (e.key === "ArrowUp" || (e.ctrlKey && e.key === "p")) { e.preventDefault(); if (n) { S.on = (S.on - 1 + n) % n; renderSearch(); } }
+  else if (e.key === "Enter") { e.preventDefault(); if (n && $("#sq").value.trim() === S.q && !e.shiftKey) pickSearch(S.on); else runSearch(); }
+});
+$("#sres").addEventListener("click", (e) => { const b = e.target.closest(".sr"); if (b) pickSearch(+b.dataset.i); });
+$("#sdlg").addEventListener("click", (e) => { if (e.target === $("#sdlg")) $("#sdlg").close(); }); // backdrop
 let lastX = 0;
 document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); $("#sdlg").open ? $("#sdlg").close() : openSearch(); return; }
   if (e.altKey && (e.key === "v" || e.key === "√" || e.code === "KeyV")) { e.preventDefault(); const id = $("#ndlg").open ? "ned" : openTab ? "rted" : null; if (id) toggleVoice(id); return; }
   if (e.key === "Escape" && $("#lb").classList.contains("open")) { $("#lb").classList.remove("open"); $("#lb").innerHTML = ""; return; }
-  if (e.key === "Escape") { if ($("#ndlg").open || $("#help").open) return; if (openTab || openSid) closeDrawer(); else { $("#q").blur(); select(null); } return; }
+  if (e.key === "Escape") { if ($("#ndlg").open || $("#help").open || $("#sdlg").open) return; if (openTab || openSid) closeDrawer(); else { $("#q").blur(); select(null); } return; }
   if (typing() || e.metaKey || e.ctrlKey || e.altKey || $("dialog[open]")) return;
   const k = e.key;
   // Anywhere outside a text field, even with a session open: / search, n new item, d new item by dictation.

@@ -1,0 +1,252 @@
+#!/usr/bin/env python3
+"""ag search — "which session was I thinking of?": describe it in plain words and an LLM picks the matches.
+
+    ag search <description…> [--days N] [--limit N] [--json]
+Unlike `ag find` (every word must appear), this is fuzzy: "the thing about kids getting stuck in roblox" works.
+Each session from the last N days (default 45; open and hibernated ones always) is boiled down to a short digest
+(name, where it lives, first and latest asks, last answer), cached in ~/.local/state/ag-search/digests.json by
+file size and mtime. Gemini Flash Lite shortlists chunks of them in parallel, then Gemini Flash (both via TrueFoundry)
+ranks up to --limit (default 8) with a one-line reason each; about 6-10 s.
+Routine runs and the calling session are left out. AG Dash's Cmd+K palette runs this (POST /api/search).
+"""
+import calendar, json, os, re, sys, time, urllib.request
+from concurrent.futures import ThreadPoolExecutor
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+# Two passes: Flash Lite shortlists each chunk of digests in parallel (fast and cheap over ~250k tokens), then
+# Flash ranks the shortlist (one big Flash call over everything takes ~25s and ~$0.45; this ~6-9s and a few cents).
+SHORTLIST = ("gemini-group/gemini-3.5-flash-lite", {})
+RANK = ("gemini-group/gemini-3.5-flash", {"reasoning_effort": "low"})
+CHUNK, PER_CHUNK = 300, 12
+TFY_URL = "https://tfy.promptlens.trilogy.com/chat/completions"
+CACHE = HOME / ".local/state/ag-search/digests.json"
+V = 1  # digest format; bump to rebuild the cache
+
+
+def tfy_token():
+    if os.environ.get("TFY_TOKEN"):
+        return os.environ["TFY_TOKEN"]
+    m = re.search(r"TFY_TOKEN=[\"']?([^\"'\s]+)", (HOME / ".zshenv.local").read_text())
+    if not m:
+        raise AgError("TFY_TOKEN not found in ~/.zshenv.local")
+    return m.group(1)
+
+
+def strip_footer(t):
+    # Prompts the inbox/spawn appended a report-back footer or context block to: keep the ask itself.
+    return re.split(r"\n\s*(?:---+|Session context \(snapshot)", t, maxsplit=1)[0]
+
+
+def digest(path):
+    """name, first ask, latest asks, last answer, user prompt count, newest entry time. Parses only what it needs."""
+    name = cwd = None
+    users, last_asst, n_user, last_ts = [], [], 0, None
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for i, line in enumerate(fh):
+            if i == 0 and line.startswith('{"type":"session"'):
+                try:
+                    cwd = json.loads(line).get("cwd")
+                except ValueError:
+                    pass
+                continue
+            if '"session_info"' in line[:200]:
+                try:
+                    name = (json.loads(line).get("name") or "").strip() or name
+                except ValueError:
+                    pass
+                continue
+            if '"type":"message"' not in line[:200]:
+                continue
+            head = line[:400]
+            m = re.search(r'"timestamp":"([^"]+)"', head)
+            if m:
+                last_ts = m.group(1)
+            if '"role":"user"' in head:
+                try:
+                    t = strip_footer(text_of(json.loads(line)["message"]["content"])).strip()
+                except (ValueError, KeyError):
+                    continue
+                if t:
+                    n_user += 1
+                    if len(users) < 1:
+                        users.append(t)
+                    else:
+                        users = users[:1] + (users[1:] + [t])[-2:]
+            elif '"role":"assistant"' in head and '"type":"text"' in line:
+                last_asst = (last_asst + [line])[-3:]
+    answer = ""
+    for line in reversed(last_asst):
+        try:
+            parts = json.loads(line)["message"]["content"]
+            answer = "\n".join(c.get("text", "") for c in parts if isinstance(c, dict) and c.get("type") == "text").strip()
+        except (ValueError, KeyError, TypeError):
+            continue
+        if answer:
+            break
+    ts = 0
+    if last_ts:
+        try:
+            ts = calendar.timegm(time.strptime(last_ts[:19], "%Y-%m-%dT%H:%M:%S"))
+        except ValueError:
+            pass
+    return {"name": name, "cwd": cwd, "first": clip(users[0], 300) if users else "", "later": [clip(u, 140) for u in users[1:]],
+            "answer": clip(re.sub(r"\n?DONE\s*$", "", answer), 200), "n": n_user, "ts": ts}
+
+
+def load_digests(files):
+    try:
+        cache = json.loads(CACHE.read_text())
+        if cache.get("v") != V:
+            cache = {}
+    except (OSError, ValueError):
+        cache = {}
+    entries = cache.get("files", {})
+    out, changed = {}, False
+    for f in files:
+        try:
+            st = os.stat(f)
+        except OSError:
+            continue
+        key = f"{st.st_size}:{int(st.st_mtime)}"
+        hit = entries.get(f)
+        if not hit or hit.get("key") != key:
+            try:
+                hit = {"key": key, "d": digest(f)}
+            except OSError:
+                continue
+            entries[f], changed = hit, True
+        out[f] = hit["d"]
+    if changed:
+        CACHE.parent.mkdir(parents=True, exist_ok=True)
+        live = {f: e for f, e in entries.items() if os.path.exists(f)}
+        tmp = CACHE.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"v": V, "files": live}, ensure_ascii=False))
+        tmp.replace(CACHE)
+    return out
+
+
+def ask_llm(query, lines, limit, model, recall=False):
+    today = time.strftime("%a %Y-%m-%d")
+    prompt = f"""Nathan is looking for one of his past AI agent sessions (each is a task/conversation with a coding agent). He described it as:
+
+<description>{query}</description>
+
+Below is every candidate session, one per block: [number] state | where it lives | last active | then its name, first ask, latest asks and the agent's last answer. Today is {today}.
+
+Pick the sessions he is most likely thinking of, best first, at most {limit}. Match on meaning, not just words (synonyms, paraphrases, the underlying topic, people, products and timing he mentions). {"This is a first pass over part of the list: favor recall and include anything plausibly related." if recall else "Include weaker but plausible matches after strong ones; leave out anything unrelated."} If nothing fits, return an empty list.
+
+Reply with JSON only: {{"results": [{{"n": <number>, "why": "<under 15 words: what in the session matches>"}}]}}
+
+<sessions>
+{chr(10).join(lines)}
+</sessions>"""
+    name, extra = model
+    body = json.dumps({"model": name, "messages": [{"role": "user", "content": prompt}], "temperature": 0, **extra}).encode()
+    req = urllib.request.Request(TFY_URL, data=body, method="POST", headers={"content-type": "application/json", "authorization": f"Bearer {tfy_token()}"})
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            out = json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        raise AgError(f"LLM HTTP {e.code}: {e.read().decode()[:300]}")
+    except urllib.error.URLError as e:
+        raise AgError(f"LLM unreachable: {e.reason}")
+    text = out["choices"][0]["message"]["content"] or ""
+    m = re.search(r"\{.*\}", text, re.S)
+    try:
+        res = json.loads(m.group(0))["results"] if m else []
+    except (ValueError, KeyError):
+        raise AgError(f"LLM reply wasn't JSON: {text[:200]}")
+    picked = []
+    for r in res:  # → [(index, why)], valid and unique
+        try:
+            i = int(r.get("n"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if 0 <= i < len(lines) and i not in (p for p, _ in picked):
+            picked.append((i, str(r.get("why") or "")))
+    return picked[:limit]
+
+
+def renumber(blocks):
+    return [re.sub(r"^\[\d+\]", f"[{k}]", b) for k, b in enumerate(blocks)]
+
+
+def search(query, blocks, limit):
+    """Shortlist chunks in parallel, then rank the shortlist. Returns [(block index, why)]."""
+    chunks = [list(range(i, min(i + CHUNK, len(blocks)))) for i in range(0, len(blocks), CHUNK)]
+
+    def shortlist(ix):
+        return [ix[i] for i, _ in ask_llm(query, renumber([blocks[i] for i in ix]), PER_CHUNK, SHORTLIST, recall=True)]
+
+    with ThreadPoolExecutor(len(chunks)) as ex:
+        short = sorted({i for part in ex.map(shortlist, chunks) for i in part})
+    if not short:
+        return []
+    return [(short[i], why) for i, why in ask_llm(query, renumber([blocks[i] for i in short]), limit, RANK)]
+
+
+def main(argv):
+    o, pos = flags(argv, {"--days": True, "--limit": True, "-n": "--limit", "--json": False})
+    if o.get("--help") or not pos:
+        return usage(__doc__)
+    query = " ".join(pos).strip()
+    limit = int(o.get("--limit") or 8)
+    since = time.time() - float(o.get("--days") or 45) * 86400
+    me = os.environ.get("PI_SESSION_ID") or sid_of(os.environ.get("PI_SESSION_FILE", ""))
+    try:
+        ix = Index()
+        open_by_sid = {s.sid: s for s in ix.all_open() if s.sid}
+    except AgError:
+        open_by_sid = {}
+
+    files = {}
+    for f in SESSIONS.glob("*/*.jsonl"):
+        s = sid_of(str(f))
+        if s and s != me and (s in open_by_sid or f.stat().st_mtime >= since):
+            files[str(f)] = s
+    for s, sess in open_by_sid.items():  # open sessions whose file lives elsewhere
+        if s != me and sess.file and sess.file not in files:
+            files[sess.file] = s
+    digests = load_digests(files)
+
+    cands, lines = [], []
+    for f, d in sorted(digests.items(), key=lambda kv: -(kv[1]["ts"] or 0)):
+        s = files[f]
+        live = open_by_sid.get(s)
+        if not d["n"] or (d["name"] or "").startswith("Routine:"):
+            continue
+        state = live.state if live else "closed"
+        where = live.where if live else (d["name"] or clip(d["first"], 70))
+        cwd = (d["cwd"] or "").replace(str(HOME), "~").replace("/Users/natkoersch", "~")
+        last = d["ts"] or os.path.getmtime(f)
+        n = len(cands)
+        cands.append({"sid": s, "state": state, "where": where, "title": live.title if live else where,
+                      "workspace": live.workspace_label if live else None,
+                      "link": link(s), "last": last, "file": f})
+        block = [f"[{n}] {state} | {where} | {ago(last)} | {cwd}"]
+        if d["name"] and d["name"] not in where:
+            block.append(f"  name: {d['name']}")
+        block.append(f"  first ask: {d['first']}")
+        for u in d["later"]:
+            block.append(f"  later ask: {u}")
+        if d["answer"]:
+            block.append(f"  last answer: {d['answer']}")
+        lines.append("\n".join(block))
+    if not cands:
+        raise AgError("no sessions to search")
+
+    picked = [{**cands[i], "why": why} for i, why in search(query, lines, limit)]
+    if o.get("--json"):
+        print(json.dumps({"results": picked, "searched": len(cands)}, ensure_ascii=False, indent=1))
+        return 0
+    if not picked:
+        print(f"no session looks like {query!r} ({len(cands)} searched)", file=sys.stderr)
+        return 1
+    for r in picked:
+        print(f"{r['state']:<10} {clip(r['where'], 56):<56} {ago(r['last']):>8}  {r['link']}")
+        if r["why"]:
+            print(f"           {r['why']}")
+
+
+run_main(main)

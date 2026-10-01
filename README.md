@@ -116,6 +116,7 @@ On a Mac client, Hammerspoon provides the capture shortcut, image paste and sess
 | `ag me` | this session's workspace, tab, pane, session id and AG Dash link |
 | `ag ls [workspace] [--hot\|--waiting\|--needs-you]` | open sessions, grouped by workspace |
 | `ag find <words>` | "the session where I was doing X": open, hibernated and closed sessions |
+| `ag search <description>` | the same, fuzzy: an LLM matches a plain-words description (AG Dash: Cmd+K) |
 | `ag read <s> [--user\|--assistant] [--last N]` | a session's transcript as text |
 | `ag peek <s>` | a session's terminal screen right now |
 | `ag link [s] [--phone]` | a session's AG Dash link |

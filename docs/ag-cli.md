@@ -51,6 +51,7 @@ found by `$PI_SESSION_FILE`, not the pane's tab/workspace env vars. JSON with `-
 | `ag me` | self lookup → workspace, tab, pane, session id, AG Dash link |
 | `ag ls [--hot\|--waiting\|--needs-you] [workspace]` | `api/state \| jq`, `tab list` per workspace |
 | `ag find <text>` | open, hibernated and closed sessions by label + transcript; prints links |
+| `ag search <description>` | fuzzy: an LLM picks the sessions a plain-words description means (AG Dash: Cmd+K) |
 | `ag read <s> [--user\|--assistant] [--last N]` | transcript `jq`/python (incl. hibernated/closed) |
 | `ag peek <s> [--lines N]` | `pane list \| jq` + `pane read` |
 | `ag link [s]` | the old link helper / `session-link` (`--phone`) |

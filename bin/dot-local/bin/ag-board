@@ -39,6 +39,7 @@
 // back in its editor. Interrupt & send = interrupt, wait until ready, clear the editor (Ctrl+U), then send.
 // Telemetry: the page sends one POST /api/click {name, view} per control click (sendBeacon); it's appended to
 // ~/.local/state/ag-board/clicks.jsonl. GET /api/stats?days=N ranks controls by clicks (`ag-dash-stats` prints it).
+// Cmd+K: POST /api/search {q} → `ag search --json` (LLM picks the sessions a plain-words description means).
 // API: GET /api/state, /api/transcript?tab=, /api/screen?tab=, /api/stats?days=
 //      POST /api/card {tab, hot?, list?, seen?}, /api/lists {lists}, /api/prompt {tab, text, interrupt?},
 //           /api/interrupt {tab}, /api/keys {tab, keys[]}, /api/focus {tab}, /api/close {tab}
@@ -1148,6 +1149,14 @@ async function handle(req: Request): Promise<Response> {
 			if (!/^engine:[\w.@-]+$/.test(id)) return bad("engine routines only");
 			const r = await run(["systemctl", "--user", "start", "--no-block", `${id.slice(7)}.service`]);
 			return r.code === 0 ? Response.json({ ok: true }) : bad(r.err.trim() || "start failed", 409);
+		}
+		if (p === "/api/search") {
+			// Cmd+K: describe a session in plain words; `ag search` has an LLM pick the matches (~6-10 s).
+			const q = String(body.q ?? "").trim().slice(0, 2000);
+			if (!q) return bad("q required");
+			const r = await run(["timeout", "90", `${HOME}/.local/lib/ag/search`, "--json", "--", q]);
+			if (r.code !== 0) return bad(r.err.trim().replace(/^ag: /, "") || "search failed", 502);
+			return new Response(r.out, { headers: { "content-type": "application/json" } });
 		}
 		const tab = String(body.tab ?? "");
 		const card = board.cards.find((c) => c.tab === tab);

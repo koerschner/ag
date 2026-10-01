@@ -26,7 +26,7 @@ Spatial language refers to the tmux layout:
 
 For anything at the session level, use `ag <verb>` (`ag help` lists them; `ag <verb> --help` for details) instead of hand-rolled `ag-mux … | jq`, curl to AG Dash or the inbox, or `jq` over `.jsonl` files. Every session argument takes a session id (or a unique prefix/suffix), a tab or pane id, an AG Dash link, or a label match, resolved fresh on each call (so no stale pane ids); the default is your own session. `--json` where machine output helps.
 
-- Find and read: `ag me`, `ag ls [workspace] [--hot|--waiting|--needs-you]`, `ag find <words>` (open, hibernated and closed sessions), `ag peek <s>` (its screen), `ag read <s> [--user|--assistant] [--last N]` (its transcript), `ag link [s] [--phone]`.
+- Find and read: `ag me`, `ag ls [workspace] [--hot|--waiting|--needs-you]`, `ag find <words>` (open, hibernated and closed sessions), `ag search <description>` (fuzzy, LLM-ranked, when the exact words are unknown), `ag peek <s>` (its screen), `ag read <s> [--user|--assistant] [--last N]` (its transcript), `ag link [s] [--phone]`.
 - Act: `ag send <s> "msg" [--interrupt]`, `ag spawn "prompt"`, `ag report "msg"`, `ag merge <A…>`, `ag close [s]`, `ag rename "label" [s]`, `ag file <workspace> [s]`, `ag hot [on|off] [s]`, `ag wait [s]` / `ag unwait [s]`, `ag resume <s>`.
 - System: `ag sync [ag|dotfiles]`, `ag status`, `ag logs <service> [-f]`, `ag restart <service>`; this machine: `ag setup` (install or update Ag here), `ag doctor` (what it still lacks).
 

@@ -2,6 +2,8 @@
 
 Never block on one long wait (`gh run watch`, `gh pr checks --watch`, `sleep`, `wait-output`) with a big timeout. Poll in short bounded checks instead: a non-blocking status query (`gh run view <id> --json status,conclusion,jobs`, `gh pr checks <pr> --json name,state,bucket`) every ~30–60s, each tool call capped at ~2 minutes (e.g. `timeout 90 gh run watch <id> --exit-status`, then re-check). Act the moment a job fails (read `--log-failed` and fix it immediately, don't wait for the rest of the run) or everything succeeds.
 
+**After you push, keep polling CI in the same turn.** Check the PR's checks and review-bot threads every ~30–60s and report progress as it comes in, until everything is green and the bots have posted; fix failures and findings as they land. Don't end the turn or hand off to a tickler wake-up while CI is still running. Use a wake-up only when what's left waits on a human (an approval) or will clearly take far longer than the run (e.g. a nightly job).
+
 Never sit idle while CI runs. `sleep N` longer than ~60s is banned, including inside a poll loop. Between status checks, do the next useful thing:
 
 - The next queued card or follow-up in the same task: start it in its own worktree off `origin/dev` (or stacked on the pending branch if it depends on it).

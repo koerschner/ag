@@ -12,11 +12,17 @@ export default function (pi: ExtensionAPI) {
 		name: "chatgpt_cua",
 		label: "ChatGPT Computer Use",
 		description:
-			"Delegate a computer-use task (see the screen, click, type, operate any native Mac app or browser) to ChatGPT/Codex's native computer-use agent (always gpt-6-astra). Give a complete, self-contained task; returns its final report. Slow (tens of seconds to minutes). Runs are queued one at a time on ag-mac's desktop, so it may first wait behind another session's run. Prefer APIs/CLIs when they exist.",
+			"Delegate a computer-use task (see the screen, click, type, operate any native Mac app or browser) to ChatGPT/Codex's native computer-use agent (always gpt-6-astra). Give a complete, self-contained task; returns its final report. Slow (tens of seconds to minutes). Runs are queued one at a time on ag-mac's desktop, so it may first wait behind another session's run (set urgent only for time-critical tasks). Prefer APIs/CLIs when they exist.",
 		parameters: Type.Object({
 			task: Type.String({ description: "Self-contained task for the computer-use agent" }),
 			keepOpen: Type.Optional(
 				Type.Boolean({ description: "Leave the apps/tabs the run opened (default: close them afterwards)" }),
+			),
+			urgent: Type.Optional(
+				Type.Boolean({
+					description:
+						"Time-critical only (Nathan is waiting on it right now, or it expires in minutes). Jumps the queue and pauses the currently running non-urgent job, which saves its progress and resumes after this one. Default false.",
+				}),
 			),
 		}),
 		async execute(_id, params, signal, onUpdate, ctx) {
@@ -29,6 +35,7 @@ export default function (pi: ExtensionAPI) {
 				.join(" ");
 			const env: NodeJS.ProcessEnv = { ...process.env, CUA_JOB_ID: jobId, CUA_CALLER: caller };
 			if (params.keepOpen) env.CHATGPT_CUA_KEEP_OPEN = "1";
+			if (params.urgent) env.CUA_URGENT = "1";
 			return await new Promise((resolve) => {
 				const child = spawn(bin, [params.task], {
 					// No stdin: a script that falls back to reading it would otherwise hang forever on Pi's open pipe.

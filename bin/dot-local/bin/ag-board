@@ -42,6 +42,8 @@
 // API: GET /api/state, /api/transcript?tab=, /api/screen?tab=, /api/stats?days=
 //      POST /api/card {tab, hot?, list?, seen?}, /api/lists {lists}, /api/prompt {tab, text, interrupt?},
 //           /api/interrupt {tab}, /api/keys {tab, keys[]}, /api/focus {tab}, /api/close {tab}
+// System strip (board.sys, header pills): engine memory (/proc/meminfo + PSI) and ag-mac's computer-use queue
+// (`ssh ag-mac cua-queue json` every 5 s, in the background).
 // Page: ~/.local/share/ag-board/index.html (stowed from the ag repo, ag-board/), re-read on every request.
 // Run by the com.nathan.ag-board LaunchAgent (only on ag-mac). Log: /tmp/ag-board.log.
 
@@ -519,7 +521,54 @@ type Card = {
 	sessionFile?: string;
 	sid?: string;
 };
-let board: { cards: Card[]; lists: List[]; workspaces: { id: string; label: string }[]; page: number } = { cards: [], lists: state.lists, workspaces: [], page: 0 };
+// ---------- system strip: engine memory + ag-mac's computer-use queue ----------
+// Memory: /proc/meminfo (used = 1 - MemAvailable/MemTotal) and PSI (/proc/pressure/memory: % of time tasks
+// stalled on memory over the last 10 s; "some" = at least one task, "full" = all). Level ok/warn/bad.
+type Mem = { usedPct: number; totalGB: number; availGB: number; swapUsedGB: number; swapTotalGB: number; psiSome: number; psiFull: number; level: "ok" | "warn" | "bad" };
+function readMem(): Mem | undefined {
+	try {
+		const kb = Object.fromEntries(readFileSync("/proc/meminfo", "utf8").split("\n").map((l) => l.split(/:\s+/)).filter((p) => p.length === 2).map(([k, v]) => [k, Number.parseInt(v)]));
+		let psiSome = 0, psiFull = 0;
+		try {
+			const psi = readFileSync("/proc/pressure/memory", "utf8");
+			// Whole percents: finer values change every poll and would rebroadcast the board each time.
+			psiSome = Math.round(Number(psi.match(/^some avg10=([\d.]+)/m)?.[1] ?? 0));
+			psiFull = Math.round(Number(psi.match(/^full avg10=([\d.]+)/m)?.[1] ?? 0));
+		} catch {}
+		const gb = (k: number) => Math.round((k / 1048576) * 10) / 10;
+		const usedPct = Math.round((1 - kb.MemAvailable / kb.MemTotal) * 100);
+		const swapUsed = (kb.SwapTotal ?? 0) - (kb.SwapFree ?? 0);
+		const level = usedPct >= 95 || psiFull >= 5 ? "bad" : usedPct >= 85 || psiSome >= 10 ? "warn" : "ok";
+		return { usedPct, totalGB: gb(kb.MemTotal), availGB: gb(kb.MemAvailable), swapUsedGB: gb(swapUsed), swapTotalGB: gb(kb.SwapTotal ?? 0), psiSome, psiFull, level };
+	} catch {
+		return undefined;
+	}
+}
+// CUA queue: `cua-queue json` on ag-mac over SSH (shared ControlMaster connection), every CUA_POLL_MS in the
+// background so a slow or unreachable ag-mac never stalls the board poll.
+type CuaJob = { id: string; status: string; caller: string; task: string; urgent: boolean; created?: number; started?: number; finished?: number; rc?: number; pauses: number };
+type Cua = { ok: boolean; error?: string; live: CuaJob[]; recent: CuaJob[] };
+const CUA_POLL_MS = 5000;
+let cua: Cua = { ok: false, error: "not checked yet", live: [], recent: [] };
+async function cuaLoop() {
+	for (;;) {
+		try {
+			const p = Bun.spawn(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "ag-mac", "cua-queue json"], { stdout: "pipe", stderr: "pipe" });
+			const timer = setTimeout(() => p.kill(), 15000);
+			const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+			clearTimeout(timer);
+			if (code !== 0) throw new Error(err.trim().split("\n").pop() || `exit ${code}`);
+			const j = JSON.parse(out);
+			cua = { ok: true, live: j.live ?? [], recent: j.recent ?? [] };
+		} catch (e) {
+			cua = { ...cua, ok: false, error: String((e as Error).message ?? e).slice(0, 200) };
+		}
+		await Bun.sleep(CUA_POLL_MS);
+	}
+}
+type Sys = { mem?: Mem; cua: Cua };
+
+let board: { cards: Card[]; lists: List[]; workspaces: { id: string; label: string }[]; page: number; sys?: Sys } = { cards: [], lists: state.lists, workspaces: [], page: 0 };
 let boardJson = "";
 const cardKey = new Map<string, string>(); // tab id → board state key (pi session id, else tab id)
 // SSE senders, one per open page. The client Mac reaches ag through a Tailscale relay (~4 Mbps), so each stream is
@@ -682,7 +731,7 @@ async function poll() {
 	try {
 		page = statSync(realpathSync(PAGE)).mtimeMs;
 	} catch {}
-	board = { cards, lists: state.lists, workspaces: snap.workspaces.map((w: any) => ({ id: w.workspace_id, label: w.label })), page };
+	board = { cards, lists: state.lists, workspaces: snap.workspaces.map((w: any) => ({ id: w.workspace_id, label: w.label })), page, sys: { mem: readMem(), cua } };
 	const json = JSON.stringify(board);
 	if (json !== boardJson) {
 		boardJson = json;
@@ -1052,3 +1101,4 @@ const HTTPS_URL = (() => {
 })();
 console.log(`ag-board listening on http://${host}:${PORT}, http://127.0.0.1:${PORT}, ${HTTPS_URL}`);
 void loop();
+void cuaLoop();

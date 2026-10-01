@@ -90,6 +90,13 @@ header h1 .brand{height:1.2em;width:auto;flex:0 0 auto}
 .card.waiting.nowake::after{background:conic-gradient(from var(--laser-angle),transparent 0 70%,#b7791f 84%,#f5b33b 93%,#ffe7b3 97%,transparent 100%)}
 .act.nowake{background:#33280f;color:var(--amber)}
 .pill.warn b{color:var(--amber)}
+.pill.bad{background:var(--firebg)}.pill.bad b{color:var(--red)}
+.pill.sys{cursor:default}.pill.click{cursor:pointer}.pill.click:hover{color:var(--fg)}
+#cuapanel{border-bottom:1px solid var(--line);padding:.5rem .9rem;font-size:13px;background:var(--col)}
+#cuapanel .job{display:flex;gap:.6rem;align-items:baseline;padding:.2rem 0;flex-wrap:wrap}
+#cuapanel .job .st{min-width:6.5rem;color:var(--dim)}#cuapanel .job .st.run{color:var(--green)}#cuapanel .job .st.urg{color:var(--fire)}#cuapanel .job .st.pause{color:var(--amber)}
+#cuapanel .job .task{color:var(--dim);flex:1;min-width:12rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#cuapanel a{color:var(--blue);text-decoration:none}#cuapanel h4{margin:.3rem 0;font-size:12px;color:var(--dim);font-weight:600}
 @media (prefers-reduced-motion:reduce){.card.waiting::after{animation:none;background:#2f6fd6;opacity:.7}}
 @media (prefers-reduced-motion:reduce){.card.throb{animation:none;box-shadow:0 0 10px 1px rgba(255,40,60,.45)}.card.throb::after{animation:none;background:#ff2d3d}}
 .card.focused{outline:1px solid #555}
@@ -310,6 +317,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   <input id="q" placeholder="Filter  ( / )" autocomplete="off">
   <button class="btn" id="helpbtn" title="Keyboard shortcuts (?)">?</button>
 </header>
+<div id="cuapanel" hidden></div>
 <nav id="coltabs" aria-label="Columns"></nav>
 <div class="hint" id="hint">Shift+click (or long-press) → 🔥 hotpath: pinned on top, siren ring while it isn't working, texts you when it has something new. ▾ details · ⏹ interrupt · click for transcript, live screen and reply · keyboard: j/k to move, e to archive, ? for all shortcuts.</div>
 <main id="board"></main>
@@ -630,7 +638,8 @@ function render() {
   }
   const n = (f) => B.cards.filter((c) => !archiving.has(c.tab) && f(c)).length;
   const needs = n((c) => c.needsYou);
-  $("#counts").innerHTML = `<span class="pill hot">🔥 <b>${n((c) => c.hot)}</b></span><span class="pill">needs you <b>${needs}</b></span><span class="pill">thinking <b>${n((c) => c.status === "working" && c.activity?.kind !== "tool")}</b></span><span class="pill">running tools <b>${n((c) => c.status === "working" && c.activity?.kind === "tool")}</b></span><span class="pill">blocked <b>${n((c) => c.status === "blocked")}</b></span><span class="pill">waiting <b>${n((c) => c.waiting?.length)}</b></span>${n((c) => c.noWake) ? `<span class="pill warn" title="In Waiting for without a tickler wake-up">no wake-up <b>${n((c) => c.noWake)}</b></span>` : ""}<span class="pill">total <b>${B.cards.length}</b></span>`;
+  $("#counts").innerHTML = `<span class="pill hot">🔥 <b>${n((c) => c.hot)}</b></span><span class="pill">needs you <b>${needs}</b></span><span class="pill">thinking <b>${n((c) => c.status === "working" && c.activity?.kind !== "tool")}</b></span><span class="pill">running tools <b>${n((c) => c.status === "working" && c.activity?.kind === "tool")}</b></span><span class="pill">blocked <b>${n((c) => c.status === "blocked")}</b></span><span class="pill">waiting <b>${n((c) => c.waiting?.length)}</b></span>${n((c) => c.noWake) ? `<span class="pill warn" title="In Waiting for without a tickler wake-up">no wake-up <b>${n((c) => c.noWake)}</b></span>` : ""}<span class="pill">total <b>${B.cards.length}</b></span>${sysHtml()}`;
+  renderCuaPanel();
   document.title = (needs ? `(${needs}) ` : "") + "AG Dash";
   document.querySelectorAll("#views button").forEach((b) => b.classList.toggle("on", b.dataset.v === view));
   $("#hotonly").classList.toggle("on", hotOnly);
@@ -639,6 +648,45 @@ function render() {
   tick();
 }
 // Fill in every "since" span (runs every second; doesn't touch the card HTML).
+// ---------- system strip: engine memory + computer-use queue (B.sys) ----------
+let cuaOpen = false;
+const cuaCaller = (j) => { const m = (j.caller || "").match(/^(.*?)\s*https?:\/\/ag:\d+\/([0-9a-f-]{20,})\s*$/i); return m ? { name: m[1] || "session", sid: m[2] } : { name: j.caller || "?" }; };
+const cuaWho = (j) => { const c = cuaCaller(j); return c.sid ? `<a href="/${c.sid}" data-sid="${c.sid}">${esc(c.name)}</a>` : esc(c.name); };
+function sysHtml() {
+  const sys = B.sys || {}, m = sys.mem, q = sys.cua;
+  let h = "";
+  if (m) h += `<span class="pill sys ${m.level === "ok" ? "" : m.level}" title="ag-engine memory: ${m.usedPct}% used, ${m.availGB} of ${m.totalGB} GB available; swap ${m.swapUsedGB}/${m.swapTotalGB} GB. Pressure (PSI, last 10 s): some ${m.psiSome}%, full ${m.psiFull}% of time stalled on memory.">engine mem <b>${m.usedPct}%</b>${m.psiSome >= 1 ? ` · stall <b>${m.psiSome}%</b>` : ""}</span>`;
+  if (q) {
+    const run = q.live.find((j) => j.status === "running"), waiting = q.live.filter((j) => j !== run), paused = waiting.filter((j) => j.status === "paused").length;
+    let body;
+    if (!q.ok) body = `<b>?</b>`;
+    else if (!q.live.length) body = `<b>idle</b>`;
+    else body = `<b>${run ? (run.urgent ? "⚡ " : "▶ ") + esc(cuaCaller(run).name.slice(0, 28)) + " " + since(run.started * 1000) : "starting"}</b>${waiting.length ? ` · <b>${waiting.length}</b> queued` : ""}${paused ? ` (${paused} paused)` : ""}`;
+    h += `<span class="pill click ${q.ok ? "" : "warn"}" id="cuapill" title="${q.ok ? "Computer-use queue on ag-mac (click for details)" : "Can't read the computer-use queue on ag-mac: " + esc(q.error)}">CUA ${body}</span>`;
+  }
+  return h;
+}
+function renderCuaPanel() {
+  const el = $("#cuapanel"), q = B.sys?.cua;
+  el.hidden = !cuaOpen || !q;
+  if (el.hidden) return;
+  const row = (j, live) => {
+    const st = j.status === "running" ? `<span class="st ${j.urgent ? "urg" : "run"}">${j.urgent ? "⚡ urgent" : "▶ running"} ${since(j.started * 1000)}</span>`
+      : j.status === "paused" ? `<span class="st pause">⏸ paused${j.pauses > 1 ? " ×" + j.pauses : ""}</span>`
+      : live ? `<span class="st ${j.urgent ? "urg" : ""}">${j.urgent ? "⚡ " : ""}queued ${since(j.created * 1000)}</span>`
+      : `<span class="st">${esc(j.status)}${j.finished ? " " + ago(j.finished * 1000) + " ago" : ""}</span>`;
+    return `<div class="job">${st}<span>${cuaWho(j)}</span><span class="task" title="${esc(j.task)}">${esc(j.task)}</span><code>${esc(j.id)}</code></div>`;
+  };
+  el.innerHTML = !q.ok ? `<div>Can't read the queue on ag-mac: ${esc(q.error)}</div>`
+    : `${q.live.length ? q.live.map((j) => row(j, true)).join("") : "<div>No computer-use job running or queued.</div>"}${q.recent.length ? `<h4>Recent</h4>${q.recent.map((j) => row(j, false)).join("")}` : ""}`;
+  tick();
+}
+document.addEventListener("click", (e) => {
+  if (e.target.closest("#cuapill")) { cuaOpen = !cuaOpen; renderCuaPanel(); return; }
+  const a = e.target.closest("#cuapanel a[data-sid]");
+  if (a && !e.metaKey && !e.ctrlKey) { e.preventDefault(); history.pushState(null, "", "/" + a.dataset.sid); applyRoute(); }
+});
+
 function tick() {
   document.querySelectorAll(".since[data-t]").forEach((el) => { const t = +el.dataset.t; el.textContent = t ? ago(t) : ""; });
   document.querySelectorAll(".act.tool").forEach((el) => { const t = +el.querySelector(".since")?.dataset.t; el.classList.toggle("long", t && Date.now() - t > 180000); });

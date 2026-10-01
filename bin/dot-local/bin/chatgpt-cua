@@ -12,7 +12,8 @@
 #
 # Runs are queued (cua-queue): one at a time on ag-mac's desktop, later callers wait their turn.
 #   chatgpt-cua --status     the running job and the queue (same as `cua-queue list`)
-# CUA_CALLER labels the job in the queue; CUA_JOB_ID picks its id (so a caller can cancel/attach).
+# CUA_CALLER labels the job in the queue; CUA_JOB_ID picks its id (so a caller can cancel/attach);
+# CUA_URGENT=1 jumps the queue and pauses a running non-urgent job (it resumes afterwards).
 set -euo pipefail
 if [[ ${1:-} == (--status|--list) ]]; then exec ${0:A:h}/cua-queue list; fi
 # Computer use happens on ag-mac (the extremity); from anywhere else, hand the task over with `mac cua`.
@@ -24,36 +25,48 @@ fi
 if [[ -z ${CUA_QUEUE_INNER:-} ]]; then
   task=${*:-$(cat)}
   [[ -n $task ]] || { echo "usage: chatgpt-cua <task>" >&2; exit 2; }
-  exec ${0:A:h}/cua-queue run ${CUA_JOB_ID:+--id} ${CUA_JOB_ID:-} --caller "${CUA_CALLER:-$(hostname -s) pid $PPID}" -- "$task"
+  exec ${0:A:h}/cua-queue run ${CUA_JOB_ID:+--id} ${CUA_JOB_ID:-} ${CUA_URGENT:+--urgent} --caller "${CUA_CALLER:-$(hostname -s) pid $PPID}" -- "$task"
 fi
 
 effort=${CHATGPT_CUA_EFFORT:-medium}
 out=$(mktemp -t chatgpt-cua)
-snap=$(mktemp -t cua-snapshot)
-trap 'rm -f "$out" "$snap"' EXIT
+jobdir=${CUA_JOB_DIR:-}
+# Under the queue the cleanup snapshot lives in the job dir, so it survives a pause and the resumed
+# turn restores against the original snapshot.
+if [[ -n $jobdir ]]; then snap=$jobdir/cua-snapshot-${CUA_JOB_ID:-job}; trap 'rm -f "$out"' EXIT
+else snap=$(mktemp -t cua-snapshot); trap 'rm -f "$out" "$snap"' EXIT; fi
 keep=${CHATGPT_CUA_KEEP_OPEN:-}
+paused() { [[ -n $jobdir && -f $jobdir/preempt ]]; }
 
 task=${*:-$(cat)}
 [[ -n $task ]] || { echo "usage: chatgpt-cua <task>" >&2; exit 2; }
 
+if [[ -n $keep ]]; then closing="Leave open the apps, windows and tabs the task needs."
+else closing="When you're done, close the apps, windows and tabs you opened (leave anything that was already open)."; fi
 prompt="You are a computer-use agent operating Nathan's Mac. Use your computer-use tools (cua_repl) to do this task, then reply with a concise final report of what you did and what you observed.
-${keep:+Leave open the apps, windows and tabs the task needs.}${keep:-When you're done, close the apps, windows and tabs you opened (leave anything that was already open).}
+$closing
 
 Task: $task"
 
 cleanup=${0:A:h}/cua-cleanup
-[[ -n $keep ]] || $cleanup snapshot "$snap"
+[[ -n $keep || -n ${CUA_RESUMED:-} && -f $snap ]] || $cleanup snapshot "$snap"
 
 cd "${CHATGPT_CUA_CWD:-$HOME}"
-rc=0
-codex exec \
-  --skip-git-repo-check \
-  --dangerously-bypass-approvals-and-sandbox \
-  -c model_provider=tfy \
-  -c model_reasoning_effort="$effort" \
-  -m gpt-6-astra \
-  --output-last-message "$out" \
-  "$prompt" </dev/null >&2 || rc=$?
+# Exit 75 = paused by an urgent job (cua-queue saves the codex session and resumes it later).
+paused && exit 75
+flags=(--skip-git-repo-check --dangerously-bypass-approvals-and-sandbox -c model_provider=tfy
+  -c model_reasoning_effort="$effort" -m gpt-6-astra --output-last-message "$out")
+if [[ -n ${CUA_RESUME_SESSION:-} ]]; then
+  echo "chatgpt-cua: resuming codex session $CUA_RESUME_SESSION after a pause" >&2
+  codex exec resume "${flags[@]}" "$CUA_RESUME_SESSION" "You were paused partway through so an urgent computer-use task could use the desktop. That task is finished. The screen may have changed (other apps or windows may now be in front, and focus may have moved). Take a fresh look at the screen, then continue the original task from where you left off, and finish with the final report as originally instructed." </dev/null >&2 &
+else
+  codex exec "${flags[@]}" "$prompt" </dev/null >&2 &
+fi
+cpid=$!
+[[ -n $jobdir ]] && echo $cpid > $jobdir/codex.pid
+rc=0; wait $cpid || rc=$?
+[[ -n $jobdir ]] && rm -f $jobdir/codex.pid
+paused && exit 75
 
 cat "$out"
 [[ -n $keep ]] || { echo; $cleanup restore "$snap"; }

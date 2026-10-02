@@ -82,7 +82,7 @@ const PAGE = `${HOME}/.local/share/ag-board/index.html`;
 const CHAT_PAGE = `${HOME}/.local/share/ag-board/chat.html`; // ChatGPT-desktop-style view at /chat (same APIs)
 // Static assets sit next to the page in the ag checkout (the page itself is a symlink into it).
 const STATIC_DIR = dirname(realpathSync(PAGE));
-const STATIC = new Set(["editor.js", "marked.umd.js", "purify.min.js", "manifest.json", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"]);
+const STATIC = new Set(["chat-manifest.json", "editor.js", "marked.umd.js", "purify.min.js", "manifest.json", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"]);
 const UPLOAD_DIR = `${HOME}/inbox/clipboard`;
 const INBOX_URL = process.env.AG_INBOX_URL || "http://ag:7373/prompt?new=1"; // the ag inbox: new items land in Inbox
 const STT_URL = "https://tfy.promptlens.trilogy.com/audio/transcriptions";
@@ -1106,7 +1106,7 @@ async function handle(req: Request): Promise<Response> {
 		if (req.method === "GET") {
 			if (p === "/") return pageRes(req);
 			// Chat view: /chat, /chat/<session id>, /chat/t/<tab> (the page routes itself).
-			if (/^\/chat(?:\/(?:[0-9a-f-]{36}|t\/[^/]+))?\/?$/.test(p)) return pageRes(req, CHAT_PAGE);
+			if (/^\/chat(?:\/(?:[0-9a-f-]{36}|[tp]\/[^/]+))?\/?$/.test(p)) return pageRes(req, CHAT_PAGE);
 			const sf = p.match(/^\/static\/([\w.-]+)$/)?.[1];
 			if (sf && STATIC.has(sf)) return staticFile(sf, req);
 			if (p === "/api/file") {
@@ -1223,6 +1223,9 @@ async function handle(req: Request): Promise<Response> {
 					return Response.json({ ok: true, kind: "meta", tab });
 				}
 				const tab = await newItem(said, rec);
+				// Chat view: "new chat in <project>" files the new Inbox session into that workspace.
+				const ws = String(fd?.get("workspace") ?? "");
+				if (tab && ws && board.workspaces.some((w: any) => w.id === ws)) await run([`${HOME}/.local/bin/ag`, "file", ws, tab]);
 				void after();
 				return Response.json({ ok: true, kind: "new", tab });
 			} catch (e: any) {
@@ -1237,6 +1240,16 @@ async function handle(req: Request): Promise<Response> {
 			await sendDictation(c.pane, String(fd?.get("text") ?? "").trim(), a, fd?.get("interrupt") === "1");
 			markSeen(c.tab);
 			return ok();
+		}
+		if (p === "/api/transcribe") {
+			// Chat view's mic: speech → text for the composer (nothing is sent).
+			const a = (await req.formData().catch(() => null))?.get("audio");
+			if (!(a instanceof File) || !a.size) return bad("audio required");
+			try {
+				return Response.json({ ok: true, text: await transcribe(a) });
+			} catch (e: any) {
+				return bad(String(e?.message ?? e), 502);
+			}
 		}
 		if (p === "/api/upload") {
 			const files = (await req.formData()).getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
@@ -1352,6 +1365,15 @@ async function handle(req: Request): Promise<Response> {
 				const r = await mux("tab", "focus", tab);
 				if (r.code !== 0) return fail(r, "focus");
 				markSeen(tab);
+				await after();
+				return ok();
+			}
+			case "/api/file": {
+				// Chat view's "Move to project": `ag file <workspace> <tab>`.
+				const ws = String(body.workspace ?? "");
+				if (!card || !board.workspaces.some((w: any) => w.id === ws)) return bad("tab and workspace required");
+				const r = await run([`${HOME}/.local/bin/ag`, "file", ws, tab]);
+				if (r.code !== 0) return fail(r, "file");
 				await after();
 				return ok();
 			}

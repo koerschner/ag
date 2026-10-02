@@ -444,9 +444,10 @@ async function resumeSession(sid: string, workspace?: string): Promise<string> {
 	return tab.tab_id;
 }
 
-// Full transcript for the drawer: prompts, answers, thinking, tool calls with a short result, and media
-// (images embedded in the session, plus image/video files mentioned by path).
-function transcript(file: string, ref: string) {
+// Transcript for the drawer: prompts, answers, thinking, tool calls with a short result, and media
+// (images embedded in the session, plus image/video files mentioned by path). The newest `limit` items; `more`
+// says older ones exist, and the clients ask for a bigger limit as you scroll up (like ChatGPT's history).
+function transcript(file: string, ref: string, limit = 150) {
 	const lines = sessionLines(file);
 	const out: any[] = [];
 	const embedded = (line: number, n: number): Media[] => Array.from({ length: n }, (_, k) => ({ src: `/api/embedded?${ref}&line=${line}&idx=${k}`, kind: "image" as const, name: `image ${k + 1}` }));
@@ -455,7 +456,8 @@ function transcript(file: string, ref: string) {
 	try {
 		cwd = JSON.parse(lines[0]).cwd;
 	} catch {}
-	for (let i = lines.length - 1; i >= 0 && out.length < 120; i--) {
+	let i = lines.length - 1;
+	for (; i >= 0 && out.length < limit; i--) {
 		const l = lines[i];
 		if (!l.includes('"type":"message"')) continue;
 		if (l.includes('"role":"toolResult"')) {
@@ -488,7 +490,8 @@ function transcript(file: string, ref: string) {
 			}
 		}
 	}
-	return out.reverse();
+	const more = lines.slice(0, i + 1).some((l) => l.includes('"type":"message"') && /"role":"(user|assistant)"/.test(l));
+	return { items: out.reverse(), more };
 }
 
 // ---------- waiting for (tickler) ----------
@@ -1164,7 +1167,11 @@ async function handle(req: Request): Promise<Response> {
 				const file = sid ? await fileForSid(sid) : board.cards.find((c) => c.tab === url.searchParams.get("tab"))?.sessionFile;
 				// No file yet (or gone): an empty transcript, never an error the drawer would hang on.
 				if (!file || !existsSync(file)) return Response.json([]);
-				return jsonRes(req, transcript(file, sid ? `sid=${sid}` : `tab=${encodeURIComponent(url.searchParams.get("tab")!)}`));
+				const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 150, 1), 100_000);
+				const t = transcript(file, sid ? `sid=${sid}` : `tab=${encodeURIComponent(url.searchParams.get("tab")!)}`, limit);
+				const res = jsonRes(req, t.items);
+				res.headers.set("x-more", t.more ? "1" : "0");
+				return res;
 			}
 			const sp = p.match(/^\/api\/session\/([0-9a-f-]{36})$/)?.[1];
 			if (sp) {

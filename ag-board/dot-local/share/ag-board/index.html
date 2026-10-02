@@ -808,29 +808,47 @@ function txHtml(msgs) {
 }
 // The query the drawer is showing now ("tab=…" / "sid=…"). A reply for any other query is stale (a slow fetch
 // for the session you just left, e.g. on the phone) and is dropped instead of painting over the new one.
-let txQuery = "", txSeq = 0;
-function resetTranscript(q) { txQuery = q; txSeq++; loadTranscript.done = false; $("#tx").innerHTML = '<div class="empty">Loading…</div>'; }
+// Like ChatGPT: the newest TX_PAGE items first; scrolling near the top loads the next page above, in place.
+const TX_PAGE = 150;
+let txQuery = "", txSeq = 0, txLimit = TX_PAGE, txMore = false, txLoadingOlder = false;
+function resetTranscript(q) { txQuery = q; txSeq++; txLimit = TX_PAGE; txMore = false; loadTranscript.done = false; $("#tx").innerHTML = '<div class="empty">Loading…</div>'; }
 async function loadTranscript(q) {
   const seq = ++txSeq;
-  let msgs;
+  let msgs, more = false;
   try {
-    const r = await fetch("/api/transcript?" + q, { cache: "no-store" });
+    const r = await fetch(`/api/transcript?${q}&limit=${txLimit}`, { cache: "no-store" });
     msgs = r.ok ? await r.json() : null;
+    more = r.headers.get("x-more") === "1";
   } catch {}
   if (q !== txQuery || seq !== txSeq) return;
   if (!Array.isArray(msgs)) { lastTxKey = ""; msgs = []; } // failed: show what we have, retry on the next state update
+  txMore = more;
   const tx = $("#tx");
   const atBottom = tx.scrollHeight - tx.scrollTop - tx.clientHeight < 80;
-  const openDetails = new Set([...tx.querySelectorAll("details[open]")].map((d) => [...tx.querySelectorAll("details")].indexOf(d)));
-  tx.innerHTML = txHtml(msgs);
+  const fromBottom = tx.scrollHeight - tx.scrollTop; // keeps the view still when older items land above it
+  const all = [...tx.querySelectorAll("details")];
+  const openDetails = new Set(all.flatMap((d, i) => (d.open ? [all.length - i] : []))); // counted from the end: stable when older items are prepended
+  tx.innerHTML = (more ? '<div class="empty txmore">Loading earlier messages…</div>' : "") + txHtml(msgs);
   // Sent-but-not-yet-recorded prompts stay visible until the session has them (or 30s pass).
   pending = pending.filter((x) => Date.now() - x.at < (x.ttl || 30000) && !msgs.some((m) => m.role === "user" && (m.text.trim() === x.text || m.ts >= x.at - 2000)));
   for (const x of pending) if ("tab=" + encodeURIComponent(x.tab) === q) tx.append(x.el);
-  [...tx.querySelectorAll("details")].forEach((d, i) => openDetails.has(i) && (d.open = true));
+  const now = [...tx.querySelectorAll("details")];
+  now.forEach((d, i) => openDetails.has(now.length - i) && (d.open = true));
   if (atBottom || !loadTranscript.done) tx.scrollTop = tx.scrollHeight;
+  else tx.scrollTop = tx.scrollHeight - fromBottom;
   loadTranscript.done = true;
   tick();
+  if (txMore && tx.scrollTop < 400 && tx.offsetParent) loadOlder(); // still near the top (or too short to scroll)
 }
+async function loadOlder() {
+  if (txLoadingOlder || !txMore || !txQuery) return;
+  txLoadingOlder = true;
+  txLimit += TX_PAGE;
+  try { await loadTranscript(txQuery); } finally { txLoadingOlder = false; }
+  const tx = $("#tx");
+  if (txMore && tx.scrollTop < 400 && tx.offsetParent) setTimeout(loadOlder, 100); // flung to the top: keep going
+}
+$("#tx").addEventListener("scroll", () => { if (loadTranscript.done && $("#tx").scrollTop < 400) loadOlder(); }, { passive: true });
 async function loadScreen() {
   if (!openTab || dtab !== "live") return;
   const tab = openTab;

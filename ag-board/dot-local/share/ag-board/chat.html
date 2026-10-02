@@ -758,6 +758,7 @@ function renderMain() {
     const banner = !i ? "" : i.missing ? `<div class="banner"><span class="grow">Couldn't find this chat.</span></div>`
       : `<div class="banner"><span class="grow"><b>${esc(i.title)}</b><br>${i.state === "hibernated" ? "This chat is asleep." : "This chat is closed."} Bring it back to keep going.</span><button class="pill" id="resume" data-t="chat-resume">${i.state === "hibernated" ? "Wake" : "Resume"}</button></div>`;
     view.innerHTML = `<div class="scroll" id="scroll"><div class="thread"><div id="thread"></div></div></div>${banner}`;
+    $("#scroll").addEventListener("scroll", loadOlder, { passive: true });
     $("#resume")?.addEventListener("click", resume);
     renderThread();
     return;
@@ -891,14 +892,20 @@ function refreshIfChanged(c) {
   clearTimeout(refreshT);
   refreshT = setTimeout(() => loadTranscript(c.sid ? `sid=${c.sid}` : `tab=${encodeURIComponent(c.tab)}`), 250);
 }
-let loadSeq = 0;
+// Like ChatGPT: the newest TX_PAGE items first; scrolling near the top loads the next page above, in place.
+const TX_PAGE = 150;
+let loadSeq = 0, txRef = "", txLimit = TX_PAGE, txMore = false, loadingOlder = false;
 async function loadTranscript(ref, first) {
   const seq = ++loadSeq;
   const forRoute = route;
+  if (ref !== txRef) { txRef = ref; txLimit = TX_PAGE; txMore = false; }
   try {
-    const t = await (await fetch(`/api/transcript?${ref}`)).json();
+    const r = await fetch(`/api/transcript?${ref}&limit=${txLimit}`);
+    const t = await r.json();
     if (seq !== loadSeq || forRoute !== route) return;
+    txMore = r.headers.get("x-more") === "1";
     transcript = Array.isArray(t) ? t : [];
+    const sc = $("#scroll"), fromBottom = sc ? sc.scrollHeight - sc.scrollTop : 0;
     const c = current();
     if (c) transcriptSig = sigOf(c);
     const users = transcript.filter((x) => x.role === "user").slice(-5).map((x) => x.text.trim());
@@ -906,11 +913,20 @@ async function loadTranscript(ref, first) {
     const stick = first || nearBottom();
     renderThread(true);
     if (stick) scrollBottom();
+    else if (sc) sc.scrollTop = sc.scrollHeight - fromBottom; // older items landed above: keep the view still
   } catch {}
+}
+async function loadOlder() {
+  const sc = $("#scroll");
+  if (loadingOlder || !txMore || !txRef || !sc || sc.scrollTop > 400) return;
+  loadingOlder = true;
+  txLimit += TX_PAGE;
+  try { await loadTranscript(txRef); } finally { loadingOlder = false; }
+  setTimeout(loadOlder, 100); // flung to the top (or still too short to scroll): keep going
 }
 function nearBottom() { const s = $("#scroll"); return !s || s.scrollHeight - s.scrollTop - s.clientHeight < 150; }
 function scrollBottom(smooth) { const s = $("#scroll"); if (s) s.scrollTo({ top: s.scrollHeight, behavior: smooth ? "smooth" : "auto" }); }
-function onScroll() { const j = $("#jump"); if (!j) return; j.classList.toggle("show", !nearBottom()); const comp = $(".composer-wrap"); if (comp) j.style.bottom = `${comp.offsetHeight + 16}px`; }
+function onScroll() { loadOlder(); const j = $("#jump"); if (!j) return; j.classList.toggle("show", !nearBottom()); const comp = $(".composer-wrap"); if (comp) j.style.bottom = `${comp.offsetHeight + 16}px`; }
 
 function stepHtml(x) {
   if (x.role === "thinking") return `<div class="step think">${esc(x.text)}</div>`;
@@ -954,7 +970,7 @@ function renderThread() {
     let steps = [], k = 0, startTs = t.user?.ts;
     const flush = (endTs) => {
       if (!steps.length) return;
-      const key = `${ti}.${k++}`;
+      const key = `${turns.length - ti}.${k++}`; // counted from the end: stable when older turns load above
       html += `<details class="steps" data-k="${key}" ${openSet.has(key) ? "open" : ""}><summary>${stepsSummary(steps, startTs || steps[0].ts, endTs || steps.at(-1).ts)}${ICON.chev}</summary><div class="step-list">${steps.map(stepHtml).join("")}</div></details>`;
       steps = [];
     };
@@ -970,6 +986,7 @@ function renderThread() {
     });
     flush();
   });
+  if (txMore && transcript.length) html = `<div class="live"><span class="shimmer">Loading earlier messages…</span></div>` + html;
   if (!transcript.length) html = route.kind === "sid" && route.info ? "" : `<div class="live"><span class="orb"></span><span class="shimmer">Loading…</span></div>`;
   el.innerHTML = html;
   el._turns = turns;

@@ -33,7 +33,7 @@ def main(argv):
     cand = None
     for t in terms:
         r = subprocess.run(["rg", "-l", "-i", "-F", "--no-messages", "--glob", "*.jsonl", "-e", t, str(SESSIONS)], capture_output=True, text=True)
-        hits = set(r.stdout.split())
+        hits = set(r.stdout.splitlines())
         cand = hits if cand is None else cand & hits
     cand = cand or set()
     results = {}
@@ -41,7 +41,10 @@ def main(argv):
         s = sid_of(f)
         if not s or s == me or s in results:
             continue
-        mt = os.path.getmtime(f)
+        try:
+            mt = os.path.getmtime(f)
+        except OSError:  # session file moved/removed mid-scan
+            continue
         if since and mt < since:
             continue
         meta = file_meta(f)

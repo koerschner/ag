@@ -100,10 +100,20 @@ def uptime(pid):
 
 
 def pressure():
+    """1 = normal, 2+ = under memory pressure (macOS level; on Linux, MemAvailable < 25% or PSI stalls)."""
+    if sys.platform == "darwin":
+        try:
+            return int(subprocess.run(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"],
+                                      capture_output=True, text=True).stdout)
+        except ValueError:
+            return 1
     try:
-        return int(subprocess.run(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"],
-                                  capture_output=True, text=True).stdout)
-    except ValueError:
+        mem = dict(l.split(":", 1) for l in open("/proc/meminfo"))
+        if int(mem["MemAvailable"].split()[0]) < 0.25 * int(mem["MemTotal"].split()[0]):
+            return 2
+        some = open("/proc/pressure/memory").readline()  # some avg10=0.00 avg60=...
+        return 2 if float(some.split("avg60=")[1].split()[0]) > 5 else 1
+    except (OSError, KeyError, ValueError, IndexError):
         return 1
 
 

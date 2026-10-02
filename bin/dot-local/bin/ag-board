@@ -79,6 +79,7 @@ const STATE_FILE = `${STATE_DIR}/state.json`;
 const GONE_KEEP_MS = 7 * 24 * 3600_000;
 const CLICKS_FILE = `${STATE_DIR}/clicks.jsonl`;
 const PAGE = `${HOME}/.local/share/ag-board/index.html`;
+const CHAT_PAGE = `${HOME}/.local/share/ag-board/chat.html`; // ChatGPT-desktop-style view at /chat (same APIs)
 // Static assets sit next to the page in the ag checkout (the page itself is a symlink into it).
 const STATIC_DIR = dirname(realpathSync(PAGE));
 const STATIC = new Set(["editor.js", "marked.umd.js", "purify.min.js", "manifest.json", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"]);
@@ -726,7 +727,7 @@ const gzipped = (req: Request, body: string | Uint8Array, headers: Record<string
 		? new Response(Bun.gzipSync(typeof body === "string" ? Buffer.from(body) : body, { level: 5 }), { status, headers: { ...headers, "content-encoding": "gzip", vary: "accept-encoding" } })
 		: new Response(body, { status, headers });
 const jsonRes = (req: Request, v: unknown) => gzipped(req, typeof v === "string" ? v : JSON.stringify(v), { "content-type": "application/json", "cache-control": "no-store" });
-const pageRes = (req: Request) => gzipped(req, readFileSync(PAGE), { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+const pageRes = (req: Request, page = PAGE) => gzipped(req, readFileSync(page), { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
 
 function fastLane(card: Card) {
 	const snippet = (card.status === "blocked" ? "is blocked and needs you" : "is ready") + (card.lastAssistant ? `: ${oneLine(card.lastAssistant.text, 160)}` : "");
@@ -1104,6 +1105,8 @@ async function handle(req: Request): Promise<Response> {
 		const p = url.pathname;
 		if (req.method === "GET") {
 			if (p === "/") return pageRes(req);
+			// Chat view: /chat, /chat/<session id>, /chat/t/<tab> (the page routes itself).
+			if (/^\/chat(?:\/(?:[0-9a-f-]{36}|t\/[^/]+))?\/?$/.test(p)) return pageRes(req, CHAT_PAGE);
 			const sf = p.match(/^\/static\/([\w.-]+)$/)?.[1];
 			if (sf && STATIC.has(sf)) return staticFile(sf, req);
 			if (p === "/api/file") {

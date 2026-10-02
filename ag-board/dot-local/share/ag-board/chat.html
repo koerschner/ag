@@ -10,8 +10,22 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Ag Chat">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#171717" media="(prefers-color-scheme: dark)">
-<meta name="theme-color" content="#f9f9f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#171717" id="themeColor">
+<script>
+// Theme: System (follows macOS) / Light / Dark, chosen in the profile menu (localStorage agchat.theme). Resolved to a
+// class on <html> before first paint so there's no flash.
+(function () {
+  const mq = matchMedia("(prefers-color-scheme: light)");
+  window.applyTheme = () => {
+    const pref = localStorage.getItem("agchat.theme") || "system";
+    const light = pref === "light" || (pref === "system" && mq.matches);
+    document.documentElement.classList.toggle("light", light);
+    document.getElementById("themeColor")?.setAttribute("content", light ? "#f9f9f9" : "#171717");
+  };
+  mq.addEventListener("change", () => window.applyTheme());
+  window.applyTheme();
+})();
+</script>
 <!--
   Ag Chat (/chat): a ChatGPT-desktop-style view over the same sessions and APIs as AG Dash (the board at / is
   unchanged). Installable on its own (chat-manifest.json: "Ag Chat", scope /chat, window-controls-overlay).
@@ -32,14 +46,12 @@
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   color-scheme: dark;
 }
-@media (prefers-color-scheme: light) {
-  :root {
+:root.light {
     --bg: #ffffff; --side: #f9f9f9; --panel: #f4f4f4; --hover: #ececec; --hover2: #e3e3e3; --sel: #e8e8e8;
     --text: #0d0d0d; --muted: #5d5d5d; --faint: #8f8f8f; --line: #0000001a; --bubble: #f4f4f4; --menu: #ffffff;
     --accent: #0d0d0d; --accent-ink: #ffffff; --blue: #0285ff; --code: #f9f9f9;
     --shadow: 0 8px 32px rgba(0,0,0,.12), 0 0 0 1px var(--line);
     color-scheme: light;
-  }
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
@@ -251,7 +263,7 @@ details.steps > summary .n { font-size: 13px; opacity: .8; }
   max-width: 48rem; margin: 0 auto; background: var(--panel); border-radius: 28px; padding: 10px;
   display: flex; flex-direction: column; gap: 4px; box-shadow: 0 0 0 1px var(--line) inset;
 }
-@media (prefers-color-scheme: light) { .composer { background: #fff; box-shadow: 0 0 0 1px var(--line) inset, 0 4px 4px rgba(0,0,0,.04), 0 0 1px rgba(0,0,0,.6) inset; } }
+.light .composer { background: #fff; box-shadow: 0 0 0 1px var(--line) inset, 0 4px 4px rgba(0,0,0,.04), 0 0 1px rgba(0,0,0,.6) inset; }
 .composer.drag { box-shadow: 0 0 0 2px var(--blue) inset; }
 .composer textarea {
   width: 100%; resize: none; border: 0; outline: none; background: none; color: var(--text);
@@ -304,7 +316,7 @@ details.steps > summary .n { font-size: 13px; opacity: .8; }
 
 /* modals */
 .back { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 45; display: none; align-items: flex-start; justify-content: center; padding-top: 12vh; }
-@media (prefers-color-scheme: light) { .back { background: rgba(0,0,0,.2); } }
+.light .back { background: rgba(0,0,0,.2); }
 .back.open { display: flex; }
 .modal { background: var(--menu); border-radius: 20px; box-shadow: var(--shadow); width: min(680px, calc(100vw - 32px)); max-height: 70vh; display: flex; flex-direction: column; overflow: hidden; }
 .modal-h { display: flex; align-items: center; gap: 8px; padding: 12px 12px 12px 20px; border-bottom: 1px solid var(--line); }
@@ -474,6 +486,9 @@ const ICON = {
   file: S('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5"/>'),
   sparkle: S('<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/>'),
   down: S('<path d="M12 5v14M5 12l7 7 7-7"/>'),
+  sun: S('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
+  moon: S('<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/>'),
+  monitor: S('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>'),
   hourglass: S('<path d="M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9s10 4 10 9"/>'),
 };
 const fillIcons = (root = document) => { for (const el of $$("[data-icon]", root)) if (!el.dataset.filled) { el.insertAdjacentHTML("afterbegin", ICON[el.dataset.icon] || ""); el.dataset.filled = 1; } };
@@ -850,6 +865,11 @@ async function moveTo(ws) {
   if (!c) return;
   try { await api("/api/file", { tab: c.tab, workspace: ws }); toast(`Moved to ${wsLabel(ws)}`); } catch (e) { toast(`Move failed: ${e.message}`); }
 }
+function themeItems() {
+  const cur = localStorage.getItem("agchat.theme") || "system";
+  return [["system", "monitor", "System"], ["light", "sun", "Light"], ["dark", "moon", "Dark"]].map(([id, icon, label]) =>
+    `<button class="mi" data-theme="${id}" data-t="chat-theme-${id}" aria-pressed="${cur === id}">${ICON[icon]}<span class="lbl">${label}</span>${cur === id ? ICON.check : ""}</button>`).join("");
+}
 function profileMenu(anchor) {
   const s = board.sys || {};
   const cua = s.cua ? ` · CUA ${s.cua.running ? "running" : "idle"}${s.cua.queued ? `, ${s.cua.queued} queued` : ""}` : "";
@@ -857,6 +877,7 @@ function profileMenu(anchor) {
     <a class="mi" href="/" data-t="chat-prof-board">${ICON.board}<span class="lbl">AG Dash (board)</span></a>
     <a class="mi" href="/routines" data-t="chat-prof-routines">${ICON.repeat}<span class="lbl">Routines</span></a>
     ${mi("keys", "keyboard", "Keyboard shortcuts")}
+    <hr><div class="hdr">Theme</div>${themeItems()}
     <hr><div class="note">${board.cards.length} chats · ${board.cards.filter(working).length} working${s.mem ? ` · memory ${s.mem.usedPct}%` : ""}${esc(cua)}</div>`, { above: true });
 }
 
@@ -1347,6 +1368,8 @@ document.addEventListener("click", (e) => {
   const sh = t.closest("[data-sec-toggle]");
   if (sh) { const id = sh.dataset.secToggle; secClosed[id] = !secClosed[id]; localStorage.setItem("agchat.secs", JSON.stringify(secClosed)); sh.parentElement.classList.toggle("closed"); return; }
   const m = t.closest(".pop [data-act]");
+  const th = t.closest(".pop [data-theme]");
+  if (th) { localStorage.setItem("agchat.theme", th.dataset.theme); applyTheme(); for (const b of $$(".pop [data-theme]")) { const on = b === th; b.setAttribute("aria-pressed", on); b.querySelector("svg:last-child:not(:first-child)")?.remove(); if (on) b.insertAdjacentHTML("beforeend", ICON.check); } return; }
   if (m) { if (m.dataset.act === "keys") { closePop(); $("#keysBack").classList.add("open"); } else act(m.dataset.act, m); return; }
   const mv = t.closest(".pop [data-move]");
   if (mv) { moveTo(mv.dataset.move); return; }

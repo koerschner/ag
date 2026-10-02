@@ -14,6 +14,7 @@
 //   resolved  = the latest answer ends with a DONE line (the global "signal completion" convention).
 //   hotpath   = 🔥 top priority (shift+click / long-press). Pinned to the top everywhere; its siren ring runs
 //               whenever the agent isn't working (throb). Becoming needsYou fires the fast lane: ag-text + a tmux toast.
+//               While the siren runs, the client keeps a persistent desktop alert up (GET /api/hot → hammerspoon ag_hot.lua).
 // Every page is a URL (views, columns, /new, /help, /<session id>[/live]); the page's router handles back/forward.
 // Deep links: http://ag:7376/<pi session id> (the UUID in the session filename; stable, unlike tab ids) serves the
 // board with that session open: the live card's drawer, or, for a hibernated pane or a closed session, its
@@ -736,6 +737,13 @@ function fastLane(card: Card) {
 	console.log(new Date().toISOString(), "fast-lane", card.tab, card.title);
 }
 
+// One line for an alert: the reply's question if it asks one, else its opening paragraph (cards keep only the
+// last 3000 chars, so at that length the first paragraph is probably cut and the next one is used).
+function gist(text: string) {
+	const paras = text.replace(/\s*\bDONE\s*$/, "").split(/\n\s*\n/).filter((x) => x.trim());
+	return (paras.findLast((x) => /\?\s*$/.test(x)) ?? paras[text.length >= 3000 && paras.length > 1 ? 1 : 0] ?? "").replace(/[*`]/g, "");
+}
+
 async function poll() {
 	const r = await mux("api", "snapshot");
 	if (r.code !== 0) return;
@@ -1129,6 +1137,21 @@ async function handle(req: Request): Promise<Response> {
 			if (p === "/api/config") return Response.json({ httpsUrl: HTTPS_URL, home: HOME, fileInbox: `http://${AG_FQDN}:7374` });
 			if (p === "/api/stats") return Response.json(clickStats(Number(url.searchParams.get("days")) || 0));
 			if (p === "/api/state") return jsonRes(req, boardJson);
+			// Stalled hotpath cards (siren running), for the client's persistent desktop alerts (hammerspoon ag_hot.lua).
+			if (p === "/api/hot")
+				return Response.json(
+					board.cards
+						.filter((c) => c.throb)
+						.map((c) => ({
+							tab: c.tab,
+							title: c.title,
+							workspace: c.workspaceLabel,
+							status: c.status,
+							since: c.statusSince,
+							body: (c.status === "blocked" ? "Blocked, needs you" : c.needsYou ? "Ready" : "Stalled") + (c.lastAssistant ? `: ${oneLine(gist(c.lastAssistant.text), 160)}` : ""),
+							url: c.sid ? `http://ag:${PORT}/${c.sid}` : `${HTTPS_URL}/#${c.tab}`,
+						})),
+				);
 			if (p === "/api/routines") return Response.json(await routinesJson());
 			if (p === "/api/routines/log") {
 				const id = url.searchParams.get("id") ?? "";

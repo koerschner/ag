@@ -9,6 +9,8 @@ if os.execute(os.getenv("HOME") .. "/.local/bin/machine-role host extremity") th
 else
 	-- Client only: lock/unlock, sleep/wake, app switches for the time review (pulled by ag-mac's presence poll).
 	activity_log = require("activity_log")
+	-- Client only: stalled hotpath sessions stay on screen as alerts until they're moving again.
+	ag_hot = require("ag_hot")
 end
 
 -- ag inbox quick capture (Cmd+Shift+Space): prompt + screenshot → new pi session on ag.

@@ -92,6 +92,12 @@ kbd { font: 12px var(--sans); color: var(--faint); }
 .item .more:hover { color: var(--text); }
 .item .more svg { width: 16px; height: 16px; color: inherit; }
 .item:hover .more, .item.menu-open .more { display: grid; }
+.item .arch { position: absolute; right: 32px; top: 4px; width: 28px; height: 28px; border-radius: 6px; display: none; place-items: center; color: var(--muted); }
+.item .arch:hover { color: var(--text); background: var(--hover2); }
+.item .arch svg { width: 16px; height: 16px; color: inherit; }
+.item:hover .arch { display: grid; }
+.item:hover .lbl, .item.menu-open .lbl { padding-right: 52px; }
+@media (hover: none) { .item .more { display: grid; } .item .ind { margin-right: 28px; } }
 .item:hover .ind, .item.menu-open .ind { visibility: hidden; }
 .item.menu-open { background: var(--hover); }
 .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
@@ -324,8 +330,9 @@ details.steps > summary .n { font-size: 13px; opacity: .8; }
 .lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.88); display: none; place-items: center; z-index: 50; cursor: zoom-out; }
 .lightbox.open { display: grid; }
 .lightbox img, .lightbox video { max-width: 94vw; max-height: 92vh; border-radius: 10px; }
-.toast { position: fixed; left: 50%; top: 16px; transform: translate(-50%, -8px); background: var(--text); color: var(--bg); padding: 8px 16px; border-radius: 12px; font-size: 14px; z-index: 60; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; }
-.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast { position: fixed; left: 50%; top: 16px; transform: translate(-50%, -8px); background: var(--text); color: var(--bg); padding: 8px 16px; border-radius: 12px; font-size: 14px; z-index: 60; opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; display: flex; gap: 14px; align-items: center; }
+.toast.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+.toast button { font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 .jump { position: absolute; left: 50%; transform: translateX(-50%); width: 36px; height: 36px; border-radius: 50%; background: var(--bg); box-shadow: 0 0 0 1px var(--line), 0 2px 8px rgba(0,0,0,.2); display: none; place-items: center; color: var(--text); z-index: 5; }
 .jump.show { display: grid; }
 .jump svg { width: 18px; height: 18px; }
@@ -526,7 +533,40 @@ const api = async (path, body) => {
   return j;
 };
 let toastT;
-function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), 2400); }
+function toast(msg, action, ms = 2400) {
+  const t = $("#toast");
+  t.textContent = msg;
+  if (action) { const b = document.createElement("button"); b.textContent = action.label; b.onclick = () => { t.classList.remove("show"); action.run(); }; t.append(b); }
+  t.classList.add("show"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("show"), ms);
+}
+
+// Archive (ChatGPT-style: one click, no confirmation). The chat leaves the sidebar at once; its tmux tab closes only
+// after the Undo window (or when the page goes away), so Undo leaves the session untouched. Same as AG Dash's archive.
+const UNDO_MS = 6000;
+const archiving = new Map(); // tab → timer
+function closeTab(tab) {
+  clearTimeout(archiving.get(tab));
+  api("/api/close", { tab }).catch((e) => { archiving.delete(tab); toast(`Couldn't archive: ${e.message}`); apply({ ...board, cards: [...byTab.values()] }, false); });
+}
+function archive(c) {
+  if (archiving.has(c.tab)) return;
+  archiving.set(c.tab, setTimeout(() => closeTab(c.tab), UNDO_MS));
+  if (current()?.tab === c.tab) go("/chat");
+  board.cards = board.cards.filter((x) => x.tab !== c.tab);
+  renderSide();
+  if (route.kind === "list" || route.kind === "project") renderListRows();
+  toast("Chat archived", { label: "Undo", run: () => {
+    clearTimeout(archiving.get(c.tab)); archiving.delete(c.tab);
+    const live = byTab.get(c.tab);
+    if (live && !board.cards.includes(live)) board.cards.push(live);
+    renderSide();
+    if (route.kind === "list" || route.kind === "project") renderListRows();
+  } }, UNDO_MS);
+}
+window.addEventListener("pagehide", () => {
+  for (const [tab, t] of archiving) { clearTimeout(t); navigator.sendBeacon("/api/close", new Blob([JSON.stringify({ tab })], { type: "application/json" })); }
+  archiving.clear();
+});
 function ago(ts) {
   if (!ts) return "";
   const s = (Date.now() - ts) / 1000;
@@ -554,6 +594,7 @@ function apply(b, delta) {
   board = b;
   byTab.clear();
   for (const c of b.cards) byTab.set(c.tab, c);
+  if (archiving.size) board.cards = b.cards.filter((c) => !archiving.has(c.tab));
   if (!loaded) return;
   if (startingTab && byTab.has(startingTab)) { const c = byTab.get(startingTab); startingTab = null; go(urlOf(c), true); return; }
   if (route.kind === "sid") { const c = cardFor(route.sid); if (c) { go(urlOf(c), true); return; } }
@@ -576,7 +617,7 @@ function itemHtml(c, cur) {
     : c.waiting?.length ? '<span class="dot waiting" title="Waiting for something"></span>'
     : c.needsYou ? '<span class="dot unread" title="New answer"></span>' : "";
   return `<a class="row item" href="${urlOf(c)}" data-tab="${esc(c.tab)}" ${cur && cur.tab === c.tab ? 'aria-current="page"' : ""} title="${esc(c.title)}">
-    <span class="lbl">${esc(c.title)}</span><span class="ind">${ind}</span><button class="more" data-item-menu="${esc(c.tab)}" aria-label="Options">${ICON.dots}</button></a>`;
+    <span class="lbl">${esc(c.title)}</span><span class="ind">${ind}</span><button class="arch" data-archive="${esc(c.tab)}" title="Archive" aria-label="Archive chat" data-t="chat-item-archive">${ICON.archive}</button><button class="more" data-item-menu="${esc(c.tab)}" aria-label="Options">${ICON.dots}</button></a>`;
 }
 function sec(id, title, body) {
   return `<div class="sec ${secClosed[id] ? "closed" : ""}" data-sec="${id}"><button class="sec-h" data-sec-toggle="${id}">${title}${ICON.chevdown}</button><div class="sec-b">${body}</div></div>`;
@@ -800,12 +841,7 @@ async function act(name, el) {
     if (name === "unread") { await api("/api/card", { tab: c.tab, seen: false }); if (current()?.tab === c.tab) go("/chat"); }
     if (name === "tmux") { await api("/api/focus", { tab: c.tab }); toast("Opened in tmux"); }
     if (name === "stop") return stop();
-    if (name === "archive") {
-      if (!confirm(`Archive "${c.title}"? Its tmux tab closes; the transcript stays on disk.`)) return;
-      await api("/api/close", { tab: c.tab });
-      toast("Chat archived");
-      if (current()?.tab === c.tab) go("/chat");
-    }
+    if (name === "archive") archive(c);
   } catch (e) { toast(`Failed: ${e.message}`); }
 }
 async function moveTo(ws) {
@@ -1276,6 +1312,8 @@ $("#sq").addEventListener("keydown", (e) => {
 document.addEventListener("click", (e) => {
   const t = e.target;
   if (pop && !t.closest(".pop") && !t.closest("[data-do=dots],[data-do=picker],[data-do=profile],[data-item-menu]")) closePop();
+  const ar = t.closest("[data-archive]");
+  if (ar) { e.preventDefault(); e.stopPropagation(); closePop(); const c = byTab.get(ar.dataset.archive); if (c) archive(c); return; }
   const more = t.closest("[data-item-menu]");
   if (more) {
     e.preventDefault(); e.stopPropagation();

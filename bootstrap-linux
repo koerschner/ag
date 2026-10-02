@@ -17,7 +17,7 @@ REPO=https://github.com/koerschner/dotfiles.git
 # Stow packages that make sense on Linux (no ghostty/hammerspoon/alfred), per repo.
 AG_PACKAGES=(ag-board ag-inbox agents bin claude codex pi systemd-user tmux)
 DOTFILES_PACKAGES=(bin git mise nvim ssh tmux zsh)
-APT=(git git-crypt curl jq unzip zsh stow ripgrep fd-find fzf build-essential docker.io ca-certificates gnupg neovim tmux mosh python3 htop)
+APT=(git git-crypt curl jq unzip zsh stow ripgrep fd-find fzf build-essential docker.io ca-certificates gnupg neovim tmux mosh python3 htop ffmpeg)
 backup=$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)
 failed=()
 export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.local/share/mise/shims:$PATH"

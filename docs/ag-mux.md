@@ -144,8 +144,7 @@ machine hosts sessions (today ag-engine, `ag-svc local`):
 
 Defined in `tailscale/policy.hujson` (autoApprover: `tag:ag-engine`) and via the API
 (`ts-api PUT tailnet/-/vip-services/svc:ag`, ports 7373–7377); `ag-svc local` / `ag-svc status`. The iOS Shortcuts
-still post to ag-mac's IP `100.107.192.32` (docs in `ios-shortcuts/`), so `ag-legacy-forward` on ag-mac forwards
-those ports to `ag`; remove it once they point at `ag.tail44736d.ts.net`.
+(`ios-shortcuts/`) post to `ag.tail44736d.ts.net` too.
 
 ## Where services run
 

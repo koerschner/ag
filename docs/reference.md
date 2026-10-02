@@ -115,7 +115,7 @@ Intentionally not tracked in git:
 
 ## Private chat (OpenRouter)
 
-`ag-private` is a private chat page for personal questions: `http://ag:7375/` (or `http://100.107.192.32:7375/`), Tailscale only. Unlike everything else on ag, its inference goes straight to OpenRouter on Nathan's **personal** account, never TrueFoundry, Jev, or the ag inbox.
+`ag-private` is a private chat page for personal questions: `http://ag:7375/`, Tailscale only. Unlike everything else on ag, its inference goes straight to OpenRouter on Nathan's **personal** account, never TrueFoundry, Jev, or the ag inbox.
 
 - Key: `OPENROUTER_API_KEY` in `~/.zshenv.local` (personal OpenRouter account, paid with Nathan's personal card). pi's `openrouter` provider in `models.json` reads the same variable. Without it the page answers "OPENROUTER_API_KEY isn't set on ag yet."
 - Every request sends `provider: {data_collection: "deny", zdr: true}` (no provider training or retention). In the OpenRouter account settings, keep prompt logging off.
@@ -200,7 +200,7 @@ Directive: every agent trace paid for by the company (Joe Lamont) must sync to N
 
 The ag inbox (`ag-inbox`) is the top-level endpoint that starts a new session: POST a prompt and ag opens a new tab running pi with it as the first prompt. Every capture path goes through it: the Mac quick capture, the iPhone Action Button, and file-inbox's "New session".
 
-- Test page: http://ag:7373/ (or `http://100.107.192.32:7373/`). Tailscale only; it listens on ag's Tailscale IP.
+- Test page: http://ag:7373/. Tailscale only.
 - API: `curl -X POST http://ag:7373/prompt -d 'your prompt'` → `202`, no body. Form posts take `text` and an optional `id`; a repeated `id` within 24 hours is acknowledged without opening a second tab (so the phone's offline queue can resend safely).
 - Screenshots: a multipart form can add `screenshot` (image file) plus `app`/`window` (frontmost app and window title). It's saved to `~/inbox/capture/`, and Jev (via TrueFoundry) judges from the prompt and window context whether the agent needs it (attached when P ≥ 0.5, or if Jev fails). `attach=always` skips Jev. Attached means the prompt ends with the file path for pi to read.
 - **Mac quick capture: Cmd+Shift+Space** (Hammerspoon, `hammerspoon/dot-hammerspoon/ag_inbox.lua`). Snapshots the screen with the focused window, then opens a small prompt form: Enter sends, Shift+Enter is a newline, Esc cancels. Click the thumbnail to annotate in CleanShot; its Cmd+S saves over the file and the form shows the annotated version, which is always attached. The form is a webview built once at load and only shown/hidden, so it opens in ~0.1–0.2 s, most of it the screenshot. Upload runs in the background with `curl`; on failure an alert shows and the prompt is copied to the clipboard. Needs Screen Recording permission for Hammerspoon (without it, captures are text-only).
@@ -604,7 +604,7 @@ Nathan sits at a client machine; agents run on a host (ag). Every machine stows 
   (HTML files bring their referenced local assets; a folder opens its `index.html`).
   Agents call it themselves (see AGENTS.md). Servers on ag are reachable at `http://ag:<port>`.
 - **Reviewing on the phone**: on ag, `show` also publishes HTML pages, folders, and Markdown
-  (rendered with pandoc) to `~/review/<name>/` and prints `phone: http://100.107.192.32:7374/r/<name>/`.
+  (rendered with pandoc) to `~/review/<name>/` and prints `phone: http://ag.tail44736d.ts.net:7374/r/<name>/`.
   `file-inbox` serves them to the tailnet, adding a phone viewport and a **Comment** button to HTML.
   A comment posts to `/r/<name>/comment` and is sent as a prompt to the pi session that ran `show`
   (matched by `$PI_SESSION_FILE` in `~/review/<name>/.meta.json`, so it survives pane moves), with

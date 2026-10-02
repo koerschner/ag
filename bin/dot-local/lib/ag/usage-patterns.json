@@ -10,7 +10,7 @@
   {"id": "report-back", "verb": "report", "re": "Report from split-out", "what": "hand-built report back to the originating session"},
   {"id": "agent-prompt", "verb": "send", "re": "ag-mux agent prompt", "what": "prompt another session via agent prompt"},
   {"id": "merge-jsonl", "verb": "merge", "re": "merged-into", "what": "hand-built merged-into / session_info JSONL"},
-  {"id": "card-curl", "verb": "hot/wait", "re": ":7376/api/card", "what": "hotpath / waiting via POST /api/card"},
+  {"id": "card-curl", "verb": "pin/wait", "re": ":7376/api/card", "what": "pin / waiting via POST /api/card"},
   {"id": "tab-close", "verb": "close", "re": "ag-mux tab close", "what": "close a tab"},
   {"id": "tab-move", "verb": "file", "re": "ag-mux (tab|pane) move", "what": "file a tab into a workspace"},
   {"id": "tab-rename", "verb": "rename", "re": "ag-mux tab rename", "what": "rename a tab"},

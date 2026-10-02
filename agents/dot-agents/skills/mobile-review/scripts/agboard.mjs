@@ -48,9 +48,9 @@ for (const [name, v] of [["Lists view", "lists"], ["Workspaces view", "ws"], ["S
   t.check(`${name} active`, await page.evaluate((v) => document.querySelector(`#views button[data-v=${v}]`).classList.contains("on"), v));
   t.check(`${name}: column tabs match columns`, await page.evaluate(() => document.querySelectorAll("#coltabs button").length === document.querySelectorAll("#board > .col").length));
 }
-await tap("🔥 only (on)", "#hotonly");
-t.check("🔥 only filters to hot cards", await page.evaluate(() => [...document.querySelectorAll("#board .card")].every((c) => c.classList.contains("hot"))));
-await tap("🔥 only (off)", "#hotonly");
+await tap("📌 only (on)", "#pinnedonly");
+t.check("📌 only filters to pinned cards", await page.evaluate(() => [...document.querySelectorAll("#board .card")].every((c) => c.classList.contains("pinned"))));
+await tap("📌 only (off)", "#pinnedonly");
 await $("#q").tap(); await page.keyboard.type("zzqqxx-no-match");
 await page.waitForTimeout(200);
 t.check("filter hides non-matching cards", await page.locator("#board .card").count() === 0);
@@ -86,9 +86,9 @@ let n = writes.length;
 await tap("details: Open in tmux", C().locator(".det [data-a=focus]"));
 t.check("Open in tmux → POST /api/focus", wroteSince(n, "/api/focus"));
 n = writes.length;
-await tap("details: 🔥 Hotpath", C().locator(".det [data-a=hot]"));
-t.check("details 🔥 → POST /api/card {hot}", wroteSince(n, "/api/card", (b) => "hot" in b));
-await tap("details: 🔥 again (undo)", C().locator(".det [data-a=hot]"));
+await tap("details: 📌 Pin", C().locator(".det [data-a=pin]"));
+t.check("details 📌 → POST /api/card {pinned}", wroteSince(n, "/api/card", (b) => "pinned" in b));
+await tap("details: 📌 again (undo)", C().locator(".det [data-a=pin]"));
 n = writes.length;
 await tap("details: ⏳ Waiting", C().locator(".det [data-a=wait]"));
 t.check("details ⏳ → POST /api/card {waiting}", wroteSince(n, "/api/card", (b) => "waiting" in b));
@@ -107,7 +107,7 @@ t.check("tap Undo", u.ok, u.why || "");
 t.check("Undo restores the card, nothing closed", (await C().count()) === 1 && !wroteSince(n, "/api/close"));
 if (await C().locator(".det").count()) await C().locator("[data-a=chev]").tap();
 
-// long-press → hotpath
+// long-press → pin
 n = writes.length;
 const bb = await C().locator(".tt").boundingBox();
 await page.touchscreen.tap(bb.x + 5, bb.y + 5).catch(() => {}); // warm up
@@ -116,7 +116,7 @@ await page.waitForTimeout(200);
 await C().locator(".tt").dispatchEvent("touchstart", { touches: [{ identifier: 1, clientX: bb.x + 5, clientY: bb.y + 5 }] });
 await page.waitForTimeout(750);
 await C().locator(".tt").dispatchEvent("touchend", {});
-t.check("long-press toggles 🔥 (POST /api/card {hot})", wroteSince(n, "/api/card", (b) => "hot" in b));
+t.check("long-press toggles 📌 (POST /api/card {pinned})", wroteSince(n, "/api/card", (b) => "pinned" in b));
 await C().locator(".tt").dispatchEvent("click"); // the click after a long-press must be swallowed
 t.check("click after long-press doesn't open the drawer", !(await drawerOpen()));
 await C().locator(".tt").dispatchEvent("touchstart", { touches: [{ identifier: 1, clientX: bb.x + 5, clientY: bb.y + 5 }] }); await page.waitForTimeout(750); await C().locator(".tt").dispatchEvent("touchend", {}); // toggle back
@@ -138,7 +138,7 @@ for (const s of await sweep(page, "#dh")) if (s.underTop) t.check(`drawer: "${s.
 // action row buttons (it scrolls sideways on phones; tapCheck scrolls each into view)
 n = writes.length;
 t.check("⏹ Interrupt disabled when idle", await $("#dstop").isDisabled());
-await tap("drawer 🔥 Hotpath", "#dhot"); t.check("drawer 🔥 → POST {hot}", wroteSince(n, "/api/card", (b) => "hot" in b)); await tap("drawer 🔥 back", "#dhot");
+await tap("drawer 📌 Pin", "#dpin"); t.check("drawer 📌 → POST {pinned}", wroteSince(n, "/api/card", (b) => "pinned" in b)); await tap("drawer 📌 back", "#dpin");
 n = writes.length; await tap("drawer ⏳ Waiting", "#dwait"); t.check("drawer ⏳ → POST {waiting}", wroteSince(n, "/api/card", (b) => "waiting" in b));
 n = writes.length; await tap("drawer Open in tmux", "#dfocus"); t.check("drawer Open in tmux → POST /api/focus", wroteSince(n, "/api/focus"));
 t.check("📱 Moshi shown on touch", await $("#dmoshi").isVisible());

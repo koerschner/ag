@@ -1109,9 +1109,9 @@
  {
   "tool": "bash",
   "args": {
-   "command": "ag ls --hot"
+   "command": "ag ls --pinned"
   },
-  "sum": "List hot sessions",
+  "sum": "List pinned sessions",
   "hosts": [
    "ag-engine"
   ]
@@ -1191,7 +1191,7 @@
   "args": {
    "command": "ag hot off tCY"
   },
-  "sum": "Un-hotpath tCY",
+  "sum": "Unpin tCY",
   "hosts": [
    "ag-engine"
   ]

@@ -36,8 +36,8 @@ PAGE=/path/to/edited/index.html node $S/agboard.mjs   # test an edit before it g
 ```
 
 Screenshots land in `/tmp/mobile-review/agboard/` (plus `landscape/`); look at them, don't just trust the
-table. It covers: header (views, 🔥 only, filter), column tabs and swipe (incl. the strip not snapping back),
-card ▾ details and every details button, long-press → 🔥, Archive + Undo, the drawer opened/closed repeatedly,
+table. It covers: header (views, 📌 only, filter), column tabs and swipe (incl. the strip not snapping back),
+card ▾ details and every details button, long-press → 📌, Archive + Undo, the drawer opened/closed repeatedly,
 every drawer action, Transcript/Live tabs, key buttons, tool-call disclosure, reply with the keyboard up,
 Send, 📎 attach, 🎙 voice (no mic → must not hang), Mark unread, rename prompt, New session dialog, deep links
 (live and closed/read-only session), media viewer, target sizes, landscape, page errors.

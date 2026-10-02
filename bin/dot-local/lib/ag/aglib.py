@@ -275,7 +275,7 @@ class Session:
         d = {k: v for k, v in self.__dict__.items() if k != "card"}
         d["link"] = self.link
         if self.card:
-            d.update(hot=self.card.get("hot"), needs_you=self.card.get("needsYou"), waiting=bool(self.card.get("waiting")), status=self.card.get("status"))
+            d.update(pinned=self.card.get("pinned"), needs_you=self.card.get("needsYou"), waiting=bool(self.card.get("waiting")), status=self.card.get("status"))
         return d
 
 

@@ -19,7 +19,7 @@ to Ag is hand-rolled `ag-mux` (or the old multiplexer CLI) + `jq`, `curl` to AG 
 | Commit + push ag/dotfiles | 373 / 153 | | manual; then `ssh ag-client/ag-mac 'git pull && stow … && hs reload'` per machine |
 | Spin out / split out (inbox) | 370 / 68 | 18% | heredoc → `curl -H content-type:text/plain --data-binary @f 'http://ag:7373/prompt?new=1'`; forgotten header → `empty` |
 | Prompt another session | 272 / 92 | 15% | resolve pane, `agent prompt`; stale pane ids → `agent_not_found` |
-| AG Dash API (state, card, transcript, new, close) | 327 / 55 | 8% | `curl :7376/api/state \| jq`; hotpath = `POST /api/card {"tab","hot":true}` after a self-lookup |
+| AG Dash API (state, card, transcript, new, close) | 327 / 55 | 8% | `curl :7376/api/state \| jq`; pin = `POST /api/card {"tab","pinned":true}` after a self-lookup |
 | launchctl / systemctl / journalctl / log tails | 368+76+191 | | per-service, per-machine incantations |
 | `agents.md/build` | 99 / 51 | | separate step before every ag commit |
 | Tab create + agent start | 88+68 / 44 | 8% | two calls plus JSON parsing |
@@ -28,7 +28,7 @@ to Ag is hand-rolled `ag-mux` (or the old multiplexer CLI) + `jq`, `curl` to AG 
 | Find "the session where I was doing X" | 46 / 28 grep -l, 69 / 16 api/state, 15 tab-find | | ad hoc; Nathan asked "find that session" in ~20 prompts |
 
 Nathan's own prompts (same window) ask for these Ag-level actions: put in waiting 81, defer/tickler 44,
-merge 31, close tab 25, give me the link 22, hotpath 21, report back 16, split out 11, archive/park 11.
+merge 31, close tab 25, give me the link 22, pin (then "hotpath") 21, report back 16, split out 11, archive/park 11.
 
 Already well served (not targets): `mac run/push/pull` (one tool, 9% err mostly remote-command errors),
 `ag_cua` tool (`ag cua`), `tickler` tool, `op-*`, `show`, `shot`, `gh pr checks` polling (`pr-watch` + github relay).
@@ -49,7 +49,7 @@ found by `$PI_SESSION_FILE`, not the pane's tab/workspace env vars. JSON with `-
 | Command | Replaces |
 |---|---|
 | `ag me` | self lookup → workspace, tab, pane, session id, AG Dash link |
-| `ag ls [--hot\|--waiting\|--needs-you] [workspace]` | `api/state \| jq`, `tab list` per workspace |
+| `ag ls [--pinned\|--waiting\|--needs-you] [workspace]` | `api/state \| jq`, `tab list` per workspace |
 | `ag find <text>` | open, hibernated and closed sessions by label + transcript; prints links |
 | `ag search <description>` | fuzzy: an LLM picks the sessions a plain-words description means (AG Dash: Cmd+K) |
 | `ag read <s> [--user\|--assistant] [--last N]` | transcript `jq`/python (incl. hibernated/closed) |
@@ -59,7 +59,7 @@ found by `$PI_SESSION_FILE`, not the pane's tab/workspace env vars. JSON with `-
 | `ag report "msg"` | report back to the session that spawned me (inbox fallback) |
 | `ag send <s> "msg" [--interrupt]` | pane lookup + `agent prompt` |
 | `ag merge <A…> [--into B]` | transcript dump, `merged-into` + `session_info` entries, close A |
-| `ag hot [on\|off] [s]`, `ag wait [s]`, `ag unwait` | `POST /api/card` |
+| `ag pin [on\|off] [s]`, `ag wait [s]`, `ag unwait` | `POST /api/card` |
 | `ag file <workspace> [s]`, `ag rename "label" [s]`, `ag close [s] [--after N]` | `tab move/rename/close` |
 | `ag resume <s>` | `POST /api/resume` |
 

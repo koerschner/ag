@@ -713,7 +713,7 @@ const RULES: Rule[] = [
 			case "attach": return "Attach to Ag";
 			case "help": return "List ag verbs";
 			case "me": return r[0] ? `Get my ${r[0]}` : "Find this session (tab, pane, link)";
-			case "ls": { const f = ["--hot", "--waiting", "--needs-you", "--working"].filter(has).map((x) => x.slice(2)); return `List ${f.length ? f.join("/") + " " : ""}sessions${r.length ? ` in ${r.join(" ")}` : ""}`; }
+			case "ls": { const f = ["--pinned", "--waiting", "--needs-you", "--working"].filter(has).map((x) => x.slice(2)); return `List ${f.length ? f.join("/") + " " : ""}sessions${r.length ? ` in ${r.join(" ")}` : ""}`; }
 			case "find": return `Find sessions matching ${q(r.join(" "), 40)}`;
 			case "read": return `Read ${has("--user") ? "prompts of " : has("--assistant") ? "answers of " : "transcript of "}${s(r.join(" "))}`;
 			case "peek": return `Peek at ${s(r.join(" "))}'s screen`;
@@ -725,7 +725,7 @@ const RULES: Rule[] = [
 			case "close": return `Close ${s(r.join(" "), "this tab")}${flagVal(a, "--after") ? ` in ${flagVal(a, "--after")}s` : ""}`;
 			case "rename": return r[0] ? `Rename ${s(r.slice(1).join(" "), "this tab")} → ${q(r[0], 40)}` : undefined;
 			case "file": return r[0] ? `File ${s(r.slice(1).join(" "))} into ${r[0]}` : undefined;
-			case "hot": { const m = ["on", "off", "toggle"].includes(r[0]) ? r.shift() : "on"; return `${m === "off" ? "Un-hotpath" : m === "toggle" ? "Toggle hotpath on" : "Hotpath"} ${s(r.join(" "))}`; }
+			case "hot": case "pin": { const m = ["on", "off", "toggle"].includes(r[0]) ? r.shift() : "on"; return `${m === "off" ? "Unpin" : m === "toggle" ? "Toggle pin on" : "Pin"} ${s(r.join(" "))}`; }
 			case "wait": return `${has("--off") ? "Take" : "Put"} ${s(r.join(" "))} ${has("--off") ? "out of" : "in"} Waiting for`;
 			case "unwait": return `Take ${s(r.join(" "))} out of Waiting for`;
 			case "resume": return r.length ? `Resume ${clip(r.join(" "), 40)}` : undefined;

@@ -7,7 +7,7 @@ Background and the intended command surface: [ag-cli.md](ag-cli.md).
 
 **Adoption: 0.6%** (20 `ag <verb>` calls vs 3,198 hand-rolled equivalents). Last week: n/a.
 With last week's pattern catalog it would read 0.8%; the drop is only the three new patterns below.
-Expected: the session verbs (`me ls find read peek link spawn report send merge hot wait file rename close`)
+Expected: the session verbs (`me ls find read peek link spawn report send merge pin wait file rename close`)
 and system verbs (`sync status logs restart`) aren't built yet; a build session is on it.
 
 ## ag verbs
@@ -49,7 +49,7 @@ strips heredocs but not multi-line quoted strings; at this volume it's noise, so
 | find-session-grep | 36 / 23 | 8% | `find` | not built |
 | routine-state | 23 / 8 | 0% | `routine` | verb exists; hits are mostly the routine runner's own tests of state files |
 | tab-rename | 20 / 16 | 10% | `rename` | not built |
-| card-curl | 18 / 10 | 6% | `hot`/`wait` | not built |
+| card-curl | 18 / 10 | 6% | `pin`/`wait` | not built |
 | tab-move | 18 / 6 | 6% | `file` | not built |
 
 Caveat: some matches are this week's audit scripts themselves (python holding the regexes as strings),

@@ -6,7 +6,7 @@ cwd: ~
 timeout: 60min
 enabled: true
 ---
-Goal: agents should do Ag operations (find/read/prompt/spin out/merge/close sessions, hotpath and waiting,
+Goal: agents should do Ag operations (find/read/prompt/spin out/merge/close sessions, pin and waiting,
 syncing machines, services) through the `ag` CLI instead of hand-rolling them with ag-mux + jq, curl to
 AG Dash or the inbox, or jq over transcripts. Background and the intended command surface: ~/ag/docs/ag-cli.md.
 

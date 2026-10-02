@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""ag hot — hotpath a session on AG Dash (🔥: red siren when it needs Nathan), or take it off.
+"""ag pin — pin a session on AG Dash (📌: top of every list, red siren and a desktop alert while it's stalled), or unpin it.
 
-    ag hot [on|off|toggle] [session]      default: on, this session
+    ag pin [on|off|toggle] [session]      default: on, this session
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -16,9 +16,9 @@ def main(argv):
     s = resolve(" ".join(pos) or None, allow_closed=False)
     if not s.card:
         raise AgError(f"{s.where} has no AG Dash card")
-    val = (not s.card.get("hot")) if mode == "toggle" else mode == "on"
-    board_post("/api/card", {"tab": s.tab, "hot": val})
-    print(f"{'🔥 hot' if val else 'not hot'}: {s.where}  {s.link or ''}")
+    val = (not s.card.get("pinned")) if mode == "toggle" else mode == "on"
+    board_post("/api/card", {"tab": s.tab, "pinned": val})
+    print(f"{'📌 pinned' if val else 'unpinned'}: {s.where}  {s.link or ''}")
 
 
 run_main(main)

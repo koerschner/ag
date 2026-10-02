@@ -114,7 +114,7 @@ On a Mac client, Hammerspoon provides the capture shortcut, image paste and sess
 | Command | What it does |
 |---|---|
 | `ag me` | this session's workspace, tab, pane, session id and AG Dash link |
-| `ag ls [workspace] [--hot\|--waiting\|--needs-you]` | open sessions, grouped by workspace |
+| `ag ls [workspace] [--pinned\|--waiting\|--needs-you]` | open sessions, grouped by workspace |
 | `ag find <words>` | "the session where I was doing X": open, hibernated and closed sessions |
 | `ag search <description>` | the same, fuzzy: an LLM matches a plain-words description (AG Dash: Cmd+K) |
 | `ag read <s> [--user\|--assistant] [--last N]` | a session's transcript as text |
@@ -131,7 +131,7 @@ On a Mac client, Hammerspoon provides the capture shortcut, image paste and sess
 | `ag merge <A…> [--into B]` | absorb other sessions' context, then retire them |
 | `ag close [s]`, `ag resume <s>` | close a tab (the transcript stays), reopen it later |
 | `ag rename "label" [s]`, `ag file <workspace> [s]` | rename a tab, move it to a topic workspace |
-| `ag hot [on\|off] [s]` | hotpath on AG Dash: top priority, red siren and a phone ping when it needs you |
+| `ag pin [on\|off\|toggle] [s]` | pin on AG Dash: top priority, red siren and a desktop alert while it's stalled, a phone ping when it needs you |
 | `ag wait [s]`, `ag unwait [s]` | put a session in Waiting for, or take it out |
 
 ### Talk to people and services

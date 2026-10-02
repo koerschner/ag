@@ -5,16 +5,16 @@
 //   - Polls `ag-mux api snapshot` (~15 ms) every POLL_MS; each tab hosting an agent is a card.
 //   - Reads each card's Pi session file incrementally (only appended bytes) for the latest ask/answer,
 //     live activity (thinking / running a tool since when), recent tools, thinking, cost and context size.
-//   - Keeps its own state in ~/.local/state/ag-board/state.json: hotpath flag, list, seenAt, status timing, lists.
+//   - Keeps its own state in ~/.local/state/ag-board/state.json: pinned flag, list, seenAt, status timing, lists.
 //   - Pushes the whole board to browsers over SSE (/events) whenever anything changes.
 // Card semantics:
 //   ready     = agent idle/done/blocked (at its prompt)
 //   needsYou  = blocked, or ready with an answer newer than seenAt. Seen = opened on the board, replied
 //               from it, jumped to in tmux, or the tab is focused in tmux.
 //   resolved  = the latest answer ends with a DONE line (the global "signal completion" convention).
-//   hotpath   = 🔥 top priority (shift+click / long-press). Pinned to the top everywhere; its siren ring runs
+//   pinned    = 📌 top priority (shift+click / long-press). Pinned to the top everywhere; its siren ring runs
 //               whenever the agent isn't working (throb). Becoming needsYou fires the fast lane: ag-text + a tmux toast.
-//               While the siren runs, the client keeps a persistent desktop alert up (GET /api/hot → hammerspoon ag_hot.lua).
+//               While the siren runs, the client keeps a persistent desktop alert up (GET /api/pinned → hammerspoon ag_pinned.lua).
 // Every page is a URL (views, columns, /new, /help, /<session id>[/live]); the page's router handles back/forward.
 // Deep links: http://ag:7376/<pi session id> (the UUID in the session filename; stable, unlike tab ids) serves the
 // board with that session open: the live card's drawer, or, for a hibernated pane or a closed session, its
@@ -40,13 +40,13 @@
 // back in its editor. Interrupt & send = interrupt, wait until ready, clear the editor (Ctrl+U), then send.
 // Telemetry: the page sends one POST /api/click {name, view} per control click (sendBeacon); it's appended to
 // ~/.local/state/ag-board/clicks.jsonl. GET /api/stats?days=N ranks controls by clicks (`ag-dash-stats` prints it).
-// New item routing: POST /api/new asks Jev what the text is for. Housekeeping on sessions (hotpath, close, file,
+// New item routing: POST /api/new asks Jev what the text is for. Housekeeping on sessions (pin, close, file,
 // gather …) → a short-lived session in the Meta workspace ({kind:"meta"}; it closes itself 10 min after DONE).
 // Looking for an existing session → it answers
 // {kind:"find"} and the page calls POST /api/search {q} → `ag search --json` (an LLM picks the matching sessions)
 // and shows them as cards, with "Start a new session instead" (route=new skips the check).
 // API: GET /api/state, /api/transcript?tab=, /api/screen?tab=, /api/stats?days=
-//      POST /api/card {tab, hot?, list?, seen?}, /api/lists {lists}, /api/prompt {tab, text, interrupt?},
+//      POST /api/card {tab, pinned?, list?, seen?}, /api/lists {lists}, /api/prompt {tab, text, interrupt?},
 //           /api/interrupt {tab}, /api/keys {tab, keys[]}, /api/focus {tab}, /api/close {tab}
 // System strip (board.sys, header pills): engine memory (/proc/meminfo + PSI) and ag-mac's computer-use queue
 // (`ssh ag-mac cua-queue json` every 5 s, in the background).
@@ -88,7 +88,7 @@ const UPLOAD_DIR = `${HOME}/inbox/clipboard`;
 const INBOX_URL = process.env.AG_INBOX_URL || "http://ag:7373/prompt?new=1"; // the ag inbox: new items land in Inbox
 const STT_URL = "https://tfy.promptlens.trilogy.com/audio/transcriptions";
 const STT_MODELS = ["whisper-1", "openai-esw/whisper-1"]; // second is the fallback route
-const STT_HINT = "tmux, ag, pi, Arcade, arcade.school, Jev, TrueFoundry, Linear, Honeycomb, Hammerspoon, dotfiles, Roblox, TSA, hotpath.";
+const STT_HINT = "tmux, ag, pi, Arcade, arcade.school, Jev, TrueFoundry, Linear, Honeycomb, Hammerspoon, dotfiles, Roblox, TSA, pinned.";
 const FAST_LANE_GAP_MS = 60_000; // at most one fast-lane ping per card per minute
 const READY = new Set(["idle", "done", "blocked"]);
 const WAKE_EVERY_MS = 15 * 60_000;
@@ -98,7 +98,7 @@ const WAKE_PROMPT = `${WAKE_PREFIX} Per "Waiting always wakes up" (AGENTS.md →
 const BIG_LINE = 256 * 1024; // tool results this big (screenshots) are summarised by regex, not parsed
 const KEYS = new Set(["esc", "enter", "up", "down", "left", "right", "tab", "backspace", "ctrl+u", "y", "n", "1", "2", "3"]);
 
-type CardState = { goneAt?: number /* tab missing since; forgotten after GONE_KEEP_MS */; waiting?: boolean /* marked by hand */; wakeAskedAt?: number; wakeAsks?: number; hot?: boolean; red?: boolean /* pre-rename name of hot */; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
+type CardState = { goneAt?: number /* tab missing since; forgotten after GONE_KEEP_MS */; waiting?: boolean /* marked by hand */; wakeAskedAt?: number; wakeAsks?: number; pinned?: boolean; hot?: boolean; red?: boolean /* older names of pinned */; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
 type List = { id: string; name: string };
 type State = { cards: Record<string, CardState>; lists: List[] };
 type Msg = { role: "user" | "assistant"; text: string; ts: number };
@@ -134,8 +134,11 @@ let state: State = { cards: {}, lists: [{ id: "now", name: "Now" }, { id: "next"
 try {
 	state = { ...state, ...JSON.parse(readFileSync(STATE_FILE, "utf8")) };
 } catch {}
-// "red" was renamed "hotpath" (🔥); carry old flags over.
-for (const cs of Object.values(state.cards)) if (cs.red !== undefined) ((cs.hot = cs.red), delete cs.red);
+// "red" became "hotpath" (hot), then "pinned"; carry old flags over.
+for (const cs of Object.values(state.cards)) {
+	if (cs.red !== undefined) ((cs.hot = cs.red), delete cs.red);
+	if (cs.hot !== undefined) ((cs.pinned = cs.hot), delete cs.hot);
+}
 let dirty = false;
 const save = () => {
 	if (!dirty) return;
@@ -540,12 +543,12 @@ type Card = {
 	title: string;
 	status: string;
 	statusSince: number;
-	hot: boolean;
+	pinned: boolean;
 	list?: string;
 	needsYou: boolean;
 	resolved: boolean;
-	throb: boolean; // hotpath, not working, not waiting: the red siren runs
-	ping: boolean; // hotpath and needs you (not waiting): fast lane + page beep
+	throb: boolean; // pinned, not working, not waiting: the red siren runs
+	ping: boolean; // pinned and needs you (not waiting): fast lane + page beep
 	waiting: Waiting[]; // non-empty: waiting for something (blue orbit, Waiting for column)
 	noWake?: { askedAt?: number; asks: number }; // waiting only by hand: no tickler item will wake it yet
 	focused: boolean;
@@ -735,8 +738,8 @@ const pageRes = (req: Request, page = PAGE) => gzipped(req, readFileSync(page), 
 
 function fastLane(card: Card) {
 	const snippet = (card.status === "blocked" ? "is blocked and needs you" : "is ready") + (card.lastAssistant ? `: ${oneLine(card.lastAssistant.text, 160)}` : "");
-	void run([AG_TEXT, `🔥 ${card.title} (${card.workspaceLabel}) ${snippet}\n${card.sid ? `http://ag:${PORT}/${card.sid}` : `${HTTPS_URL}/#${card.tab}`}`]);
-	void mux("notification", "show", `🔥 ${card.title}`, "--body", snippet.slice(0, 120), "--sound", "request");
+	void run([AG_TEXT, `📌 ${card.title} (${card.workspaceLabel}) ${snippet}\n${card.sid ? `http://ag:${PORT}/${card.sid}` : `${HTTPS_URL}/#${card.tab}`}`]);
+	void mux("notification", "show", `📌 ${card.title}`, "--body", snippet.slice(0, 120), "--sound", "request");
 	console.log(new Date().toISOString(), "fast-lane", card.tab, card.title);
 }
 
@@ -820,12 +823,12 @@ async function poll() {
 			title: cleanLabel(tabs[a.tab_id]?.label ?? a.name ?? a.tab_id),
 			status: a.agent_status,
 			statusSince: cs.statusSince,
-			hot: !!cs.hot,
+			pinned: !!cs.pinned,
 			list: cs.list,
 			needsYou,
 			resolved,
-			throb: !!cs.hot && a.agent_status !== "working" && !isWaiting,
-			ping: !!cs.hot && needsYou,
+			throb: !!cs.pinned && a.agent_status !== "working" && !isWaiting,
+			ping: !!cs.pinned && needsYou,
 			waiting: isWaiting ? waiting : [],
 			noWake: cs.waiting && !tick.length ? { askedAt: cs.wakeAskedAt, asks: cs.wakeAsks ?? 0 } : undefined,
 			focused,
@@ -856,7 +859,7 @@ async function poll() {
 		cards.push(card);
 	}
 	// Forget cards whose tabs have been gone a week. Not at once: a stopped session layer or a host move
-	// briefly shows no agents, and forgetting right away wiped every hotpath and list on 2026-09-29.
+	// briefly shows no agents, and forgetting right away wiped every pin and list on 2026-09-29.
 	for (const [id, cs] of Object.entries(state.cards)) {
 		if (keys.has(id)) {
 			if (cs.goneAt) (delete cs.goneAt, (dirty = true));
@@ -930,7 +933,7 @@ async function saveUpload(f: File): Promise<string> {
 // the inbox answers at once and transcribes in the background; text alone waits until pi has it and returns the tab.
 // What the New item box is for, by Jev (~250 ms): find an existing session, housekeeping on sessions (meta), or
 // work for an agent (new or a follow-up; the inbox tells those apart). Tested on ~20 phrasings, all routed right:
-// "where's the session about X", "the roblox launch triage one" → find; "mark the roblox ones hotpath", "close
+// "where's the session about X", "the roblox launch triage one" → find; "pin the roblox ones", "close
 // all the fix ag access tabs", "pull up all the faction sessions", "what's waiting on me", "merge …", "move … into
 // Dev Setup" → meta; tasks and research → new; "any update on X?" → follow. A bare topic word leans new.
 // Any error → "new".
@@ -949,7 +952,7 @@ async function newIntent(text: string): Promise<"find" | "meta" | "new"> {
 						instructions: "Nathan typed `message` into the New item box of his AI agent dashboard, where every card is an agent session (a task or conversation). What does he want?",
 						criteria: {
 							find: "He wants to locate and open one existing session or card: where is it, which one was it, show me / open the session about X, or just a short phrase naming a past topic or session (e.g. 'the roblox launch triage one', 'that thing about kids betting'). He wants it surfaced, not new work done.",
-							meta: "Housekeeping on his sessions or the dashboard itself, not real work: mark or unmark sessions hotpath, close/archive, rename, move or file them to a workspace, mark waiting, merge sessions, pull up or gather several sessions (e.g. 'all the roblox ones'), or list which sessions need him or are stuck.",
+							meta: "Housekeeping on his sessions or the dashboard itself, not real work: pin or unpin sessions, close/archive, rename, move or file them to a workspace, mark waiting, merge sessions, pull up or gather several sessions (e.g. 'all the roblox ones'), or list which sessions need him or are stuck.",
 							follow: "He asks for a status update on, or adds information or instructions to, work that is already going (e.g. 'any update on X?', 'also make X do Y', 'X is fixed now'). An agent should continue that work.",
 							new: "He asks an agent to do a new task, research something, or answer a question: start new work.",
 						},
@@ -966,9 +969,9 @@ async function newIntent(text: string): Promise<"find" | "meta" | "new"> {
 		return "new";
 	}
 }
-// Meta: housekeeping requests ("mark the roblox ones hotpath", "close the TSA sessions") get a short-lived session
+// Meta: housekeeping requests ("pin the roblox ones", "close the TSA sessions") get a short-lived session
 // in the Meta workspace, done with the `ag` CLI. Meta cards hang around briefly: META_KEEP_MS after one finishes
-// (its answer ends with DONE) it closes itself, unless it's hotpath, waiting, or focused in tmux.
+// (its answer ends with DONE) it closes itself, unless it's pinned, waiting, or focused in tmux.
 const META_WS = "Meta";
 const META_KEEP_MS = 10 * 60_000;
 const metaClosing = new Set<string>();
@@ -985,7 +988,7 @@ async function metaItem(text: string): Promise<string> {
 		: json(await mux("workspace", "create", "--cwd", HOME, "--label", META_WS, "--no-focus"), "workspace create");
 	const tab = t.tab.tab_id, pane = t.root_pane.pane_id;
 	if (!ws) await mux("tab", "rename", tab, label);
-	const prompt = `[Meta] From AG Dash's New item box, Nathan asked for housekeeping on his sessions or the dashboard:\n\n${text}\n\n---\nDo it with the \`ag\` CLI (\`ag help\`: ls, find, search, hot, close, rename, file, wait/unwait, merge, link, send, peek, read). This isn't real work: don't start tasks inside other sessions beyond what he asked. Be quick. Reply in a line or two with what you did and the AG Dash links (\`ag link\`), then DONE. This tab lives in the ${META_WS} workspace and closes itself ${META_KEEP_MS / 60_000} minutes after you finish; if you need his answer, ask and leave off DONE.`;
+	const prompt = `[Meta] From AG Dash's New item box, Nathan asked for housekeeping on his sessions or the dashboard:\n\n${text}\n\n---\nDo it with the \`ag\` CLI (\`ag help\`: ls, find, search, pin, close, rename, file, wait/unwait, merge, link, send, peek, read). This isn't real work: don't start tasks inside other sessions beyond what he asked. Be quick. Reply in a line or two with what you did and the AG Dash links (\`ag link\`), then DONE. This tab lives in the ${META_WS} workspace and closes itself ${META_KEEP_MS / 60_000} minutes after you finish; if you need his answer, ask and leave off DONE.`;
 	try {
 		json(await mux("agent", "start", `meta-${crypto.randomUUID().slice(0, 6)}`, "--kind", "pi", "--pane", pane, "--timeout", "30000"), "agent start");
 		json(await mux("agent", "prompt", pane, prompt), "agent prompt");
@@ -997,7 +1000,7 @@ async function metaItem(text: string): Promise<string> {
 }
 function expireMeta(cards: Card[], now: number) {
 	for (const c of cards) {
-		if (c.workspaceLabel !== META_WS || !c.resolved || c.hot || c.focused || c.waiting.length || metaClosing.has(c.tab)) continue;
+		if (c.workspaceLabel !== META_WS || !c.resolved || c.pinned || c.focused || c.waiting.length || metaClosing.has(c.tab)) continue;
 		if (now - c.statusSince < META_KEEP_MS) continue;
 		metaClosing.add(c.tab);
 		console.log(new Date().toISOString(), "meta: closing finished", c.tab, c.title);
@@ -1140,8 +1143,8 @@ async function handle(req: Request): Promise<Response> {
 			if (p === "/api/config") return Response.json({ httpsUrl: HTTPS_URL, home: HOME, fileInbox: `http://${AG_FQDN}:7374` });
 			if (p === "/api/stats") return Response.json(clickStats(Number(url.searchParams.get("days")) || 0));
 			if (p === "/api/state") return jsonRes(req, boardJson);
-			// Stalled hotpath cards (siren running), for the client's persistent desktop alerts (hammerspoon ag_hot.lua).
-			if (p === "/api/hot")
+			// Stalled pinned cards (siren running), for the client's persistent desktop alerts (hammerspoon ag_pinned.lua).
+			if (p === "/api/pinned")
 				return Response.json(
 					board.cards
 						.filter((c) => c.throb)
@@ -1315,7 +1318,7 @@ async function handle(req: Request): Promise<Response> {
 			case "/api/card": {
 				const cs = state.cards[cardKey.get(tab) ?? tab];
 				if (!cs) return bad("no such card", 404);
-				if (typeof body.hot === "boolean") cs.hot = body.hot;
+				if (typeof (body.pinned ?? body.hot) === "boolean") cs.pinned = body.pinned ?? body.hot; // hot: the old name
 				if (typeof body.waiting === "boolean") {
 					if (body.waiting) cs.waiting = true; // the next poll asks the session to schedule its wake-up
 					else delete cs.waiting, delete cs.wakeAskedAt, delete cs.wakeAsks;

@@ -24,7 +24,7 @@ header h1 .brand{height:1.2em;width:auto;flex:0 0 auto}
 .counts{display:flex;gap:.35rem;margin-right:auto;flex-wrap:wrap}
 .pill{padding:.12rem .5rem;border-radius:99px;background:var(--card);color:var(--dim);font-size:12px;white-space:nowrap}
 .pill b{color:var(--fg);font-weight:600}
-.pill.hot b{color:var(--fire)}
+.pill.pinned b{color:var(--fire)}
 .seg{display:flex;background:var(--card);border-radius:8px;padding:2px}
 .seg button{border:0;background:none;padding:.28rem .7rem;border-radius:6px;color:var(--dim);cursor:pointer}
 .seg button.on{background:var(--card2);color:var(--fg)}
@@ -64,9 +64,9 @@ header h1 .brand{height:1.2em;width:auto;flex:0 0 auto}
 .card .m{font-size:12px;color:var(--dim);margin-top:.1rem;display:flex;gap:.4rem;flex-wrap:wrap}
 .card .x{font-size:12.5px;color:#c3c7cf;margin-top:.3rem;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;white-space:pre-wrap;word-break:break-word}
 .card .x.w{color:var(--dim);font-style:italic}
-.card.hot{background:var(--firebg);border-color:var(--fire)}
-.card.hot::before{background:var(--fire)}
-/* Hotpath "siren": a bright segment orbiting the card's rim (after the arcade's animate-laser-orbit ring):
+.card.pinned{background:var(--firebg);border-color:var(--fire)}
+.card.pinned::before{background:var(--fire)}
+/* Pinned "siren": a bright segment orbiting the card's rim (after the arcade's animate-laser-orbit ring):
    a conic-gradient spun by a registered angle (unregistered custom properties don't interpolate), masked to
    a 2px border ring, plus a soft pulsing glow. Reduced motion: a steady solid rim instead. */
 @property --laser-angle{syntax:"<angle>";inherits:false;initial-value:0deg}
@@ -280,7 +280,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   header .counts{order:1;flex:1;min-width:0;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0}
   header .counts::-webkit-scrollbar{display:none}
   #newbtn{order:2;font-size:0;padding:.3rem .65rem}#newbtn::before{content:"＋";font-size:16px}
-  #views{order:3}#hotonly{order:4}
+  #views{order:3}#pinnedonly{order:4}
   #q{order:5;flex:1;min-width:0;width:auto;max-width:none}
   #expandall,#editlists,#helpbtn,.hint{display:none}
   .btn,.seg button{min-height:40px}
@@ -346,14 +346,14 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
     <button data-v="state">State</button><button data-v="lists">Lists</button><button data-v="ws">Workspaces</button><button data-v="routines" title="Routines: recurring jobs Ag runs on its own">Routines</button>
   </div>
   <button class="btn" id="expandall" title="Expand or collapse every card's details">Details</button>
-  <button class="btn" id="hotonly" title="Show only hotpath cards">Hot only</button>
+  <button class="btn" id="pinnedonly" title="Show only pinned cards">Pinned only</button>
   <button class="btn" id="editlists">Lists…</button>
   <input id="q" placeholder="Filter  ( / )" autocomplete="off">
   <button class="btn" id="helpbtn" title="Keyboard shortcuts (?)">?</button>
 </header>
 <div id="cuapanel" hidden></div>
 <nav id="coltabs" aria-label="Columns"></nav>
-<div class="hint" id="hint">Shift+click (or long-press) → hotpath: pinned on top, siren ring while it isn't working, texts you when it has something new. ▾ details · ■ interrupt · click for transcript, live screen and reply · keyboard: j/k to move, n new item, d dictate, / search, ? for all shortcuts.</div>
+<div class="hint" id="hint">Shift+click (or long-press) → pin: on top, siren ring and a desktop alert while it isn't working, texts you when it has something new. ▾ details · ■ interrupt · click for transcript, live screen and reply · keyboard: j/k to move, n new item, d dictate, / search, ? for all shortcuts.</div>
 <main id="board"></main>
 <main id="routines" hidden></main>
 
@@ -366,7 +366,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
     <div class="stats" id="dstats"></div>
     <div class="acts">
       <button class="btn stop" id="dstop">Interrupt</button>
-      <button class="btn" id="dhot">Hotpath</button>
+      <button class="btn" id="dpin">📌 Pin</button>
       <button class="btn" id="dwait" title="Mark waiting for something (w)">Waiting</button>
       <button class="btn" id="dfocus">Open in tmux</button>
       <button class="btn" id="dunread">Mark unread</button>
@@ -419,13 +419,13 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
     <tr><td><span class="kbd">h</span> <span class="kbd">l</span></td><td>previous / next column</td></tr>
     <tr><td><span class="kbd">o</span> <span class="kbd">Enter</span></td><td>open the card (transcript, live screen, reply)</td></tr>
     <tr><td><span class="kbd">Space</span></td><td>expand / collapse details</td></tr>
-    <tr><td><span class="kbd">f</span></td><td>toggle hotpath</td></tr>
+    <tr><td><span class="kbd">p</span></td><td>pin / unpin</td></tr>
     <tr><td><span class="kbd">x</span></td><td>interrupt (press twice)</td></tr>
     <tr><td><span class="kbd">g</span></td><td>open in tmux</td></tr>
     <tr><td><span class="kbd">u</span></td><td>mark unread</td></tr>
     <tr><td><span class="kbd">w</span></td><td>mark waiting (the agent is asked to schedule its tickler wake-up) / unmark</td></tr>
     <tr><td><span class="kbd">e</span></td><td>archive (closes the tab; Undo for a few seconds)</td></tr>
-    <tr><td><span class="kbd">n</span></td><td>new item. Also: ask “where's the one about …” and it shows the cards; housekeeping (“mark the roblox ones hotpath”) goes to a brief session in Meta</td></tr>
+    <tr><td><span class="kbd">n</span></td><td>new item. Also: ask “where's the one about …” and it shows the cards; housekeeping (“pin the roblox ones”) goes to a brief session in Meta</td></tr>
     <tr><td><span class="kbd">d</span></td><td>new item by dictation (click Dictate or <span class="kbd">⌘↩</span> to send)</td></tr>
     <tr><td><span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span> <span class="kbd">4</span></td><td>State / Lists / Workspaces / Routines view</td></tr>
     <tr><td><span class="kbd">/</span></td><td>search</td></tr>
@@ -454,7 +454,7 @@ fetch("/api/config").then((r) => r.json()).then((c) => {
 }).catch(() => {});
 let B = { cards: [], lists: [], workspaces: [] };
 let view = localStorage.view || "state";
-let hotOnly = localStorage.hotOnly === "1";
+let pinnedOnly = (localStorage.pinnedOnly ?? localStorage.hotOnly) === "1";
 let collapsed = new Set(JSON.parse(localStorage.collapsed || '["s:resolved"]'));
 let sel = null; // keyboard-selected card
 let routed = false; // the first board data applies the URL (see "routing")
@@ -551,7 +551,7 @@ function lastPara(t) {
 }
 const card = (tab) => B.cards.find((c) => c.tab === tab);
 const isOpen = (c) => expandAll ? !expanded.has("-" + c.tab) : expanded.has(c.tab);
-const rank = (c) => (c.hot ? 0 : 4) + (c.ping ? 0 : 1) + (c.needsYou ? 0 : 2);
+const rank = (c) => (c.pinned ? 0 : 4) + (c.ping ? 0 : 1) + (c.needsYou ? 0 : 2);
 const sortCards = (a) => a.sort((x, y) => rank(x) - rank(y) || y.statusSince - x.statusSince);
 
 // Live activity line: what a working agent is doing right now, and for how long.
@@ -604,14 +604,14 @@ function details(c) {
       <button class="btn sm" data-a="focus">Open in tmux</button>
       <button class="btn sm" data-a="archive" title="Archive (e)">Archive</button>
       <button class="btn sm" data-a="wait" title="Mark waiting for something (w)">${c.waiting?.some((w) => w.kind === "manual") ? "Not waiting" : "Waiting"}</button>
-      <button class="btn sm" data-a="hot">${c.hot ? "Remove hotpath" : "Hotpath"}</button>
+      <button class="btn sm" data-a="pin">${c.pinned ? "Unpin" : "📌 Pin"}</button>
     </div></div>`;
 }
 function cardHtml(c) {
   const working = c.status === "working";
   const snip = working ? (c.lastUser ? "▶ " + c.lastUser.text.slice(0, 300) : "") : lastPara(c.lastAssistant?.text || c.first);
   const open = isOpen(c);
-  const cls = ["card", c.hot && "hot", c.throb && "throb", c.waiting?.length && "waiting", c.noWake && "nowake", c.resolved && "resolved", c.focused && "focused", open && "open", sel === c.tab && "sel"].filter(Boolean).join(" ");
+  const cls = ["card", c.pinned && "pinned", c.throb && "throb", c.waiting?.length && "waiting", c.noWake && "nowake", c.resolved && "resolved", c.focused && "focused", open && "open", sel === c.tab && "sel"].filter(Boolean).join(" ");
   return `<div class="${cls}" data-key="${esc(c.tab)}" data-tab="${esc(c.tab)}" data-s="${esc(c.status)}" draggable="${view === "lists"}">
     <div class="t">${c.needsYou ? '<i class="dot" title="New since you last looked"></i>' : ""}<span class="tt">${esc(c.title)}</span>
       <span class="qa">${working ? '<button class="ib stop" data-a="stop" title="Interrupt (Esc Esc)">■</button>' : ""}<button class="ib arch" data-a="archive" title="Archive (e)" aria-label="Archive">✓</button><button class="ib chev" data-a="chev" title="Details">▾</button></span></div>
@@ -668,7 +668,7 @@ function columns(cards) {
 }
 function render() {
   const q = $("#q").value.trim().toLowerCase();
-  let cards = B.cards.filter((c) => !archiving.has(c.tab) && (!hotOnly || c.hot));
+  let cards = B.cards.filter((c) => !archiving.has(c.tab) && (!pinnedOnly || c.pinned));
   if (q) cards = cards.filter((c) => [c.title, c.workspaceLabel, c.lastAssistant?.text, c.lastUser?.text, c.first, c.activity?.detail].join(" ").toLowerCase().includes(q));
   const cols = columns(cards);
   const rv = view === "routines";
@@ -686,11 +686,11 @@ function render() {
   }
   const n = (f) => B.cards.filter((c) => !archiving.has(c.tab) && f(c)).length;
   const needs = n((c) => c.needsYou);
-  $("#counts").innerHTML = `<span class="pill hot">hot <b>${n((c) => c.hot)}</b></span><span class="pill">needs you <b>${needs}</b></span><span class="pill">thinking <b>${n((c) => c.status === "working" && c.activity?.kind !== "tool")}</b></span><span class="pill">running tools <b>${n((c) => c.status === "working" && c.activity?.kind === "tool")}</b></span><span class="pill">blocked <b>${n((c) => c.status === "blocked")}</b></span><span class="pill">waiting <b>${n((c) => c.waiting?.length)}</b></span>${n((c) => c.noWake) ? `<span class="pill warn" title="In Waiting for without a tickler wake-up">no wake-up <b>${n((c) => c.noWake)}</b></span>` : ""}<span class="pill">total <b>${B.cards.length}</b></span>${sysHtml()}`;
+  $("#counts").innerHTML = `<span class="pill pinned">pinned <b>${n((c) => c.pinned)}</b></span><span class="pill">needs you <b>${needs}</b></span><span class="pill">thinking <b>${n((c) => c.status === "working" && c.activity?.kind !== "tool")}</b></span><span class="pill">running tools <b>${n((c) => c.status === "working" && c.activity?.kind === "tool")}</b></span><span class="pill">blocked <b>${n((c) => c.status === "blocked")}</b></span><span class="pill">waiting <b>${n((c) => c.waiting?.length)}</b></span>${n((c) => c.noWake) ? `<span class="pill warn" title="In Waiting for without a tickler wake-up">no wake-up <b>${n((c) => c.noWake)}</b></span>` : ""}<span class="pill">total <b>${B.cards.length}</b></span>${sysHtml()}`;
   renderCuaPanel();
   document.title = (needs ? `(${needs}) ` : "") + "AG-Dash";
   document.querySelectorAll("#views button").forEach((b) => b.classList.toggle("on", b.dataset.v === view));
-  $("#hotonly").classList.toggle("on", hotOnly);
+  $("#pinnedonly").classList.toggle("on", pinnedOnly);
   $("#expandall").classList.toggle("on", expandAll);
   if (sel && !card(sel)) sel = null;
   tick();
@@ -878,7 +878,7 @@ function renderDrawer() {
   $("#dstats").innerHTML = statsHtml(c);
   $("#dact").innerHTML = activity(c);
   $("#dstop").disabled = !working;
-  $("#dhot").classList.toggle("on", c.hot);
+  $("#dpin").classList.toggle("on", c.pinned);
   $("#dwait").classList.toggle("on", !!c.waiting?.some((w) => w.kind === "manual"));
   $("#dlist").innerHTML = [{ id: "", name: "No list" }, ...B.lists].map((l) => `<option value="${esc(l.id)}" ${l.id === (c.list || "") ? "selected" : ""}>${esc(l.name)}</option>`).join("");
   $("#rint").style.display = working ? "" : "none";
@@ -955,7 +955,7 @@ function toggleWait(tab) {
   const manual = c.waiting?.some((w) => w.kind === "manual");
   api("/api/card", { tab, waiting: !manual }).then((ok) => ok && toast(manual ? "No longer waiting" : "Waiting: asking the agent to schedule its wake-up"));
 }
-const toggleHot = (tab) => { const c = card(tab); if (c) { c.hot = !c.hot; render(); if (openTab === tab) renderDrawer(); api("/api/card", { tab, hot: c.hot }); } };
+const togglePin = (tab) => { const c = card(tab); if (c) { c.pinned = !c.pinned; render(); if (openTab === tab) renderDrawer(); api("/api/card", { tab, pinned: c.pinned }); } };
 async function stop(tab) { if (await api("/api/interrupt", { tab })) toast("Interrupted"); }
 function toggleOpen(tab) {
   const k = expandAll ? "-" + tab : tab;
@@ -982,13 +982,13 @@ $("#board").addEventListener("click", (e) => {
     else if (a === "stop") stop(tab);
     else if (a === "open") openDrawer(tab);
     else if (a === "focus") api("/api/focus", { tab }).then((ok) => ok && toast("Focused in tmux"));
-    else if (a === "hot") toggleHot(tab);
+    else if (a === "pin") togglePin(tab);
     else if (a === "archive") archive(tab);
     else if (a === "wait") toggleWait(tab);
     return;
   }
   select(tab, false);
-  if (e.shiftKey) { e.preventDefault(); toggleHot(tab); return; }
+  if (e.shiftKey) { e.preventDefault(); togglePin(tab); return; }
   if (e.target.closest(".det")) return; // let you select text in expanded details
   openDrawer(tab);
 });
@@ -996,7 +996,7 @@ $("#board").addEventListener("mousedown", (e) => { if (e.shiftKey) e.preventDefa
 $("#board").addEventListener("touchstart", (e) => {
   const el = e.target.closest(".card"); if (!el || e.target.closest("[data-a], .det")) return;
   longPressed = false;
-  pressTimer = setTimeout(() => { longPressed = true; navigator.vibrate?.(30); toggleHot(el.dataset.tab); }, 550);
+  pressTimer = setTimeout(() => { longPressed = true; navigator.vibrate?.(30); togglePin(el.dataset.tab); }, 550);
 }, { passive: true });
 ["touchend", "touchmove", "touchcancel"].forEach((ev) => $("#board").addEventListener(ev, () => clearTimeout(pressTimer), { passive: true }));
 $("#board").addEventListener("dragstart", (e) => { const el = e.target.closest(".card"); if (!el) return; e.dataTransfer.setData("text/plain", el.dataset.tab); el.classList.add("dragging"); });
@@ -1026,7 +1026,7 @@ $("#dt").onclick = async () => {
   if (sid && openSid === sid) $("#dt").textContent = label;
   toast("Renamed (pinned: auto-naming won't change it)");
 };
-$("#hotonly").onclick = () => { hotOnly = !hotOnly; localStorage.hotOnly = hotOnly ? "1" : "0"; render(); };
+$("#pinnedonly").onclick = () => { pinnedOnly = !pinnedOnly; localStorage.pinnedOnly = pinnedOnly ? "1" : "0"; render(); };
 $("#expandall").onclick = () => { expandAll = !expandAll; expanded.clear(); localStorage.expandAll = expandAll ? "1" : "0"; localStorage.expanded = "[]"; render(); };
 $("#q").addEventListener("input", render);
 $("#scrim").onclick = closeDrawer;
@@ -1034,7 +1034,7 @@ $("#dclose").onclick = closeDrawer;
 $("#dtabs").addEventListener("click", (e) => e.target.dataset.t && setTab(e.target.dataset.t));
 $("#keys").addEventListener("click", async (e) => { const k = e.target.dataset.k; if (k && openTab) { await api("/api/keys", { tab: openTab, keys: [k] }); setTimeout(loadScreen, 250); } });
 $("#dstop").onclick = () => openTab && stop(openTab);
-$("#dhot").onclick = () => toggleHot(openTab);
+$("#dpin").onclick = () => togglePin(openTab);
 $("#dwait").onclick = () => openTab && toggleWait(openTab);
 $("#dfocus").onclick = async () => { if (await api("/api/focus", { tab: openTab })) toast("Focused in tmux"); };
 $("#dunread").onclick = async () => { const t = openTab; closeDrawer(); await api("/api/card", { tab: t, seen: false }); };
@@ -1137,7 +1137,7 @@ document.addEventListener("keydown", (e) => {
     j: () => moveSel(1, 0), ArrowDown: () => moveSel(1, 0), k: () => moveSel(-1, 0), ArrowUp: () => moveSel(-1, 0),
     h: () => moveSel(0, -1), ArrowLeft: () => moveSel(0, -1), l: () => moveSel(0, 1), ArrowRight: () => moveSel(0, 1),
     o: () => sel && openDrawer(sel), Enter: () => sel && openDrawer(sel), " ": () => sel && toggleOpen(sel),
-    f: () => sel && toggleHot(sel), g: () => sel && api("/api/focus", { tab: sel }).then((ok) => ok && toast("Focused in tmux")),
+    p: () => sel && togglePin(sel), f: () => sel && togglePin(sel), g: () => sel && api("/api/focus", { tab: sel }).then((ok) => ok && toast("Focused in tmux")),
     u: () => sel && api("/api/card", { tab: sel, seen: false }), e: () => sel && archive(sel), w: () => sel && toggleWait(sel),
     1: () => setView("state"), 2: () => setView("lists"), 3: () => setView("ws"), 4: () => setView("routines"),
     x: () => { if (!sel) return; if (Date.now() - lastX < 1500) { lastX = 0; stop(sel); } else { lastX = Date.now(); toast("Press x again to interrupt"); } },

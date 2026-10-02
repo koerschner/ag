@@ -1,13 +1,13 @@
--- Persistent desktop alerts for stalled hotpath (🔥) sessions, so hotpath items always stay in motion.
--- Client only (loaded from ag.lua). Polls AG Dash's /api/hot: every hotpath card whose agent isn't working
+-- Persistent desktop alerts for stalled pinned (📌) sessions, so pinned items always stay in motion.
+-- Client only (loaded from ag.lua). Polls AG Dash's /api/pinned: every pinned card whose agent isn't working
 -- (done, idle or blocked; not waiting) gets a macOS alert that stays on screen. Hammerspoon's notification
 -- style is "Alerts" (its Info.plist default; System Settings › Notifications › Hammerspoon), so it doesn't
 -- auto-dismiss. The alert is withdrawn the moment the item is addressed: the agent works again, the card is
--- marked waiting, or it leaves the hotpath. Open jumps to the session in AG Dash. If Nathan closes or opens it
+-- marked waiting, or it's unpinned. Open jumps to the session in AG Dash. If Nathan closes or opens it
 -- and the agent is still stalled RESURFACE_S later, it comes back.
 local M = {}
 
-local URL = "http://ag:7376/api/hot"
+local URL = "http://ag:7376/api/pinned"
 local POLL_S = 5
 local RESURFACE_S = 10 * 60
 
@@ -17,7 +17,7 @@ local function post(card)
 	local note = hs.notify.new(function()
 		hs.urlevent.openURL(card.url)
 	end, {
-		title = "🔥 " .. card.title,
+		title = "📌 " .. card.title,
 		subTitle = card.workspace,
 		informativeText = card.body,
 		hasActionButton = true,

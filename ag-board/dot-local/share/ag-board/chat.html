@@ -29,7 +29,7 @@
 <!--
   Ag Chat (/chat): a ChatGPT-desktop-style view over the same sessions and APIs as AG Dash (the board at / is
   unchanged). Installable on its own (chat-manifest.json: "Ag Chat", scope /chat, window-controls-overlay).
-  Sidebar: New chat, Search (⌘K), Needs you / Working / Waiting, Projects (= workspaces), Pinned (= hotpath), Chats.
+  Sidebar: New chat, Search (⌘K), Needs you / Working / Waiting, Projects (= workspaces), Pinned, Chats.
   Chat: the session transcript as a thread (thinking + tool calls folded into "Thought for …" steps), live activity,
   dialog keys when blocked, composer (Enter sends; steers while working; ■ stops; mic → text; voice → send).
   APIs: /events (board over SSE), /api/transcript, /api/prompt, /api/interrupt, /api/keys, /api/new (route=new,
@@ -435,7 +435,7 @@ details.steps > summary .n { font-size: 13px; opacity: .8; }
     <tr><td>Interrupt and send</td><td><kbd>⌥</kbd><kbd>⌘</kbd><kbd>Enter</kbd></td></tr>
     <tr><td>Copy last response</td><td><kbd>⇧</kbd><kbd>⌘</kbd><kbd>C</kbd></td></tr>
     <tr><td>Dictate</td><td><kbd>⌥</kbd><kbd>V</kbd></td></tr>
-    <tr><td>Pin / unpin (hotpath)</td><td><kbd>⇧</kbd><kbd>⌘</kbd><kbd>P</kbd></td></tr>
+    <tr><td>Pin / unpin</td><td><kbd>⇧</kbd><kbd>⌘</kbd><kbd>P</kbd></td></tr>
     <tr><td>Show shortcuts</td><td><kbd>⌘</kbd><kbd>/</kbd></td></tr>
   </table></div>
 </div></div>
@@ -657,8 +657,8 @@ function renderSide() {
     return `<a class="row" href="/chat/p/${w.id}" data-go="/chat/p/${w.id}" ${curWs === w.id ? 'aria-current="page"' : ""}>${ICON.folder}<span class="lbl">${esc(w.label)}</span>${you ? '<span class="dot unread"></span>' : ""}</a>`;
   }).join("");
   if (ps.length > 5) projHtml += `<button class="row see-more" data-do="projectsAll">${projectsAll ? ICON.chevdown.replace("<svg", '<svg style="transform:rotate(180deg)"') : ICON.dots}<span class="lbl">${projectsAll ? "Show less" : "See more"}</span></button>`;
-  const pinned = cards.filter((c) => c.hot);
-  const rest = cards.filter((c) => !c.hot);
+  const pinned = cards.filter((c) => c.pinned);
+  const rest = cards.filter((c) => !c.pinned);
   const scroll = $("#sideScroll");
   const st = scroll.scrollTop;
   scroll.innerHTML = sec("projects", "Projects", projHtml)
@@ -828,7 +828,7 @@ function chatMenu(c, full) {
   return [
     full && c.sid ? mi("share", "link", "Copy link") : "",
     mi("rename", "pencil", "Rename"),
-    mi("hot", "pin", c.hot ? "Unpin" : "Pin (hotpath)"),
+    mi("pin", "pin", c.pinned ? "Unpin" : "Pin"),
     mi("move", "folderPlus", "Move to project"),
     mi("waiting", "hourglass", c.waiting?.length ? "Not waiting" : "Mark waiting for"),
     mi("unread", "unread", "Mark as unread"),
@@ -852,7 +852,7 @@ async function act(name, el) {
   try {
     if (name === "share") { await navigator.clipboard.writeText(`${location.origin}/chat/${c.sid}`); toast("Link copied"); }
     if (name === "rename") return rename(c);
-    if (name === "hot") { await api("/api/card", { tab: c.tab, hot: !c.hot }); toast(c.hot ? "Unpinned" : "Pinned"); }
+    if (name === "pin") { await api("/api/card", { tab: c.tab, pinned: !c.pinned }); toast(c.pinned ? "Unpinned" : "Pinned"); }
     if (name === "waiting") { await api("/api/card", { tab: c.tab, waiting: !c.waiting?.length }); toast(c.waiting?.length ? "No longer waiting" : "Marked waiting; it'll schedule its own wake-up"); }
     if (name === "unread") { await api("/api/card", { tab: c.tab, seen: false }); if (current()?.tab === c.tab) go("/chat"); }
     if (name === "tmux") { await api("/api/focus", { tab: c.tab }); toast("Opened in tmux"); }
@@ -1423,7 +1423,7 @@ document.addEventListener("keydown", (e) => {
   else if ((mod && e.shiftKey && key === "s") || (mod && e.key === "\\")) { e.preventDefault(); toggleSide(); }
   else if (mod && e.key === "/") { e.preventDefault(); closePop(); $("#keysBack").classList.toggle("open"); }
   else if (mod && e.shiftKey && key === "c") { const a = lastAnswer(); if (a) { e.preventDefault(); navigator.clipboard.writeText(a).then(() => toast("Copied last response")); } }
-  else if (mod && e.shiftKey && key === "p") { const c = current(); if (c) { e.preventDefault(); api("/api/card", { tab: c.tab, hot: !c.hot }).then(() => toast(c.hot ? "Unpinned" : "Pinned")); } }
+  else if (mod && e.shiftKey && key === "p") { const c = current(); if (c) { e.preventDefault(); api("/api/card", { tab: c.tab, pinned: !c.pinned }).then(() => toast(c.pinned ? "Unpinned" : "Pinned")); } }
   else if (e.altKey && (e.code === "KeyV")) { e.preventDefault(); rec ? endRec(false) : startRec("box"); }
   else if (e.shiftKey && e.key === "Escape") { e.preventDefault(); $("#input")?.focus(); }
   else if (e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) {

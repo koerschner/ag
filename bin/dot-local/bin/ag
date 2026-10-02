@@ -35,6 +35,7 @@ help | --help | -h)
 esac
 
 verb=$1; shift
+[ "$verb" = hot ] && verb=pin # renamed 2026-10-02
 # Machine-setup verbs run here, from this checkout, so they also work on a fresh machine before ~/.local/lib/ag
 # exists (first run: ~/ag/bin/dot-local/bin/ag setup).
 case $verb in setup | doctor)

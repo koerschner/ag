@@ -4,17 +4,17 @@ Build it exactly as specified in this doc (read it first; it's the source of tru
 https://github.com/koerschner/ag/blob/main/ios-shortcuts/send-to-ag.md (private)
 (also at ~/ag/ios-shortcuts/send-to-ag.md on this Mac)
 
-Summary: a share-sheet Shortcut named "Send to ag" that fetches http://100.107.192.32:7374/sessions (a
+Summary: a share-sheet Shortcut named "Send to ag" that fetches http://ag.tail44736d.ts.net:7374/sessions (a
 dictionary of label → id), lets me choose a destination from its keys, asks for an optional message,
-then POSTs a form to http://100.107.192.32:7374/send with fields f (Shortcut Input file), text (message),
+then POSTs a form to http://ag.tail44736d.ts.net:7374/send with fields f (Shortcut Input file), text (message),
 to (chosen dictionary value), and shows the response as a notification.
 
 Test: in Photos, share the most recent screenshot to "Send to ag", choose "Just save", message "cua test".
-If iOS asks to allow connecting to 100.107.192.32, choose "Always Allow". Success = a notification like
+If iOS asks to allow connecting to ag.tail44736d.ts.net, choose "Always Allow". Success = a notification like
 "1 file(s), saved". Report exactly what happened, and any step where the built shortcut differs from the doc.
 
 Notes:
-- 100.107.192.32 is my dev Mac's Tailscale IP. If requests fail with a network error, check the Tailscale
+- ag.tail44736d.ts.net is my dev Mac's Tailscale IP. If requests fail with a network error, check the Tailscale
   app on the iPhone is connected and tell me; don't change Tailscale settings.
 - Typing into iPhone Mirroring can silently fail. If text doesn't appear, type it into a new temporary
   TextEdit document on this Mac, copy with Cmd+A / Cmd+C, then in iPhone Mirroring right-click the field

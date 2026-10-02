@@ -26,8 +26,8 @@ flowchart TD
     B --> C["Get URLs from Input: Shortcut Input"]
     C --> D["Match Text ^https?:// in URLs"]
     D --> E{"Matches has any value?"}
-    E -- "yes: link" --> F["POST http://100.107.192.32:7373/prompt<br/>Form: text = Provided Input, url = URLs, shared = Shortcut Input"]
-    E -- "no: files/images" --> G["POST http://100.107.192.32:7373/prompt<br/>Form: text = Provided Input, file = Shortcut Input (File)"]
+    E -- "yes: link" --> F["POST http://ag.tail44736d.ts.net:7373/prompt<br/>Form: text = Provided Input, url = URLs, shared = Shortcut Input"]
+    E -- "no: files/images" --> G["POST http://ag.tail44736d.ts.net:7373/prompt<br/>Form: text = Provided Input, file = Shortcut Input (File)"]
 ```
 
 ## Build steps (Shortcuts app; built on the Mac, syncs to the phone via iCloud)
@@ -39,19 +39,19 @@ flowchart TD
 3. **Get URLs from Input**: Shortcut Input.
 4. **Match Text**: `^https?://` in *URLs*.
 5. **If** *Matches* **has any value**:
-   - **Get Contents of URL**: `http://100.107.192.32:7373/prompt`, Method POST, Request Body
+   - **Get Contents of URL**: `http://ag.tail44736d.ts.net:7373/prompt`, Method POST, Request Body
      Form: `text` (Text) = *Provided Input*; `url` (Text) = *URLs*; `shared` (Text) = *Shortcut Input*.
 6. **Otherwise**:
    - **Get Contents of URL**: same URL, POST, Form: `text` (Text) = *Provided Input*;
      `file` (File) = *Shortcut Input*.
 7. **End If**. No notification: the share sheet shows its own checkmark.
 
-First run on the phone: allow connecting to `100.107.192.32` → **Always Allow**.
+First run on the phone: allow connecting to `ag.tail44736d.ts.net` → **Always Allow**.
 
 ## Test without the phone
 
 ```sh
-H=http://100.107.192.32:7373/prompt
+H=http://ag.tail44736d.ts.net:7373/prompt
 curl -F dry=1 -F file=@card.heic "$H" | jq '{label,playbook}'     # routes, opens nothing
 curl -F dry=1 -F url=https://example.com -F shared=https://example.com "$H" | jq .prompt
 curl -F file=@shot.png -F "text=what is this?" "$H"                # real: opens an Inbox tab

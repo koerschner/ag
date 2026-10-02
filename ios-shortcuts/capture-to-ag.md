@@ -45,7 +45,7 @@ flowchart TD
     F --> G["Get Contents of Folder: ag-queue<br/>Filter Files: extension is txt OR m4a"]
     G --> H{"Repeat with Each file"}
     H --> N["Name = file name without extension<br/>Get File from Folder: ag-queue/Name.jpg (Error If Not Found off) → Shot"]
-    N --> I["Get Contents of URL<br/>POST http://100.107.192.32:7373/prompt<br/>Form: text = file (File), id = Name, source = iphone, screenshot = Shot"]
+    N --> I["Get Contents of URL<br/>POST http://ag.tail44736d.ts.net:7373/prompt<br/>Form: text = file (File), id = Name, source = iphone, screenshot = Shot"]
     I -- "success" --> J["Delete Files: file; Shot if its extension is jpg"]
     I -- "offline: shortcut stops,<br/>files stay queued" --> K[Retry later]
 ```
@@ -64,7 +64,7 @@ The flush sends every queued file as the form field `text` with type **File**: a
       - **Get Details of Files**: **Name** of Repeat Item (variable *Name*).
       - **Get File from Folder**: Shortcuts folder, path `ag-queue/[Name].jpg`,
         **Error If Not Found** off (variable *Shot*).
-      - **Get Contents of URL**: `http://100.107.192.32:7373/prompt`; Method **POST**,
+      - **Get Contents of URL**: `http://ag.tail44736d.ts.net:7373/prompt`; Method **POST**,
         Request Body **Form**; `text` (**File**) = **Repeat Item**; `id` (Text) = *Name*;
         `source` (Text) = `iphone`; `screenshot` (File) = *Shot*.
       - **Delete Files**: Repeat Item; **Delete Immediately** off (files go to Recently Deleted;
@@ -88,7 +88,7 @@ The flush sends every queued file as the form field `text` with type **File**: a
    7. **Run Shortcut**: Flush ag Queue.
 5. Automation → New → **Wi-Fi** → Any Network → **Is Joined** → **Run Immediately**
    → Run Shortcut **Flush ag Queue**.
-6. First run: allow microphone, connecting to `100.107.192.32` → **Always Allow**, running
+6. First run: allow microphone, connecting to `ag.tail44736d.ts.net` → **Always Allow**, running
    other shortcuts → **Always Allow**; allow folder access and screenshots if asked.
 7. Settings → **Action Button** → **Shortcut** → *Voice to ag*.
 

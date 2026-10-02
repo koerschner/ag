@@ -13,7 +13,7 @@ resumes the same session (`pi --session <file>`) with full context.
   pi-hibernate status          list hibernated panes
   pi-hibernate wait <session>  (internal) the sleep screen a hibernated pane runs
 
-Eligible: a pi pane whose agent state is `idle` (seen; `done` keeps its badge), not
+Eligible: a pi pane whose agent state is `idle`, or `done` (unseen) for DONE_MIN minutes (it loses its badge), not
 the focused pane, not in the Inbox workspace (its auto-filer counts prompts per
 process), whose session file hasn't changed for IDLE_MIN minutes (PRESSURE_IDLE_MIN
 under macOS memory pressure), and whose pi has no child processes besides MCP helpers.
@@ -37,6 +37,7 @@ WAITING = os.path.join(STATE, "waiting")  # <pid> -> session file, one per sleep
 LOG = os.path.join(STATE, "log")
 IDLE_MIN = int(os.environ.get("PI_HIBERNATE_IDLE_MIN", 120))
 PRESSURE_IDLE_MIN = int(os.environ.get("PI_HIBERNATE_PRESSURE_IDLE_MIN", 30))
+DONE_MIN = int(os.environ.get("PI_HIBERNATE_DONE_MIN", 360))  # unseen finished sessions
 SWEEP_EVERY_S = 600
 SKIP_WORKSPACES = {"Inbox"}
 MCP_HELPER = ("mcp-remote", "mcp-proxy", "npm exec", "bunx", "uvx", "npx")
@@ -125,14 +126,16 @@ def candidates(ignore_idle=False, only=None):
     idle_s = (PRESSURE_IDLE_MIN if pressure() >= 2 else IDLE_MIN) * 60
     for p in snap["panes"]:
         sess = (p.get("agent_session") or {}).get("value")
-        if p.get("agent") != "pi" or p.get("agent_status") != "idle" or not sess or not os.path.exists(sess):
+        status = p.get("agent_status")
+        if p.get("agent") != "pi" or status not in ("idle", "done") or not sess or not os.path.exists(sess):
             continue
+        min_s = idle_s if status == "idle" else max(idle_s, DONE_MIN * 60)
         if only and p["pane_id"] != only:
             continue
         if p["pane_id"] in (focused, me) or ws_label.get(p["workspace_id"]) in SKIP_WORKSPACES:
             continue
         age = time.time() - os.path.getmtime(sess)
-        if not ignore_idle and age < idle_s:
+        if not ignore_idle and age < min_s:
             continue
         info = mux("pane.process_info", {"pane_id": p["pane_id"]})["process_info"]
         pis = [f for f in info["foreground_processes"] if f.get("argv0") == "pi"]
@@ -140,7 +143,7 @@ def candidates(ignore_idle=False, only=None):
             continue
         pid = pis[0]["pid"]
         age = min(age, uptime(pid))  # just resumed counts as active
-        if not ignore_idle and age < idle_s:
+        if not ignore_idle and age < min_s:
             continue
         busy = [a for _, a in descendants(pid) if not any(h in a for h in MCP_HELPER)]
         if busy:

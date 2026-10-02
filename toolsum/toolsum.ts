@@ -409,9 +409,9 @@ const RULES: Rule[] = [
 	{ id: "format", cmd: /^(?:\.?\/?node_modules\/\.bin\/)?(oxfmt|prettier|biome|eslint|oxlint|tsc|svelte-check)$/, fn: (a, raw) => `Run ${raw.split(/\s/)[0].replace(/^.*\//, "")}${positional(a)[0] ? ` on ${paths(positional(a), 1)}` : ""}` },
 	{ id: "ts-api", cmd: /^ts-api$/, fn: (a) => `Tailscale API ${a[0] ?? ""} ${a[1] ?? ""}`.trim() },
 	{ id: "clipboard", cmd: /^(pbcopy|pbpaste)$/, fn: (_a, raw) => (raw.startsWith("pbcopy") ? "Copy to clipboard" : "Read clipboard") },
-	{ id: "seq", cmd: /^(seq|yes|jot|shuf|sort|uniq|tr|cut|base64|xxd|od|column|nl|tee|fold|expr|bc|true|mktemp|who|w|stty|tput)$/, fn: () => "noise" as const },
+	{ id: "seq", cmd: /^(seq|yes|jot|shuf|sort|uniq|tr|cut|base64|xxd|od|column|nl|tee|fold|expr|bc|true|mktemp|who|w|stty|tput|basename|dirname)$/, fn: () => "noise" as const },
 	{ id: "jq", cmd: /^jq$/, fn: (a) => { const p = positional(a, ["--arg", "--argjson", "--slurpfile", "--rawfile"]); return p[1] ? `Query JSON in ${paths(p.slice(1))}` : undefined; } },
-	{ id: "stat-file", cmd: /^(stat|file|du|df|realpath|readlink|basename|dirname|md5|shasum|sha256sum)$/, fn: (a, raw) => `${raw.split(/\s/)[0] === "du" || raw.startsWith("df") ? "Disk usage of" : "Inspect"} ${paths(positional(a)) || "disk"}` },
+	{ id: "stat-file", cmd: /^(stat|file|du|df|realpath|readlink|md5|shasum|sha256sum)$/, fn: (a, raw) => `${raw.split(/\s/)[0] === "du" || raw.startsWith("df") ? "Disk usage of" : "Inspect"} ${paths(positional(a)) || "disk"}` },
 	{ id: "python", cmd: /^(python3?|uv)$/, fn: (a, raw, _ctx, seg) => {
 		if (raw.startsWith("uv")) { const [sub, ...r] = positional(a); if (sub === "run") return `Run ${shortPath(r[0] ?? "script")} (uv)`; if (sub === "add") return `Add Python package ${r.join(" ")}`; return `uv ${sub ?? ""}`.trim(); }
 		if (a[0] === "-" || /<</.test(seg)) return "Run Python script";
@@ -455,7 +455,7 @@ const RULES: Rule[] = [
 		return s ? `${s}${dir ? ` (${shortPath(dir)})` : ""}` : undefined;
 	} },
 	{ id: "gh", cmd: /^gh$/, fn: (a) => {
-		const p = positional(a, ["--json", "-q", "--jq", "--repo", "-R", "-t", "--title", "-b", "--body", "--body-file", "-F", "-f", "--method", "-X", "--add-reviewer", "--base", "-B", "--head", "-H", "--label", "--limit", "-L", "--search", "--state", "--template"]);
+		const p = positional(a, ["--json", "-q", "--jq", "--repo", "-R", "-t", "--title", "-b", "--body", "--body-file", "-F", "-f", "--method", "-X", "--add-reviewer", "--base", "-B", "--head", "-H", "--label", "--limit", "-L", "--search", "--state", "--template", "--ref", "--workflow"]);
 		const [group, sub, n] = p;
 		const num = n && /^\d+$/.test(n) ? `#${n}` : "";
 		if (group === "pr" && ghPr[sub]) return ghPr[sub](num, a).replace(/\s+$/, "");
@@ -464,7 +464,7 @@ const RULES: Rule[] = [
 		if (group === "issue") return `${cap(sub ?? "")} issue ${num}`.trim();
 		if (group === "repo") return `${cap(sub ?? "")} repo`;
 		if (group === "auth") return "GitHub auth";
-		if (group === "workflow") return `Workflow ${sub ?? ""}`.trim();
+		if (group === "workflow") return sub === "run" && n ? `Trigger workflow ${clip(n, 40)}` : sub === "list" ? "List workflows" : sub === "view" && n ? `View workflow ${clip(n, 40)}` : `Workflow ${sub ?? ""}`.trim();
 		if (group === "release") return `${cap(sub ?? "")} release`;
 		if (group === "search") return `Search GitHub ${sub ?? ""}`.trim();
 		if (a.includes("--version")) return "Check gh version";
@@ -519,7 +519,7 @@ const RULES: Rule[] = [
 	{ id: "ag-mux", cmd: /^(ag-mux|herdr)$/, fn: (a, raw) => {
 		// herdr is ag-mux's predecessor with the same CLI; old traces still use it
 		const tool = raw.split(/\s/)[0];
-		const p = positional(a, ["--workspace", "--label", "--cwd", "--direction", "--source", "--lines", "--timeout", "--regex", "--body", "--sound", "--tab", "--pane"]);
+		const p = positional(a, ["--workspace", "--label", "--cwd", "--direction", "--source", "--lines", "--timeout", "--regex", "--body", "--sound", "--tab", "--pane", "--source-pane", "--target-pane"]);
 		const [g, sub, tgt] = p;
 		const label = flagVal(a, "--label");
 		const map: Record<string, string | undefined> = {
@@ -537,6 +537,15 @@ const RULES: Rule[] = [
 			"config check": `Check ${tool} config`, "machine list": `List ${tool} machines`, "worktree create": "Create worktree", "worktree list": "List worktrees",
 		};
 		if (g === "status" && !sub) return `Check ${tool} status`;
+		if (!g && a.includes("--default-config")) return `Print ${tool}'s default config`;
+		if (!a.length) return `Read ${tool} usage`;
+		if (g && !sub && /^(pane|tab|agent|workspace|layout|api|server|config|plugin|worktree|machine|notification)$/.test(g)) return `Read ${tool} ${g} usage`;
+		if (g === "config" && sub === "default") return `Print ${tool}'s default config`;
+		if (g === "config" && sub === "show-keys") return `List ${tool} key bindings`;
+		if (g === "agent" && sub === "explain") return `Explain agent detection in ${tgt ?? "pane"}`;
+		if (g === "pane" && sub === "swap") return `Swap panes ${flagVal(a, "--source-pane") ?? ""} ↔ ${flagVal(a, "--target-pane") ?? ""}`;
+		if (g === "plugin" && sub === "link") return `Link ${tool} plugin ${shortPath(tgt ?? ".")}`;
+		if (g === "plugin" && sub === "log") return tgt ? `Read ${tool} plugin log ${tgt}` : undefined;
 		if (!g && a.includes("--skill")) return `Read the ${tool} skill`;
 		const s = map[`${g} ${sub}`];
 		return s?.trim();
@@ -602,8 +611,8 @@ const RULES: Rule[] = [
 		if (p[0] === "account" && p[1] === "list") return `List 1Password accounts (${tool})`;
 		if (p[0] === "item" && p[1] === "share") return `Share secret ${clip(p[2] ?? "", 40)}${flagVal(a, "--emails") ? ` with ${clip(flagVal(a, "--emails")!, 40)}` : ""}`;
 	} },
-	{ id: "ag-tools", cmd: /^(ag-text|show|shot|presence|tickler|ag-access|ag-host|ag-inbox|nessie-daemon|ag-login-password|machine-role|record-flow|screen-record|ag-dash-stats|toolsum|cua-queue|routine)$/, fn: (a, raw) => {
-		const tool = raw.split(/\s/)[0];
+	{ id: "ag-tools", cmd: /^(?:(?:\.\/)?(?:[\w.-]+\/)*bin\/(?=toolsum$))?(ag-text|show|shot|presence|tickler|ag-access|ag-host|ag-inbox|nessie-daemon|ag-login-password|machine-role|record-flow|screen-record|ag-dash-stats|toolsum|cua-queue|routine)$/, fn: (a, raw) => {
+		const tool = raw.split(/\s/)[0].replace(/^.*\//, "");
 		const p = positional(a);
 		switch (tool) {
 			case "ag-text": return `Text Nathan "${clip(p.join(" "), 50)}"`;
@@ -616,6 +625,15 @@ const RULES: Rule[] = [
 			case "machine-role": return "Check machine role";
 			case "record-flow": case "screen-record": return "Record a screen flow";
 			case "cua-queue": return "Check the computer-use queue";
+			case "toolsum": {
+				const sub = positional(a, ["--days", "--n", "--top", "--host"])[0];
+				const days = flagVal(a, "--days");
+				if (sub === "check") return "Check toolsum fixtures";
+				if (sub === "coverage") return `Measure toolsum coverage${days ? ` (${days} days)` : ""}`;
+				if (sub === "sample") return `Sample toolsum summaries${days ? ` (${days} days)` : ""}`;
+				if (sub === "sh" || sub === "try") return "Test a toolsum summary";
+				return `toolsum ${sub ?? ""}`.trim();
+			}
 			default: return `${tool} ${p[0] ?? ""}`.trim();
 		}
 	} },
@@ -689,6 +707,7 @@ const RULES: Rule[] = [
 		const s = (x?: string, me = "this session") => (x ? clip(x, 40) : me);
 		const q = (x?: string, n = 50) => `"${clip((x ?? "").replace(/\s+/g, " "), n)}"`;
 		const has = (f: string) => a.includes(f);
+		if (v?.startsWith("$")) return has("--help") || has("-h") ? "Read help for ag verbs" : undefined;
 		switch (v) {
 			case undefined: return has("--help") ? "List ag verbs" : "Attach to Ag";
 			case "attach": return "Attach to Ag";
@@ -725,12 +744,16 @@ const RULES: Rule[] = [
 				if (sub === "get") return x ? `Read ${ch(x)}` : undefined;
 				if (sub === "post") return flagVal(a, "--reply-to") ? "Reply on Discord" : x ? `Post to ${ch(x)}` : undefined;
 				if (sub === "whoami") return "Check the Discord bot identity";
+				if (sub === "channels") return "List Discord channels and threads";
+				if (sub === "delete") return x ? `Delete ${ch(x)}` : undefined;
+				if (sub === "dce") return "Run DiscordChatExporter (Discord export)";
 				return;
 			}
 			case "routine": return `${r[0] ? `${r[0][0].toUpperCase()}${r[0].slice(1)} ` : "List "}routine${r[1] ? ` ${r[1]}` : "s"}`;
 		}
 		// passthrough verbs: `ag text …` runs ag-text, so summarize it as that
-		return summarizeShell([`ag-${v}`, ...a.slice(a.indexOf(v) + 1)].join(" "), ctx).sum;
+		const q1 = (x: string) => (/[\s'"$`\\;&|<>()]/.test(x) ? `'${x.replace(/'/g, "'\\''")}'` : x);
+		return summarizeShell([`ag-${v}`, ...a.slice(a.indexOf(v) + 1).map(q1)].join(" "), ctx).sum;
 	} },
 	{ id: "ag-messages", cmd: /^ag-messages$/, fn: (a) => {
 		const [sub, x] = positional(a, ["--file"]);
@@ -743,6 +766,36 @@ const RULES: Rule[] = [
 			case "cat": case "get": return x ? `Read iMessage attachment ${shortPath(x)}` : undefined;
 		}
 	} },
+	{ id: "ag-telegram", cmd: /^ag-telegram$/, fn: (a) => {
+		const [sub, x, y] = positional(a);
+		switch (sub) {
+			case "done": return x ? `Mark Telegram message ${x} done` : undefined;
+			case "more": return x ? `Reply on Telegram message ${x} with more` : undefined;
+			case "reply": return x ? `Reply to Telegram message ${x}` : undefined;
+			case "listen": return "Listen for Telegram messages";
+			case "status": return x ? `${y ? "Set" : "Check"} Telegram status of ${clip(x, 30)}${y ? ` → ${y}` : ""}` : undefined;
+			case "supersede": return x ? `Mark older Telegram notifications of ${clip(x, 30)} followed` : undefined;
+		}
+	} },
+	{ id: "aws", cmd: /^aws$/, fn: (a) => {
+		const [svc, op] = positional(a, ["--region", "--profile", "--query", "--output", "--instance-ids", "--name", "--time-period", "--granularity", "--metrics", "--group-by", "--selector", "--filter", "--filters", "--max-items", "--bucket", "--key", "--function-name", "--log-group-name", "--stack-name", "--endpoint-url"]);
+		if (!svc || !op || !/^[a-z][\w-]*$/.test(op)) return;
+		const tgt = flagVal(a, "--instance-ids", "--name", "--function-name", "--stack-name", "--log-group-name", "--bucket");
+		const read = /^(get|describe|list|head|lookup|search|batch-get)-|^(ls|wait)$/.test(op);
+		return `${read ? "Query" : "Run"} AWS ${svc} ${op}${tgt ? ` ${clip(tgt, 40)}` : ""}`;
+	} },
+	{ id: "uvx", cmd: /^(uvx|pipx)$/, fn: (a, raw) => {
+		const tool = raw.split(/\s/)[0];
+		const from = flagVal(a, "--from");
+		const i = a.findIndex((x, k) => !x.startsWith("-") && !/^(--from|--with|--python|-p|--spec)$/.test(a[k - 1] ?? "") && x !== "run");
+		if (i < 0) return;
+		const prog = a[i].replace(/[=@].*$/, "");
+		const rest = a.slice(i + 1);
+		if (rest.length === 1 && /^(--help|-h)$/.test(rest[0])) return `Read ${prog} help (${tool})`;
+		if (/^python3?$/.test(prog) && rest[0] === "-c") return `Run Python snippet (${tool}${from ? `, ${from}` : ""})`;
+		const file = positional(rest).find((x) => /^[\w./~-]+\.\w{1,5}$/.test(x) && !/^-/.test(x));
+		return `Run ${prog}${file ? ` on ${shortPath(file)}` : ""} (${tool})`;
+	} },
 	{ id: "moshi-hook", cmd: /^moshi-hook$/, fn: (a) => {
 		const p = positional(a, ["--target"]);
 		if (p[0] === "service" && p[1]) return `${cap(p[1])} the moshi-hook service`;
@@ -750,7 +803,14 @@ const RULES: Rule[] = [
 		if (p[0] === "uninstall") return "Uninstall moshi-hook";
 		if (p[0] === "status") return "Check moshi-hook status";
 	} },
-	{ id: "ag-script", cmd: /^(?:~|\$HOME)?\/?(?:\.local\/bin\/)?(mcp-gateway|ag-board|ag-mux-smoke\.sh|ag-nav|tickler|agd)$/, fn: (a, raw) => `${raw.split(/\s/)[0].replace(/^.*\//, "")} ${positional(a)[0] ?? ""}`.trim() },
+	{ id: "ag-script", cmd: /^(?:~|\$HOME)?\/?(?:\.local\/bin\/)?(mcp-gateway|ag-board|ag-mux-smoke\.sh|ag-nav|herdr-nav|tickler|agd)$/, fn: (a, raw) => {
+		const tool = raw.split(/\s/)[0].replace(/^.*\//, "");
+		const sub = positional(a)[0];
+		if (/^(?:ag|herdr)-nav$/.test(tool)) {
+			const m: Record<string, string> = { status: "Print pane focus history", reopen: "Reopen the last closed pane", back: "Focus the previous pane", forward: "Focus the next pane", "last-space": "Focus the last workspace", daemon: `Run the ${tool} daemon` };
+			if (sub && m[sub]) return `${m[sub]} (${tool})`;
+		}
+		return `${raw.split(/\s/)[0].replace(/^.*\//, "")} ${positional(a)[0] ?? ""}`.trim(); } },
 ];
 
 /** One simple command (no ; && | at top level) → summary, "noise", or null (not understood). */

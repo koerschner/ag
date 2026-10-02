@@ -1475,5 +1475,235 @@
   "hosts": [
    "ag-engine"
   ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag $v --help 2>&1"
+  },
+  "sum": "Read help for ag verbs",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag discord channels 2>&1"
+  },
+  "sum": "List Discord channels and threads",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag messages send 2488801132 \"Claude: ; Nathan's ag CLI; in short\""
+  },
+  "sum": "Send iMessage to 2488801132",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag telegram done 42 2>&1"
+  },
+  "sum": "Mark Telegram message 42 done",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "aws ce get-cost-and-usage --time-period Start=2025-10-01,End=2026-10-02 --granularity MONTHLY --metrics UnblendedCost --output json"
+  },
+  "sum": "Query AWS ce get-cost-and-usage",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "aws ec2 terminate-instances --region us-east-1 --instance-ids i-0a6179e98df4911cd --query \"TerminatingInstances[].CurrentState.Name\" --output text"
+  },
+  "sum": "Run AWS ec2 terminate-instances i-0a6179e98df4911cd",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "aws sts get-caller-identity --query Arn --output text 2>&1"
+  },
+  "sum": "Query AWS sts get-caller-identity",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "bin/dot-local/bin/toolsum coverage --days 7 --top 25 2>&1"
+  },
+  "sum": "Measure toolsum coverage (7 days)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "bin/dot-local/bin/toolsum check"
+  },
+  "sum": "Check toolsum fixtures",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr --default-config 2>/dev/null"
+  },
+  "sum": "Print herdr's default config",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr pane 2>&1"
+  },
+  "sum": "Read herdr pane usage",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr config show-keys 2>/dev/null"
+  },
+  "sum": "List herdr key bindings",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr agent explain zzmove 2>&1"
+  },
+  "sum": "Explain agent detection in zzmove",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr pane swap --source-pane $P --target-pane $N >/dev/null"
+  },
+  "sum": "Swap panes $P \u2194 $N",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr plugin log nathan.pin-inbox 2>&1"
+  },
+  "sum": "Read herdr plugin log nathan.pin-inbox",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr-nav reopen >/dev/null"
+  },
+  "sum": "Reopen the last closed pane (herdr-nav)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr-nav status"
+  },
+  "sum": "Print pane focus history (herdr-nav)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "uvx --from markdown python -c \"import markdown;print(1)\""
+  },
+  "sum": "Run Python snippet (uvx, markdown)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "uvx --from pdfminer.six pdf2txt.py paseofee.pdf"
+  },
+  "sum": "Run pdf2txt.py on paseofee.pdf (uvx)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "uvx --with \"mcp==$v\" mcp-proxy --help 2>&1"
+  },
+  "sum": "Read mcp-proxy help (uvx)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "uvx yt-dlp --flat-playlist --print \"%(id)s | %(title)s\" \"ytsearch12:$q\" 2>/dev/null"
+  },
+  "sum": "Run yt-dlp (uvx)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "gh workflow run launcher-release.yml -R superbuilders/arcade.school --ref dev -f stage=staging"
+  },
+  "sum": "Trigger workflow launcher-release.yml",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "curl -s -m5 -o /dev/null -w \"%{http_code}\\n\" http://ag-mac:7376/; echo $PI_SESSION_FILE | xargs basename"
+  },
+  "sum": "GET ag-mac:7376",
+  "hosts": [
+   "ag-engine"
+  ]
  }
 ]

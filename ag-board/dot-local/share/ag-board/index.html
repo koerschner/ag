@@ -810,8 +810,19 @@ function txHtml(msgs) {
 // for the session you just left, e.g. on the phone) and is dropped instead of painting over the new one.
 // Like ChatGPT: the newest TX_PAGE items first; scrolling near the top loads the next page above, in place.
 const TX_PAGE = 150;
-let txQuery = "", txSeq = 0, txLimit = TX_PAGE, txMore = false, txLoadingOlder = false;
-function resetTranscript(q) { txQuery = q; txSeq++; txLimit = TX_PAGE; txMore = false; loadTranscript.done = false; $("#tx").innerHTML = '<div class="empty">Loading…</div>'; }
+let txQuery = "", txSeq = 0, txLimit = TX_PAGE, txMore = false, txLoadingOlder = false, txStale = false;
+const txAtBottom = () => { const tx = $("#tx"); return tx.scrollHeight - tx.scrollTop - tx.clientHeight < 80; };
+// A live update. Re-rendering a long history is slow, so while you're scrolled up reading older pages it waits
+// until you're back at the bottom, and at the bottom it trims back to the newest page.
+function refreshTranscript(q) {
+  if (q === txQuery && loadTranscript.done && txLimit > TX_PAGE) {
+    if (!txAtBottom()) { txStale = true; return; }
+    txLimit = TX_PAGE;
+  }
+  txStale = false;
+  loadTranscript(q);
+}
+function resetTranscript(q) { txQuery = q; txSeq++; txLimit = TX_PAGE; txMore = false; txStale = false; loadTranscript.done = false; $("#tx").innerHTML = '<div class="empty">Loading…</div>'; }
 async function loadTranscript(q) {
   const seq = ++txSeq;
   let msgs, more = false;
@@ -848,7 +859,11 @@ async function loadOlder() {
   const tx = $("#tx");
   if (txMore && tx.scrollTop < 400 && tx.offsetParent) setTimeout(loadOlder, 100); // flung to the top: keep going
 }
-$("#tx").addEventListener("scroll", () => { if (loadTranscript.done && $("#tx").scrollTop < 400) loadOlder(); }, { passive: true });
+$("#tx").addEventListener("scroll", () => {
+  if (!loadTranscript.done) return;
+  if ($("#tx").scrollTop < 400) loadOlder();
+  else if (txStale && txAtBottom()) refreshTranscript(txQuery);
+}, { passive: true });
 async function loadScreen() {
   if (!openTab || dtab !== "live") return;
   const tab = openTab;
@@ -887,7 +902,7 @@ function renderDrawer() {
   const ph = working ? "Steer this agent…" : "Reply to this agent…";
   if (rted._ph !== ph) { rted._ph = ph; rted.setPlaceholder(ph); }
   const key = c.tab + (c.lastAssistant?.ts || 0) + (c.lastUser?.ts || 0) + c.status + (c.activity?.since || 0);
-  if (key !== lastTxKey) { lastTxKey = key; loadTranscript("tab=" + encodeURIComponent(c.tab)); }
+  if (key !== lastTxKey) { lastTxKey = key; refreshTranscript("tab=" + encodeURIComponent(c.tab)); }
   if (c.needsYou && c.status !== "blocked") api("/api/card", { tab: c.tab, seen: true });
   tick();
 }

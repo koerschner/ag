@@ -524,6 +524,9 @@ const byTab = new Map();
 let route = { kind: "new" };
 let transcript = [];
 let transcriptSig = "";
+// Like ChatGPT: the newest TX_PAGE items first; scrolling near the top loads the next page above, in place.
+const TX_PAGE = 150;
+let loadSeq = 0, txRef = "", txLimit = TX_PAGE, txMore = false, loadingOlder = false, txStale = false;
 let pending = [];
 const drafts = JSON.parse(localStorage.getItem("agchat.drafts") || "{}");
 const secClosed = JSON.parse(localStorage.getItem("agchat.secs") || "{}");
@@ -695,7 +698,7 @@ async function open() {
   saveDraft();
   stopSpeaking();
   const r = parse();
-  transcript = []; transcriptSig = ""; pending = []; attachments = [];
+  transcript = []; transcriptSig = ""; txRef = ""; txLimit = TX_PAGE; txStale = false; pending = []; attachments = [];
   if (isMobile()) setCollapsed(true, false);
   if (r.kind === "sidkey") {
     const c = cardFor(r.sid);
@@ -888,13 +891,14 @@ let refreshT;
 function refreshIfChanged(c) {
   const s = sigOf(c);
   if (s === transcriptSig) return;
+  // Re-rendering a long history is slow: while you're scrolled up reading older pages, wait until you're back at
+  // the bottom (onScroll retries), and at the bottom trim back to the newest page.
+  if (txLimit > TX_PAGE) { if (!nearBottom()) { txStale = true; return; } txLimit = TX_PAGE; }
+  txStale = false;
   transcriptSig = s;
   clearTimeout(refreshT);
   refreshT = setTimeout(() => loadTranscript(c.sid ? `sid=${c.sid}` : `tab=${encodeURIComponent(c.tab)}`), 250);
 }
-// Like ChatGPT: the newest TX_PAGE items first; scrolling near the top loads the next page above, in place.
-const TX_PAGE = 150;
-let loadSeq = 0, txRef = "", txLimit = TX_PAGE, txMore = false, loadingOlder = false;
 async function loadTranscript(ref, first) {
   const seq = ++loadSeq;
   const forRoute = route;
@@ -926,7 +930,7 @@ async function loadOlder() {
 }
 function nearBottom() { const s = $("#scroll"); return !s || s.scrollHeight - s.scrollTop - s.clientHeight < 150; }
 function scrollBottom(smooth) { const s = $("#scroll"); if (s) s.scrollTo({ top: s.scrollHeight, behavior: smooth ? "smooth" : "auto" }); }
-function onScroll() { loadOlder(); const j = $("#jump"); if (!j) return; j.classList.toggle("show", !nearBottom()); const comp = $(".composer-wrap"); if (comp) j.style.bottom = `${comp.offsetHeight + 16}px`; }
+function onScroll() { loadOlder(); if (txStale && nearBottom() && current()) refreshIfChanged(current()); const j = $("#jump"); if (!j) return; j.classList.toggle("show", !nearBottom()); const comp = $(".composer-wrap"); if (comp) j.style.bottom = `${comp.offsetHeight + 16}px`; }
 
 function stepHtml(x) {
   if (x.role === "thinking") return `<div class="step think">${esc(x.text)}</div>`;

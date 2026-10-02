@@ -31,7 +31,7 @@ const TOKEN_TTL_MS = 10 * 60_000;
 const SPAWN_DEDUP_MS = 6 * 3600_000; // same blocked task → one access session
 const SESSION_DEDUP_MS = 3600_000; // one access session per blocked agent session per hour
 
-const RULE = `Nathan's rule for AI agents running on his development Mac ("ag-mac"): using computer use on his client Mac (the laptop he sits at, "ag-client") is an antipattern. Agents must do work on ag-mac through an API, CLI, or MCP tool, or through computer use on ag-mac's own desktop. Driving the client's desktop is allowed only when the thing exists solely on the client: a dialog or permission prompt that is showing on the client's screen, iPhone Mirroring (Nathan's iPhone is only reachable through the client), or a setting or app of the client Mac itself that the task is about. It is never justified because an app, website, or account is already signed in on the client, or because ag-mac's copy is signed out, missing, or lacks permission; the fix then is to get that access onto ag.`;
+const RULE = `Nathan's rule for AI agents running on his development Mac ("ag-mac"): using computer use on his client Mac (the laptop he sits at, "ag-client") is an antipattern. Agents must do work on ag-mac through an API, CLI, or MCP tool, or through computer use on ag-mac's own desktop. Driving the client's desktop is allowed only when the thing exists solely on the client: a dialog or permission prompt that is showing on the client's screen, iPhone Mirroring (Nathan's iPhone is only reachable through the client), a setting or app of the client Mac itself that the task is about, or Nathan's own screen as the deliverable (he explicitly asked to have windows opened, arranged, or set up on the display he is sitting at, e.g. to watch, present, or screen-record them). It is never justified because an app, website, or account is already signed in on the client, or because ag-mac's copy is signed out, missing, or lacks permission; the fix then is to get that access onto ag.`;
 
 mkdirSync(`${STATE}/tokens`, { recursive: true });
 const log = (event: string, data: object) =>
@@ -81,8 +81,8 @@ async function askJev(): Promise<Answers> {
 			type: "noul",
 			instructions: "An AI agent on ag-mac is about to drive the client Mac's desktop with `command`. Under `rule`, and given the agent's stated `justification` and its session's `goal`, is that truly necessary: does what it needs exist only on the client?",
 			criteria: {
-				true: "It exists only on the client: a permission prompt or system dialog showing on the client's screen, iPhone Mirroring or other work on Nathan's phone, or a setting or app of the client Mac itself that the task is about.",
-				false: "It could be done on ag-mac: e.g. sending or reading messages (Slack, Discord, email, texts), using a website, web app, or desktop app, or anything behind an account that could be signed in on ag-mac, even if it is currently only signed in on the client.",
+				true: "It exists only on the client: a permission prompt or system dialog showing on the client's screen, iPhone Mirroring or other work on Nathan's phone, a setting or app of the client Mac itself that the task is about, or Nathan's own screen as the deliverable: he explicitly asked to have windows opened, arranged, or set up on the display he is sitting at (e.g. to watch, present, or screen-record a demo), so the result can only exist on the client.",
+				false: "It could be done on ag-mac: e.g. sending or reading messages (Slack, Discord, email, texts), using a website, web app, or desktop app, or anything behind an account that could be signed in on ag-mac, even if it is currently only signed in on the client. (Arranging windows on Nathan's own screen because he asked to see or record them there is not this case.)",
 			},
 		},
 	};

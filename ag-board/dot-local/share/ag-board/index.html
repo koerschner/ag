@@ -366,7 +366,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
     <div class="stats" id="dstats"></div>
     <div class="acts">
       <button class="btn stop" id="dstop">Interrupt</button>
-      <button class="btn" id="dpin">📌 Pin</button>
+      <button class="btn" id="dpin">Pin</button>
       <button class="btn" id="dwait" title="Mark waiting for something (w)">Waiting</button>
       <button class="btn" id="dfocus">Open in tmux</button>
       <button class="btn" id="dunread">Mark unread</button>
@@ -604,7 +604,7 @@ function details(c) {
       <button class="btn sm" data-a="focus">Open in tmux</button>
       <button class="btn sm" data-a="archive" title="Archive (e)">Archive</button>
       <button class="btn sm" data-a="wait" title="Mark waiting for something (w)">${c.waiting?.some((w) => w.kind === "manual") ? "Not waiting" : "Waiting"}</button>
-      <button class="btn sm" data-a="pin">${c.pinned ? "Unpin" : "📌 Pin"}</button>
+      <button class="btn sm" data-a="pin">${c.pinned ? "Unpin" : "Pin"}</button>
     </div></div>`;
 }
 function cardHtml(c) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ag pin — pin a session on AG Dash (📌: top of every list, red siren and a desktop alert while it's stalled), or unpin it.
+"""ag pin — pin a session on AG Dash (top of every list, red siren and a desktop alert while it's stalled), or unpin it.
 
     ag pin [on|off|toggle] [session]      default: on, this session
 """
@@ -18,7 +18,7 @@ def main(argv):
         raise AgError(f"{s.where} has no AG Dash card")
     val = (not s.card.get("pinned")) if mode == "toggle" else mode == "on"
     board_post("/api/card", {"tab": s.tab, "pinned": val})
-    print(f"{'📌 pinned' if val else 'unpinned'}: {s.where}  {s.link or ''}")
+    print(f"{'pinned' if val else 'unpinned'}: {s.where}  {s.link or ''}")
 
 
 run_main(main)

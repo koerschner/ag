@@ -12,7 +12,7 @@
 //   needsYou  = blocked, or ready with an answer newer than seenAt. Seen = opened on the board, replied
 //               from it, jumped to in tmux, or the tab is focused in tmux.
 //   resolved  = the latest answer ends with a DONE line (the global "signal completion" convention).
-//   pinned    = 📌 top priority (shift+click / long-press). Pinned to the top everywhere; its siren ring runs
+//   pinned    = top priority (shift+click / long-press). Pinned to the top everywhere; its siren ring runs
 //               whenever the agent isn't working (throb). Becoming needsYou fires the fast lane: ag-text + a tmux toast.
 //               While the siren runs, the client keeps a persistent desktop alert up (GET /api/pinned → hammerspoon ag_pinned.lua).
 // Every page is a URL (views, columns, /new, /help, /<session id>[/live]); the page's router handles back/forward.
@@ -738,8 +738,8 @@ const pageRes = (req: Request, page = PAGE) => gzipped(req, readFileSync(page), 
 
 function fastLane(card: Card) {
 	const snippet = (card.status === "blocked" ? "is blocked and needs you" : "is ready") + (card.lastAssistant ? `: ${oneLine(card.lastAssistant.text, 160)}` : "");
-	void run([AG_TEXT, `📌 ${card.title} (${card.workspaceLabel}) ${snippet}\n${card.sid ? `http://ag:${PORT}/${card.sid}` : `${HTTPS_URL}/#${card.tab}`}`]);
-	void mux("notification", "show", `📌 ${card.title}`, "--body", snippet.slice(0, 120), "--sound", "request");
+	void run([AG_TEXT, `Pinned: ${card.title} (${card.workspaceLabel}) ${snippet}\n${card.sid ? `http://ag:${PORT}/${card.sid}` : `${HTTPS_URL}/#${card.tab}`}`]);
+	void mux("notification", "show", `Pinned: ${card.title}`, "--body", snippet.slice(0, 120), "--sound", "request");
 	console.log(new Date().toISOString(), "fast-lane", card.tab, card.title);
 }
 

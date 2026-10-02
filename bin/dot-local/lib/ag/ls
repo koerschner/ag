@@ -3,7 +3,7 @@
 
     ag ls [workspace] [--pinned] [--waiting] [--needs-you] [--working] [--json]
     workspace: id or label (prefix ok). Filters combine with OR.
-Columns: tab, state (📌 pinned, ⏳ waiting, ❗ needs you, 💤 hibernated), title, last activity, AG Dash link.
+Columns: tab, state (pinned, ⏳ waiting, ❗ needs you, 💤 hibernated), title, last activity, AG Dash link.
 """
 import json, os, sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -43,7 +43,7 @@ def main(argv):
         if r["workspace"] != cur:
             cur = r["workspace"]
             print(f"{'' if cur == rows[0]['workspace'] else chr(10)}{cur}")
-        flags_ = ("📌" if r["pinned"] else "") + ("⏳" if r["waiting"] else "") + ("❗" if r["needs_you"] and not r["waiting"] else "") + ("💤" if r["hibernated"] else "")
+        flags_ = ("pinned " if r["pinned"] else "") + ("⏳" if r["waiting"] else "") + ("❗" if r["needs_you"] and not r["waiting"] else "") + ("💤" if r["hibernated"] else "")
         st = "working" if r["status"] == "working" else flags_ or r["status"]
         pad = 8 - sum(2 if ord(ch) > 0x2000 else 1 for ch in st)
         print(f"  {r['tab']:<9} {st}{' ' * max(pad, 1)} {clip(r['title'], 44):<44} {ago(r['last']):>8}  {r['link'] or ''}")

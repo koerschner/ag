@@ -1,4 +1,4 @@
--- Persistent desktop alerts for stalled pinned (📌) sessions, so pinned items always stay in motion.
+-- Persistent desktop alerts for stalled pinned sessions, so pinned items always stay in motion.
 -- Client only (loaded from ag.lua). Polls AG Dash's /api/pinned: every pinned card whose agent isn't working
 -- (done, idle or blocked; not waiting) gets a macOS alert that stays on screen. Hammerspoon's notification
 -- style is "Alerts" (its Info.plist default; System Settings › Notifications › Hammerspoon), so it doesn't
@@ -17,7 +17,7 @@ local function post(card)
 	local note = hs.notify.new(function()
 		hs.urlevent.openURL(card.url)
 	end, {
-		title = "📌 " .. card.title,
+		title = card.title,
 		subTitle = card.workspace,
 		informativeText = card.body,
 		hasActionButton = true,

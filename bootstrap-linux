@@ -31,8 +31,8 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq &&
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${APT[@]}" >/dev/null || warn "apt install"
 sudo usermod -aG docker "$USER" 2>/dev/null || true
 
-step "GitHub CLI"
-if ! have gh; then
+step "GitHub CLI (from cli.github.com: Ubuntu's own gh is too old for \`gh pr create --attach\`, which needs 2.99+)"
+if ! have gh || ! dpkg -s gh 2>/dev/null | grep -q '^Version: 2\.\(99\|[1-9][0-9][0-9]\)'; then
   sudo install -d -m 0755 /etc/apt/keyrings &&
     curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli.gpg >/dev/null &&
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" |

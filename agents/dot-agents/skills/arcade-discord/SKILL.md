@@ -9,7 +9,8 @@ Follow the AI attribution rule and the "communicating with other people" rules i
 
 - Use Discord for messages to Nathan's team unless he explicitly says otherwise.
 - Server: **Arcade** (ID `1524527312429912125`).
-- **Brain channels:** each teammate has a personal channel named after them (e.g. `#frank` for Frank Yang). We call these their "brain channels". When Nathan says to send something to someone's brain channel, post in their named channel on the Arcade server, not a DM.
+- **Brain channels:** each teammate has a personal channel named after them (e.g. `#frank` for Frank Yang). We call these their "brain channels". **Never post in someone's brain channel** (Nathan's rule, 2026-10-02), even when asked to message that person or the context lives there (that includes `--reply-to` a message in one); reading them is fine.
+- **Where to post instead:** `#dev` (with an `<@USER_ID>` mention when it's for one person), or a DM to the person. `ag discord` has no DM command yet, so use `#dev` unless Nathan asks for a DM.
 
 ## How: the `ag discord` CLI (programmatic, no computer use)
 
@@ -20,7 +21,7 @@ ag discord channels                           # channel + active-thread ids and 
 ag discord threads frank                      # active and archived threads under #frank
 ag discord read frank -n 50                   # recent messages (ids, links, reply targets)
 ag discord get https://discord.com/channels/<guild>/<channel>/<message>
-ag discord post frank "$(cat msg.md)"         # to a channel or a thread (name, id, or link)
+ag discord post dev "$(cat msg.md)"           # to a channel or a thread (name, id, or link)
 ag discord post --reply-to <message link> "$(cat msg.md)"   # reply to one specific message
 ag discord post <thread id> --file shot.png < msg.md
 ag discord delete <message link>              # remove one of the bot's own posts

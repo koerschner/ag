@@ -30,7 +30,7 @@ ag discord delete <message link>              # remove one of the bot's own post
 - To answer "where X asked about Y": `ag discord read`/`ag discord threads` to find the message, then `ag discord post --reply-to <its link>`.
 - Mentions: write `<@USER_ID>` (ids from `ag discord read --json`); @everyone/@here and role pings are always suppressed.
 - Bulk history or search over a date range: the `discord-export` skill (`ag discord dce …`).
-- Access: the bot sees every public channel and the **private** category (brain channels, #team, #legal…) through a category permission. #core and #lorena aren't synced to the category, so it can't see them (403); tell Nathan if you need one, don't work around it.
+- Access: the bot sees every public channel and the **private** category (brain channels, #team, #legal…) through a category permission. #core and #lorena aren't synced to the category, so it can't see them (403); tell Nathan if you need one, don't work around it. #tsa (alerts category; TSA Help Desk ticket feed for Arcade tickets) has a channel override granting the bot View Channel + Read Message History (added 2026-10-02).
 - Setup facts: the app (id `1555080030504230932`) is owned by Nathan's Discord account **koerschner** (login: op-shared item `Discord (koerschner)`); to rotate the token, Reset Token in the developer portal as koerschner and replace the op-work item.
 
 ## Fallback: computer use on ag-mac only

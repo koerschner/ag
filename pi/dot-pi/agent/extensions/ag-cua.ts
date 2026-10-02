@@ -5,16 +5,25 @@ import { randomBytes } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 
-const bin = path.join(os.homedir(), ".local", "bin", "chatgpt-cua");
+const bin = path.join(os.homedir(), ".local", "bin", "ag-cua");
 
 export default function (pi: ExtensionAPI) {
 	pi.registerTool({
-		name: "chatgpt_cua",
-		label: "ChatGPT Computer Use",
+		name: "ag_cua",
+		label: "Computer Use",
 		description:
-			"Delegate a computer-use task (see the screen, click, type, operate any native Mac app or browser) to ChatGPT/Codex's native computer-use agent (always gpt-6-astra). Give a complete, self-contained task; returns its final report. Slow (tens of seconds to minutes). Runs are queued one at a time on ag-mac's desktop, so it may first wait behind another session's run (set urgent only for time-critical tasks). Prefer APIs/CLIs when they exist.",
+			"Ag's one computer-use tool (same as `ag cua`): see the screen, click, type, operate any native Mac app, browser, or (via iPhone Mirroring) Nathan's iPhone. Routes by target: \"mac\" (default) = ag-mac's desktop, queued one run at a time, so it may first wait behind another session's run; \"client\" = the client Mac Nathan sits at, and \"phone\" = his iPhone, both last resorts gated by Jev and needing `why`. Give a complete, self-contained task; returns the final report. Slow (tens of seconds to minutes). Prefer APIs/CLIs when they exist.",
 		parameters: Type.Object({
 			task: Type.String({ description: "Self-contained task for the computer-use agent" }),
+			target: Type.Optional(
+				Type.Union([Type.Literal("mac"), Type.Literal("client"), Type.Literal("phone")], {
+					description:
+						"Which desktop: mac (ag-mac, default), client (only for things that exist solely on the client Mac, e.g. a dialog showing there), phone (Nathan's iPhone via iPhone Mirroring on the client)",
+				}),
+			),
+			why: Type.Optional(
+				Type.String({ description: "Required for client/phone: why this can only be done there (judged by the client-CUA gate)" }),
+			),
 			keepOpen: Type.Optional(
 				Type.Boolean({ description: "Leave the apps/tabs the run opened (default: close them afterwards)" }),
 			),
@@ -37,7 +46,9 @@ export default function (pi: ExtensionAPI) {
 			if (params.keepOpen) env.CHATGPT_CUA_KEEP_OPEN = "1";
 			if (params.urgent) env.CUA_URGENT = "1";
 			return await new Promise((resolve) => {
-				const child = spawn(bin, [params.task], {
+				const target = params.target ?? "mac";
+				const args = target === "mac" ? [] : [`--${target}`, "--why", params.why ?? ""];
+				const child = spawn(bin, [...args, "--", params.task], {
 					// No stdin: a script that falls back to reading it would otherwise hang forever on Pi's open pipe.
 					stdio: ["ignore", "pipe", "pipe"],
 					env,
@@ -63,13 +74,13 @@ export default function (pi: ExtensionAPI) {
 					signal?.removeEventListener("abort", onAbort);
 					resolve({ content: [{ type: "text", text }], details: { jobId } });
 				};
-				child.on("error", (e) => done(`chatgpt-cua failed to start: ${e.message}`));
+				child.on("error", (e) => done(`ag-cua failed to start: ${e.message}`));
 				child.on("close", (code) => {
 					if (aborted) done(`Computer-use job ${jobId} was cancelled (tool call aborted).\n${log.slice(-500)}`);
 					else if (code === 0) done(stdout.trim());
 					else
 						done(
-							`chatgpt-cua exited ${code} (job ${jobId}; \`cua-queue attach ${jobId}\` re-reads its result)\n${stdout}\n${log.slice(-2000)}`,
+							`ag-cua exited ${code}${target === "mac" ? ` (job ${jobId}; \`ag cua attach ${jobId}\` re-reads its result)` : ""}\n${stdout}\n${log.slice(-2000)}`,
 						);
 				});
 			});

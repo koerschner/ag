@@ -507,9 +507,9 @@ const RULES: Rule[] = [
 		if (sub === "show") return { sum: `Show ${shortPath(r[0] ?? "")} on Nathan's screen`, host: "ag-mac", rule: "mac-show" };
 		if (sub === "status") return { sum: "Check ag-mac status", host: "ag-mac", rule: "mac-status" };
 	} },
-	{ id: "cua", cmd: /^(chatgpt-cua|client-cua)$/, fn: (a, raw, ctx) => {
-		const host = raw.startsWith("client-cua") ? "ag-client" : "ag-mac";
-		const t = positional(a, ["--why", "--caller", "--timeout"]).join(" ");
+	{ id: "cua", cmd: /^(chatgpt-cua|client-cua|ag-cua)$/, fn: (a, raw, ctx) => {
+		const host = raw.startsWith("client-cua") || a.includes("--client") || a.includes("--phone") ? "ag-client" : "ag-mac";
+		const t = positional(a, ["--why", "--caller", "--timeout", "--host"]).join(" ");
 		if (!t || a.includes("--status")) return { sum: "Check computer use", host, rule: "cua" };
 		const { task, file } = cuaTask(t, ctx);
 		if (file) return { sum: `Run computer-use task from ${shortPath(file)}`, host, rule: "cua" };
@@ -1033,9 +1033,11 @@ export function summarize(name: string, args: any, ctx: Ctx = { host: "ag-engine
 				const n = Array.isArray(args.edits) ? args.edits.length : 1;
 				return { sum: `Edit ${shortPath(String(args.path ?? ""))}${n > 1 ? ` (${n} changes)` : ""}`, hosts: [ctx.host], rule: "edit" };
 			}
-			case "chatgpt_cua": {
+			case "chatgpt_cua":
+			case "ag_cua": {
 				const s = typeof args.task === "string" ? cuaSummary(args.task) : undefined;
-				return { sum: s, hosts: ["ag-mac"], rule: s ? "cua" : undefined };
+				const host = args.target === "client" || args.target === "phone" ? "ag-client" : "ag-mac";
+				return { sum: s, hosts: [host], rule: s ? "cua" : undefined };
 			}
 			case "tickler": {
 				const a = args.action;

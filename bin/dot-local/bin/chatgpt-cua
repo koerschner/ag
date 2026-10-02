@@ -18,7 +18,7 @@ set -euo pipefail
 if [[ ${1:-} == (--status|--list) ]]; then exec ${0:A:h}/cua-queue list; fi
 if [[ ${1:-} == (-h|--help) ]]; then sed -n '2,20p' ${0:A}; exit 0; fi
 # Computer use happens on ag-mac (the extremity); from anywhere else, hand the task over with `mac cua`.
-if [[ $OSTYPE != darwin* ]]; then
+if [[ -z ${CUA_QUEUE_INNER:-} ]] && ! ${0:A:h}/machine-role extremity 2>/dev/null; then
   task=${*:-$(cat)}
   exec ~/.local/bin/mac cua "$task"
 fi

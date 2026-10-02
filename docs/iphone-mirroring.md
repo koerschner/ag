@@ -5,11 +5,11 @@ reading a token or setting, iOS Shortcuts, pairing) is done from the **client Ma
 through Apple's **iPhone Mirroring** app, driven with computer use from ag-mac:
 
 ```sh
-client-cua "Open iPhone Mirroring, connect to Nathan's iPhone, then ..."
+ag cua --phone --why "<why it must happen on the phone>" "<what to do on the iPhone>"
 ```
 
-- Use `client-cua` (client Mac desktop), not `chatgpt_cua`/`chatgpt-cua` (ag-mac's desktop):
-  iPhone Mirroring is paired with the client Mac.
+- `--phone` (in Pi: `ag_cua` with `target: "phone"`) runs on the client Mac's desktop, not ag-mac's,
+  because iPhone Mirroring is paired with the client Mac; it opens Mirroring for you first.
 - The phone must be **locked** for Mirroring to connect. If it reports **iPhone in Use**,
   stop and ask Nathan to lock the phone, then retry. That is not a task failure.
 - Don't ask Nathan to do phone steps by hand when Mirroring can do them. Stop only for

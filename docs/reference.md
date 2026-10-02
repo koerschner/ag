@@ -609,6 +609,11 @@ Nathan sits at a client machine; agents run on a host (ag). Every machine stows 
   (matched by `$PI_SESSION_FILE` in `~/review/<name>/.meta.json`, so it survives pane moves), with
   the section heading he was reading. If that session is gone, it opens a new Inbox session.
   Nothing is exposed beyond Tailscale. Old pages in `~/review` can be deleted anytime.
+- **`ag cua` (`ag-cua`) is the one computer-use command** (Pi tool `ag_cua`). It routes by target:
+  ag-mac's desktop by default (`chatgpt-cua` locally on ag-mac, `mac cua` from anywhere else, both
+  queued as below), `--client --why …` to the client Mac and `--phone --why …` to the iPhone via
+  iPhone Mirroring (both `client-cua`, gated by `client-cua-gate`). `ag cua --status|cancel|attach`
+  wrap `cua-queue`. The scripts below are its internals; agents only call `ag cua`.
 - **Computer use on ag-mac is queued** (`cua-queue`): only one run drives ag-mac's desktop at a time.
   Every `chatgpt-cua` run on ag-mac (the `chatgpt_cua` Pi tool, `mac cua` from the engine, local
   calls) is a job in `~/.local/state/cua-queue/jobs/<id>/` (task, caller, status, log, report, rc).
@@ -622,7 +627,7 @@ Nathan sits at a client machine; agents run on a host (ag). Every machine stows 
   silently (SSH dropped) abandons its job if it hadn't started, while a started job finishes and stays
   attachable. Jobs whose runner died are marked `lost` so they never block the queue. Pi's tool labels
   jobs with the session name and its AG Dash link (`CUA_CALLER`) and picks the id (`CUA_JOB_ID`).
-  **Urgent jobs** (`chatgpt_cua` `urgent: true`, `CUA_URGENT=1`, `cua-queue run --urgent`) go ahead of
+  **Urgent jobs** (`ag_cua` `urgent: true`, `ag cua --urgent`, `CUA_URGENT=1`, `cua-queue run --urgent`) go ahead of
   every non-urgent job and preempt a running one: the queue stops its codex, the inner `chatgpt-cua`
   exits 75 without cleaning up, and the job becomes `paused` with its codex session id saved (from the
   log's `session id:` line). After the urgent job, the paused job resumes first with

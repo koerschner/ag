@@ -31,7 +31,7 @@ Nathan's own prompts (same window) ask for these Ag-level actions: put in waitin
 merge 31, close tab 25, give me the link 22, hotpath 21, report back 16, split out 11, archive/park 11.
 
 Already well served (not targets): `mac run/push/pull` (one tool, 9% err mostly remote-command errors),
-`chatgpt_cua` tool, `tickler` tool, `op-*`, `show`, `shot`, `gh pr checks` polling (`pr-watch` + github relay).
+`ag_cua` tool (`ag cua`), `tickler` tool, `op-*`, `show`, `shot`, `gh pr checks` polling (`pr-watch` + github relay).
 
 ## Proposed surface
 

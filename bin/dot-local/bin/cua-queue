@@ -25,7 +25,7 @@
 set -uo pipefail
 zmodload zsh/system zsh/datetime
 
-if [[ $OSTYPE != darwin* ]]; then
+if ! ${0:A:h}/machine-role extremity 2>/dev/null; then
   case ${1:-} in
     run) shift; exec ~/.local/bin/mac cua "$@" ;;
     *) exec ~/.local/bin/mac run "cua-queue ${(j: :)${(q)@}}" ;;

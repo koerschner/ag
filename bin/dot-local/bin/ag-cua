@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# ag-cua — the one computer-use command: routes the task to the right desktop (also `ag cua`).
+#
+#   ag cua "<task>"                              ag-mac's desktop (default; queued, one run at a time)
+#   ag cua --client --why "<reason>" "<task>"    the client Mac's desktop (gated by Jev: only for things
+#                                                that exist solely there, e.g. a dialog showing on it)
+#   ag cua --phone --why "<reason>" "<task>"     Nathan's iPhone, via iPhone Mirroring on the client (gated)
+#   ag cua --status                              the running and queued jobs on ag-mac
+#   ag cua cancel <id> | attach <id>             cancel a job / re-read its report
+#
+# Options: --urgent (jump ag-mac's queue, pausing a running non-urgent job), --keep-open (leave what
+# the run opened), --host <alias> (which client; default ag-client). The task may also come on stdin.
+# Works from any Ag machine. Under the hood: chatgpt-cua + cua-queue on ag-mac (via `mac cua` off it),
+# client-cua (+ client-cua-gate) for the client and phone. Agents call only this (or the Pi tool ag_cua).
+set -euo pipefail
+bin=$(dirname "$(readlink -f "$0")")
+target=mac why=${CLIENT_CUA_WHY:-}
+usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
+
+case ${1:-} in
+  --status | status | list | --list) exec "$bin/cua-queue" list ;;
+  cancel | attach) exec "$bin/cua-queue" "$@" ;;
+  -h | --help | help) usage; exit 0 ;;
+esac
+
+while (($#)); do
+  case $1 in
+    --mac) target=mac ;;
+    --client) target=client ;;
+    --phone) target=phone ;;
+    --why) why=${2:?--why needs a reason}; shift ;;
+    --host) export CLIENT_CUA_HOST=${2:?--host needs an SSH alias}; shift ;;
+    --urgent) export CUA_URGENT=1 ;;
+    --keep-open) export CHATGPT_CUA_KEEP_OPEN=1 ;;
+    --) shift; break ;;
+    -*) echo "ag cua: unknown option $1" >&2; usage >&2; exit 2 ;;
+    *) break ;;
+  esac
+  shift
+done
+task=${*:-}
+[[ -n $task || -t 0 ]] || task=$(cat)
+[[ -n $task ]] || { usage >&2; exit 2; }
+
+case $target in
+  mac)
+    # On ag-mac, chatgpt-cua submits to the local queue; anywhere else, hand it over to ag-mac.
+    if "$bin/machine-role" extremity 2>/dev/null; then exec "$bin/chatgpt-cua" "$task"; fi
+    exec "$bin/mac" cua "$task" ;;
+  client | phone)
+    [[ -n $why ]] || { echo 'ag cua: --client/--phone need --why "<why this exists only on the client>" (driving the client is a last resort; everything else runs on ag-mac)' >&2; exit 2; }
+    [[ $target == phone ]] && task="Open iPhone Mirroring and connect to Nathan's iPhone (it must be locked to connect; if it says iPhone in Use, stop and report that Nathan needs to lock his phone). Then, on the mirrored iPhone: $task"
+    exec "$bin/client-cua" --why "$why" "$task" ;;
+esac

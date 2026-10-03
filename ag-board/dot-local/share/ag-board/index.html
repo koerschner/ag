@@ -343,7 +343,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   <button class="btn" id="newbtn" title="New item (c)">+ New item</button>
   <div class="counts" id="counts"></div>
   <div class="seg" id="views">
-    <button data-v="state">State</button><button data-v="lists">Lists</button><button data-v="ws">Workspaces</button><button data-v="routines" title="Routines: recurring jobs Ag runs on its own">Routines</button>
+    <button data-v="state">State</button><button data-v="lists">Lists</button><button data-v="ws">Workspaces</button><button data-v="routines" title="Routines: recurring jobs Ag runs on its own">Routines</button><button data-v="rules" title="ag-rules: Nathan's plain-English rules that boil down to code">ag-rules</button>
   </div>
   <button class="btn" id="expandall" title="Expand or collapse every card's details">Details</button>
   <button class="btn" id="pinnedonly" title="Show only pinned cards">Pinned only</button>
@@ -414,23 +414,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
 </form></dialog>
 <dialog id="help"><form method="dialog">
   <h3 style="margin:.2rem 0 .6rem">Keyboard</h3>
-  <table>
-    <tr><td><span class="kbd">j</span> <span class="kbd">k</span></td><td>next / previous card</td></tr>
-    <tr><td><span class="kbd">←</span> <span class="kbd">→</span></td><td>previous / next column</td></tr>
-    <tr><td><span class="kbd">o</span> <span class="kbd">Enter</span></td><td>open the card (transcript, live screen, reply)</td></tr>
-    <tr><td><span class="kbd">Space</span></td><td>expand / collapse details</td></tr>
-    <tr><td><span class="kbd">r</span></td><td>in an open session: write a reply (the box starts unfocused, like a Gmail thread); <span class="kbd">j</span>/<span class="kbd">k</span> next / previous, <span class="kbd">e</span> archive and open the next, <span class="kbd">u</span> back to the board</td></tr>
-    <tr><td><span class="kbd">z</span></td><td>undo the last archive (also <span class="kbd">⌘</span><span class="kbd">Z</span>)</td></tr>
-    <tr><td><span class="kbd">⇧</span><span class="kbd">U</span></td><td>mark unread</td></tr>
-    <tr><td><span class="kbd">e</span></td><td>archive (closes the tab; Undo for a few seconds)</td></tr>
-    <tr><td><span class="kbd">c</span></td><td>new item. Also: ask “where's the one about …” and it shows the cards; housekeeping (“pin the roblox ones”) goes to a brief session in Meta</td></tr>
-    <tr><td><span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span> <span class="kbd">4</span></td><td>State / Lists / Workspaces / Routines view</td></tr>
-    <tr><td><span class="kbd">/</span></td><td>search</td></tr>
-    <tr><td><span class="kbd">⌘</span>+<span class="kbd">K</span></td><td>new item / find a session (same as <span class="kbd">c</span>, works while typing)</td></tr>
-    <tr><td><span class="kbd">Esc</span></td><td>close panel</td></tr>
-    <tr><td><span class="kbd">Alt</span>+<span class="kbd">V</span></td><td>dictate in the open editor (stop sends it)</td></tr>
-    <tr><td><span class="kbd">⌘↩</span></td><td>send</td></tr>
-  </table>
+  <table id="helpTbl">  </table>
   <div class="row" style="justify-content:flex-end"><button class="btn">Close</button></div>
 </form></dialog>
 <input type="file" id="filepick" multiple hidden>
@@ -440,6 +424,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
 
 <script src="/static/marked.umd.js"></script>
 <script src="/static/purify.min.js"></script>
+<script src="/static/keys.js"></script>
 <script type="module">
 import { createEditor } from "/static/editor.js";
 const $ = (s) => document.querySelector(s);
@@ -644,7 +629,7 @@ function patch(container, items) {
   [...container.children].forEach((e) => { if (e.dataset.key == null) e.remove(); });
 }
 function columns(cards) {
-  if (view === "routines") return [];
+  if (view === "routines" || view === "rules") return [];
   if (view === "lists") {
     const cols = [{ id: "", name: "Unsorted" }, ...B.lists].map((l) => ({ key: "l:" + l.id, list: l.id, name: l.name, drop: true, cards: [] }));
     const by = Object.fromEntries(cols.map((c) => [c.list, c]));
@@ -672,9 +657,9 @@ function render() {
   let cards = B.cards.filter((c) => !archiving.has(c.tab) && (!pinnedOnly || c.pinned));
   if (q) cards = cards.filter((c) => [c.title, c.workspaceLabel, c.lastAssistant?.text, c.lastUser?.text, c.first, c.activity?.detail].join(" ").toLowerCase().includes(q));
   const cols = columns(cards);
-  const rv = view === "routines";
+  const rv = view === "routines" || view === "rules"; // both draw into #routines
   $("#board").hidden = rv; $("#routines").hidden = !rv; $("#coltabs").classList.toggle("off", rv);
-  if (rv) loadRoutines();
+  if (view === "routines") loadRoutines(); else if (rv) loadRules();
   patch($("#board"), cols.map((col) => ({ key: col.key, html: `<section class="col" data-key="${esc(col.key)}" data-list="${esc(col.list ?? "")}" data-drop="${col.drop ? 1 : ""}"><h2></h2><div class="cards"></div></section>` })));
   for (const col of cols) {
     const sec = $("#board").querySelector(`.col[data-key="${CSS.escape(col.key)}"]`);
@@ -725,6 +710,7 @@ function routineHtml(r) {
   </div>`;
 }
 function renderRoutines(list) {
+  if (view !== "routines") return;
   const by = (m) => list.filter((r) => r.machine === m);
   const sec = (m, title) => (by(m).length ? `<h3>${esc(title)}</h3>${by(m).map(routineHtml).join("")}` : "");
   $("#routines").innerHTML = `<div class="intro">Routines are the recurring jobs Ag runs on its own, without anyone asking: systemd timers on the session host and interval LaunchAgents on ag-mac. A routine can report what its last run did (✓/✗ line).</div>`
@@ -741,6 +727,18 @@ $("#routines").addEventListener("click", async (e) => {
   } else if (routineLogs[id]) { delete routineLogs[id]; loadRoutines(true); }
   else { routineLogs[id] = await (await fetch("/api/routines/log?id=" + encodeURIComponent(id))).text(); loadRoutines(true); }
 });
+// ---------- ag-rules view (/ag-rules): GET /api/ag-rules (`ag-rules list --json`) ----------
+async function loadRules() {
+  let list;
+  try { list = await (await fetch("/api/ag-rules", { cache: "no-store" })).json(); } catch { list = null; }
+  if (view !== "rules") return;
+  const hook = (r) => esc(r.on + (r.app ? ` · ${r.app}` : ""));
+  $("#routines").innerHTML = `<div class="intro">ag-rules are Nathan's personal shortcuts on top of Ag: each is a rule in plain English (<code>~/ag/ag-rules/&lt;name&gt;.md</code>) that boils down to code. Change one by asking an agent; <code>ag-rules list</code> in a terminal.</div>`
+    + (Array.isArray(list) ? list.map((r) => `<div class="rt"><div class="rt-h"><span class="host">${hook(r)}</span><b>${esc(r.name)}</b>${r.enabled ? "" : '<span class="rb bad">off</span>'}</div>
+      <div class="rt-d">${esc(r.description || "")}</div>
+      <details><summary class="rt-m">The rule, in plain English · code: ${esc(r.code || "—")}</summary><div class="rt-d" style="white-space:pre-wrap">${esc(r.text)}</div></details></div>`).join("") || '<div class="empty">No ag-rules yet.</div>'
+      : '<div class="empty">Couldn\'t load ag-rules.</div>');
+}
 // Fill in every "since" span (runs every second; doesn't touch the card HTML).
 // ---------- system strip: engine memory + computer-use queue (B.sys) ----------
 let cuaOpen = false;
@@ -1134,42 +1132,44 @@ function moveSel(dy, dx) {
   const tc = target.querySelectorAll(".card");
   select(tc[Math.min(row, tc.length - 1)].dataset.tab);
 }
-document.addEventListener("keydown", (e) => {
-  if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); $("#ndlg").open ? $("#ndlg").close() : openNew(); return; }
-  if (e.altKey && (e.key === "v" || e.key === "√" || e.code === "KeyV")) { e.preventDefault(); const id = $("#ndlg").open ? "ned" : openTab ? "rted" : null; if (id) toggleVoice(id); return; }
-  if (e.key === "Escape" && $("#lb").classList.contains("open")) { $("#lb").classList.remove("open"); $("#lb").innerHTML = ""; return; }
-  if (e.key === "Escape") { if ($("#ndlg").open || $("#help").open) return; if (openTab && typing()) document.activeElement.blur(); else if (openTab || openSid) closeDrawer(); else { $("#q").blur(); select(null); } return; }
+// Keyboard shortcuts: which key does what is Nathan's keys ag-rule ag-dash-keys (~/ag/ag-rules/ag-dash-keys.md,
+// keymap .json; dispatcher /static/keys.js). Here are only the actions and the `when`s it names.
+const lastUndo = () => [...document.querySelectorAll("#undos .undo button")].pop();
+const plain = () => !typing() && !$("dialog[open]");
+const keyWhen = { plain, session: () => plain() && !!openTab, board: () => plain() && !openTab && !openSid };
+const inSession = (f) => () => { select(openTab, false); f(); };
+const stepSession = (d) => { moveSel(d, 0); if (sel && sel !== openTab) openDrawer(sel); };
+const keyActions = {
+  newOrFind: () => ($("#ndlg").open ? $("#ndlg").close() : openNew()),
+  dictate: () => { const id = $("#ndlg").open ? "ned" : openTab ? "rted" : null; if (id) toggleVoice(id); },
+  closeLightbox: () => { if ($("#lb").classList.contains("open")) { $("#lb").classList.remove("open"); $("#lb").innerHTML = ""; return "stop"; } return false; },
+  escape: () => {
+    if ($("#ndlg").open || $("#help").open) return false;
+    if (openTab && typing()) document.activeElement.blur(); else if (openTab || openSid) closeDrawer(); else { $("#q").blur(); select(null); }
+    return "stop";
+  },
   // ⌘Z undoes the last archive while its Undo toast is up; in a field with text it stays the field's own undo.
-  const undo = [...document.querySelectorAll("#undos .undo button")].pop();
-  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "z" && undo && !(typing() && (document.activeElement.value ?? document.activeElement.textContent))) { e.preventDefault(); undo.click(); return; }
-  if (typing() || e.metaKey || e.ctrlKey || e.altKey || $("dialog[open]")) return;
-  const k = e.key;
-  // Gmail keys, anywhere outside a text field (even with a session open): / search, c new item, ? help, z undo.
-  const global = {
-    "/": () => { if (openTab || openSid) closeDrawer(); $("#q").focus(); $("#q").select(); },
-    c: () => openNew(), "?": () => openHelp(),
-    z: () => undo?.click(),
-  };
-  if (global[k]) { e.preventDefault(); global[k](); return; }
-  // In an open session, Gmail's thread keys: r reply, j/k next/previous card, e archive and open the next, u back.
-  if (openTab) {
-    const step = (d) => { moveSel(d, 0); if (sel && sel !== openTab) openDrawer(sel); };
-    const thread = {
-      r: () => rted.focus(), j: () => step(1), k: () => step(-1), u: () => closeDrawer(),
-      e: () => { const t = openTab; archive(t); if (sel && sel !== t) openDrawer(sel); },
-    };
-    if (thread[k]) { e.preventDefault(); select(openTab, false); thread[k](); }
-    return;
-  }
-  if (openSid) return;
-  const map = {
-    j: () => moveSel(1, 0), ArrowDown: () => moveSel(1, 0), k: () => moveSel(-1, 0), ArrowUp: () => moveSel(-1, 0),
-    ArrowLeft: () => moveSel(0, -1), ArrowRight: () => moveSel(0, 1),
-    o: () => sel && openDrawer(sel), Enter: () => sel && openDrawer(sel), " ": () => sel && toggleOpen(sel),
-    U: () => sel && api("/api/card", { tab: sel, seen: false }), e: () => sel && archive(sel),
-    1: () => setView("state"), 2: () => setView("lists"), 3: () => setView("ws"), 4: () => setView("routines"),
-  };
-  if (map[k]) { e.preventDefault(); map[k](); }
+  undoKey: () => { const u = lastUndo(); if (!u || (typing() && (document.activeElement.value ?? document.activeElement.textContent))) return false; u.click(); },
+  undo: () => { lastUndo()?.click(); },
+  search: () => { if (openTab || openSid) closeDrawer(); $("#q").focus(); $("#q").select(); },
+  newItem: () => openNew(), help: () => openHelp(),
+  reply: inSession(() => rted.focus()),
+  stepSession: (e) => inSession(() => stepSession(e.key === "j" ? 1 : -1))(),
+  archiveNext: inSession(() => { const t = openTab; archive(t); if (sel && sel !== t) openDrawer(sel); }),
+  back: inSession(() => closeDrawer()),
+  moveRow: (e) => moveSel(e.key === "j" || e.key === "ArrowDown" ? 1 : -1, 0),
+  moveCol: (e) => moveSel(0, e.key === "ArrowRight" ? 1 : -1),
+  openCard: () => { if (sel) openDrawer(sel); }, expand: () => { if (sel) toggleOpen(sel); },
+  markUnread: () => { if (sel) api("/api/card", { tab: sel, seen: false }); },
+  archive: () => { if (sel) archive(sel); },
+  view: (e) => setView({ 1: "state", 2: "lists", 3: "ws", 4: "routines", 5: "rules" }[e.key]),
+};
+document.addEventListener("keydown", (e) => window.agKeys.dispatch(e, keyActions, keyWhen));
+window.agKeys.load("ag-dash").then(() => {
+  $("#helpTbl").innerHTML = window.agKeys.sheet(
+    (label, keys) => `<tr><td>${keys.replace(/<kbd>/g, '<span class="kbd">').replace(/<\/kbd>/g, "</span>")}</td><td>${label}</td></tr>`,
+    (g) => `<tr><td colspan="2" style="padding-top:.6rem;font-weight:600">${g}</td></tr>`,
+  );
 });
 function setView(v) { view = localStorage.view = v; render(); sync(); }
 function listRow(l) { return `<div class="row" data-id="${esc(l.id)}"><input value="${esc(l.name)}"><button type="button" class="btn" data-del>✕</button></div>`; }
@@ -1321,9 +1321,9 @@ $("#dlink").onclick = () => copyLink(card(openTab)?.sid);
 //   /new  /help                  the new-session and keyboard dialogs
 // Navigating pushes a history entry (sync); back/forward re-applies the URL (applyRoute). The server serves the page
 // for all of these.
-const VIEW_OF = { state: "state", lists: "lists", workspaces: "ws", routines: "routines" };
-const VIEW_PATH = { state: "state", lists: "lists", ws: "workspaces", routines: "routines" };
-const COL_PREFIX = { state: "s:", lists: "l:", ws: "w:", routines: "r:" };
+const VIEW_OF = { state: "state", lists: "lists", workspaces: "ws", routines: "routines", "ag-rules": "rules" };
+const VIEW_PATH = { state: "state", lists: "lists", ws: "workspaces", routines: "routines", rules: "ag-rules" };
+const COL_PREFIX = { state: "s:", lists: "l:", ws: "w:", routines: "r:", rules: "x:" };
 const SID_PATH = /^\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(\/live)?$/;
 let applying = 0; // >0 while applying a URL: don't push
 let phoneCol = null; // the phone's current column key (set by the phone block)
@@ -1362,7 +1362,7 @@ async function applyRoute(initial = false) {
       if (openTab && m[2] && dtab !== "live") setTab("live");
       else if (openTab && !m[2] && dtab === "live") setTab("tx");
     } else {
-      const [, v, col] = p.match(/^\/(state|lists|workspaces|routines)?(?:\/([^/]+))?\/?$/) || [];
+      const [, v, col] = p.match(/^\/(state|lists|workspaces|routines|ag-rules)?(?:\/([^/]+))?\/?$/) || [];
       if (openTab || openSid) closeDrawer();
       if (v && VIEW_OF[v] !== view) setView(VIEW_OF[v]);
       if (col && v) { phoneCol = COL_PREFIX[VIEW_OF[v]] + (col === "unsorted" && v === "lists" ? "" : decodeURIComponent(col)); window.agPhoneGo?.(phoneCol); }

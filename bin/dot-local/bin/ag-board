@@ -83,7 +83,7 @@ const PAGE = `${HOME}/.local/share/ag-board/index.html`;
 const CHAT_PAGE = `${HOME}/.local/share/ag-board/chat.html`; // ChatGPT-desktop-style view at /chat (same APIs)
 // Static assets sit next to the page in the ag checkout (the page itself is a symlink into it).
 const STATIC_DIR = dirname(realpathSync(PAGE));
-const STATIC = new Set(["editor.js", "marked.umd.js", "purify.min.js", "manifest.json", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"]);
+const STATIC = new Set(["keys.js", "editor.js", "marked.umd.js", "purify.min.js", "manifest.json", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"]);
 const UPLOAD_DIR = `${HOME}/inbox/clipboard`;
 const INBOX_URL = process.env.AG_INBOX_URL || "http://ag:7373/prompt?new=1"; // the ag inbox: new items land in Inbox
 const STT_URL = "https://tfy.promptlens.trilogy.com/audio/transcriptions";
@@ -1243,6 +1243,14 @@ async function handle(req: Request): Promise<Response> {
 						})),
 				);
 			if (p === "/api/routines") return Response.json(await routinesJson());
+			// ag-rules (~/ag/ag-rules): the list for the ag-rules view, and an app's merged keymap (the keys hook).
+			if (p === "/api/ag-rules" || p === "/api/ag-rules/keys") {
+				const app = url.searchParams.get("app") ?? "";
+				if (p.endsWith("/keys") && !/^[\w-]+$/.test(app)) return bad("app?");
+				const r = await run([`${HOME}/.local/bin/ag-rules`, ...(p.endsWith("/keys") ? ["keys", app] : ["list", "--json"])]);
+				if (r.code !== 0) return bad(r.err.trim() || "ag-rules failed", 502);
+				return new Response(r.out, { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+			}
 			if (p === "/api/archived") {
 				// Ag Chat's Archived chats: recently closed sessions (`ag find --closed`).
 				const days = Math.min(90, Number(url.searchParams.get("days")) || 14);
@@ -1276,7 +1284,7 @@ async function handle(req: Request): Promise<Response> {
 			}
 			// Page URLs (the page routes itself; back/forward walk through them): /<session id>[/live], /t/<tab>[/live],
 			// /state|lists|workspaces[/<column>], /routines, /new, /help.
-			if (SID_RE.test(p.slice(1).replace(/\/live$/, "")) || /^\/(?:(?:state|lists|workspaces)(?:\/[^/]+)?|routines|new|help|t\/[^/]+(?:\/live)?)\/?$/.test(p)) return pageRes(req);
+			if (SID_RE.test(p.slice(1).replace(/\/live$/, "")) || /^\/(?:(?:state|lists|workspaces)(?:\/[^/]+)?|routines|ag-rules|new|help|t\/[^/]+(?:\/live)?)\/?$/.test(p)) return pageRes(req);
 			if (p === "/api/screen") {
 				const card = board.cards.find((c) => c.tab === url.searchParams.get("tab"));
 				if (!card) return bad("no such card", 404);

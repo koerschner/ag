@@ -1,8 +1,8 @@
 /**
- * ag rules: Nathan's personal UX shortcuts on top of Ag, written in plain language and backed by code.
- * Each rule is ~/ag/rules/<name>.md (front matter + the rule in words) plus the code it names (<name>.ts).
- * This extension runs every enabled `on: prompt` rule on each prompt before the agent sees it.
- * Docs: docs/reference.md → "ag rules"; `ag rule list`.
+ * ag-rules, the prompt hook: Nathan's plain-English rules that boil down to code (~/ag/ag-rules/README.md).
+ * Runs every enabled `on: prompt` rule (~/ag/ag-rules/<name>.md + the .ts it names) on each prompt before the
+ * agent sees it: typed, from the ag inbox, ag send/spawn, the tickler. Headless runs (routines, pi -p) only get
+ * rules with `sessions: all`. Docs: docs/reference.md → "ag-rules"; `ag-rules list`.
  */
 import { spawn } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -10,7 +10,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
-const DIR = join(process.env.AG_DIR ?? join(homedir(), "ag"), "rules");
+const DIR = join(process.env.AG_DIR || join(homedir(), "ag"), "ag-rules");
 
 function frontMatter(file: string): Record<string, string> {
 	const m = readFileSync(file, "utf8").match(/^---\n([\s\S]*?)\n---/);
@@ -24,13 +24,13 @@ function frontMatter(file: string): Record<string, string> {
 
 export default async function (pi: ExtensionAPI) {
 	if (!existsSync(DIR)) return;
-	const rules: { name: string; run: Function }[] = [];
+	const rules: { name: string; run: Function; headless: boolean }[] = [];
 	for (const f of readdirSync(DIR).filter((f) => f.endsWith(".md") && f !== "README.md").sort()) {
 		const meta = frontMatter(join(DIR, f));
 		if (meta.enabled === "false" || meta.on !== "prompt" || !meta.code) continue;
 		try {
 			const mod = await import(join(DIR, meta.code));
-			rules.push({ name: f.slice(0, -3), run: mod.default });
+			rules.push({ name: f.slice(0, -3), run: mod.default, headless: meta.sessions === "all" });
 		} catch (e) {
 			console.error(`ag-rules: ${f}: ${e}`);
 		}
@@ -38,7 +38,6 @@ export default async function (pi: ExtensionAPI) {
 	if (!rules.length) return;
 
 	pi.on("input", async (event, ctx) => {
-		if (!ctx.hasUI) return { action: "continue" }; // headless runs (routines, pi -p) are agent-driven
 		const notify = (msg: string) => ctx.hasUI && ctx.ui.notify(msg, "info");
 		const ag = {
 			notify,
@@ -49,24 +48,25 @@ export default async function (pi: ExtensionAPI) {
 				child.on("close", (code) => {
 					let link = "";
 					try { link = JSON.parse(out).link ?? ""; } catch {}
-					notify(code === 0 ? `ag rule: spun out a new session ${link}` : `ag rule: ag spawn failed (exit ${code})`);
+					notify(code === 0 ? `ag-rules: spun out a new session ${link}` : `ag-rules: ag spawn failed (exit ${code})`);
 				});
-				child.on("error", (e) => notify(`ag rule: ag spawn failed: ${e.message}`));
+				child.on("error", (e) => notify(`ag-rules: ag spawn failed: ${e.message}`));
 				child.stdin.end(prompt);
 				child.unref();
 			},
 		};
 		let text = event.text;
 		for (const rule of rules) {
+			if (!ctx.hasUI && !rule.headless) continue; // headless runs (routines, pi -p) are agent-driven
 			try {
 				const r = rule.run({ text, source: event.source }, ag);
 				if (r?.handled !== undefined) {
-					notify(`ag rule ${rule.name}: ${r.handled}`);
+					notify(`ag-rules ${rule.name}: ${r.handled}`);
 					return { action: "handled" };
 				}
 				if (typeof r?.text === "string") text = r.text;
 			} catch (e) {
-				notify(`ag rule ${rule.name} failed: ${e}`);
+				notify(`ag-rules ${rule.name} failed: ${e}`);
 			}
 		}
 		return text === event.text ? { action: "continue" } : { action: "transform", text, images: event.images };

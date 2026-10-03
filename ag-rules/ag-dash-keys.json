@@ -1,0 +1,27 @@
+{
+ "_doc": "AG Dash's keyboard shortcuts (spec: ag-dash-keys.md). Actions and `when`s are defined in ag-board's index.html (search agKeys). Format: ag-board/dot-local/share/ag-board/keys.js.",
+ "bindings": [
+  { "keys": ["j", "k"], "when": "board", "do": "moveRow", "label": "next / previous card", "group": "Board" },
+  { "keys": ["down", "up"], "when": "board", "do": "moveRow" },
+  { "keys": ["left", "right"], "when": "board", "do": "moveCol", "label": "previous / next column" },
+  { "keys": ["o", "enter"], "when": "board", "do": "openCard", "label": "open the card (transcript, live screen, reply)" },
+  { "keys": "space", "when": "board", "do": "expand", "label": "expand / collapse details" },
+  { "keys": "e", "when": "board", "do": "archive", "label": "archive (closes the tab; Undo for a few seconds)" },
+  { "keys": "shift+u", "when": "board", "do": "markUnread", "label": "mark unread" },
+  { "keys": ["1", "2", "3", "4", "5"], "when": "board", "do": "view", "label": "State / Lists / Workspaces / Routines / ag-rules view" },
+  { "keys": "r", "when": "session", "do": "reply", "label": "write a reply (the box starts unfocused, like a Gmail thread)", "group": "In an open session" },
+  { "keys": ["j", "k"], "when": "session", "do": "stepSession", "label": "next / previous session" },
+  { "keys": "e", "when": "session", "do": "archiveNext", "label": "archive and open the next" },
+  { "keys": "u", "when": "session", "do": "back", "label": "back to the board" },
+  { "keys": "z", "when": "plain", "do": "undo", "label": "undo the last archive", "group": "Anywhere" },
+  { "keys": "cmd+z", "do": "undoKey", "label": "undo the last archive (in a field with text: the field's own undo)" },
+  { "keys": "c", "when": "plain", "do": "newItem", "label": "new item. Also: ask “where's the one about …” and it shows the cards; housekeeping (“pin the roblox ones”) goes to a brief session in Meta" },
+  { "keys": "/", "when": "plain", "do": "search", "label": "search" },
+  { "keys": "?", "when": "plain", "do": "help", "label": "this list" },
+  { "keys": "cmd+k", "do": "newOrFind", "label": "new item / find a session (same as c, works while typing)" },
+  { "keys": "esc", "do": "closeLightbox" },
+  { "keys": "esc", "do": "escape", "label": "leave the reply box, then close the panel" },
+  { "keys": "alt+v", "do": "dictate", "label": "dictate in the open editor (stop sends it)" },
+  { "keys": "cmd+enter", "label": "send" }
+ ]
+}

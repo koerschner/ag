@@ -1,4 +1,4 @@
-// ag rule: square-brackets (spec: square-brackets.md). Bracketed notes in Nathan's prompts → new sessions.
+// ag-rules: square-brackets (spec: square-brackets.md). Bracketed notes in Nathan's prompts → new sessions.
 import type { PromptRule } from "./types.ts";
 
 // Agent-written prompts: ag spawn's footer, tickler wake-ups. Appended context blocks are cut before matching.
@@ -28,7 +28,7 @@ const rule: PromptRule = (prompt, ag) => {
 	for (const note of notes) {
 		ag.spawn(
 			`Nathan left this note in [square brackets] in a prompt to another session. His standing rule ` +
-				`(ag rule square-brackets) is that bracketed notes become their own session, so handle it here:\n\n` +
+				`(ag-rules: square-brackets) is that bracketed notes become their own session, so handle it here:\n\n` +
 				`> ${note.replace(/\n/g, "\n> ")}\n\n` +
 				`Bracketed notes are often about the Ag system itself (the agent instructions in ~/ag/agents.md, the ag ` +
 				`and dotfiles repos, how agents behave); if this one is, treat it as a change to the system and ship it ` +
@@ -40,7 +40,7 @@ const rule: PromptRule = (prompt, ag) => {
 	if (!rest.split(APPENDED)[0].trim()) return { handled: `Spun out ${notes.length} bracketed note(s) as new sessions` };
 	const list = notes.map((n) => `“${n}”`).join("; ");
 	return {
-		text: `${rest.trim()}\n\n(ag rule square-brackets: Nathan's bracketed note(s) were already spun out to new ` +
+		text: `${rest.trim()}\n\n(ag-rules square-brackets: Nathan's bracketed note(s) were already spun out to new ` +
 			`Inbox sessions automatically; don't act on them here: ${list}.)`,
 	};
 };

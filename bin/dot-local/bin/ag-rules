@@ -1,0 +1,78 @@
+#!/usr/bin/env python3
+"""ag-rules — Nathan's personal UX layer on top of Ag: plain-English rules that boil down to code.
+
+Each rule is ~/ag/ag-rules/<name>.md: front matter, then the rule in plain English (the spec). The code it
+names (`code:`) implements exactly that. Hooks (`on:`), and what runs them:
+
+    prompt       every prompt to an interactive Pi session, before the agent sees it   (code: .ts; Pi extension ag-rules.ts)
+    keys         keyboard shortcuts of one app (`app:` ag-chat | ag-dash | ag-session) (code: .json keymap)
+    hammerspoon  Mac client behavior (hotkeys, paste, capture), loaded by ag.lua       (code: .lua)
+
+Front matter: description, on, app (keys), code, enabled (default true), sessions (prompt: interactive | all).
+Docs: ag-rules/README.md and docs/reference.md → "ag-rules". Also `ag rules …`.
+
+    ag-rules list [--json]     every rule: name, hook, on/off, description
+    ag-rules show <name>       the rule in plain English, and its code file
+    ag-rules keys <app>        the merged keymap of an app's enabled keys rules (JSON), as the apps load it
+"""
+import json, os, re, sys
+
+DIR = os.path.join(os.environ.get("AG_DIR") or os.path.expanduser("~/ag"), "ag-rules")
+
+
+def load(name):
+    text = open(os.path.join(DIR, name + ".md"), encoding="utf-8").read()
+    m = re.match(r"---\n(.*?)\n---\n?(.*)", text, re.S)
+    meta = dict(re.findall(r"^(\w+):[ \t]*(.*?)[ \t]*$", m.group(1), re.M)) if m else {}
+    meta["name"] = name
+    meta["enabled"] = meta.get("enabled", "true") != "false"
+    meta["text"] = (m.group(2) if m else text).strip()
+    if meta.get("code"):
+        meta["path"] = os.path.normpath(os.path.join(DIR, meta["code"]))
+    return meta
+
+
+def rules():
+    return [load(f[:-3]) for f in sorted(os.listdir(DIR)) if f.endswith(".md") and f != "README.md"]
+
+
+def keymap(app):
+    """Bindings of every enabled keys rule for `app`, in rule order (first match wins in the apps)."""
+    out = []
+    for r in rules():
+        if r["enabled"] and r.get("on") == "keys" and r.get("app") == app and r.get("path"):
+            spec = json.load(open(r["path"], encoding="utf-8"))
+            out += [{**b, "rule": r["name"]} for b in spec.get("bindings", [])]
+    return {"app": app, "bindings": out}
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return 0
+    cmd, rest = argv[0], argv[1:]
+    if cmd == "list":
+        rs = rules()
+        if "--json" in rest:
+            print(json.dumps(rs))
+        else:
+            for r in rs:
+                hook = r.get("on", "?") + (f":{r['app']}" if r.get("app") else "")
+                print(f"{r['name']:24} {hook:18} {'on ' if r['enabled'] else 'off'} {r.get('description', '')}")
+    elif cmd == "show" and len(rest) == 1:
+        names = [r["name"] for r in rules()]
+        if rest[0] not in names:
+            print(f"ag-rules: no rule {rest[0]!r} (have: {', '.join(names)})", file=sys.stderr)
+            return 1
+        r = load(rest[0])
+        print(f"{r['name']}: {r.get('description', '')}\non: {r.get('on')}{' app: ' + r['app'] if r.get('app') else ''}"
+              f"  enabled: {str(r['enabled']).lower()}  code: {r.get('path', '-')}\n\n{r['text']}")
+    elif cmd == "keys" and len(rest) == 1:
+        print(json.dumps(keymap(rest[0]), indent=1))
+    else:
+        print(__doc__.strip(), file=sys.stderr)
+        return 2
+    return 0
+
+
+sys.exit(main(sys.argv[1:]))

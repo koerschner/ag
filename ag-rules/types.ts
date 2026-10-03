@@ -1,4 +1,4 @@
-// The contract between ag rules and the Pi extension that runs them (pi/dot-pi/agent/extensions/ag-rules.ts).
+// The contract between prompt ag-rules and the Pi extension that runs them (pi/dot-pi/agent/extensions/ag-rules.ts).
 
 /** A prompt Nathan (or the ag inbox / tickler, on his behalf) is about to send to this session. */
 export interface Prompt {

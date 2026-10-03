@@ -1,6 +1,7 @@
 ---
 description: Text Nathan puts in [square brackets] becomes its own new session
 on: prompt
+sessions: interactive
 code: square-brackets.ts
 enabled: true
 ---

@@ -22,9 +22,11 @@
 //   screenshot  image file (multipart) grabbed at capture time. Saved to ~/inbox/capture and always attached
 //               (the sender decides: on the Mac, holding Shift with the capture shortcut adds one)
 //   app, window frontmost app and window title when captured (context for the agent)
-//   source      "iphone" = the screenshot is the phone's screen (Action Button); default is the Mac
+//   source      "iphone" = the screenshot is the phone's screen (Action Button); default is the Mac. "mac" = the
+//               `file`s were pasted on the Mac (quick entry), not shared from the iPhone
 //   pin         "1" = pin the session it lands in (Cmd+Enter in Ag Desktop's quick entry)
-//   file        shared files (repeatable; iPhone share sheet). Always attached, saved to ~/inbox/share
+//   file        shared files (repeatable; iPhone share sheet, or images pasted into Ag Desktop's quick entry with
+//               source=mac). Always attached, saved to ~/inbox/share
 //   url, shared shared link / shared text. With files or a link, `text` may be empty.
 //   dry         "1" = route and gate only; responds with the label, playbook and prompt, opens nothing
 //   new         "1" (form field or ?new=1) = always open a new session, never a follow-on (e.g. client-cua-gate's
@@ -348,9 +350,9 @@ function send(id: string, o: Opened, text: string, label: string): Launched {
 }
 type Launched = { action: "new" | "follow"; label: string; tab: string; pane: string; agent?: string };
 
-type Share = { files: string[]; url: string; shared: string };
+type Share = { files: string[]; url: string; shared: string; mac?: boolean };
 
-// What was shared from the iPhone share sheet, as text for the agent.
+// What was shared (iPhone share sheet, or images pasted into the Mac's quick entry box), as text for the agent.
 function withShare(text: string, share: Share): string {
 	const lines = [
 		share.url && `- Link: ${share.url}`,
@@ -358,7 +360,7 @@ function withShare(text: string, share: Share): string {
 		...share.files.map((p) => `- ${p}`),
 	].filter(Boolean);
 	const ask = text || "I shared this without a message. Work out what it is and what I most likely want, do the obvious safe part, and ask before anything irreversible.";
-	return `${ask}\n\nShared from my iPhone (read the files to view them):\n${lines.join("\n")}`;
+	return `${ask}\n\n${share.mac ? "Pasted into my message on my Mac" : "Shared from my iPhone"} (read the files to view them):\n${lines.join("\n")}`;
 }
 
 async function prepare(id: string, typed: string, shot: Shot | null, share: Share | null, audio: string | null = null, fresh = false) {
@@ -523,7 +525,7 @@ for (const hostname of [host, "127.0.0.1"]) Bun.serve({
 		}
 		let share: Share | null = null;
 		if (sharedFiles.length || url_ || shared) {
-			share = { files: await Promise.all(sharedFiles.map((f, n) => saveShared(id, f, n + 1))), url: url_, shared };
+			share = { files: await Promise.all(sharedFiles.map((f, n) => saveShared(id, f, n + 1))), url: url_, shared, mac: field("source") === "mac" };
 		}
 		// Capture metadata for the time review: which device sent it (Tailscale peer), and the Mac's front app/window.
 		const ip = server.requestIP(req)?.address?.replace(/^::ffff:/, "");

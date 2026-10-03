@@ -1,9 +1,11 @@
 // Quick entry: a floating prompt box that starts a new Ag session through the ag inbox (http://ag:7373/prompt).
 // Opened by agdesktop://entry[?shot=<jpg>&app=<name>&window=<title>], which Hammerspoon's ag_inbox.lua sends when
 // both Command keys are pressed together (holding Shift too grabs the screen first and passes it as `shot`; a
-// screenshot sent this way is always attached). Enter sends, Cmd+Enter sends and pins the session, Esc closes.
+// screenshot sent this way is always attached). Images pasted into the box (Cmd+V, e.g. a CleanShot copy) are attached
+// too, as `file`s with source=mac. Enter sends, Cmd+Enter sends and pins the session, Esc closes.
 const { app, BrowserWindow, clipboard, ipcMain, nativeImage, Notification, screen, shell } = require("electron");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 
 const INBOX = "http://ag:7373/prompt";
@@ -11,7 +13,7 @@ const WIDTH = 820;
 
 let entry = null;
 let ready = null; // resolves once entry.html has loaded
-let current = {}; // this capture: shot, app, window, annotated, watcher, returnTo
+let current = { pasted: [] }; // this capture: shot, app, window, annotated, watcher, returnTo, pasted (image files)
 let centerY = 0; // vertical center of the box on its display; it stays centered as it grows
 let getMain = () => null;
 
@@ -44,10 +46,11 @@ async function open(url) {
   if (!entry) create();
   await ready;
   stopWatching();
+  dropPasted();
   const q = new URL(url).searchParams;
   const shot = q.get("shot") && fs.existsSync(q.get("shot")) ? q.get("shot") : null;
   const main = getMain();
-  current = { shot, app: q.get("app") || "", window: q.get("window") || "", returnTo: main?.isFocused() ? "main" : "app" };
+  current = { shot, app: q.get("app") || "", window: q.get("window") || "", returnTo: main?.isFocused() ? "main" : "app", pasted: [] };
   entry.webContents.send("entry:open", { thumb: shot ? thumb(shot) : null });
   place(entry.getBounds().height);
   entry.show();
@@ -71,12 +74,36 @@ function stopWatching() {
   current.watcher = null;
 }
 
-async function send({ text, pin, shot: keepShot }) {
+function dropPasted(keep = []) {
+  for (const f of current.pasted || []) if (!keep.includes(f)) fs.rm(f, { force: true }, () => {});
+  current.pasted = current.pasted?.filter((f) => keep.includes(f)) || [];
+}
+
+// A paste with images: the renderer passes the image files it found in the paste ({type, data}); if it found none
+// (some apps put only raw image data on the pasteboard), read the clipboard image here. Returns [{file, thumb}].
+let pasteN = 0;
+function paste(_e, items) {
+  const imgs = (items || []).map((it) => nativeImage.createFromBuffer(Buffer.from(it.data))).filter((i) => !i.isEmpty());
+  if (!imgs.length) { const img = clipboard.readImage(); if (!img.isEmpty()) imgs.push(img); }
+  return imgs.map((img) => {
+    const file = path.join(os.tmpdir(), `ag-paste-${process.pid}-${Date.now()}-${++pasteN}.png`);
+    fs.writeFileSync(file, img.toPNG());
+    current.pasted.push(file);
+    return { file, thumb: img.resize({ height: 160 }).toDataURL() };
+  });
+}
+
+async function send({ text, pin, shot: keepShot, pasted = [] }) {
   const { shot, app: appName, window: windowTitle } = current;
+  const files = current.pasted.filter((f) => pasted.includes(f));
+  dropPasted(files);
+  current.pasted = [];
   close();
   const form = new FormData();
   form.append("text", text);
   if (pin) form.append("pin", "1");
+  for (const f of files) form.append("file", new Blob([fs.readFileSync(f)], { type: "image/png" }), "pasted.png");
+  if (files.length) form.append("source", "mac");
   const file = keepShot && shot;
   if (file) {
     form.append("screenshot", new Blob([fs.readFileSync(file)], { type: "image/jpeg" }), path.basename(file));
@@ -86,7 +113,7 @@ async function send({ text, pin, shot: keepShot }) {
   try {
     const res = await fetch(INBOX, { method: "POST", body: form, redirect: "manual", signal: AbortSignal.timeout(60_000) });
     if (res.status >= 400) throw new Error(`HTTP ${res.status}`);
-    if (shot) fs.rm(shot, { force: true }, () => {});
+    for (const f of [shot, ...files]) if (f) fs.rm(f, { force: true }, () => {});
   } catch (e) {
     clipboard.writeText(text);
     new Notification({ title: "Ag: couldn't send", body: `${e.message}. Your prompt is on the clipboard.` }).show();
@@ -119,6 +146,7 @@ function setup(mainWindow) {
   ipcMain.on("entry:send", (_e, msg) => send(msg));
   ipcMain.on("entry:cancel", close);
   ipcMain.on("entry:annotate", annotate);
+  ipcMain.handle("entry:paste", paste);
   ipcMain.on("entry:resize", (_e, h) => {
     if (!entry || h <= 0) return;
     const b = entry.getBounds();

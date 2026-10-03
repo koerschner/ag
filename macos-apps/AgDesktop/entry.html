@@ -23,6 +23,11 @@
   .shot .label b { color: var(--text); font-weight: 600; display: block; }
   .shot button { border: 0; background: transparent; color: var(--muted); font-size: 15px; cursor: pointer; padding: 2px 4px; border-radius: 6px; }
   .shot button:hover { background: var(--key); color: var(--text); }
+  .pastes { display: none; flex-wrap: wrap; gap: 8px; margin-left: 42px; }
+  .pastes.on { display: flex; }
+  .pastes .chip { position: relative; }
+  .pastes img { height: 64px; border-radius: 6px; border: 1px solid var(--line); display: block; }
+  .pastes button { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 11px; line-height: 1; cursor: pointer; padding: 0; }
   .foot { display: flex; align-items: center; gap: 14px; border-top: 1px solid var(--line); padding-top: 8px; font-size: 12.5px; color: var(--muted); }
   .foot .sp { flex: 1; }
   kbd { font: 500 12px -apple-system; background: var(--key); border-radius: 4px; padding: 1px 5px; margin-right: 4px; color: var(--text); }
@@ -40,6 +45,7 @@
     <div class="label"><b id="shotTitle">Screenshot attached</b><span id="shotNote">Click to annotate</span></div>
     <button id="drop" title="Remove screenshot">✕</button>
   </div>
+  <div class="pastes" id="pastes"></div>
   <div class="foot">
     <span><kbd>↩</kbd>Send</span>
     <span><kbd>⌘↩</kbd>Send &amp; pin</span>
@@ -52,6 +58,7 @@
 const $ = (id) => document.getElementById(id);
 const text = $("text");
 let hasShot = false;
+let pasted = []; // [{file, thumb}] images pasted into the box
 
 // Size the window to the content (the textarea grows with what you type).
 function fit() {
@@ -63,19 +70,52 @@ text.addEventListener("input", fit);
 
 function submit(pin) {
   const value = text.value.trim();
-  if (!value) return;
-  agEntry.send({ text: value, pin, shot: hasShot });
+  if (!value && !pasted.length) return;
+  agEntry.send({ text: value, pin, shot: hasShot, pasted: pasted.map((p) => p.file) });
 }
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") { e.preventDefault(); agEntry.cancel(); return; }
   if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(e.metaKey); }
 });
+// Pasted images (e.g. a CleanShot copy) become attachments; text pastes stay normal.
+function renderPasted() {
+  const box = $("pastes");
+  box.replaceChildren(...pasted.map((p) => {
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    const img = document.createElement("img");
+    img.src = p.thumb;
+    img.alt = "Pasted image";
+    const x = document.createElement("button");
+    x.textContent = "✕";
+    x.title = "Remove image";
+    x.addEventListener("click", () => { pasted = pasted.filter((q) => q !== p); renderPasted(); text.focus(); });
+    chip.append(img, x);
+    return chip;
+  }));
+  box.classList.toggle("on", pasted.length > 0);
+  requestAnimationFrame(fit);
+}
+text.addEventListener("paste", async (e) => {
+  const dt = e.clipboardData;
+  const files = [...(dt?.files || [])].filter((f) => f.type.startsWith("image/"));
+  const plain = dt?.getData("text/plain") || "";
+  if (!files.length && (plain.trim() || !dt?.types.some((t) => t.startsWith("image/") || t === "Files"))) return;
+  e.preventDefault();
+  const items = await Promise.all(files.map(async (f) => ({ type: f.type, data: await f.arrayBuffer() })));
+  const added = await agEntry.paste(items);
+  if (!added.length && plain) document.execCommand("insertText", false, plain);
+  pasted.push(...added);
+  renderPasted();
+});
 $("thumb").addEventListener("click", () => agEntry.annotate());
 $("drop").addEventListener("click", () => { hasShot = false; $("shot").classList.remove("on"); text.focus(); fit(); });
 
 agEntry.onOpen(({ thumb }) => {
   text.value = "";
+  pasted = [];
+  renderPasted();
   hasShot = !!thumb;
   $("shot").classList.toggle("on", hasShot);
   if (thumb) { $("thumb").src = thumb; $("shotTitle").textContent = "Screenshot attached"; $("shotNote").textContent = "Click to annotate"; }

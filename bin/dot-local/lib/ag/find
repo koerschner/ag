@@ -2,6 +2,7 @@
 """ag find — find "the session where I was doing X": open, hibernated and closed sessions by label and transcript.
 
     ag find <words…> [--days N] [--open] [--limit N] [--json]
+    ag find --closed [--days N] [--limit N] [--json]   recently closed sessions, newest first (default 7 days)
 Every word must appear (case-insensitive) in the session's tab label/name or its prompts and answers (tool
 output isn't searched). Ranked: label matches, then hits in Nathan's prompts, then answers, then recency.
 Prints state, where, last activity, AG Dash link and a snippet. The calling session is left out.
@@ -18,8 +19,38 @@ def snippet(text, terms, n=110):
     return ("…" if a else "") + clip(text[a:a + n], n)
 
 
+def closed(o):
+    """Recently closed sessions (Ag Chat's Archived chats): files touched in the window that no open tab holds."""
+    limit = int(o.get("--limit") or 50)
+    since = time.time() - float(o.get("--days") or 7) * 86400
+    open_sids = {s.sid for s in Index().all_open() if s.sid}
+    files = []
+    for f in SESSIONS.glob("*/*.jsonl"):
+        try:
+            mt = f.stat().st_mtime
+        except OSError:
+            continue
+        if mt >= since and sid_of(str(f)) not in open_sids:
+            files.append((mt, str(f)))
+    out = []
+    for mt, f in sorted(files, reverse=True):
+        s = closed_session(sid_of(f), f)
+        if s.title == "(no prompt)":
+            continue
+        out.append(s)
+        if len(out) >= limit:
+            break
+    if o.get("--json"):
+        print(json.dumps([{**s.as_dict(), "last": s.mtime} for s in out], ensure_ascii=False, indent=1))
+        return 0
+    for s in out:
+        print(f"{clip(s.title, 60):<60} {ago(s.mtime):>8}  {s.link}")
+
+
 def main(argv):
-    o, pos = flags(argv, {"--days": True, "--open": False, "--limit": True, "-n": "--limit", "--json": False})
+    o, pos = flags(argv, {"--days": True, "--open": False, "--closed": False, "--limit": True, "-n": "--limit", "--json": False})
+    if o.get("--closed") and not pos and not o.get("--help"):
+        return closed(o)
     if o.get("--help") or not pos:
         return usage(__doc__)
     terms = [t.lower() for t in " ".join(pos).split()]

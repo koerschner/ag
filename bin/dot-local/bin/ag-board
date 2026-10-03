@@ -1159,6 +1159,13 @@ async function handle(req: Request): Promise<Response> {
 						})),
 				);
 			if (p === "/api/routines") return Response.json(await routinesJson());
+			if (p === "/api/archived") {
+				// Ag Chat's Archived chats: recently closed sessions (`ag find --closed`).
+				const days = Math.min(90, Number(url.searchParams.get("days")) || 14);
+				const r = await run([`${HOME}/.local/bin/ag`, "find", "--closed", "--json", "--days", String(days), "--limit", "200"]);
+				if (r.code !== 0) return bad(r.err.trim() || "ag find failed", 502);
+				return new Response(r.out, { headers: { "content-type": "application/json" } });
+			}
 			if (p === "/api/routines/log") {
 				const id = url.searchParams.get("id") ?? "";
 				if (!/^engine:[\w.@-]+$/.test(id)) return bad("engine routines only");

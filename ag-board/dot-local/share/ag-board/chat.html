@@ -150,6 +150,12 @@ kbd { font: 12px var(--sans); color: var(--faint); }
 .area-h .am svg { width: 16px; height: 16px; }
 @media (hover: hover) { .area-h .tw { display: none; } .area-h:hover .tw { display: grid; } .area-h:hover .n { display: none; } }
 @media (hover: none) { .area-h .am { display: none; } }
+.filter { width: 100%; font: inherit; font-size: 14px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin: 4px 0 12px; outline: none; }
+.filter:focus { border-color: var(--blue); }
+.pill.sm { height: 30px; padding: 0 12px; font-size: 13px; flex: none; }
+.crow .pill.sm { opacity: 0; }
+.crow:hover .pill.sm, .crow .pill.sm:focus-visible { opacity: 1; }
+@media (hover: none) { .crow .pill.sm { opacity: 1; } }
 input.rename { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--blue); border-radius: 6px; padding: 2px 6px; margin-left: -7px; outline: none; }
 .row.editing { background: var(--hover); }
 .row.editing .ind, .row.editing .arch, .row.editing .more, .row.editing .tw, .row.editing .n { display: none !important; }
@@ -832,7 +838,7 @@ function parse() {
   const ws = p.match(/^\/chat\/p\/(.+)$/)?.[1];
   if (ws) return { kind: "project", ws: ws === "inbox" ? inboxWs()?.id || ws : decodeURIComponent(ws) };
   const view = new URLSearchParams(location.search).get("view");
-  if (["you", "working", "waiting"].includes(view)) return { kind: "list", view };
+  if (["you", "working", "waiting", "archived"].includes(view)) return { kind: "list", view };
   return { kind: "new" };
 }
 function go(url, replace) {
@@ -890,12 +896,13 @@ function renderMain() {
   }
   if (route.kind === "list" || route.kind === "project") {
     const isP = route.kind === "project";
-    const title = isP ? wsLabel(route.ws) : { you: "Needs you", working: "Working", waiting: "Waiting for" }[route.view];
-    const icon = isP ? (route.ws === inboxWs()?.id ? ICON.tray : ICON.area) : { you: ICON.star, working: ICON.bolt, waiting: ICON.clock }[route.view];
+    const title = isP ? wsLabel(route.ws) : { you: "Needs you", working: "Working", waiting: "Waiting for", archived: "Archived chats" }[route.view];
+    const icon = isP ? (route.ws === inboxWs()?.id ? ICON.tray : ICON.area) : { you: ICON.star, working: ICON.bolt, waiting: ICON.clock, archived: ICON.archive }[route.view];
     view.innerHTML = `<div class="page"${isP ? ` data-drop-ws="${esc(route.ws)}"` : ""}><div class="page-in"><h2>${icon}${esc(title)}</h2>
       ${isP ? composerHtml(`New chat in ${title}`) : ""}
       ${isP ? '<div class="tabs"><span>Chats</span></div>' : ""}<div id="rows"></div></div></div>`;
     if (isP) wireComposer();
+    if (route.view === "archived") { $("#rows").insertAdjacentHTML("beforebegin", '<input class="filter" id="archFilter" placeholder="Search archived chats" autocomplete="off" aria-label="Search archived chats">'); $("#archFilter").addEventListener("input", renderListRows); loadArchived(); }
     renderListRows();
     return;
   }
@@ -925,9 +932,25 @@ function renderMain() {
   renderDialog(c);
   renderComposerState();
 }
+// Archived chats (ChatGPT: Settings › Archived chats): sessions closed in the last two weeks; open one to read it,
+// Restore brings it back as a live chat (pi --session).
+let archived = null;
+async function loadArchived() {
+  archived = null; renderListRows();
+  try { const r = await fetch("/api/archived?days=14"); archived = r.ok ? await r.json() : []; } catch { archived = []; }
+  renderListRows();
+}
+function archivedRows() {
+  if (!archived) return '<div class="empty-list" style="padding:24px 12px">Loading…</div>';
+  const q = ($("#archFilter")?.value || "").trim().toLowerCase();
+  const list = archived.filter((a) => !q || a.title.toLowerCase().includes(q));
+  return list.map((a) => `<a class="crow" href="/chat/${a.sid}" data-go="/chat/${a.sid}"><div class="txt"><div class="t">${esc(a.title)}</div></div><button class="pill sm" data-restore="${a.sid}" data-t="chat-restore">Restore</button><span class="d">${ago(a.last * 1000)}</span></a>`).join("")
+    || `<div class="empty-list" style="padding:24px 12px">${q ? "No archived chats match." : "No chats archived in the last two weeks."}</div>`;
+}
 function renderListRows() {
   const el = $("#rows");
   if (!el) return;
+  if (route.view === "archived") { const html = archivedRows(); if (el.innerHTML !== html) el.innerHTML = html; return; }
   const fn = route.kind === "project" ? (c) => c.workspace === route.ws : { you: needsYou, working, waiting: (c) => c.waiting?.length }[route.view];
   const list = board.cards.filter(fn).sort((a, b) => lastAt(b) - lastAt(a));
   const html = list.map((c) => {
@@ -1027,6 +1050,7 @@ function profileMenu(anchor) {
   showPop(anchor, `<div class="hdr">nathankoerschner@gmail.com</div>
     <a class="mi" href="/" data-t="chat-prof-board">${ICON.board}<span class="lbl">AG Dash (board)</span></a>
     <a class="mi" href="/routines" data-t="chat-prof-routines">${ICON.repeat}<span class="lbl">Routines</span></a>
+    <a class="mi" href="/chat?view=archived" data-go="/chat?view=archived" data-t="chat-prof-archived">${ICON.archive}<span class="lbl">Archived chats</span></a>
     ${mi("keys", "keyboard", "Keyboard shortcuts")}
     <hr><div class="hdr">Theme</div>${themeItems()}
     <hr><div class="note">${board.cards.length} chats · ${board.cards.filter(working).length} working${s.mem ? ` · memory ${s.mem.usedPct}%` : ""}${esc(cua)}</div>`, { above: true });
@@ -1526,6 +1550,14 @@ $("#sq").addEventListener("keydown", (e) => {
 document.addEventListener("click", (e) => {
   const t = e.target;
   if (pop && !t.closest(".pop") && !t.closest("[data-do=dots],[data-do=picker],[data-do=profile],[data-item-menu],[data-area-menu]")) closePop();
+  const rs = t.closest("[data-restore]");
+  if (rs) {
+    e.preventDefault(); e.stopPropagation();
+    rs.disabled = true; rs.textContent = "Restoring…";
+    api("/api/resume", { sid: rs.dataset.restore }).then((r) => { startingTab = r.tab || null; toast("Restored"); archived = archived?.filter((a) => a.sid !== rs.dataset.restore); if (!startingTab) renderListRows(); })
+      .catch((err) => { toast(`Couldn't restore: ${err.message}`); rs.disabled = false; rs.textContent = "Restore"; });
+    return;
+  }
   const ar = t.closest("[data-archive]");
   if (ar) { e.preventDefault(); e.stopPropagation(); closePop(); const c = byTab.get(ar.dataset.archive); if (c) archive(c); return; }
   const more = t.closest("[data-item-menu]");

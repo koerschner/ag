@@ -1462,6 +1462,10 @@ async function handle(req: Request): Promise<Response> {
 			}
 			case "/api/close": {
 				if (!card) return bad("no such card", 404);
+				// Keep the tab's name (usually auto-named, so only on the tab) in the session file, so Archived chats
+				// and ag find show "Fix Ag Mac Access" rather than the first prompt.
+				const f = card.sessionFile;
+				if (f && existsSync(f) && card.title && !/^\d+$/.test(card.title) && sessions.get(f)?.name !== card.title) nameSession(f, card.title);
 				const r = await mux("tab", "close", tab);
 				if (r.code !== 0) return fail(r, "close");
 				await after();

@@ -324,12 +324,14 @@ details.steps > summary .n { font-size: 13px; opacity: .85; white-space: nowrap;
 .light .composer { background: #fff; box-shadow: 0 0 0 1px var(--line) inset, 0 4px 4px rgba(0,0,0,.04), 0 0 1px rgba(0,0,0,.6) inset; }
 .composer.drag { box-shadow: 0 0 0 2px var(--blue) inset; }
 /* Gmail-style reply: a thread opens with a one-line Reply bar; click it or press R to open the composer. */
-.reply-bar { display: none; max-width: 48rem; margin: 0 auto; align-items: center; gap: 8px; }
+/* The bar is the pill; ■ (while the agent works) sits inside it on the right, like the composer's own button. */
+.reply-bar { display: none; max-width: 48rem; margin: 0 auto; align-items: center; gap: 4px; border-radius: 28px; padding-right: 6px;
+  background: var(--panel); box-shadow: 0 0 0 1px var(--line) inset; }
+.light .reply-bar { background: #fff; }
 .composer-wrap.collapsed .composer { display: none; }
 .composer-wrap.collapsed .reply-bar { display: flex; }
-.reply-bar .open { flex: 1; display: flex; align-items: center; gap: 10px; text-align: left; padding: 12px 18px; border-radius: 28px;
-  background: var(--panel); box-shadow: 0 0 0 1px var(--line) inset; color: var(--faint); font: inherit; font-size: 16px; cursor: text; }
-.light .reply-bar .open { background: #fff; }
+.reply-bar .open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; text-align: left; padding: 12px 18px; border-radius: 28px;
+  color: var(--faint); font: inherit; font-size: 16px; cursor: text; }
 .reply-bar .open:hover { color: var(--text); }
 .reply-bar .open .grow { flex: 1; }
 .reply-bar .open svg { width: 18px; height: 18px; flex: none; }
@@ -1513,7 +1515,7 @@ function renderDialog(c) {
 function composerHtml(placeholder, { collapsed = false } = {}) {
   const note = route.kind === "new" ? "New chats open in your Inbox." : "";
   const bar = `<div class="reply-bar"><button class="open" id="replyOpen" data-t="chat-reply-open">${ICON.chat}<span class="grow">Reply</span><kbd>R</kbd></button>
-    <button class="rb" id="replyStop" title="Stop" aria-label="Stop" hidden>${ICON.stop}</button></div>`;
+    <button class="rb primary" id="replyStop" title="Stop" aria-label="Stop" hidden>${ICON.stop}</button></div>`;
   return `<div class="composer-wrap${collapsed ? " collapsed" : ""}" id="composerWrap">${bar}<div class="composer" id="composer">
     <div class="attachments" id="atts" hidden></div>
     <textarea id="input" rows="1" placeholder="${esc(placeholder)}" aria-label="Message" enterkeyhint="send"></textarea>

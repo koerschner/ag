@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <title>Ag</title>
-<link rel="manifest" href="/static/chat-manifest.json">
 <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/static/icon-180.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -28,7 +27,8 @@
 </script>
 <!--
   Ag Chat (/chat): a ChatGPT-desktop-style view over the same sessions and APIs as AG Dash (the board at / is
-  unchanged). Installable on its own (chat-manifest.json: "Ag Chat", scope /chat, window-controls-overlay).
+  unchanged). On the Mac it runs inside Ag Desktop (macos-apps/AgDesktop), whose overlay title bar shows the page
+  window-controls-overlay; the apple-* meta tags above keep an iPhone home-screen install full-screen.
   Sidebar: New chat, Search (⌘K), Needs you / Working / Waiting, Projects (= workspaces; drag chats onto them, drag them to reorder), Pinned, Chats.
   Right-click a chat (sidebar or a list) for the same menu as its ⋯ button, at the pointer; ⇧ right-click keeps the browser's menu.
   Chat: the session transcript as a thread (thinking + tool calls folded into a "Worked for …" activity timeline: kind icons, "Explored …" groups, terminal blocks, edit diffs; open while live), live activity,

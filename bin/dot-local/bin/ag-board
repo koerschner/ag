@@ -83,7 +83,7 @@ const PAGE = `${HOME}/.local/share/ag-board/index.html`;
 const CHAT_PAGE = `${HOME}/.local/share/ag-board/chat.html`; // ChatGPT-desktop-style view at /chat (same APIs)
 // Static assets sit next to the page in the ag checkout (the page itself is a symlink into it).
 const STATIC_DIR = dirname(realpathSync(PAGE));
-const STATIC = new Set(["chat-manifest.json", "editor.js", "marked.umd.js", "purify.min.js", "manifest.json", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"]);
+const STATIC = new Set(["editor.js", "marked.umd.js", "purify.min.js", "manifest.json", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"]);
 const UPLOAD_DIR = `${HOME}/inbox/clipboard`;
 const INBOX_URL = process.env.AG_INBOX_URL || "http://ag:7373/prompt?new=1"; // the ag inbox: new items land in Inbox
 const STT_URL = "https://tfy.promptlens.trilogy.com/audio/transcriptions";

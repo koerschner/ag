@@ -42,7 +42,7 @@ function createWindow() {
     minWidth: 420,
     minHeight: 400,
     backgroundColor: "#212121",
-    titleBarStyle: "hidden", // with titleBarOverlay, the page sees window-controls-overlay, like the installed PWA
+    titleBarStyle: "hidden", // with titleBarOverlay, the page sees window-controls-overlay (its header becomes the title bar)
     titleBarOverlay: true,
     trafficLightPosition: { x: 14, y: 14 },
     show: false,

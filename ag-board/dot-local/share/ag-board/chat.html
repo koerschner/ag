@@ -996,6 +996,9 @@ function parse() {
   if (["you", "working", "waiting", "archived"].includes(view)) return { kind: "list", view };
   return { kind: "new" };
 }
+// Set by explicit "new chat" actions so the fresh composer takes focus; just landing on the home page doesn't.
+let focusNew = false;
+const newChat = () => { focusNew = true; go("/chat"); };
 function go(url, replace) {
   closePop();
   if (url !== location.pathname + location.search) history[replace ? "replaceState" : "pushState"]({}, "", url);
@@ -1578,8 +1581,9 @@ function wireComposer() {
   $("#mic").addEventListener("click", () => startRec("box"));
   if (!navigator.mediaDevices?.getUserMedia && isSecureContext) $("#mic").hidden = true;
   grow();
-  // Like Gmail: a thread opens with the reply box unfocused (r to write); only a new chat starts in the box.
-  if (!isMobile() && route.kind === "new") i.focus();
+  // Like Gmail: pages open with the box unfocused (r to write); only an explicit new chat (c, ⇧⌘O, the compose button) starts in it.
+  if (!isMobile() && route.kind === "new" && focusNew) i.focus();
+  focusNew = false;
   renderAtts();
 }
 function openComposer() {
@@ -1838,7 +1842,7 @@ function renderSearch() {
   sItems = [];
   let html = "";
   const add = (h, act) => { html += h.replace("<button", `<button data-sidx="${sItems.length}"`); sItems.push(act); };
-  add(`<button class="sr">${ICON.compose}<span class="txt"><span class="t">New chat</span></span></button>`, () => go("/chat"));
+  add(`<button class="sr">${ICON.compose}<span class="txt"><span class="t">New chat</span></span></button>`, newChat);
   let cards = [...board.cards].sort((a, b) => lastAt(b) - lastAt(a));
   if (q) cards = cards.filter((c) => `${c.title} ${wsLabel(c.workspace)} ${c.first || ""} ${c.lastUser?.text || ""} ${c.lastAssistant?.text || ""}`.toLowerCase().includes(ql));
   const now = new Date(), day0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -2072,7 +2076,7 @@ document.addEventListener("click", (e) => {
   if (d) {
     const k = d.dataset.do;
     if (k === "toggle") toggleSide();
-    if (k === "new") go("/chat");
+    if (k === "new") newChat();
     if (k === "search") openSearch();
     if (k === "closeModal") closeModals();
     if (k === "newProject") newProject();
@@ -2133,7 +2137,7 @@ function gmailKey(e) {
   const c = current(), input = $("#input");
   const keys = {
     r: () => input && openComposer(),
-    c: () => go("/chat"),
+    c: newChat,
     j: () => stepChat(1), k: () => stepChat(-1),
     e: () => c && archive(c, { advance: true }),
     u: () => go("/chat?view=you"),
@@ -2153,7 +2157,7 @@ function gmailKey(e) {
 document.addEventListener("keydown", (e) => {
   const mod = e.metaKey || e.ctrlKey;
   const key = e.key.toLowerCase();
-  if (mod && e.shiftKey && key === "o") { e.preventDefault(); go("/chat"); }
+  if (mod && e.shiftKey && key === "o") { e.preventDefault(); newChat(); }
   else if (mod && key === "k") { e.preventDefault(); $("#searchBack").classList.contains("open") ? closeModals() : openSearch(); }
   else if ((mod && e.shiftKey && key === "s") || (mod && e.key === "\\")) { e.preventDefault(); toggleSide(); }
   else if (mod && e.key === "/") { e.preventDefault(); closePop(); $("#keysBack").classList.toggle("open"); }

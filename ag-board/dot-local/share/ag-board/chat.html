@@ -407,22 +407,95 @@ details.steps > summary .n { font-size: 13px; opacity: .8; }
 .wco.collapsed .top { padding-left: 8px; }
 
 @media (max-width: 760px) {
-  .side { position: fixed; inset: 0 auto 0 0; z-index: 30; width: 84vw; max-width: 320px; box-shadow: 0 0 40px rgba(0,0,0,.4); border: 0; }
-  .app.collapsed .side { display: none; }
-  .app.collapsed .rail { display: none; }
-  .app:not(.collapsed) .scrim { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 25; }
+  /* Mobile, after ChatGPT's iPhone app: the sidebar slides in from the left and pushes the chat over (swipe or
+     tap ☰), the header is a translucent bar the chat scrolls under, menus are bottom sheets, long-press opens a
+     chat's or a message's actions, and the composer sits at the bottom and rides the keyboard. */
+  :root { --sw: min(calc(100vw - 64px), 360px); --toph: calc(52px + env(safe-area-inset-top)); --ease: cubic-bezier(.22,.8,.24,1); }
+  body { font-size: 17px; overscroll-behavior: none; }
+  .app { height: var(--vvh, 100dvh); position: relative; overflow: hidden; }
+  .app.collapsed .rail, .rail { display: none !important; }
+  .side { position: fixed; inset: 0 auto 0 0; z-index: 30; width: var(--sw); height: var(--vvh, 100dvh); border: 0; display: flex !important;
+    transform: translateX(-100%); transition: transform .32s var(--ease); font-size: 16px; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  .main { transition: transform .32s var(--ease); will-change: transform; }
+  .app:not(.collapsed) .side { transform: none; }
+  .app:not(.collapsed) .main { transform: translateX(var(--sw)); }
+  .scrim { display: block; position: fixed; inset: 0; z-index: 25; background: rgba(0,0,0,.4); opacity: 0; pointer-events: none; transition: opacity .32s var(--ease); }
+  .light .scrim { background: rgba(0,0,0,.18); }
+  .app:not(.collapsed) .scrim { opacity: 1; pointer-events: auto; }
+  .app.swiping .side, .app.swiping .main, .app.swiping .scrim { transition: none; }
+  /* sidebar: a search field and a compose button on top, bigger rows */
+  .side-head { height: 56px; padding: env(safe-area-inset-top) 12px 0 12px; gap: 8px; }
+  .side-head .logo, .side-head [data-do=toggle] { display: none; }
+  .msearch { display: flex !important; flex: 1; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border-radius: 12px; background: var(--hover); color: var(--faint); font-size: 16px; }
+  .msearch svg { width: 18px; height: 18px; }
+  .nav [data-t=chat-new], .nav [data-t=chat-search] { display: none; }
+  .nav { padding: 4px 8px 8px; }
+  .side-scroll { padding: 0 8px 12px; }
+  .row { height: 44px; padding: 0 12px; gap: 12px; }
+  .row svg { width: 20px; height: 20px; }
+  .area-b .item, .area-b .see-more.sub { padding-left: 44px; }
+  .sec-h { font-size: 14px; padding: 8px 12px; }
+  .item .more, .item .arch { display: none !important; }
+  .item .ind { margin-right: 0 !important; }
+  .item.lp, .area-h.lp, .crow.lp { background: var(--hover2); transform: scale(.98); transition: transform .15s, background .15s; }
+  /* header: translucent, content scrolls under it */
+  .top { position: absolute; top: 0; left: 0; right: 0; z-index: 10; padding: env(safe-area-inset-top) 6px 0;
+    background: color-mix(in srgb, var(--bg) 80%, transparent); -webkit-backdrop-filter: saturate(1.6) blur(20px); backdrop-filter: saturate(1.6) blur(20px); }
+  .top .ib { width: 44px; height: 44px; }
+  .top .ib svg { width: 22px; height: 22px; }
   .mobile-only { display: grid !important; }
   .desk-only { display: none !important; }
   .top .grow.l { display: none; }
-  .picker { margin: 0 auto; font-size: 17px; }
+  .picker { margin: 0 auto; font-size: 17px; font-weight: 600; gap: 4px; max-width: calc(100vw - 150px); }
+  .picker.has-model > span:first-child { display: none; }
+  .picker .m { color: var(--text); }
+  .scroll, .page { padding-top: var(--toph); scroll-padding-top: var(--toph); }
   .thread { padding: 8px 16px 24px; }
-  .bubble { max-width: 85%; }
+  .md { line-height: 1.6; }
+  .md pre code { font-size: 13px; }
+  .bubble { max-width: 82%; border-radius: 22px; padding: 9px 16px; }
+  .u, .a { -webkit-touch-callout: none; }
+  .thread .bubble, .thread .a .md { -webkit-user-select: none; user-select: none; }
+  .thread.selecting .bubble, .thread.selecting .a .md { -webkit-user-select: text; user-select: text; }
   .actions { opacity: 1; }
   .u .actions { display: none; }
-  .dialog { padding: 0 16px; }
-  .page-in { padding: 16px; }
-  .back { padding-top: 8vh; }
+  .dialog { padding: 0 12px; }
+  /* new chat: the greeting in the middle, the composer at the bottom */
+  .hero { justify-content: flex-start; padding: var(--toph) 0 0; gap: 0; }
+  .hero h1 { margin: auto 0; font-size: 24px; font-weight: 500; }
+  .composer-wrap { padding: 0 10px calc(6px + env(safe-area-inset-bottom)); }
+  .composer { border-radius: 26px; padding: 8px; }
+  .foot-note { padding-top: 6px; min-height: 22px; }
+  .page-in { padding: 12px 16px 32px; }
+  .page h2 { font-size: 26px; margin: 4px 0 16px; }
+  .crow { padding: 14px 8px; -webkit-touch-callout: none; }
+  /* search: a full-screen sheet */
+  .back { padding: 0; align-items: stretch; }
+  .modal { width: 100vw; max-height: none; height: var(--vvh, 100dvh); border-radius: 0; padding-top: env(safe-area-inset-top); }
+  .modal-h { padding: 8px 8px 8px 16px; }
+  .modal-h input { font-size: 17px; }
+  .sr { padding: 12px; }
+  .sr .t { font-size: 16px; } .sr .s { font-size: 14px; }
+  .toast { top: calc(env(safe-area-inset-top) + 6px); max-width: calc(100vw - 32px); }
+  /* bottom sheets instead of popovers */
+  .sheet-back { position: fixed; inset: 0; z-index: 39; background: rgba(0,0,0,.4); animation: fadein .2s; }
+  .light .sheet-back { background: rgba(0,0,0,.2); }
+  .pop.sheet { left: 8px !important; right: 8px; top: auto !important; bottom: calc(8px + env(safe-area-inset-bottom)); min-width: 0; max-width: none;
+    border-radius: 24px; padding: 18px 8px 8px; font-size: 17px; max-height: 78vh; animation: sheetup .3s var(--ease); touch-action: pan-y; }
+  .pop.sheet::before { content: ""; position: absolute; top: 7px; left: 50%; width: 36px; height: 5px; margin-left: -18px; border-radius: 3px; background: var(--hover2); }
+  .pop.sheet .mi { padding: 13px 14px; gap: 14px; border-radius: 14px; }
+  .pop.sheet .mi svg { width: 22px; height: 22px; }
+  .pop.sheet .hdr { font-size: 13px; padding: 4px 14px 6px; }
+  .pop.sheet .ttl { font-size: 15px; font-weight: 600; padding: 2px 14px 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+  .pop.sheet .kv { font-size: 14px; padding: 8px 14px; }
+  .pop.sheet .chips { padding: 2px 12px 10px; } .pop.sheet .chip { font-size: 15px; padding: 7px 14px; }
 }
+@media (hover: none) { .pop .mi:hover, .row:hover, .crow:hover, .ib:hover, .rb:hover, .picker:hover { background: none; } .rb.primary:hover { background: var(--accent); } }
+@keyframes sheetup { from { transform: translateY(100%); } }
+@keyframes fadein { from { opacity: 0; } }
+.msearch { display: none; }
+.pop .ttl { display: none; }
+.pop.sheet .ttl { display: block; }
 </style>
 </head>
 <body>
@@ -440,6 +513,8 @@ details.steps > summary .n { font-size: 13px; opacity: .8; }
     <div class="side-head">
       <a class="logo" href="/chat" data-go="/chat" title="New chat" aria-label="Ag"><img src="/static/icon.svg" alt=""></a>
       <button class="ib" data-do="toggle" title="Close sidebar (⇧⌘S)" aria-label="Close sidebar" data-icon="sidebar"></button>
+      <button class="msearch" data-do="search" aria-label="Search chats"><i data-icon="search"></i><span>Search</span></button>
+      <button class="ib mobile-only" data-do="new" aria-label="New chat" data-icon="compose"></button>
     </div>
     <nav class="nav">
       <button class="row" data-do="new" data-t="chat-new"><i data-icon="compose"></i><span class="lbl">New chat</span><kbd>⇧⌘O</kbd></button>
@@ -544,6 +619,7 @@ const ICON = {
   area: S('<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>'),
   bell: S('<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/>'),
   calendar: S('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>'),
+  cursor: S('<path d="M9 4h2a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H9M15 4h-2a1 1 0 0 0-1 1M15 20h-2a1 1 0 0 1-1-1M9 12h6"/>'),
   star: S('<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9Z"/>'),
   tray: S('<path d="M3 13h5l1.5 3h5l1.5-3h5"/><path d="M3 13l2.5-8h13L21 13v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z"/>'),
   hourglass: S('<path d="M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9s10 4 10 9"/>'),
@@ -605,6 +681,7 @@ let attachments = [];
 let startingTab = null;
 let loaded = false;
 const isMobile = () => innerWidth <= 760;
+const TOUCH = matchMedia("(hover: none)").matches;
 
 const cardFor = (key) => key && (board.cards.find((c) => c.sid === key) || byTab.get(key));
 const current = () => (route.kind === "card" ? byTab.get(route.tab) : null);
@@ -728,7 +805,7 @@ function itemHtml(c, cur) {
     : c.status === "blocked" ? '<span class="dot blocked" title="Asking something"></span>'
     : c.waiting?.length ? '<span class="dot waiting" title="Waiting for something"></span>'
     : c.needsYou ? '<span class="dot unread" title="New answer"></span>' : "";
-  return `<a class="row item" href="${urlOf(c)}" draggable="true" data-drag-tab="${esc(c.tab)}" data-tab="${esc(c.tab)}" ${cur && cur.tab === c.tab ? 'aria-current="page"' : ""} title="${esc(c.title)}">
+  return `<a class="row item" href="${urlOf(c)}" draggable="${!TOUCH}" data-drag-tab="${esc(c.tab)}" data-tab="${esc(c.tab)}" ${cur && cur.tab === c.tab ? 'aria-current="page"' : ""} title="${esc(c.title)}">
     <span class="lbl">${esc(c.title)}</span><span class="ind">${ind}</span><button class="arch" data-archive="${esc(c.tab)}" title="Archive" aria-label="Archive chat" data-t="chat-item-archive">${ICON.archive}</button><button class="more" data-item-menu="${esc(c.tab)}" aria-label="Options">${ICON.dots}</button></a>`;
 }
 function sec(id, title, body, extra = "") {
@@ -753,7 +830,7 @@ function areaHtml(w, cards, cur, curWs) {
   const ind = mine.some(working) ? '<span class="spin" title="Working"></span>' : "";
   const more = mine.length > AREA_CAP ? `<button class="row see-more sub" data-area-more="${w.id}"><span class="lbl">${st === "all" ? "Show less" : `${mine.length - AREA_CAP} more`}</span></button>` : "";
   return `<div class="area ${st ? "" : "closed"}" data-area="${w.id}" data-drop-ws="${w.id}">
-    <a class="row area-h" href="/chat/p/${w.id}" data-go="/chat/p/${w.id}" draggable="true" data-drag-area="${w.id}" ${curWs === w.id ? 'aria-current="page"' : ""}>${ICON.area}<span class="lbl">${esc(w.label)}</span><span class="ind">${ind}<span class="n">${mine.length || ""}</span></span><button class="tw am" data-area-menu="${w.id}" aria-label="Area options">${ICON.dots}</button><button class="tw" data-area-toggle="${w.id}" aria-label="${st ? "Collapse" : "Expand"} ${esc(w.label)}">${ICON.chevdown}</button></a>
+    <a class="row area-h" href="/chat/p/${w.id}" data-go="/chat/p/${w.id}" draggable="${!TOUCH}" data-drag-area="${w.id}" ${curWs === w.id ? 'aria-current="page"' : ""}>${ICON.area}<span class="lbl">${esc(w.label)}</span><span class="ind">${ind}<span class="n">${mine.length || ""}</span></span><button class="tw am" data-area-menu="${w.id}" aria-label="Area options">${ICON.dots}</button><button class="tw" data-area-toggle="${w.id}" aria-label="${st ? "Collapse" : "Expand"} ${esc(w.label)}">${ICON.chevdown}</button></a>
     <div class="area-b">${shown.map((c) => itemHtml(c, cur)).join("")}${more}</div></div>`;
 }
 let dragging = null, editing = false, sideDirty = false;
@@ -854,6 +931,11 @@ document.addEventListener("dragend", () => {
   document.body.classList.remove("dragging"); $(".dragged")?.classList.remove("dragged");
   if (sideDirty) { sideDirty = false; renderSide(); }
 });
+function areaMenu(id) {
+  return `<div class="ttl">${esc(wsLabel(id))}</div><button class="mi" data-area-act="new" data-t="chat-area-new">${ICON.compose}<span class="lbl">New chat in ${esc(wsLabel(id))}</span></button>
+      <button class="mi" data-area-act="rename" data-t="chat-area-rename">${ICON.pencil}<span class="lbl">Rename area</span></button>
+      <button class="mi" data-area-act="toggle" data-t="chat-area-toggle">${ICON.chevdown}<span class="lbl">${areaOpen[id] ? "Collapse" : "Expand"}</span></button>`;
+}
 async function newArea() {
   const label = prompt("New area name")?.trim();
   if (!label) return;
@@ -919,6 +1001,7 @@ function renderHeader() {
   const c = current();
   const m = c ? shortModel(c.model) : route.kind === "sid" ? shortModel(route.info?.model) : "";
   $("#pickerModel").textContent = m;
+  $("#picker").classList.toggle("has-model", !!m);
   $("#shareBtn").hidden = !(c?.sid || route.kind === "sid");
   $("#dotsBtn").hidden = !c;
 }
@@ -1024,7 +1107,7 @@ function renderListRows() {
   const html = list.map((c) => {
     const sub = route.kind === "list" && route.view === "waiting" ? (c.waiting[0]?.title || c.waiting[0]?.detail || "") : snippet(c);
     const ind = working(c) ? '<span class="spin"></span>' : c.status === "blocked" ? '<span class="dot blocked"></span>' : c.needsYou ? '<span class="dot unread"></span>' : "";
-    return `<a class="crow" href="${urlOf(c)}" data-go="${urlOf(c)}" draggable="true" data-drag-tab="${esc(c.tab)}"><div class="txt"><div class="t">${esc(c.title)}</div><div class="s">${route.kind === "list" ? `${esc(wsLabel(c.workspace))} · ` : ""}${esc(sub)}</div></div>${ind}<span class="d">${ago(lastAt(c))}</span></a>`;
+    return `<a class="crow" href="${urlOf(c)}" data-go="${urlOf(c)}" draggable="${!TOUCH}" data-drag-tab="${esc(c.tab)}"><div class="txt"><div class="t">${esc(c.title)}</div><div class="s">${route.kind === "list" ? `${esc(wsLabel(c.workspace))} · ` : ""}${esc(sub)}</div></div>${ind}<span class="d">${ago(lastAt(c))}</span></a>`;
   }).join("") || `<div class="empty-list" style="padding:24px 12px">${route.kind === "project" ? "No open chats in this area. Drag one here from the sidebar." : "Nothing here right now."}</div>`;
   if (el.innerHTML !== html) el.innerHTML = html;
 }
@@ -1065,12 +1148,22 @@ async function switchModel(body) {
 
 // ---------- popover menus ----------
 let pop = null, openMenuTab = null;
-function closePop() { pop?.remove(); pop = null; if (openMenuTab) $(`.item[data-tab="${CSS.escape(openMenuTab)}"]`)?.classList.remove("menu-open"); openMenuTab = null; }
+function closePop() { pop?.remove(); pop = null; $(".sheet-back")?.remove(); if (openMenuTab) $(`.item[data-tab="${CSS.escape(openMenuTab)}"]`)?.classList.remove("menu-open"); openMenuTab = null; }
 function showPop(anchor, html, { align = "left", above = false } = {}) {
   closePop();
   pop = document.createElement("div");
   pop.className = "pop";
   pop.innerHTML = html;
+  if (isMobile()) {
+    // Phones: a bottom sheet over a dimmed page (tap outside or swipe it down to close).
+    pop.classList.add("sheet");
+    const bk = document.createElement("div");
+    bk.className = "sheet-back";
+    document.body.append(bk);
+    document.body.append(pop);
+    sheetSwipe(pop);
+    return pop;
+  }
   document.body.append(pop);
   const r = anchor.getBoundingClientRect();
   const w = pop.offsetWidth, h = pop.offsetHeight;
@@ -1634,6 +1727,124 @@ $("#sq").addEventListener("keydown", (e) => {
   else if (e.key === "Enter") { e.preventDefault(); const f = sItems[sSel]; if (f) { const keep = f.toString().includes("deepSearch"); if (!keep) closeModals(); f(); } }
 });
 
+// ---------- phone: keyboard, swipe the sidebar, long-press menus, sheets ----------
+// iOS keeps the layout viewport when the keyboard opens; size the app to the visual viewport so the composer
+// rides on top of the keyboard instead of hiding behind it.
+const vv = window.visualViewport;
+function syncVv() {
+  document.documentElement.style.setProperty("--vvh", `${vv ? vv.height : innerHeight}px`);
+  if (vv?.offsetTop && isMobile()) window.scrollTo(0, 0);
+}
+vv?.addEventListener("resize", syncVv); vv?.addEventListener("scroll", syncVv); syncVv();
+
+// Swipe right anywhere to open the sidebar, left to close it; it follows the finger like ChatGPT's app.
+let swipe = null, eatClickUntil = 0;
+const swipeSkip = "textarea, input, pre, table, .chips, .media, .keys, .attachments, .recbar, .pop, .modal, .lightbox";
+addEventListener("touchstart", (e) => {
+  swipe = null;
+  if (!isMobile() || e.touches.length !== 1 || pop || $(".back.open") || $("#lightbox.open") || rec) return;
+  const open = !$("#app").classList.contains("collapsed");
+  if (!open && e.target.closest?.(swipeSkip)) return;
+  if (open && !e.target.closest?.(".side, .scrim")) return;
+  const t = e.touches[0];
+  swipe = { x: t.clientX, y: t.clientY, t: Date.now(), open, dx: 0, on: false };
+}, { passive: true });
+addEventListener("touchmove", (e) => {
+  if (!swipe) return;
+  const t = e.touches[0], dx = t.clientX - swipe.x, dy = t.clientY - swipe.y;
+  if (!swipe.on) {
+    if (Math.abs(dy) > 10 && Math.abs(dy) > Math.abs(dx)) { swipe = null; return; }
+    if (Math.abs(dx) < 12) return;
+    if (swipe.open ? dx > 0 : dx < 0) { swipe = null; return; }
+    swipe.on = true; cancelLp();
+    $("#app").classList.add("swiping");
+  }
+  e.preventDefault();
+  swipe.dx = dx;
+  const w = $("#side").offsetWidth, x = Math.max(0, Math.min(w, (swipe.open ? w : 0) + dx));
+  $("#side").style.transform = `translateX(${x - w}px)`;
+  $("#main").style.transform = `translateX(${x}px)`;
+  $(".scrim").style.opacity = String(x / w);
+}, { passive: false });
+addEventListener("touchend", () => {
+  const sw = swipe; swipe = null;
+  if (!sw?.on) return;
+  const w = $("#side").offsetWidth, v = sw.dx / Math.max(1, Date.now() - sw.t), x = (sw.open ? w : 0) + sw.dx;
+  $("#app").classList.remove("swiping");
+  for (const el of [$("#side"), $("#main"), $(".scrim")]) el.style.transform = el.style.opacity = "";
+  setCollapsed(!(Math.abs(v) > 0.3 ? v > 0 : x > w / 2), false);
+  eatClickUntil = Date.now() + 400;
+});
+
+// Long-press (ChatGPT): a chat or area in the sidebar or a list → its menu; a message → Copy / Read aloud / Edit /
+// Select text. The tap that ends a long-press doesn't open the thing underneath.
+let lp = null;
+function cancelLp() { if (lp) { clearTimeout(lp.timer); lp.el.classList.remove("lp"); lp = null; } }
+addEventListener("touchstart", (e) => {
+  cancelLp();
+  if (!isMobile() || e.touches.length !== 1 || pop) return;
+  const el = e.target.closest?.("#sideScroll .item, #sideScroll .area-h, #rows .crow[data-drag-tab], .thread .bubble, .thread .a .md");
+  if (!el || $(".thread.selecting")?.contains(el)) return;
+  const t = e.touches[0];
+  lp = { el, x: t.clientX, y: t.clientY, timer: setTimeout(() => fireLp(el), 450) };
+  if (!el.closest(".thread")) setTimeout(() => lp?.el === el && el.classList.add("lp"), 120);
+}, { passive: true });
+addEventListener("touchmove", (e) => { if (lp && Math.hypot(e.touches[0].clientX - lp.x, e.touches[0].clientY - lp.y) > 8) cancelLp(); }, { passive: true });
+let lpHeld = false; // the finger that fired a long-press is still down: its lift must not "tap" the new sheet
+addEventListener("touchend", () => { cancelLp(); if (lpHeld) { lpHeld = false; eatClickUntil = Date.now() + 350; } });
+addEventListener("touchcancel", cancelLp);
+addEventListener("contextmenu", (e) => { if (isMobile() && e.target.closest?.(".side, .crow, .thread")) e.preventDefault(); });
+document.addEventListener("click", (e) => { if (Date.now() < eatClickUntil) { e.preventDefault(); e.stopPropagation(); } }, true);
+function fireLp(el) {
+  lp = null; el.classList.remove("lp");
+  lpHeld = true; eatClickUntil = Date.now() + 60000;
+  navigator.vibrate?.(8);
+  if (el.matches(".area-h")) { const id = el.closest(".area").dataset.area; showPop(el, areaMenu(id)).dataset.area = id; return; }
+  const tab = el.dataset.tab || el.dataset.dragTab;
+  if (tab) { const c = byTab.get(tab); if (!c) return; menuCard = c; showPop(el, `<div class="ttl">${esc(c.title)}</div>` + chatMenu(c, false)); return; }
+  const msg = el.closest(".u, .a");
+  const btn = (sel) => msg.querySelector(sel);
+  msgSheetEl = msg;
+  showPop(el, [
+    btn("[data-copy], [data-copy-user]") && `<button class="mi" data-msg="copy">${ICON.copy}<span class="lbl">Copy</span></button>`,
+    `<button class="mi" data-msg="select">${ICON.cursor}<span class="lbl">Select text</span></button>`,
+    btn("[data-speak]") && `<button class="mi" data-msg="speak">${ICON.speaker}<span class="lbl">Read aloud</span></button>`,
+    btn("[data-edit]") && `<button class="mi" data-msg="edit">${ICON.pencil}<span class="lbl">Edit message</span></button>`,
+  ].filter(Boolean).join(""));
+}
+let msgSheetEl = null;
+function msgAction(k) {
+  const m = msgSheetEl; closePop();
+  if (!m) return;
+  if (k === "copy") { const text = m.matches(".a") ? m.querySelector(".md").innerText : m.querySelector(".bubble").innerText; navigator.clipboard.writeText(text).then(() => toast("Copied")); }
+  if (k === "speak") m.querySelector("[data-speak]")?.click();
+  if (k === "edit") m.querySelector("[data-edit]")?.click();
+  if (k === "select") {
+    const th = $("#thread")?.closest(".thread"), box = m.querySelector(".md, .bubble");
+    th?.classList.add("selecting");
+    const r = document.createRange(); r.selectNodeContents(box);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    toast("Tap anywhere else to finish");
+    setTimeout(() => document.addEventListener("touchstart", (e) => { if (!box.contains(e.target)) { th?.classList.remove("selecting"); getSelection().removeAllRanges(); } }, { once: true }), 300);
+  }
+}
+// A sheet follows the finger down and closes past ~80px.
+function sheetSwipe(el) {
+  let y0 = null, dy = 0;
+  el.addEventListener("touchstart", (e) => { y0 = el.scrollTop <= 0 ? e.touches[0].clientY : null; dy = 0; }, { passive: true });
+  el.addEventListener("touchmove", (e) => {
+    if (y0 == null) return;
+    dy = Math.max(0, e.touches[0].clientY - y0);
+    if (dy > 0) { e.preventDefault(); el.style.transition = "none"; el.style.transform = `translateY(${dy}px)`; }
+  }, { passive: false });
+  el.addEventListener("touchend", () => {
+    if (y0 == null) return;
+    y0 = null;
+    el.style.transition = "transform .2s";
+    if (dy > 80) { el.style.transform = "translateY(110%)"; setTimeout(closePop, 180); } else el.style.transform = "";
+  });
+}
+
 // ---------- global wiring ----------
 document.addEventListener("click", (e) => {
   const t = e.target;
@@ -1667,12 +1878,11 @@ document.addEventListener("click", (e) => {
     e.preventDefault(); e.stopPropagation();
     const id = amn.dataset.areaMenu;
     if (pop && pop.dataset.area === id) { closePop(); return; }
-    showPop(amn, `<button class="mi" data-area-act="new" data-t="chat-area-new">${ICON.compose}<span class="lbl">New chat in ${esc(wsLabel(id))}</span></button>
-      <button class="mi" data-area-act="rename" data-t="chat-area-rename">${ICON.pencil}<span class="lbl">Rename area</span></button>
-      <button class="mi" data-area-act="toggle" data-t="chat-area-toggle">${ICON.chevdown}<span class="lbl">${areaOpen[id] ? "Collapse" : "Expand"}</span></button>`);
-    pop.dataset.area = id;
+    showPop(amn, areaMenu(id)).dataset.area = id;
     return;
   }
+  const ms = t.closest(".pop [data-msg]");
+  if (ms) { msgAction(ms.dataset.msg); return; }
   const aa = t.closest(".pop [data-area-act]");
   if (aa) {
     const id = pop.dataset.area, k = aa.dataset.areaAct;

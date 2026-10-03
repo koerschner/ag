@@ -98,6 +98,48 @@ ipcMain.on("ag-desktop:notify", (e, { id, title, body, tag, silent }) => {
   n.show();
 });
 ipcMain.on("ag-desktop:notify-close", (_e, id) => { notes.get(id)?.n.close(); notes.delete(id); });
+
+// Pinned alerts: every pinned session whose agent isn't working (done, idle or blocked; not waiting) keeps a
+// notification up until it's addressed, so pinned items stay in motion. Polls AG Dash's /api/pinned. The alert
+// is withdrawn the moment the agent works again, the card is marked waiting, or it's unpinned. Clicking it
+// opens that chat here. If it's dismissed and the agent is still stalled RESURFACE_MS later, it comes back.
+// Ag Desktop's notification style is Alerts (NSUserNotificationAlertStyle, see install.sh), so they stay on
+// screen, and it's an allowed app in Do Not Disturb, so they break through it.
+const PINNED_URL = `${ORIGIN}/api/pinned`;
+const RESURFACE_MS = 10 * 60_000;
+const pinned = new Map(); // tab → { key, n, postedAt, shown }
+function postPinned(card, key) {
+  const a = { key, n: new Notification({ title: card.title, subtitle: card.workspace, body: card.body, closeButtonText: "Later" }), postedAt: Date.now(), shown: true };
+  a.n.on("click", () => {
+    show();
+    if (card.sid) win?.loadURL(`${START}/${card.sid}`).catch(() => {});
+    a.shown = false;
+  });
+  a.n.on("close", () => { a.shown = false; });
+  a.n.on("failed", (_e, err) => noteLog("pinned-failed", err));
+  a.n.show();
+  noteLog("pinned", JSON.stringify(card.title));
+  return a;
+}
+async function pollPinned() {
+  let cards;
+  try {
+    const r = await fetch(PINNED_URL, { signal: AbortSignal.timeout(4000) });
+    if (!r.ok) return;
+    cards = await r.json();
+  } catch { return; } // AG Dash unreachable: keep what's showing
+  const live = new Set();
+  for (const card of cards) {
+    live.add(card.tab);
+    const key = `${card.status}@${card.since}`; // a new stall is a new alert; the same stall keeps its alert
+    const a = pinned.get(card.tab);
+    if (!a || a.key !== key || (!a.shown && Date.now() - a.postedAt >= RESURFACE_MS)) {
+      a?.n.close();
+      pinned.set(card.tab, postPinned(card, key));
+    }
+  }
+  for (const [tab, a] of pinned) if (!live.has(tab)) { a.n.close(); pinned.delete(tab); }
+}
 app.on("activate", show);
 app.on("before-quit", () => { quitting = true; });
 app.on("will-quit", () => globalShortcut.unregisterAll());
@@ -110,4 +152,6 @@ app.whenReady().then(() => {
   app.setLoginItemSettings({ openAtLogin: true });
   if (!globalShortcut.register(HOTKEY, toggle)) console.error(`Ag Desktop: ${HOTKEY} is taken by another app`);
   createWindow();
+  pollPinned();
+  setInterval(pollPinned, 5000);
 });

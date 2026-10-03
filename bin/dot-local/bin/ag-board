@@ -14,7 +14,7 @@
 //   resolved  = the latest answer ends with a DONE line (the global "signal completion" convention).
 //   pinned    = top priority (shift+click / long-press). Pinned to the top everywhere; its siren ring runs
 //               whenever the agent isn't working (throb). Becoming needsYou fires the fast lane: ag-text + a tmux toast.
-//               While the siren runs, the client keeps a persistent desktop alert up (GET /api/pinned → hammerspoon ag_pinned.lua).
+//               While the siren runs, the client keeps a persistent desktop alert up (GET /api/pinned → Ag Desktop).
 // Every page is a URL (views, columns, /new, /help, /<session id>[/live]); the page's router handles back/forward.
 // Deep links: http://ag:7376/<pi session id> (the UUID in the session filename; stable, unlike tab ids) serves the
 // board with that session open: the live card's drawer, or, for a hibernated pane or a closed session, its
@@ -98,7 +98,7 @@ const WAKE_PROMPT = `${WAKE_PREFIX} Per "Waiting always wakes up" (AGENTS.md →
 const BIG_LINE = 256 * 1024; // tool results this big (screenshots) are summarised by regex, not parsed
 const KEYS = new Set(["esc", "enter", "up", "down", "left", "right", "tab", "backspace", "ctrl+u", "y", "n", "1", "2", "3"]);
 
-type CardState = { goneAt?: number /* tab missing since; forgotten after GONE_KEEP_MS */; waiting?: boolean /* marked by hand */; wakeAskedAt?: number; wakeAsks?: number; pinned?: boolean; hot?: boolean; red?: boolean /* older names of pinned */; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
+type CardState = { archived?: number /* archived while working: hidden, closes when it finishes cleanly */; goneAt?: number /* tab missing since; forgotten after GONE_KEEP_MS */; waiting?: boolean /* marked by hand */; wakeAskedAt?: number; wakeAsks?: number; pinned?: boolean; hot?: boolean; red?: boolean /* older names of pinned */; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
 type List = { id: string; name: string };
 type State = { cards: Record<string, CardState>; lists: List[]; projectOrder?: string[] }; // Ag Chat's sidebar order of projects (workspace ids)
 type Msg = { role: "user" | "assistant"; text: string; ts: number };
@@ -420,7 +420,8 @@ type Resolved =
 async function resolveSession(sid: string): Promise<Resolved | null> {
 	const live = board.cards.find((c) => c.sid === sid);
 	if (live) return { state: "live", sid, tab: live.tab };
-	const h = (await hibernated()).find((x) => sidOf(x.file) === sid);
+	const hidden = hiddenCards.find((c) => c.sid === sid); // archived while working: read-only until restored
+	const h = hidden ? undefined : (await hibernated()).find((x) => sidOf(x.file) === sid);
 	const file = h?.file ?? sessionFileFor(sid);
 	if (!file || !existsSync(file)) return null;
 	const s = session(file)!;
@@ -432,6 +433,14 @@ async function resumeSession(sid: string, workspace?: string): Promise<string> {
 	const r = await resolveSession(sid);
 	if (!r) throw new Error("no such session");
 	if (r.state === "live") return r.tab;
+	const hidden = hiddenCards.find((c) => c.sid === sid);
+	if (hidden) {
+		// Archived while working: Restore just un-archives it (its pi is still running).
+		const cs = state.cards[cardKey.get(hidden.tab) ?? hidden.tab];
+		if (cs) (delete cs.archived, (dirty = true));
+		await after();
+		return hidden.tab;
+	}
 	if (r.state === "hibernated" && r.tab) {
 		await mux("tab", "focus", r.tab); // focusing a hibernated pane wakes it (pi-hibernate daemon)
 		return r.tab;
@@ -567,6 +576,7 @@ type Card = {
 	stats: { cost: number; ctx: number; turns: number; tools: number };
 	sessionFile?: string;
 	sid?: string;
+	archived?: number; // archived while working: kept off board.cards (see settleArchived)
 };
 // ---------- system strip: engine memory + ag-mac's computer-use queue ----------
 // Memory: /proc/meminfo (used = 1 - MemAvailable/MemTotal) and PSI (/proc/pressure/memory: % of time tasks
@@ -736,11 +746,77 @@ const gzipped = (req: Request, body: string | Uint8Array, headers: Record<string
 const jsonRes = (req: Request, v: unknown) => gzipped(req, typeof v === "string" ? v : JSON.stringify(v), { "content-type": "application/json", "cache-control": "no-store" });
 const pageRes = (req: Request, page = PAGE) => gzipped(req, readFileSync(page), { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
 
-function fastLane(card: Card) {
+function fastLane(card: Card, prefix = "Pinned") {
 	const snippet = (card.status === "blocked" ? "is blocked and needs you" : "is ready") + (card.lastAssistant ? `: ${oneLine(card.lastAssistant.text, 160)}` : "");
-	void run([AG_TEXT, `Pinned: ${card.title} (${card.workspaceLabel}) ${snippet}\n${card.sid ? `http://ag:${PORT}/${card.sid}` : `${HTTPS_URL}/#${card.tab}`}`]);
-	void mux("notification", "show", `Pinned: ${card.title}`, "--body", snippet.slice(0, 120), "--sound", "request");
-	console.log(new Date().toISOString(), "fast-lane", card.tab, card.title);
+	void run([AG_TEXT, `${prefix}: ${card.title} (${card.workspaceLabel}) ${snippet}\n${card.sid ? `http://ag:${PORT}/${card.sid}` : `${HTTPS_URL}/#${card.tab}`}`]);
+	void mux("notification", "show", `${prefix}: ${card.title}`, "--body", snippet.slice(0, 120), "--sound", "request");
+	console.log(new Date().toISOString(), "fast-lane", prefix, card.tab, card.title);
+}
+
+// Archive while working (Ag Chat / AG Dash archive on a working chat): the tab stays open and the agent keeps
+// going, but the card is hidden (off board.cards; Archived chats lists it as running). Once the agent stops
+// (SETTLE_MS at its prompt, not waiting on a tickler item), Jev reads the outcome: a clean finish (ends with DONE,
+// nothing left for Nathan) closes the tab for real; a failure, blocker or question un-archives it, pinned (top of
+// the list, siren) with a fast-lane notification. A hidden card waiting on a tickler wake-up stays hidden.
+const SETTLE_MS = 5000;
+const settling = new Set<string>();
+let hiddenCards: Card[] = [];
+async function closeCard(card: Card) {
+	// Keep the tab's name (usually auto-named, so only on the tab) in the session file, so Archived chats
+	// and ag find show "Fix Ag Mac Access" rather than the first prompt.
+	const f = card.sessionFile;
+	if (f && existsSync(f) && card.title && !/^\d+$/.test(card.title) && sessions.get(f)?.name !== card.title) nameSession(f, card.title);
+	return mux("tab", "close", card.tab);
+}
+async function finishedClean(card: Card): Promise<boolean> {
+	try {
+		const res = await fetch(JEV_URL, {
+			method: "POST",
+			headers: { authorization: `Bearer ${tfyToken()}`, "content-type": "application/json" },
+			body: JSON.stringify({
+				model: "jev-latest",
+				state: { request: (card.lastUser?.text ?? card.first ?? "").slice(0, 4000), reply: (card.lastAssistant?.text ?? "").slice(-4000) },
+				questions: {
+					outcome: {
+						type: "choice",
+						instructions: "Nathan asked an AI agent for `request`, archived the chat while it worked, and only wants it back if something went wrong. `reply` is the agent's final message. Classify the outcome.",
+						criteria: {
+							done: "The agent did what was asked and nothing is left for Nathan: no error, failure, partial result, blocker, or question for him.",
+							needs_nathan: "Something failed or is incomplete, the agent is blocked, it needs access or a decision, or it asks Nathan something or wants him to review or confirm before going on.",
+						},
+					},
+				},
+			}),
+			signal: AbortSignal.timeout(15_000),
+		});
+		if (!res.ok) throw new Error(`jev ${res.status}: ${await res.text()}`);
+		return (await res.json()).answers.outcome.choice === "done";
+	} catch (e) {
+		console.error(new Date().toISOString(), "archive outcome check failed", e);
+		return false; // unsure: bring it back
+	}
+}
+async function settleArchived(key: string, card: Card) {
+	try {
+		const clean = card.status !== "blocked" && card.resolved && (await finishedClean(card));
+		const cs = state.cards[key];
+		if (!cs?.archived || !READY.has(cs.status ?? "")) return; // restored, or working again, meanwhile
+		if (clean) {
+			const r = await closeCard(card);
+			console.log(new Date().toISOString(), "archived chat finished, closing", card.tab, card.title, r.code === 0 ? "" : r.err.trim());
+			if (r.code === 0) return;
+		}
+		delete cs.archived;
+		cs.pinned = true;
+		cs.seenAt = 0;
+		cs.wasNeedsYou = true; // the fast lane below is its ping
+		cs.pingedAt = Date.now();
+		dirty = true;
+		fastLane(card, "Archived chat needs you");
+		await after();
+	} finally {
+		settling.delete(key);
+	}
 }
 
 // One line for an alert: the reply's question if it asks one, else its opening paragraph (cards keep only the
@@ -848,7 +924,13 @@ async function poll() {
 			sessionFile: a.agent_session?.value,
 			sid,
 		};
-		if (card.ping && !cs.wasNeedsYou && now - (cs.pingedAt ?? 0) > FAST_LANE_GAP_MS) {
+		if (cs.archived) {
+			card.archived = cs.archived;
+			if (ready && !isWaiting && now - cs.statusSince >= SETTLE_MS && !settling.has(key)) {
+				settling.add(key);
+				void settleArchived(key, card);
+			}
+		} else if (card.ping && !cs.wasNeedsYou && now - (cs.pingedAt ?? 0) > FAST_LANE_GAP_MS) {
 			cs.pingedAt = now;
 			fastLane(card);
 		}
@@ -873,7 +955,8 @@ async function poll() {
 	try {
 		page = statSync(realpathSync(PAGE)).mtimeMs;
 	} catch {}
-	board = { cards, lists: state.lists, projectOrder: state.projectOrder ?? [], workspaces: snap.workspaces.map((w: any) => ({ id: w.workspace_id, label: w.label })), page, sys: { mem: readMem(), cua } };
+	hiddenCards = cards.filter((c) => c.archived);
+	board = { cards: cards.filter((c) => !c.archived), lists: state.lists, projectOrder: state.projectOrder ?? [], workspaces: snap.workspaces.map((w: any) => ({ id: w.workspace_id, label: w.label })), page, sys: { mem: readMem(), cua } };
 	expireMeta(cards, now);
 	const json = JSON.stringify(board);
 	if (json !== boardJson) {
@@ -1143,13 +1226,14 @@ async function handle(req: Request): Promise<Response> {
 			if (p === "/api/config") return Response.json({ httpsUrl: HTTPS_URL, home: HOME, fileInbox: `http://${AG_FQDN}:7374`, models: piModels() });
 			if (p === "/api/stats") return Response.json(clickStats(Number(url.searchParams.get("days")) || 0));
 			if (p === "/api/state") return jsonRes(req, boardJson);
-			// Stalled pinned cards (siren running), for the client's persistent desktop alerts (hammerspoon ag_pinned.lua).
+			// Stalled pinned cards (siren running), for the client's persistent desktop alerts (Ag Desktop, macos-apps/AgDesktop/main.js).
 			if (p === "/api/pinned")
 				return Response.json(
 					board.cards
 						.filter((c) => c.throb)
 						.map((c) => ({
 							tab: c.tab,
+							sid: c.sid,
 							title: c.title,
 							workspace: c.workspaceLabel,
 							status: c.status,
@@ -1164,7 +1248,9 @@ async function handle(req: Request): Promise<Response> {
 				const days = Math.min(90, Number(url.searchParams.get("days")) || 14);
 				const r = await run([`${HOME}/.local/bin/ag`, "find", "--closed", "--json", "--days", String(days), "--limit", "200"]);
 				if (r.code !== 0) return bad(r.err.trim() || "ag find failed", 502);
-				return new Response(r.out, { headers: { "content-type": "application/json" } });
+				// Chats archived while working come first, marked running (they close themselves when done).
+				const running = hiddenCards.map((c) => ({ sid: c.sid, title: c.title, last: Math.round((c.archived ?? Date.now()) / 1000), running: true, status: c.status }));
+				return Response.json([...running, ...JSON.parse(r.out || "[]")]);
 			}
 			if (p === "/api/routines/log") {
 				const id = url.searchParams.get("id") ?? "";
@@ -1333,6 +1419,7 @@ async function handle(req: Request): Promise<Response> {
 				if ("list" in body) cs.list = body.list || undefined;
 				if (body.seen === true) cs.seenAt = Date.now();
 				if (body.seen === false) cs.seenAt = 0;
+				if (body.archived === false) delete cs.archived;
 				dirty = true;
 				await after();
 				return ok();
@@ -1462,11 +1549,15 @@ async function handle(req: Request): Promise<Response> {
 			}
 			case "/api/close": {
 				if (!card) return bad("no such card", 404);
-				// Keep the tab's name (usually auto-named, so only on the tab) in the session file, so Archived chats
-				// and ag find show "Fix Ag Mac Access" rather than the first prompt.
-				const f = card.sessionFile;
-				if (f && existsSync(f) && card.title && !/^\d+$/.test(card.title) && sessions.get(f)?.name !== card.title) nameSession(f, card.title);
-				const r = await mux("tab", "close", tab);
+				// Still working: keep it running, hidden, until it finishes (settleArchived).
+				const cs = state.cards[cardKey.get(tab) ?? tab];
+				if (card.status === "working" && cs) {
+					cs.archived = Date.now();
+					dirty = true;
+					await after();
+					return Response.json({ ok: true, running: true });
+				}
+				const r = await closeCard(card);
 				if (r.code !== 0) return fail(r, "close");
 				await after();
 				return ok();

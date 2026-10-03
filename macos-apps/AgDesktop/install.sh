@@ -26,6 +26,8 @@ iconutil -c icns $build/AgDesktop.iconset -o $build/AgDesktop.icns
   --ignore='^/(out|AgDesktop\.iconset|AgDesktop\.icns|bun\.lockb?)$' --quiet)
 plutil -replace NSMicrophoneUsageDescription -string "Ag Desktop uses the microphone for dictation and voice messages to your agents." \
   "$build/out/Ag Desktop-darwin-$(uname -m)/Ag Desktop.app/Contents/Info.plist"
+# Alerts, not banners: pinned alerts stay on screen until addressed (macOS reads this the first time the app notifies).
+plutil -replace NSUserNotificationAlertStyle -string alert "$build/out/Ag Desktop-darwin-$(uname -m)/Ag Desktop.app/Contents/Info.plist"
 codesign --force --deep --sign - "$build/out/Ag Desktop-darwin-$(uname -m)/Ag Desktop.app"
 
 pgrep -qf "$app/Contents/MacOS/Ag Desktop" && { osascript -e 'quit app "Ag Desktop"' 2>/dev/null; sleep 2; }

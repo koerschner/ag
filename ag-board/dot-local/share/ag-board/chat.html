@@ -816,7 +816,7 @@ function notifyReplies(cards) {
   for (const c of cards) {
     if (c.status === "working") { wasWorking.add(c.tab); continue; }
     if (!wasWorking.delete(c.tab) || !c.pinned) continue;
-    if (!notifyOn() || Notification.permission !== "granted") continue;
+    if (window.agDesktop?.pinnedAlerts || !notifyOn() || Notification.permission !== "granted") continue;
     if (!document.hidden && document.hasFocus() && current()?.tab === c.tab) continue;
     const n = new Notification(c.title || "Ag", { body: c.status === "blocked" ? "Needs your answer" : snippet(c) || "Ready", tag: c.tab, icon: "/static/icon-192.png" });
     n.onclick = () => { window.focus(); go(urlOf(c)); n.close(); };

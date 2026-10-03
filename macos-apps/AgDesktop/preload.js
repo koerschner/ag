@@ -30,3 +30,5 @@ ipcRenderer.on("ag-desktop:notify-event", (_e, { id, type }) => {
   if (type === "close" || type === "error") live.delete(id);
 });
 window.Notification = AgNotification;
+// Ag Desktop raises pinned alerts itself (main.js), so the page doesn't notify for pinned chats too.
+window.agDesktop = { pinnedAlerts: true };

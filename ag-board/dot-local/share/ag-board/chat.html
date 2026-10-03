@@ -150,6 +150,10 @@ kbd { font: 12px var(--sans); color: var(--faint); }
 .area-h .am svg { width: 16px; height: 16px; }
 @media (hover: hover) { .area-h .tw { display: none; } .area-h:hover .tw { display: grid; } .area-h:hover .n { display: none; } }
 @media (hover: none) { .area-h .am { display: none; } }
+.pop .chips { display: flex; gap: 4px; padding: 2px 8px 8px; flex-wrap: wrap; }
+.pop .chip { font-size: 13px; padding: 4px 10px; border-radius: 99px; background: var(--hover); color: var(--muted); }
+.pop .chip:hover { background: var(--hover2); color: var(--text); }
+.pop .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 .filter { width: 100%; font: inherit; font-size: 14px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin: 4px 0 12px; outline: none; }
 .filter:focus { border-color: var(--blue); }
 .pill.sm { height: 30px; padding: 0 12px; font-size: 13px; flex: none; }
@@ -999,8 +1003,25 @@ function pickerPop() {
     ["Cost", s.cost ? `$${s.cost.toFixed(2)}` : ""],
     ["Turns", s.turns ? `${s.turns} prompts · ${s.tools} tool calls` : ""],
     ["Started", (c ? c.startedAt : i.startedAt) ? new Date(c ? c.startedAt : i.startedAt).toLocaleString() : ""],
-  ].filter((r) => r[1]);
-  return `<div class="hdr">This chat</div><div class="kv">${rows.map(([k, v]) => `<span>${k}</span><span title="${esc(v)}">${esc(v)}</span>`).join("")}</div>`;
+  ].filter((r) => r[1] && !(c && models.length && (r[0] === "Model" || r[0] === "Thinking")));
+  // Like ChatGPT's picker: switch this chat's model and thinking level (pi's /model and /thinking, this chat only).
+  let sw = "";
+  if (c && models.length) {
+    const curM = models.find((m) => m.name === c.model || m.id === c.model || m.id.endsWith(`/${c.model}`));
+    sw = `<div class="hdr">Model</div>${models.map((m) => `<button class="mi" data-model="${esc(m.id)}" data-t="chat-model" aria-pressed="${m === curM}">${ICON.sparkle}<span class="lbl">${esc(shortModel(m.name))}</span>${m === curM ? ICON.check : ""}</button>`).join("")}
+      <div class="hdr">Thinking</div><div class="chips">${["off", "low", "medium", "high", "xhigh"].map((l) => `<button class="chip" data-thinking="${l}" aria-pressed="${c.thinkingLevel === l}" data-t="chat-thinking">${l}</button>`).join("")}</div><hr>`;
+  }
+  return `${sw}<div class="hdr">This chat</div><div class="kv">${rows.map(([k, v]) => `<span>${k}</span><span title="${esc(v)}">${esc(v)}</span>`).join("")}</div>`;
+}
+
+let models = [];
+fetch("/api/config").then((r) => r.json()).then((j) => { models = j.models || []; }).catch(() => {});
+async function switchModel(body) {
+  const c = current();
+  if (!c) return;
+  closePop();
+  try { await api("/api/model", { tab: c.tab, ...body }); toast(body.model ? `Switched to ${shortModel(body.model.split("/").slice(1).join("/"))}` : `Thinking: ${body.thinking}`); }
+  catch (e) { toast(`Couldn't switch: ${e.message}`); }
 }
 
 // ---------- popover menus ----------
@@ -1649,6 +1670,10 @@ document.addEventListener("click", (e) => {
   const th = t.closest(".pop [data-theme]");
   if (th) { localStorage.setItem("agchat.theme", th.dataset.theme); applyTheme(); for (const b of $$(".pop [data-theme]")) { const on = b === th; b.setAttribute("aria-pressed", on); b.querySelector("svg:last-child:not(:first-child)")?.remove(); if (on) b.insertAdjacentHTML("beforeend", ICON.check); } return; }
   if (m) { if (m.dataset.act === "keys") { closePop(); $("#keysBack").classList.add("open"); } else act(m.dataset.act, m); return; }
+  const md2 = t.closest(".pop [data-model]");
+  if (md2) { if (md2.getAttribute("aria-pressed") !== "true") switchModel({ model: md2.dataset.model }); else closePop(); return; }
+  const tk = t.closest(".pop [data-thinking]");
+  if (tk) { if (tk.getAttribute("aria-pressed") !== "true") switchModel({ thinking: tk.dataset.thinking }); else closePop(); return; }
   const mv = t.closest(".pop [data-move]");
   if (mv) { moveTo(mv.dataset.move); return; }
   if (t.closest(".pop a")) { closePop(); return; }

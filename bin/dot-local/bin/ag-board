@@ -1140,7 +1140,7 @@ async function handle(req: Request): Promise<Response> {
 					return bad("no such image", 404);
 				}
 			}
-			if (p === "/api/config") return Response.json({ httpsUrl: HTTPS_URL, home: HOME, fileInbox: `http://${AG_FQDN}:7374` });
+			if (p === "/api/config") return Response.json({ httpsUrl: HTTPS_URL, home: HOME, fileInbox: `http://${AG_FQDN}:7374`, models: piModels() });
 			if (p === "/api/stats") return Response.json(clickStats(Number(url.searchParams.get("days")) || 0));
 			if (p === "/api/state") return jsonRes(req, boardJson);
 			// Stalled pinned cards (siren running), for the client's persistent desktop alerts (hammerspoon ag_pinned.lua).
@@ -1372,6 +1372,22 @@ async function handle(req: Request): Promise<Response> {
 				await after();
 				return Response.json({ ok: true, id: JSON.parse(r.out).result?.workspace?.workspace_id });
 			}
+			case "/api/model": {
+				// Ag Chat's model picker: pi's own `/model <provider/id>` and `/thinking <level>` (session-only, like
+				// ChatGPT's per-chat switch). Only models from pi's enabledModels, so `/model` never opens its selector.
+				if (!card) return bad("no such card", 404);
+				const model = body.model ? String(body.model) : "";
+				const level = body.thinking ? String(body.thinking) : "";
+				if (model && !piModels().some((m) => m.id === model)) return bad("unknown model");
+				if (level && !THINKING.includes(level)) return bad("unknown thinking level");
+				if (!model && !level) return bad("model or thinking required");
+				for (const cmd of [model && `/model ${model}`, level && `/thinking ${level}`].filter(Boolean) as string[]) {
+					const r = await mux("agent", "prompt", card.pane, cmd);
+					if (r.code !== 0) return fail(r, "switch");
+				}
+				await after();
+				return ok();
+			}
 			case "/api/prompt": {
 				const text = String(body.text ?? "").trim();
 				if (!card || !text) return bad("tab and text required");
@@ -1452,6 +1468,17 @@ async function handle(req: Request): Promise<Response> {
 			}
 		}
 		return bad("not found", 404);
+}
+
+// pi's enabled models (settings.json enabledModels: "provider/model-id"), for Ag Chat's model picker.
+const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh"];
+function piModels(): { id: string; name: string }[] {
+	try {
+		const st = JSON.parse(readFileSync(`${HOME}/.pi/agent/settings.json`, "utf8"));
+		return (st.enabledModels ?? []).map((id: string) => ({ id, name: id.split("/").slice(1).join("/") }));
+	} catch {
+		return [];
+	}
 }
 
 const serveOpts = { port: PORT, idleTimeout: 0 /* SSE streams stay open */, maxRequestBodySize: 64 * 1024 * 1024, fetch: handle };

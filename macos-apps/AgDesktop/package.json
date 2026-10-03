@@ -1,0 +1,12 @@
+{
+  "name": "ag-desktop",
+  "productName": "Ag Desktop",
+  "version": "1.0.0",
+  "description": "Ag Chat (http://ag:7376/chat) in its own window, with a global shortcut. Built by install.sh.",
+  "main": "main.js",
+  "private": true,
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "44.5.1"
+  }
+}

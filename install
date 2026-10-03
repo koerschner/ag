@@ -66,6 +66,7 @@ done
 
 step "macOS helper apps"
 zsh $AG/macos-apps/ChromeTabReaper/install.sh || warn "ChromeTabReaper"
+zsh $AG/macos-apps/AgDesktop/install.sh || warn "Ag Desktop"
 
 step "Tool setup"
 # Moshi (iPhone terminal) hook daemon + Pi hook; the LaunchAgent runs it.

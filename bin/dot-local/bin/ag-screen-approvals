@@ -1,0 +1,51 @@
+#!/usr/bin/env zsh
+# ag-screen-approvals — stop macOS 15+/26 from re-asking "X is requesting to bypass the system
+# private window picker and directly access your screen and audio" for ag's capture identities.
+#
+#   ag-screen-approvals            push every known client's next alert date to 2100 (+ seed ag's)
+#   ag-screen-approvals --list     show each client's next alert date
+#
+# replayd keeps that consent per client in ScreenCaptureApprovals.plist (keyed by bundle id, binary
+# path, or unregistered .app file URL) and re-alerts when kScreenCapturePrivacyHintDate passes
+# (every 30 days). It is not TCC.db; the Screen Recording grant itself still comes from
+# System Settings. Seeded: the SSH identity every agent on ag-mac runs under
+# (/usr/libexec/sshd-keygen-wrapper) and Codex Computer Use (ag-chatgpt-cua).
+# Needs Full Disk Access for the caller (agents over SSH have it). Safe to re-run any time.
+set -euo pipefail
+plist=~/Library/Group\ Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist
+seed=(/usr/libexec/sshd-keygen-wrapper com.apple.sshd-keygen-wrapper com.openai.codex
+	"file://$HOME/.codex/computer-use/Codex%20Computer%20Use.app/")
+
+if [[ ${1:-} == --list ]]; then
+	osascript -l JavaScript - "$plist" <<'EOF'
+ObjC.import('Foundation')
+function run(a) {
+  const d = $.NSDictionary.dictionaryWithContentsOfFile(a[0]); if (!d) return 'no approvals file'
+  return ObjC.deepUnwrap(d.allKeys).sort().map(k =>
+    ObjC.unwrap(d.objectForKey(k).objectForKey('kScreenCapturePrivacyHintDate').description).slice(0, 10) + '  ' + k).join('\n')
+}
+EOF
+	exit
+fi
+
+osascript -l JavaScript - "$plist" $seed <<'EOF'
+ObjC.import('Foundation')
+function run(a) {
+  const path = a[0], far = $.NSDate.dateWithTimeIntervalSince1970(4102444800) // 2100-01-01
+  const d = $.NSMutableDictionary.dictionaryWithContentsOfFile(path) || $.NSMutableDictionary.dictionary
+  for (const k of a.slice(1)) if (d.objectForKey(k).isNil()) d.setObjectForKey($.NSMutableDictionary.dictionary, k)
+  for (const k of ObjC.deepUnwrap(d.allKeys)) {
+    const e = $.NSMutableDictionary.dictionaryWithDictionary(d.objectForKey(k))
+    e.setObjectForKey(far, 'kScreenCapturePrivacyHintDate')
+    e.setObjectForKey($.NSDate.date, 'kScreenCaptureApprovalLastAlerted')
+    e.setObjectForKey(3153600000, 'kScreenCapturePrivacyHintPolicy') // 100 years
+    d.setObjectForKey(e, k)
+  }
+  if (!d.writeToFileAtomically(path, true)) throw new Error('could not write ' + path)
+  return 'extended ' + d.count + ' screen-capture approvals to 2100'
+}
+EOF
+# replayd caches the approvals and writes its copy back; SIGKILL it (it ignores TERM, and SIP blocks
+# kickstart) so it re-reads ours. launchd restarts it on the next capture.
+killall -9 replayd 2>/dev/null || true
+chmod 600 "$plist"

@@ -1,0 +1,16 @@
+# agd: Ag's session layer (tmux -L ag + ag-mux daemon). docs/ag-mux.md.
+[Unit]
+Description=ag-mux (agd): Ag sessions on tmux
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/ag-mux daemon
+Restart=always
+RestartSec=2
+# Only agd restarts; the tmux server it started (and every session in it) keeps running.
+KillMode=process
+Environment=PATH=%h/.local/bin:%h/.bun/bin:%h/.local/share/mise/shims:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=%h
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""Open a new tab and start a fresh pi session in it.
+
+The tab inherits the cwd of the focused pane. tmux binds prefix+t to this (ag.tmux.conf);
+Hammerspoon sends Cmd+T as that chord. Stdlib only on purpose.
+"""
+
+import json
+import os
+import subprocess
+
+AG_MUX = os.path.expanduser("~/.local/bin/ag-mux")
+
+
+def mux(*args):
+    out = subprocess.run([AG_MUX, *args], check=True, capture_output=True, text=True).stdout
+    return json.loads(out)["result"] if out.strip() else None  # `pane run` prints nothing
+
+
+panes = mux("pane", "list")["panes"]
+src = next((p for p in panes if p["focused"]), None)
+cwd = (src or {}).get("foreground_cwd") or (src or {}).get("cwd") or os.path.expanduser("~")
+
+tab = mux("tab", "create", "--cwd", cwd, "--focus")
+mux("pane", "run", tab["root_pane"]["pane_id"], "pi")

@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""ag-tab-find — fuzzy-search every tab by name and contents.
+
+Bound to prefix+f as a popup in ~/.config/ag/ag.tmux.conf: type, Enter jumps to the tab.
+Every tab contributes one "name" row, plus one row per line of its contents:
+pi panes (live or hibernated by ag-pi-hibernate) use the session transcript's user and
+assistant text; other panes use their terminal scrollback. Stdlib only.
+
+  ag-tab-find          open the picker (needs fzf)
+  ag-tab-find --dump   print the rows fzf would get: <tab_id>\t<Tab>\t<text>
+"""
+
+import json
+import os
+import socket
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+
+# agd's socket (ag-mux on tmux; bin/dot-local/lib/ag-mux).
+MUX_SOCK = os.path.expanduser(os.environ.get("AG_MUX_SOCKET") or "~/.local/state/ag-mux/agd.sock")
+
+SCROLLBACK_LINES = 2000
+MAX_LINE = 400
+
+
+def mux(method, params=None):
+    s = socket.socket(socket.AF_UNIX)
+    s.settimeout(5)
+    try:
+        s.connect(MUX_SOCK)
+        s.sendall((json.dumps({"id": "find", "method": method, "params": params or {}}) + "\n").encode())
+        resp = json.loads(s.makefile().readline())
+    finally:
+        s.close()
+    if "error" in resp:
+        raise RuntimeError(resp["error"])
+    return resp["result"]
+
+
+def session_file(pane):
+    """The pi transcript behind a pane: live pi, or ag-pi-hibernate's sleep screen."""
+    path = (pane.get("agent_session") or {}).get("value")
+    if path:
+        return path
+    info = mux("pane.process_info", {"pane_id": pane["pane_id"]})
+    for proc in info.get("process_info", {}).get("foreground_processes", []):
+        argv = proc.get("argv", [])
+        if len(argv) >= 3 and argv[-2] == "wait" and argv[-3].endswith("ag-pi-hibernate"):
+            return argv[-1]
+    return None
+
+
+def transcript_lines(path):
+    with open(path, errors="replace") as f:
+        for raw in f:
+            try:
+                msg = json.loads(raw).get("message") or {}
+            except ValueError:
+                continue
+            if msg.get("role") not in ("user", "assistant"):
+                continue
+            content = msg.get("content")
+            blocks = [{"type": "text", "text": content}] if isinstance(content, str) else content or []
+            for block in blocks:
+                if block.get("type") == "text":
+                    yield from block["text"].splitlines()
+
+
+def scrollback_lines(pane_id):
+    res = mux("pane.read", {"pane_id": pane_id, "source": "recent_unwrapped", "lines": SCROLLBACK_LINES})
+    return res.get("read", {}).get("text", "").splitlines()
+
+
+def pane_lines(pane):
+    try:
+        path = session_file(pane)
+        return list(transcript_lines(path)) if path and os.path.exists(path) else scrollback_lines(pane["pane_id"])
+    except Exception:
+        return []
+
+
+def clean(text):
+    return " ".join(text.replace("\t", " ").split())[:MAX_LINE]
+
+
+def rows():
+    tabs = {t["tab_id"]: t["label"] for t in mux("tab.list")["tabs"]}
+    panes = [p for p in mux("pane.list")["panes"] if p["tab_id"] in tabs]
+    with ThreadPoolExecutor(16) as pool:
+        contents = dict(zip((p["pane_id"] for p in panes), pool.map(pane_lines, panes)))
+
+    for tab_id, title in tabs.items():
+        yield f"{tab_id}\t{title}\t"
+    for tab_id, title in tabs.items():
+        seen = set()
+        for p in panes:
+            if p["tab_id"] != tab_id:
+                continue
+            for line in contents[p["pane_id"]]:
+                text = clean(line)
+                if text and text not in seen:
+                    seen.add(text)
+                    yield f"{tab_id}\t{title}\t{text}"
+
+
+def main():
+    if "--dump" in sys.argv:
+        for r in rows():
+            print(r)
+        return
+    fzf = subprocess.Popen(
+        ["fzf", "--delimiter=\t", "--with-nth=2..", "--nth=2..", "--no-info", "--layout=reverse",
+         "--prompt=find> ", "--tiebreak=index", "--no-hscroll",
+         "--preview=echo {2}; echo; echo {3}", "--preview-window=down,5,wrap"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    try:
+        for r in rows():
+            fzf.stdin.write(r + "\n")
+        fzf.stdin.close()
+    except BrokenPipeError:
+        pass
+    pick = fzf.stdout.read().strip()
+    if fzf.wait() == 0 and pick:
+        mux("tab.focus", {"tab_id": pick.split("\t", 1)[0]})
+
+
+if __name__ == "__main__":
+    main()

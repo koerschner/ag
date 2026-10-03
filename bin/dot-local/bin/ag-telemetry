@@ -1,0 +1,483 @@
+#!/usr/bin/env bun
+// ag-telemetry: one place for every crash, failure and restart across Ag (ag-dash, ag-engine, ag-mac, the client, pi).
+//
+//   ag telemetry [--since 24h] [--source S] [--machine M] [--all] [--json]   readout (default: crashes + errors, last 24h)
+//   ag telemetry tail                       follow new events
+//   ag telemetry send [--severity crash|error|warn|info] [--kind K] [--source S] [--detail JSON] <message>
+//   ag telemetry serve                      the service (session host, ag-telemetry.service): http://ag:7378
+//   ag telemetry collect                    one sweep on a Mac (LaunchAgent com.ag.ag-telemetry, every 60 s)
+//   ag telemetry flush                      ship this machine's spool now
+//
+// Events: {id, at, machine, source, kind, severity, message, detail?, count?}, kept 30 days in
+// ~/.local/state/ag-telemetry/events.jsonl on the session host. Any producer on any machine appends a JSON line to
+// ~/.local/state/ag-telemetry/spool.jsonl (works offline, survives a crashing process); the host ingests its own spool
+// every 2 s, Macs ship theirs on each sweep (POST http://ag:7378/event). Collectors:
+//   host   the whole journal (sudo journalctl -f): user and system units that crash, fail, or get restarted (requested
+//          restarts are info, tagged with the ag commit that caused them), kernel OOM kills, core dumps, uncaught
+//          errors in Ag services' output, unclean reboots
+//   Macs   DiagnosticReports (crash, hang, panic, jetsam reports for every app), Electron Crashpad minidumps,
+//          com.ag.* LaunchAgents that exit non-zero or get killed, unclean reboots
+//   apps   ag-dash's Mac app (main.js: renderer/GPU crashes, hangs, uncaught errors, updates), ag-dash and its chat page
+//          (window errors via ag-dash /api/telemetry), pi (extension ag-telemetry.ts: uncaught exceptions, bad exits)
+import { spawn, spawnSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { hostname, homedir } from "node:os";
+
+const HOME = homedir();
+const DIR = `${HOME}/.local/state/ag-telemetry`;
+const SPOOL = `${DIR}/spool.jsonl`;
+const STORE = `${DIR}/events.jsonl`;
+const PORT = 7378;
+const HOST_URL = process.env.AG_TELEMETRY_URL || `http://ag:${PORT}`;
+const KEEP_DAYS = 30;
+const MACHINE = hostname().split(".")[0];
+const SEV = ["info", "warn", "error", "crash"] as const;
+type Sev = (typeof SEV)[number];
+type Ev = { id: string; at: string; machine: string; source: string; kind: string; severity: Sev; message: string; detail?: any; count?: number };
+mkdirSync(DIR, { recursive: true });
+
+const sh = (cmd: string, args: string[], timeout = 15000) => spawnSync(cmd, args, { encoding: "utf8", timeout }).stdout ?? "";
+const parse = (s: string) => {
+	try {
+		return JSON.parse(s);
+	} catch {
+		return undefined;
+	}
+};
+const readJson = (p: string, d: any) => (existsSync(p) ? (parse(readFileSync(p, "utf8")) ?? d) : d);
+const clip = (s: string, n = 300) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+
+function mk(e: Partial<Ev> & { source: string; message: string }): Ev {
+	return {
+		id: crypto.randomUUID(),
+		at: e.at ?? new Date().toISOString(),
+		machine: e.machine ?? MACHINE,
+		kind: e.kind ?? "event",
+		severity: SEV.includes(e.severity as Sev) ? (e.severity as Sev) : "error",
+		source: e.source,
+		message: clip(String(e.message), 500),
+		...(e.detail !== undefined ? { detail: e.detail } : {}),
+	};
+}
+const spool = (e: Ev) => appendFileSync(SPOOL, JSON.stringify(e) + "\n");
+
+// Take the spool atomically (rename), hand its events to `use`; if `use` fails, put them back for the next try.
+async function drainSpool(use: (evs: Ev[]) => Promise<void> | void) {
+	const left = readdirSync(DIR).filter((f) => f.startsWith("spool.") && f.endsWith(".work"));
+	if (existsSync(SPOOL)) {
+		const w = `${DIR}/spool.${Date.now()}.${process.pid}.work`;
+		try {
+			renameSync(SPOOL, w);
+			left.push(w.slice(DIR.length + 1));
+		} catch {}
+	}
+	for (const f of left) {
+		const p = `${DIR}/${f}`;
+		const evs = readFileSync(p, "utf8").split("\n").map(parse).filter((e) => e && e.source && e.message);
+		try {
+			if (evs.length) await use(evs);
+			rmSync(p, { force: true });
+		} catch {
+			return; // keep the work file; retried next time
+		}
+	}
+}
+
+async function ship() {
+	await drainSpool(async (evs) => {
+		const r = await fetch(`${HOST_URL}/event`, { method: "POST", body: JSON.stringify(evs), signal: AbortSignal.timeout(8000) });
+		if (!r.ok) throw new Error(`HTTP ${r.status}`);
+	});
+}
+
+// ───────────────────────────── host: store + collectors + HTTP ─────────────────────────────
+
+let events: Ev[] = [];
+const dedupe = new Map<string, Ev>(); // repeated errors (same source+message) within 10 min bump a count
+function store(raw: any[]) {
+	let changed = false;
+	for (const r of raw) {
+		const e = mk(r);
+		if (r.id) e.id = r.id;
+		const key = `${e.machine}|${e.source}|${e.kind}|${e.message.slice(0, 160)}`;
+		const prev = dedupe.get(key);
+		if (prev && e.severity !== "info" && Date.parse(e.at) - Date.parse(prev.at) < 10 * 60_000 && Date.parse(e.at) >= Date.parse(prev.at)) {
+			prev.count = (prev.count ?? 1) + 1;
+			changed = true;
+			continue;
+		}
+		dedupe.set(key, e);
+		events.push(e);
+		appendFileSync(STORE, JSON.stringify(e) + "\n");
+		if (e.severity !== "info") console.log(`${e.severity} ${e.machine} ${e.source}: ${e.message}`);
+	}
+	if (changed) rewrite();
+}
+function rewrite() {
+	const cut = Date.now() - KEEP_DAYS * 86400_000;
+	events = events.filter((e) => Date.parse(e.at) >= cut).sort((a, b) => a.at.localeCompare(b.at));
+	writeFileSync(`${STORE}.tmp`, events.map((e) => JSON.stringify(e)).join("\n") + (events.length ? "\n" : ""));
+	renameSync(`${STORE}.tmp`, STORE);
+}
+function loadStore() {
+	events = existsSync(STORE) ? readFileSync(STORE, "utf8").split("\n").map(parse).filter(Boolean) : [];
+	rewrite();
+}
+
+// The latest ag commit, if it landed in the last 3 minutes: a restart right after one is a deploy, not a crash.
+function recentDeploy(): string | undefined {
+	const out = sh("git", ["-C", `${HOME}/ag`, "log", "-1", "--format=%ct %h %s"]).trim();
+	const [ct, h, ...s] = out.split(" ");
+	if (ct && Date.now() / 1000 - Number(ct) < 180) return `${h} ${clip(s.join(" "), 90)}`;
+}
+
+const EXC = /(\bUncaught\b|unhandled ?(promise )?rejection|Traceback \(most recent call last\)|^panic: |Segmentation fault|\bFATAL\b|^\s*(error|Error): |^\w*(Type|Reference|Syntax|Range)Error\b|Bun has crashed|RangeError: Maximum call stack)/i;
+
+function watchJournal() {
+	const stops = new Map<string, number>(); // unit → when a stop was requested
+	const pending = new Map<string, { e: Ev; t: Timer }>(); // a crash waiting a moment for "Failed with result …"
+	const flush = (unit: string) => {
+		const p = pending.get(unit);
+		if (!p) return;
+		pending.delete(unit);
+		clearTimeout(p.t);
+		store([p.e]);
+	};
+	const hold = (unit: string, e: Ev) => {
+		if (pending.has(unit)) return;
+		pending.set(unit, { e, t: setTimeout(() => flush(unit), 3000) });
+	};
+	const restarted = new Map<string, number>();
+
+	const start = () => {
+		// Root sees every journal (system, kernel, user); without passwordless sudo fall back to the user journal.
+		const sudo = spawnSync("sudo", ["-n", "true"]).status === 0;
+		const p = sudo ? spawn("sudo", ["-n", "journalctl", "-f", "-o", "json", "-n", "0"]) : spawn("journalctl", ["--user", "-f", "-o", "json", "-n", "0"]);
+		let buf = "";
+		p.stdout.on("data", (d) => {
+			buf += d;
+			const lines = buf.split("\n");
+			buf = lines.pop()!;
+			for (const l of lines) {
+				const j = parse(l);
+				if (j) {
+					try {
+						onEntry(j);
+					} catch (err) {
+						console.error("ag-telemetry: journal entry:", err);
+					}
+				}
+			}
+		});
+		p.on("exit", () => setTimeout(start, 5000));
+	};
+
+	const onEntry = (j: any) => {
+		const msg: string = Array.isArray(j.MESSAGE) ? Buffer.from(j.MESSAGE).toString() : String(j.MESSAGE ?? "");
+		const at = new Date(Number(j.__REALTIME_TIMESTAMP) / 1000).toISOString();
+		const managerUnit: string | undefined = j.USER_UNIT || (j._PID === "1" ? j.UNIT : undefined);
+		const user = !!j.USER_UNIT;
+		if (managerUnit && /\.(service|socket|timer)$/.test(managerUnit)) {
+			const unit = managerUnit.replace(/\.service$/, "");
+			const source = user ? unit : `system:${unit}`;
+			if (/^Stopping /.test(msg)) stops.set(managerUnit, Date.now());
+			const requested = Date.now() - (stops.get(managerUnit) ?? 0) < 120_000;
+			let m;
+			if ((m = msg.match(/Main process exited, code=(\w+), status=(\S+)/))) {
+				if (!requested) hold(managerUnit, mk({ at, source, kind: "crash", severity: "crash", message: `${unit} died: ${m[1]} ${m[2]}`, detail: { unit: managerUnit, code: m[1], status: m[2] } }));
+			} else if ((m = msg.match(/Failed with result '([^']+)'/))) {
+				const p = pending.get(managerUnit);
+				if (p) {
+					p.e.detail.result = m[1];
+					if (m[1] === "oom-kill") p.e.message += " (OOM)";
+				} else if (!requested || m[1] !== "signal") store([mk({ at, source, kind: "failed", severity: requested ? "error" : "crash", message: `${unit} failed: ${m[1]}`, detail: { unit: managerUnit, result: m[1] } })]);
+			} else if ((m = msg.match(/Scheduled restart job, restart counter is at (\d+)/))) {
+				const p = pending.get(managerUnit);
+				if (p) p.e.detail.restarts = Number(m[1]);
+				else if (!requested) store([mk({ at, source, kind: "crash", severity: "crash", message: `${unit} exited unexpectedly and was restarted (#${m[1]})`, detail: { unit: managerUnit, restarts: Number(m[1]) } })]);
+				flush(managerUnit);
+			} else if (/^Started /.test(msg) && requested && user && managerUnit.endsWith(".service")) {
+				stops.delete(managerUnit);
+				if (Date.now() - (restarted.get(managerUnit) ?? 0) > 5000) {
+					restarted.set(managerUnit, Date.now());
+					const dep = recentDeploy();
+					store([mk({ at, source, kind: "restart", severity: "info", message: `${unit} restarted (requested${dep ? `, deploy ${dep}` : ""})`, detail: { unit: managerUnit, deploy: dep } })]);
+				}
+			}
+			return;
+		}
+		if (j._TRANSPORT === "kernel") {
+			const m = msg.match(/Out of memory: Killed process (\d+) \(([^)]+)\)/) || msg.match(/oom-kill:.*task=([^,]+),pid=(\d+)/);
+			if (m) store([mk({ at, source: "kernel", kind: "oom", severity: "crash", message: `OOM killer killed ${/^\d+$/.test(m[1]) ? `${m[2]} (pid ${m[1]})` : `${m[1]} (pid ${m[2]})`}`, detail: { line: clip(msg, 400) } })]);
+			else if (/segfault at|general protection fault|Kernel panic|BUG: |soft lockup|hung_task/.test(msg)) store([mk({ at, source: "kernel", kind: "kernel", severity: "crash", message: clip(msg, 300) })]);
+			return;
+		}
+		if (j.SYSLOG_IDENTIFIER === "systemd-coredump") {
+			const m = msg.match(/Process (\d+) \(([^)]+)\) of user (\d+) (dumped core|terminated abnormally)/);
+			if (m) store([mk({ at, source: j.COREDUMP_UNIT || j.COREDUMP_USER_UNIT || m[2], kind: "coredump", severity: "crash", message: `${m[2]} (pid ${m[1]}) ${m[4]}`, detail: { signal: j.COREDUMP_SIGNAL_NAME, exe: j.COREDUMP_EXE } })]);
+			return;
+		}
+		const svc: string | undefined = j._SYSTEMD_USER_UNIT;
+		if (svc?.endsWith(".service") && svc !== "ag-telemetry.service" && EXC.test(msg)) {
+			const unit = svc.replace(/\.service$/, "");
+			store([mk({ at, source: unit, kind: "exception", severity: "error", message: clip(msg.trim(), 300) })]);
+		}
+	};
+	start();
+}
+
+function bootCheck(file: string, current: string, unclean: () => boolean, describe: string) {
+	const prev = readJson(file, {});
+	if (prev.boot && prev.boot !== current) {
+		const bad = unclean();
+		spool(mk({ source: "system", kind: "reboot", severity: bad ? "crash" : "warn", message: `${MACHINE} ${bad ? "rebooted uncleanly (crash, panic or power loss)" : "rebooted"}`, detail: { describe } }));
+	}
+	writeFileSync(file, JSON.stringify({ boot: current }));
+}
+
+function hostBootCheck() {
+	const boot = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
+	bootCheck(`${DIR}/boot.json`, boot, () => {
+		const tail = sh("sudo", ["-n", "journalctl", "-b", "-1", "-n", "60", "--no-pager", "-o", "cat"]);
+		return !!tail && !/Reached target (System Shutdown|System Reboot|Power-Off|reboot\.target|Shutdown)|Shutting down|systemd-shutdown/i.test(tail);
+	}, "previous boot's journal had no clean shutdown");
+}
+
+async function serve() {
+	loadStore();
+	hostBootCheck();
+	watchJournal();
+	setInterval(() => drainSpool((evs) => store(evs)), 2000);
+	setInterval(rewrite, 6 * 3600_000);
+	const handler = async (req: Request) => {
+		const u = new URL(req.url);
+		if (req.method === "POST" && u.pathname === "/event") {
+			const body = parse(await req.text());
+			const list = (Array.isArray(body) ? body : [body]).filter((e) => e && e.source && e.message);
+			store(list);
+			return Response.json({ ok: true, stored: list.length });
+		}
+		if (u.pathname === "/api/events") return Response.json(query(Object.fromEntries(u.searchParams)));
+		if (u.pathname === "/") return new Response(page(), { headers: { "content-type": "text/html; charset=utf-8" } });
+		return new Response("not found", { status: 404 });
+	};
+	const ips = ["127.0.0.1", sh("tailscale", ["ip", "-4"]).trim()].filter(Boolean);
+	for (const hostname of ips) {
+		try {
+			Bun.serve({ port: PORT, hostname, fetch: handler });
+		} catch (e) {
+			console.error(`ag-telemetry: can't listen on ${hostname}:${PORT}: ${e}`);
+		}
+	}
+	console.log(`ag-telemetry listening on ${ips.map((h) => `http://${h}:${PORT}`).join(", ")}`);
+}
+
+function sinceMs(s: string | undefined) {
+	const m = (s ?? "24h").match(/^(\d+)\s*(m|h|d|w)$/);
+	if (!m) return Date.parse(s!) || Date.now() - 86400_000;
+	return Date.now() - Number(m[1]) * { m: 60e3, h: 3600e3, d: 86400e3, w: 7 * 86400e3 }[m[2] as "m"];
+}
+function query(q: Record<string, string>) {
+	const since = sinceMs(q.since);
+	const min = q.all ? 0 : SEV.indexOf((q.severity as Sev) || "error");
+	return events
+		.filter((e) => Date.parse(e.at) >= since && SEV.indexOf(e.severity) >= min)
+		.filter((e) => !q.source || e.source.toLowerCase().includes(q.source.toLowerCase()))
+		.filter((e) => !q.machine || e.machine.toLowerCase().includes(q.machine.toLowerCase()))
+		.reverse();
+}
+
+function page() {
+	return `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><title>ag-telemetry</title>
+<style>body{font:14px -apple-system,system-ui,sans-serif;margin:0;background:#161616;color:#ddd}header{padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #333}
+h1{font-size:16px;margin:0 8px 0 0}select,input{background:#222;color:#ddd;border:1px solid #444;border-radius:6px;padding:4px 6px}table{border-collapse:collapse;width:100%}
+td{padding:6px 10px;border-bottom:1px solid #262626;vertical-align:top}td.t{white-space:nowrap;color:#999}.crash td.s{color:#ff6b6b;font-weight:600}.error td.s{color:#ffa94d}.warn td.s{color:#ffd43b}.info td.s{color:#888}
+pre{white-space:pre-wrap;margin:4px 0 0;color:#aaa;font-size:12px}.c{color:#888}tr{cursor:pointer}</style>
+<header><h1>ag-telemetry</h1><select id=since><option>1h<option selected>24h<option>3d<option>7d<option>30d</select>
+<select id=sev><option value=crash>crashes<option value=error selected>crashes + errors<option value=warn>+ warnings<option value=info>everything (incl. restarts)</select>
+<input id=q placeholder="source or machine"><span id=n class=c></span></header><table id=t></table>
+<script>
+const $=id=>document.getElementById(id), esc=s=>String(s).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+async function load(){const p=new URLSearchParams({since:$("since").value,severity:$("sev").value});const ev=await (await fetch("/api/events?"+p)).json();
+const q=$("q").value.toLowerCase(), rows=ev.filter(e=>!q||(e.source+" "+e.machine).toLowerCase().includes(q));$("n").textContent=rows.length+" events";
+$("t").innerHTML=rows.map(e=>'<tr class='+e.severity+' onclick="this.nextSibling.hidden=!this.nextSibling.hidden"><td class=t>'+new Date(e.at).toLocaleString()+'</td><td class=s>'+e.severity+'</td><td>'+esc(e.machine)+'</td><td>'+esc(e.source)+'</td><td>'+esc(e.message)+(e.count>1?' <span class=c>×'+e.count+'</span>':'')+'</td></tr><tr hidden><td colspan=5><pre>'+esc(JSON.stringify(e,null,1))+'</pre></td></tr>').join("")}
+for(const id of ["since","sev","q"])$(id).oninput=load;load();setInterval(load,15000);
+</script>`;
+}
+
+// ───────────────────────────── Macs: crash reports, Crashpad, launchd ─────────────────────────────
+
+const AG_PROCS = /ag-dash|Hammerspoon|Electron|bun|node|tmux|ssh|Ghostty|CleanShot|iPhone Mirroring|Jump Desktop|Tailscale|Google Chrome|ChatGPT|1Password|op$/i;
+
+function ipsSummary(p: string) {
+	const txt = readFileSync(p, "utf8");
+	const nl = txt.indexOf("\n");
+	const head = parse(txt.slice(0, nl)) ?? {};
+	const body = parse(txt.slice(nl + 1)) ?? {};
+	const proc = body.procName || head.app_name || head.name || p.split("/").pop()!.replace(/-\d{4}-.*$/, "");
+	const exc = body.exception ? `${body.exception.type ?? ""} ${body.exception.signal ?? ""}`.trim() : "";
+	const term = body.termination?.indicator || body.termination?.reasons?.join?.(", ") || "";
+	return { proc, version: head.app_version, bugType: head.bug_type, exc, term, crashedThread: body.faultingThread, incident: head.incident_id };
+}
+
+async function collect() {
+	const st = readJson(`${DIR}/collect.json`, { seen: {}, launchd: {}, first: true });
+	const first = st.first;
+	const now = Date.now();
+	// Crash, hang, panic and jetsam reports, user and system.
+	for (const d of [`${HOME}/Library/Logs/DiagnosticReports`, "/Library/Logs/DiagnosticReports"]) {
+		let files: string[] = [];
+		try {
+			files = readdirSync(d).filter((f) => /\.(ips|crash|hang|spin|panic)$/.test(f));
+		} catch {}
+		for (const f of files) {
+			const p = `${d}/${f}`;
+			if (st.seen[p]) continue;
+			let mtime = 0;
+			try {
+				mtime = statSync(p).mtimeMs;
+			} catch {
+				continue;
+			}
+			st.seen[p] = mtime;
+			if (first && now - mtime > 86400_000) continue; // first run: only the last day, not years of history
+			let s: any = { proc: f };
+			try {
+				s = ipsSummary(p);
+			} catch {}
+			const kind = /panic/i.test(f) || s.bugType === "210" ? "panic" : /hang|spin/.test(f) || s.bugType === "298" ? "hang" : /JetsamEvent/.test(f) ? "jetsam" : "crash";
+			if (kind === "jetsam") s.proc = "memory pressure";
+			spool(mk({ at: new Date(mtime).toISOString(), source: kind === "panic" ? "kernel" : `macOS:${s.proc}`, kind, severity: kind === "hang" || kind === "jetsam" ? "warn" : "crash",
+				message: `${s.proc}${s.version ? ` ${s.version}` : ""} ${kind === "crash" ? "crashed" : kind === "hang" ? "hung" : kind === "panic" ? "kernel panic" : "jetsam event"}${s.exc ? `: ${s.exc}` : ""}${s.term ? ` (${s.term})` : ""}`,
+				detail: { report: p, ag: AG_PROCS.test(s.proc), ...s } }));
+		}
+	}
+	// Electron Crashpad minidumps (ag-dash and any other Electron app).
+	const sup = `${HOME}/Library/Application Support`;
+	try {
+		for (const app of readdirSync(sup)) {
+			const cd = `${sup}/${app}/Crashpad/completed`;
+			if (!existsSync(cd)) continue;
+			for (const f of readdirSync(cd).filter((f) => f.endsWith(".dmp"))) {
+				const p = `${cd}/${f}`;
+				if (st.seen[p]) continue;
+				const mtime = statSync(p).mtimeMs;
+				st.seen[p] = mtime;
+				if (first && now - mtime > 86400_000) continue;
+				spool(mk({ at: new Date(mtime).toISOString(), source: app, kind: "minidump", severity: "crash", message: `${app}: Electron process crashed (minidump)`, detail: { dump: p } }));
+			}
+		}
+	} catch {}
+	// com.ag.* LaunchAgents: a non-zero exit (negative = killed by that signal) or a KeepAlive daemon's new PID.
+	for (const l of sh("launchctl", ["list"]).split("\n").slice(1)) {
+		const [pid, status, label] = l.split("\t");
+		if (!label?.startsWith("com.ag.")) continue;
+		const prev = st.launchd[label];
+		const code = Number(status);
+		if (prev && code !== 0 && code !== prev.status) {
+			const sig = code < 0 ? ` (killed by signal ${-code})` : "";
+			spool(mk({ source: `launchd:${label.slice(11)}`, kind: "exit", severity: code < 0 && code !== -15 ? "crash" : "error", message: `${label} exited with status ${code}${sig}`, detail: { label, status: code, log: logPath(label) } }));
+		}
+		st.launchd[label] = { pid, status: code };
+	}
+	// Unclean reboots.
+	const boot = sh("sysctl", ["-n", "kern.boottime"]).match(/sec = (\d+)/)?.[1];
+	if (boot) bootCheck(`${DIR}/boot.json`, boot, () => {
+		const r = readdirSync("/Library/Logs/DiagnosticReports").some((f) => /panic/i.test(f) && now - statSync(`/Library/Logs/DiagnosticReports/${f}`).mtimeMs < 3600_000);
+		const prev = sh("sh", ["-c", "log show --last boot --style compact --predicate 'eventMessage CONTAINS \"Previous shutdown cause\"' 2>/dev/null | tail -1"], 30000);
+		const cause = Number(prev.match(/Previous shutdown cause: (-?\d+)/)?.[1] ?? 5);
+		return r || ![5, 3].includes(cause); // 5 = normal shutdown, 3 = hard power-off by hold (macOS shutdown causes)
+	}, "macOS previous shutdown cause / panic report");
+	// Forget reports that no longer exist.
+	for (const p of Object.keys(st.seen)) if (!existsSync(p)) delete st.seen[p];
+	st.first = false;
+	writeFileSync(`${DIR}/collect.json`, JSON.stringify(st));
+	await ship().catch(() => {});
+}
+function logPath(label: string) {
+	try {
+		return readFileSync(`${HOME}/Library/LaunchAgents/${label}.plist`, "utf8").match(/<key>StandardErrorPath<\/key>\s*<string>([^<]+)/)?.[1];
+	} catch {}
+}
+
+// ───────────────────────────── CLI ─────────────────────────────
+
+function args(argv: string[]) {
+	const o: Record<string, string | boolean> = {};
+	const rest: string[] = [];
+	for (let i = 0; i < argv.length; i++) {
+		const a = argv[i];
+		if (a.startsWith("--")) {
+			const k = a.slice(2);
+			if (["all", "json", "help"].includes(k)) o[k] = true;
+			else o[k] = argv[++i] ?? "";
+		} else rest.push(a);
+	}
+	return { o, rest };
+}
+
+async function fetchEvents(q: Record<string, string>) {
+	const isHost = spawnSync(`${HOME}/.local/bin/ag-machine-role`, ["host"]).status === 0;
+	const base = isHost ? `http://127.0.0.1:${PORT}` : HOST_URL;
+	const r = await fetch(`${base}/api/events?${new URLSearchParams(q)}`, { signal: AbortSignal.timeout(8000) });
+	return (await r.json()) as Ev[];
+}
+const fmt = (e: Ev) =>
+	`${new Date(e.at).toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).padEnd(16)} ${e.severity.padEnd(5)} ${e.machine.padEnd(10)} ${e.source.padEnd(22)} ${e.message}${(e.count ?? 1) > 1 ? ` ×${e.count}` : ""}`;
+
+async function main() {
+	let [cmd, ...argv] = process.argv.slice(2);
+	if (cmd?.startsWith("--") && cmd !== "--help") [cmd, argv] = ["ls", process.argv.slice(2)];
+	const { o, rest } = args(argv);
+	switch (cmd) {
+		case "serve":
+			return serve();
+		case "collect":
+			return collect();
+		case "flush":
+			return ship();
+		case "send": {
+			const e = mk({ source: String(o.source || process.env.AG_TELEMETRY_SOURCE || "script"), kind: String(o.kind || "event"), severity: String(o.severity || "error") as Sev, message: rest.join(" "), detail: o.detail ? parse(String(o.detail)) ?? o.detail : undefined });
+			if (!e.message) throw new Error("usage: ag telemetry send [--severity S] [--kind K] [--source S] <message>");
+			spool(e);
+			const isHost = spawnSync(`${HOME}/.local/bin/ag-machine-role`, ["host"]).status === 0;
+			if (!isHost) await ship().catch(() => {}); // the host picks its spool up within 2 s
+			return;
+		}
+		case "tail": {
+			let last = new Date().toISOString();
+			for (;;) {
+				const evs = (await fetchEvents({ since: last, severity: "info" }).catch(() => [])).reverse().filter((e) => e.at > last);
+				for (const e of evs) console.log(fmt(e));
+				if (evs.length) last = evs[evs.length - 1].at;
+				await Bun.sleep(3000);
+			}
+		}
+		case undefined:
+		case "ls":
+		case "list": {
+			if (o.help) return console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 10).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
+			const q: Record<string, string> = { since: String(o.since || "24h") };
+			if (o.all) q.severity = "info";
+			else if (o.severity) q.severity = String(o.severity);
+			if (o.source) q.source = String(o.source);
+			if (o.machine) q.machine = String(o.machine);
+			const evs = await fetchEvents(q);
+			if (o.json) return console.log(JSON.stringify(evs, null, 1));
+			if (!evs.length) return console.log(`no ${o.all ? "events" : "crashes or errors"} in the last ${q.since} (ag telemetry --all for restarts too; http://ag:${PORT})`);
+			for (const e of evs.slice().reverse()) console.log(fmt(e));
+			return console.log(`\n${evs.length} event(s) · details: ag telemetry --json · http://ag:${PORT}`);
+		}
+		case "help":
+		case "--help":
+		case "-h":
+			return console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 10).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
+		default:
+			console.error(`ag telemetry: unknown command ${cmd} (ag telemetry help)`);
+			process.exit(2);
+	}
+}
+main().catch((e) => {
+	console.error(`ag telemetry: ${e.message ?? e}`);
+	process.exit(1);
+});

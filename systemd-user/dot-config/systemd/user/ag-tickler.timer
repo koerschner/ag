@@ -1,0 +1,10 @@
+[Unit]
+Description=ag-tickler fire every 60s
+
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=60s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

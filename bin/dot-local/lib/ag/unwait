@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""ag unwait — take a session out of ag-dash's Waiting for column (default: this one).
+
+    ag unwait [session]
+"""
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+import importlib.machinery
+w = importlib.machinery.SourceFileLoader("agwait", os.path.join(os.path.dirname(os.path.realpath(__file__)), "wait")).load_module()
+run_main(lambda argv: w.main(argv, off=True))

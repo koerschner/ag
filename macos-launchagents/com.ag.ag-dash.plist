@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ag.ag-dash</string>
+  <!-- ag-dash: Kanban dashboard over the agent sessions (http://ag:7376). Only runs on the host (ag-mac). -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>"$HOME/.local/bin/ag-machine-role" host || { sleep 3600; exit 0; }; exec "$HOME/.local/bin/ag-dash"</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <!-- Restarts it if it dies, e.g. Tailscale was not up yet at login. -->
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>15</integer>
+  <key>StandardOutPath</key>
+  <string>/tmp/ag-dash.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/ag-dash.log</string>
+</dict>
+</plist>

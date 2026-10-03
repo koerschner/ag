@@ -1,0 +1,389 @@
+#!/usr/bin/env bun
+// ag-tickler: a GTD tickler for Ag's sessions. Deferred tasks come back at their time as a new pi tab.
+//
+//   ag-tickler add --at <ISO time> --task <text> [--title t] [--session f] [--cwd d] [--mode fork|fresh] [--pin]
+//   ag-tickler add --when online --task <text> ...   # fire the next time the user comes online at the client (`ag-presence`)
+//   ag-tickler add --when check --check '<sh cmd>' --task <text> [--expires ISO] ...  # fire once the check exits 0
+//   ag-tickler add --when event --task <text> [--expires ISO] ...                     # fire only via `ag-tickler trigger`
+//   ag-tickler add --at <ISO> --waiting-for <person> [--attempt N] [--check '<sh>'] --task <text> ...
+//                            # GTD "waiting for": check whether <person> replied; if not, follow up and requeue with backoff
+//   ag-tickler trigger <id> [--note text]   # the webhook: fire a waiting item now (also POST http://ag:7373/ag-tickler/<id>)
+//   ag-tickler list [--all]
+//   ag-tickler cancel <id>
+//   ag-tickler fire            # run by the com.ag.ag-tickler LaunchAgent every minute
+//
+// Agents normally drive this through the `ag-tickler` pi tool (pi extension ag-tickler.ts), so the user just
+// says "do X on Friday at 9" in plain text. Items: ~/.local/state/ag-tickler/<id>.json. Log: log.jsonl beside them.
+// Firing: opens a tab named "◷ <title>", starts pi (forked from the
+// deferring session when there is one, so it has the full context) and sends the task. Never steals focus.
+// Presence items (--when online) open as "● <title>" on the user's next arrival at the client after they were
+// queued (an arrival that started after created_at), per ~/.local/state/ag-presence/state.json. `ag-presence poll`
+// runs `ag-tickler fire` the moment they arrive; the every-minute run is the backstop.
+// Wake-ups (--when check|event) are how an agent waits on something slow (a machine coming back, CI, a deploy)
+// without holding a model turn open: the every-minute run executes the cheap shell check (no LLM, 20s cap), and
+// `ag-tickler trigger` / the webhook fires at once. They resume the deferring session in place when its pane is
+// still open and ready (idle/done); otherwise they open a forked tab like any item. After --expires (default
+// 7 days) they fire anyway, telling the agent the condition never came true.
+// Waiting-for items (--waiting-for) are time items for "I'm waiting on <person>": at --at the agent checks whether they
+// replied (and any --check fires it early, e.g. a DNS change landing). Replied → do the next step. Not yet → a polite
+// follow-up and a requeue with --attempt N+1 on the backoff in waitingPrompt(); a timeline they gave wins over the backoff.
+// Like wake-ups, they resume the deferring session in place when it's open and ready.
+// --pin (set by the pi tool when the deferring session is pinned, e.g. captured with Cmd+Enter) pins the session the
+// item comes back in on ag-dash, whether a new tab or the resumed original.
+
+import { execFileSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { createHash, randomBytes } from "node:crypto";
+import { originTag } from "../../../pi/dot-pi/agent/extensions/ag-origin.ts";
+
+const HOME = homedir();
+
+// Activity capture: note each prompt this script injects (hash only), so the Pi activity extension can tell it apart from typing.
+const injected = (by: string, text: string, extra: object = {}) => {
+	try {
+		mkdirSync(`${HOME}/.local/state/activity`, { recursive: true });
+		const sha = createHash("sha1").update(text.trim()).digest("hex").slice(0, 12);
+		appendFileSync(`${HOME}/.local/state/activity/injections.jsonl`, JSON.stringify({ ts: new Date().toISOString(), by, sha, ...extra }) + "\n");
+	} catch {}
+};
+const DIR = `${HOME}/.local/state/ag-tickler`;
+const AG_MUX = `${HOME}/.local/bin/ag-mux`;
+const PRESENCE = `${HOME}/.local/state/ag-presence/state.json`;
+const PRESENCE_STALE_MS = 5 * 60_000;
+mkdirSync(DIR, { recursive: true });
+
+type Item = {
+	id: string;
+	title: string;
+	task: string;
+	due?: string; // ISO; absent for presence items
+	when?: "online" | "check" | "event"; // online: next arrival at the client; check: shell cmd exits 0; event: `ag-tickler trigger`
+	check?: string;
+	expires?: string; // ISO; check/event items fire as expired after this
+	triggered?: boolean; // fired by `ag-tickler trigger` / the webhook
+	note?: string; // from `ag-tickler trigger --note`
+	waiting_for?: string; // GTD "waiting for": the person we're waiting on
+	attempt?: number; // waiting-for: which check-in this is (1 = first)
+	needs_user?: boolean; needs_nathan?: boolean /* old name */; // the wake-up waits on the user themselves (a login, a click, an answer): ag-dash keeps it in Needs you
+	pin?: boolean; // pin the session it comes back in (the deferring session was pinned)
+	session?: string;
+	cwd: string;
+	mode: "fork" | "fresh";
+	status: "waiting" | "fired" | "failed" | "cancelled";
+	created_at: string;
+	fired_at?: string;
+	error?: string;
+};
+
+const path = (id: string) => `${DIR}/${id}.json`;
+const save = (i: Item) => writeFileSync(path(i.id), JSON.stringify(i, null, 2) + "\n");
+const load = (): Item[] =>
+	readdirSync(DIR)
+		.filter((f) => f.endsWith(".json"))
+		.map((f) => JSON.parse(readFileSync(`${DIR}/${f}`, "utf8")))
+		.sort((a, b) => (a.due ?? "~").localeCompare(b.due ?? "~") || a.created_at.localeCompare(b.created_at));
+const log = (id: string, step: string, data: object = {}) =>
+	appendFileSync(`${DIR}/log.jsonl`, JSON.stringify({ ts: new Date().toISOString(), id, step, ...data }) + "\n");
+const WAKE_DEFAULT_MS = 7 * 24 * 3600_000;
+const isWake = (i: Item) => i.when === "check" || i.when === "event";
+const resumes = (i: Item) => isWake(i) || !!i.waiting_for;
+const whenText = (i: Item) =>
+	(i.waiting_for ? `waiting for ${i.waiting_for} (check-in #${i.attempt ?? 1}) · ` : "") +
+	(i.when === "online" ? "when the user is next online"
+	: i.when === "check" ? `when \`${i.check}\` succeeds (expires ${local(i.expires!)})`
+	: i.when === "event" ? `when triggered (expires ${local(i.expires!)})`
+	: local(i.due!) + (i.check ? ` or when \`${i.check}\` succeeds` : ""));
+const local = (iso: string) =>
+	new Date(iso).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+
+function mux(...args: string[]): any {
+	const out = execFileSync(AG_MUX, args, { encoding: "utf8", timeout: 90_000 });
+	return out.trim() ? JSON.parse(out).result : null;
+}
+
+function flags(argv: string[]): Record<string, string> {
+	const f: Record<string, string> = {};
+	for (let i = 0; i < argv.length; i++) if (argv[i].startsWith("--")) f[argv[i].slice(2)] = argv[i + 1]?.startsWith("--") || argv[i + 1] === undefined ? "true" : argv[++i];
+	return f;
+}
+
+function add(f: Record<string, string>) {
+	const when = f.when as Item["when"];
+	if (when && !["online", "check", "event"].includes(when)) throw new Error(`unknown --when: ${when} (online|check|event)`);
+	if (!f.task || !!f.at === !!when) throw new Error("add needs --task and exactly one of --at <ISO time> or --when online|check|event");
+	if (f["waiting-for"] && when) throw new Error("--waiting-for needs --at (the next check-in time)");
+	if (when === "check" && !f.check) throw new Error("--when check needs --check '<shell command>'");
+	const online = when === "online";
+	const wake = when === "check" || when === "event";
+	const due = when ? undefined : new Date(f.at);
+	if (due && isNaN(+due)) throw new Error(`unparseable --at: ${f.at}`);
+	const expires = wake ? (f.expires ? new Date(f.expires) : new Date(Date.now() + WAKE_DEFAULT_MS)) : undefined;
+	if (expires && isNaN(+expires)) throw new Error(`unparseable --expires: ${f.expires}`);
+	const session = f.session && existsSync(f.session) ? f.session : undefined;
+	const item: Item = {
+		id: randomBytes(4).toString("hex"),
+		title: (f.title ?? f.task).slice(0, 40),
+		task: f.task,
+		due: due?.toISOString(),
+		when,
+		check: when === "check" || (!when && f.check) ? f.check : undefined,
+		waiting_for: f["waiting-for"],
+		attempt: f["waiting-for"] ? Math.max(1, Number(f.attempt) || 1) : undefined,
+		needs_user: f["needs-user"] === "true" || f["needs-nathan"] === "true" || undefined,
+		pin: f.pin === "true" || undefined,
+		expires: expires?.toISOString(),
+		session,
+		cwd: f.cwd ?? HOME,
+		mode: f.mode === "fresh" || !session ? "fresh" : "fork",
+		status: "waiting",
+		created_at: new Date().toISOString(),
+	};
+	save(item);
+	log(item.id, "added", { due: item.due, when: item.when, check: item.check });
+	const late = due && +due < Date.now() ? " (already past: fires within a minute)" : "";
+	const p = item.waiting_for
+		? " Resumes this session in place if it's still open and ready, else a forked tab."
+		: online
+		? ` ${presenceLine()} It fires on their next arrival after now.`
+		: wake
+			? ` Resumes this session in place if it's still open and ready, else a forked tab. Webhook: curl -X POST http://ag:7373/ag-tickler/${item.id} (or \`ag-tickler trigger ${item.id}\`).`
+			: "";
+	console.log(`Scheduled ${item.id} "${item.title}" for ${whenText(item)}${late}, mode ${item.mode}${item.pin ? ", pinned when it comes back" : ""}.${p}`);
+}
+
+function list(all: boolean) {
+	const items = load().filter((i) => all || i.status === "waiting");
+	if (items.some((i) => i.when === "online")) console.log(presenceLine());
+	if (!items.length) return console.log("No ag-tickler items.");
+	for (const i of items) console.log(`${i.id}  ${whenText(i)}  [${i.status}]  ${i.title}`);
+}
+
+function cancel(id: string) {
+	const i = load().find((x) => x.id === id);
+	if (!i) throw new Error(`no item ${id}`);
+	save({ ...i, status: "cancelled" });
+	log(id, "cancelled");
+	console.log(`Cancelled ${id} "${i.title}".`);
+}
+
+type Presence = { client: string; state: string; online_since?: string; last_poll?: string };
+function presence(): Presence | null {
+	try {
+		const p: Presence = JSON.parse(readFileSync(PRESENCE, "utf8"));
+		return p.last_poll && Date.now() - +new Date(p.last_poll) < PRESENCE_STALE_MS ? p : null;
+	} catch {
+		return null;
+	}
+}
+function presenceLine(): string {
+	const p = presence();
+	if (!p) return "Presence: unknown (com.ag.ag-presence isn't reporting).";
+	return p.state === "online" ? `Presence: the user is online at ${p.client} now.` : `Presence: the user is ${p.state} at ${p.client}.`;
+}
+
+function checkPasses(cmd: string): boolean {
+	try {
+		execFileSync("/bin/sh", ["-c", cmd], { stdio: "ignore", timeout: 20_000, env: { ...process.env, PATH: `${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin` } });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+// Time items: due has passed. Presence items: the user is online in an arrival that began after the item was queued.
+// Wake items: the check passes, or they expired (event items only fire via `trigger`, which calls fireOne directly).
+function isDue(i: Item, p: Presence | null): boolean {
+	if (i.when === "online") return p?.state === "online" && !!p.online_since && p.online_since > i.created_at;
+	if (isWake(i)) return +new Date(i.expires!) <= Date.now() || (i.when === "check" && checkPasses(i.check!));
+	return +new Date(i.due!) <= Date.now() || (!!i.check && checkPasses(i.check));
+}
+
+function waitingPrompt(i: Item): string {
+	const n = i.attempt ?? 1;
+	const early = +new Date(i.due!) > Date.now() ? ` It fired early because \`${i.check}\` succeeded, so something probably moved.` : "";
+	return `⧖ Waiting-for ${i.id}: check-in #${n} on ${i.waiting_for} (queued ${local(i.created_at)}).${early}
+
+Task: ${i.task}
+
+1. Find out whether ${i.waiting_for} responded or did the thing: check the channel you asked on and any programmatic signal in the task. Look before assuming.
+2. If they did: do the next step now, and tell the user briefly.
+3. If they said when (\"next week\", \"after Friday\"): don't nudge. Requeue with the ag-tickler tool (same waitingFor, attempt ${n}) for the morning after that time.
+4. If not, and there's no timeline: send ONE short, friendly follow-up on the same channel (attribution rules apply; don't re-explain everything, refer back to the earlier message), then requeue with the ag-tickler tool: waitingFor "${i.waiting_for}", attempt ${n + 1}, at ${["", "2 days", "4 days", "a week", ""][n] || "—"} from now, in their afternoon on a weekday. Put the up-to-date state and next step in the task text.
+5. Backoff: check-ins go 1 → +2d → +4d → +1w. If this is check-in #4 or later and still nothing, don't nudge again: tell the user it's stalled and ask how they'd like to proceed (text them with \`ag-text\` if they're away).
+Never nudge more than once per check-in, and keep it warm; this is someone doing the user a favor.`;
+}
+
+// What fires: the task as the visible message, the ag-tickler's framing and instructions in an origin tag
+// (a chip in the UIs, read in full by the model).
+function prompt(i: Item): string {
+	const raw = rawPrompt(i);
+	const cut = raw.indexOf(`\n\nTask: ${i.task}`);
+	if (cut < 0) return raw;
+	const rest = raw.slice(cut + `\n\nTask: ${i.task}`.length).trim();
+	const note = `${raw.slice(0, cut)}\n\nThe task is the message after this tag.${rest ? `\n\n${rest}` : ""}`;
+	const expired = isWake(i) && raw.includes("EXPIRED");
+	const label = i.waiting_for ? `Waiting for ${i.waiting_for} · check-in #${i.attempt ?? 1}`
+		: isWake(i) ? (expired ? "Wake-up expired" : "Wake-up: ready")
+		: i.when === "online" ? "Queued for when you're back online"
+		: `Tickler · deferred ${local(i.created_at)}`;
+	return `${originTag({ kind: "tickler", label, note })}\n${i.task}`;
+}
+
+function rawPrompt(i: Item): string {
+	if (i.waiting_for) return waitingPrompt(i);
+	const when = local(i.created_at);
+	if (isWake(i)) {
+		const what = i.when === "check" ? `\`${i.check}\` to succeed` : "a trigger (webhook)";
+		const status = i.triggered ? `It was triggered${i.note ? `: ${i.note}` : "."}` : "";
+		const expired = !i.triggered && +new Date(i.expires!) <= Date.now() && !(i.when === "check" && checkPasses(i.check!));
+		const head = expired
+			? `↺ Wake-up ${i.id} (queued ${when}, waiting for ${what}) EXPIRED at ${local(i.expires!)} without the condition coming true. Find out why and tell the user; requeue with the ag-tickler tool if it's still worth waiting.`
+			: `↺ Wake-up ${i.id} (queued ${when}): what you were waiting for is ready (waited for ${what}). ${status}`;
+		return `${head}
+
+Task: ${i.task}
+
+Continue now.`;
+	}
+	if (i.when === "online") {
+		const context = i.mode === "fork" ? " This session is a fork of the conversation where it was queued, so you have that context." : "";
+		return `● Presence item ${i.id}, queued on ${when} for "the next time the user is online at the client". They just came online.${context}
+
+Task: ${i.task}
+
+Do it now; they're at their Mac, so questions and physical tests they need to do are fine. Check what changed since it was queued first (PRs, commits, files) when that matters. If they ask to push it back, requeue it with the ag-tickler tool.`;
+	}
+	const late = Date.now() - +new Date(i.due!) > 15 * 60_000 ? ` It fired late (due ${local(i.due)}; the Mac was probably asleep).` : "";
+	const context = i.mode === "fork" ? " This session is a fork of the conversation where it was deferred, so you have that context." : "";
+	return `◷ Tickler item ${i.id}, deferred on ${when} for now.${late}${context}
+
+Task: ${i.task}
+
+Do it now. If it's a reminder or needs the user's decision, check what changed since it was deferred (PRs, commits, Slack, Linear as relevant) and give them a 3-line status and the next step. If they ask to push it back, reschedule it with the ag-tickler tool.`;
+}
+
+// The pane still running the deferring pi session, if it's ready for input.
+function originPane(i: Item): string | null {
+	if (!i.session) return null;
+	try {
+		const panes = mux("pane", "list").panes as { pane_id: string; agent_status?: string; agent_session?: { value?: string } }[];
+		const p = panes.find((x) => x.agent_session?.value === i.session);
+		return p && ["idle", "done"].includes(p.agent_status ?? "") ? p.pane_id : null;
+	} catch {
+		return null;
+	}
+}
+
+// Pin the session an item came back in on ag-dash (best effort; the card can take a moment to appear).
+function pinTab(i: Item, pane: string) {
+	if (!i.pin) return;
+	for (let tries = 0; tries < 10; tries++) {
+		try {
+			execFileSync(`${HOME}/.local/bin/ag`, ["pin", "on", pane], { timeout: 15_000, stdio: "ignore" });
+			return log(i.id, "pinned", { pane });
+		} catch {
+			Bun.sleepSync(2000);
+		}
+	}
+	log(i.id, "pin_failed", { pane });
+}
+
+function fireOne(i: Item) {
+	const origin = resumes(i) ? originPane(i) : null;
+	if (origin) {
+		injected("ag-tickler", prompt(i), { id: i.id, when: i.when });
+		mux("agent", "prompt", origin, prompt(i));
+		try {
+			mux("notification", "show", `↺ ${i.title}`.slice(0, 40), "--body", "Wake-up fired: resumed its session", "--sound", "request");
+		} catch {}
+		pinTab(i, origin);
+		return log(i.id, "fired", { pane: origin, resumed: true });
+	}
+	const icon = i.waiting_for ? "⧖" : i.when === "online" ? "●" : isWake(i) ? "↺" : "◷"; // plain glyphs, no emoji (the user's preference)
+	const label = `${icon} ${i.title}`.slice(0, 40);
+	const cwd = existsSync(i.cwd) ? i.cwd : HOME;
+	const pane: string = mux("tab", "create", "--cwd", cwd, "--label", label, "--no-focus").root_pane.pane_id;
+	const agent = `ag-tickler-${i.id}`;
+	const extra = i.mode === "fork" && i.session && existsSync(i.session) ? ["--", "--fork", i.session] : [];
+	// A brand-new pane's shell may still be initializing (agent_pane_busy); retry for ~20s.
+	for (let tries = 0; ; tries++) {
+		try {
+			mux("agent", "start", agent, "--kind", "pi", "--pane", pane, "--timeout", "60000", ...extra);
+			break;
+		} catch (e) {
+			if (tries >= 10 || !String(e).includes("agent_pane_busy")) throw e;
+			Bun.sleepSync(2000);
+		}
+	}
+	injected("ag-tickler", prompt(i), { id: i.id, when: i.when });
+	mux("agent", "prompt", agent, prompt(i));
+	pinTab(i, pane);
+	try {
+		const why = i.when === "online" ? "Welcome back: queued for when you're online" : isWake(i) ? "Wake-up fired (its session was closed or busy)" : "Tickler fired";
+		mux("notification", "show", label, "--body", why, "--sound", "request");
+	} catch {}
+	log(i.id, "fired", { pane, agent });
+}
+
+function trigger(id: string, note?: string) {
+	const i = load().find((x) => x.id === id);
+	if (!i) throw new Error(`no item ${id}`);
+	if (i.status !== "waiting") return console.log(`${id} is already ${i.status}.`);
+	const item: Item = { ...i, triggered: true, note };
+	save({ ...item, status: "fired", fired_at: new Date().toISOString() });
+	try {
+		fireOne(item);
+	} catch (e) {
+		save({ ...item, status: "failed", fired_at: new Date().toISOString(), error: String(e) });
+		throw e;
+	}
+	console.log(`Fired ${id} "${i.title}".`);
+}
+
+function fire() {
+	// One firer at a time: `ag-presence poll` and the every-minute LaunchAgent can overlap.
+	const lock = `${DIR}/.fire.lock`;
+	try {
+		mkdirSync(lock);
+	} catch {
+		if (Date.now() - statSync(lock).mtimeMs < 10 * 60_000) return;
+		rmSync(lock, { recursive: true, force: true });
+		mkdirSync(lock);
+	}
+	try {
+		fireDue();
+	} finally {
+		rmSync(lock, { recursive: true, force: true });
+	}
+}
+
+function fireDue() {
+	const p = presence();
+	for (const i of load().filter((x) => x.status === "waiting" && isDue(x, p))) {
+		// Mark first so a crash mid-launch can't fire the same item twice.
+		save({ ...i, status: "fired", fired_at: new Date().toISOString() });
+		try {
+			fireOne(i);
+		} catch (e) {
+			save({ ...i, status: "failed", fired_at: new Date().toISOString(), error: String(e) });
+			log(i.id, "failed", { error: String(e) });
+		}
+	}
+}
+
+const [cmd, ...rest] = process.argv.slice(2);
+try {
+	if (cmd === "add") add(flags(rest));
+	else if (cmd === "list") list(rest.includes("--all"));
+	else if (cmd === "cancel") cancel(rest[0]);
+	else if (cmd === "fire") fire();
+	else if (cmd === "trigger") trigger(rest[0], flags(rest.slice(1)).note);
+	else {
+		console.error("usage: ag-tickler add|list|cancel|trigger|fire (see header)");
+		process.exit(2);
+	}
+} catch (e) {
+	console.error(String(e instanceof Error ? e.message : e));
+	process.exit(1);
+}

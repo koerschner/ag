@@ -1,0 +1,13 @@
+# ag-telemetry (http://ag:7378): every crash, failure and restart across Ag, from all machines. Session host only.
+[Unit]
+Description=ag-telemetry: crashes and failures across Ag (http://ag:7378)
+After=network-online.target
+
+[Service]
+ExecCondition=%h/.local/bin/ag-machine-role host
+ExecStart=/usr/bin/zsh -lc 'exec %h/.local/bin/ag-telemetry serve'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

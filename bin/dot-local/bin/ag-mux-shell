@@ -1,0 +1,17 @@
+#!/bin/sh
+# default-command of Ag's tmux server: make sure this pane knows its Ag IDs (AG_* env; agd sets them
+# for panes it creates, this covers splits and windows made with plain tmux keys), then start the shell.
+if [ -n "$TMUX_PANE" ]; then
+	mine=$(tmux display-message -p -t "$TMUX_PANE" '#{@ag_pane}' 2>/dev/null)
+	if [ -z "$mine" ] || [ "$mine" != "$AG_PANE_ID" ]; then
+		eval "$("$HOME/.local/bin/ag-mux" pane register "$TMUX_PANE" 2>/dev/null |
+			jq -r '.result.env // {} | to_entries[] | "export \(.key)=\(.value | @sh)"')"
+	fi
+fi
+# The account's login shell, not $SHELL: systemd's user manager can carry a stale SHELL=/bin/bash, and
+# bash never reads ~/.zshenv.local (TFY_TOKEN), so pi fell back to an expired Anthropic login.
+sh=$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7)
+[ -n "$sh" ] || sh=$(dscl . -read "/Users/$(id -un)" UserShell 2>/dev/null | awk '{print $2}')
+[ -x "$sh" ] || sh=${SHELL:-/bin/sh}
+export SHELL="$sh"
+exec "$sh" -l

@@ -1,0 +1,85 @@
+#!/usr/bin/env zsh
+# ag-rec — record this Mac's screen for polished demo videos (Screen Studio style, headless).
+#
+#   ag-rec start [-s N] [--fps 30] [--max 1800] [-o DIR]   start recording (screen N, default main)
+#   ag-rec stop                                           stop; prints the session dir
+#   ag-rec status
+#   ag-rec export [DIR|video] <out.mp4> [options]         render the polished mp4 (DIR: last session)
+#   ag-rec export --help                                  all export options
+#
+# The screen is captured WITHOUT the cursor (ffmpeg avfoundation -capture_cursor 0) while
+# `cursorlog` logs cursor position (60 Hz) and clicks. `export` then fast-forwards dead time
+# (8x with a ⏩ badge, or --drop to cut it), draws a smoothed, enlarged cursor with click
+# ripples, and zooms gently toward click areas. Any other video (e.g. from ag-screen-record) can be
+# exported too; it just gets the dead-time cut.
+#
+# Needs Screen Recording + Input Monitoring for the TCC identity running it (on ag-mac:
+# sshd-keygen-wrapper, see `ag-access`).
+set -euo pipefail
+share=${0:A:h:h}/share/ag-rec
+state=~/.local/state/ag-rec
+cache=~/.cache/ag-rec
+mkdir -p $state $cache
+cmd=${1:-}; shift || true
+
+alive() { [[ -f $state/pid ]] && kill -0 $(<$state/pid) 2>/dev/null; }
+
+cursorlog() {  # compiled on first use / when the source changes
+	local bin=$cache/cursorlog src=$share/cursorlog.swift
+	if [[ ! -x $bin || $src -nt $bin ]]; then
+		swiftc -O -o $bin $src >&2 || { echo "ag-rec: building cursorlog failed" >&2; return 1; }
+	fi
+	print $bin
+}
+
+case $cmd in
+start)
+	screen=0 fps=30 max=1800 dir=
+	while (( $# )); do case $1 in
+		-s) screen=$2; shift 2 ;; -o) dir=$2; shift 2 ;;
+		--fps) fps=$2; shift 2 ;; --max) max=$2; shift 2 ;;
+		*) echo "ag-rec: unknown option $1" >&2; exit 2 ;;
+	esac; done
+	alive && { echo "ag-rec: already recording → $(<$state/dir) (run: ag-rec stop)" >&2; exit 1; }
+	if ! screencapture -x -D $(( screen + 1 )) $state/probe.png 2>/dev/null; then
+		echo "ag-rec: no Screen Recording permission for this process; run ag-access (docs/reference.md, \"macOS permissions for agents\")." >&2
+		exit 3
+	fi
+	cl=$(cursorlog)
+	[[ -n $dir ]] || dir=/tmp/ag-rec/$(date +%Y-%m-%dT%H-%M-%S)
+	mkdir -p $dir; dir=${dir:A}
+	print "{\"screen\": $screen, \"fps\": $fps}" > $dir/meta.json
+	# Wall-clock timestamps: ffmpeg.log's "start: <epoch>" is the first frame, which is how
+	# export lines the cursor log up with the video. mkv survives an unclean stop.
+	nohup ffmpeg -nostdin -nostats -y -f avfoundation -pixel_format nv12 -capture_cursor 0 -framerate $fps \
+		-use_wallclock_as_timestamps 1 -i "Capture screen $screen:none" -t $max -r $fps \
+		-c:v libx264 -preset ultrafast -crf 16 -pix_fmt yuv420p -g $(( fps * 2 )) $dir/screen.mkv \
+		> $dir/ffmpeg.log 2>&1 &
+	print $! > $state/pid
+	nohup $cl $dir/cursor.csv 60 > $dir/cursorlog.log 2>&1 &
+	print $! > $state/cursorlog
+	caffeinate -u -t $max >/dev/null 2>&1 & print $! > $state/caffeinate
+	print -r -- $dir > $state/dir
+	for _ in {1..100}; do grep -q 'start: [0-9]' $dir/ffmpeg.log 2>/dev/null && break; alive || break; sleep 0.1; done
+	alive && grep -q 'start: [0-9]' $dir/ffmpeg.log || { echo "ag-rec: ffmpeg didn't start:" >&2; grep -v objc $dir/ffmpeg.log >&2; $0 stop >/dev/null 2>&1; exit 1; }
+	echo "recording → $dir"
+	;;
+stop)
+	alive || { echo "ag-rec: not recording" >&2; exit 1; }
+	pid=$(<$state/pid)
+	kill -INT $pid
+	for _ in {1..100}; do kill -0 $pid 2>/dev/null || break; sleep 0.1; done
+	kill -0 $pid 2>/dev/null && kill -9 $pid
+	for f in cursorlog caffeinate; do [[ -f $state/$f ]] && kill $(<$state/$f) 2>/dev/null; rm -f $state/$f; done
+	rm -f $state/pid
+	cat $state/dir
+	;;
+status)
+	if alive; then echo "recording → $(<$state/dir)"; else echo "not recording${$(cat $state/dir 2>/dev/null):+ (last: $(<$state/dir))}"; fi
+	;;
+export)
+	if (( $# == 1 )) && [[ $1 != -* ]]; then set -- "$(<$state/dir)" "$@"; fi
+	exec uv run --quiet --script $share/export.py "$@"
+	;;
+*) sed -n '2,19p' $0 | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+esac

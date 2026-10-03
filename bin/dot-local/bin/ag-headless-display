@@ -1,0 +1,12 @@
+#!/usr/bin/env zsh
+# Compile (when the source changes) and run ag-headless-display. See the .m file.
+set -euo pipefail
+src=$HOME/.local/share/ag-headless-display/ag-headless-display.m
+bin=$HOME/Library/Caches/ag-headless-display/ag-headless-display
+if [[ ! -x $bin || $src -nt $bin ]]; then
+  mkdir -p ${bin:h}
+  xcrun clang -O2 -fobjc-arc -Wno-deprecated-declarations \
+    -framework Foundation -framework CoreGraphics -framework IOKit \
+    ${src:A} -o $bin
+fi
+exec $bin "$@"

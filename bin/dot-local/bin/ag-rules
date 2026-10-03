@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""ag-rules — a personal UX layer on top of Ag: plain-English rules that boil down to code.
+
+ag is the engine (hooks, this CLI, the runtimes, the actions each app exposes). Rules are folders, one per rule,
+in the directories of AG_RULES_PATH (colon-separated; default ~/ag/ag-rules:~/.ag/ag-rules): ag's
+default rules first, then the user's own in ~/.ag/ag-rules. A rule folder <name>/ holds rule.md (front matter,
+then the rule in plain English: the spec) and the code it names. A rule in a later directory replaces one of the
+same name in an earlier one, so to change or turn off a default, `ag-rules eject <name>` and edit the copy.
+
+Hooks (`on:`), and what runs them (full table: ~/ag/ag-rules/README.md):
+    prompt       every prompt to a Pi session, before the agent sees it      code .ts    Pi extension ag-rules.ts
+    keys         keyboard shortcuts of one app (`app:` ag-dash | ag-dash-app | ag-session)
+                                                                              code .json  the app (ag-rules keys <app>)
+    hammerspoon  Mac client behavior, loaded by ag.lua                        code .lua
+    capture      is an ag-inbox capture new context for an open session?     code .ts    ag-inbox
+    new-item     what ag-dash's New item text is for (find vs new work)      code .ts    ag-dash
+    answer       an archived-while-working chat answered: is it done?        code .ts    ag-dash
+    cua          may an agent drive the client Mac's / phone's desktop?      code .ts    ag-client-cua-gate
+    tab-name     does a tab's label still name its session?                  code .ts    Pi extension ag-tab-name.ts
+Front matter: description, on, app (keys), code, enabled (default true), sessions (prompt: interactive | all).
+Docs: ~/ag/ag-rules/README.md, docs/reference.md → "ag-rules". Also `ag rules …`.
+
+    ag-rules list [--json]     every rule: name, hook, on/off, description
+    ag-rules show <name>       the rule in plain English, and its code file
+    ag-rules keys <app>        the merged keymap of an app's enabled keys rules (JSON), as the apps load it
+    ag-rules path              the directories searched, in order
+    ag-rules eject <name>      copy a default rule into your own rules (~/.ag/ag-rules) to edit or turn it off
+"""
+import json, os, re, shutil, sys
+
+AG = os.environ.get("AG_DIR") or os.path.expanduser("~/ag")
+DEFAULTS = os.path.join(AG, "ag-rules")  # the rules ag ships, beside the engine (types.ts, engine.ts)
+USER = os.path.expanduser("~/.ag/ag-rules")
+
+
+def dirs():
+    raw = os.environ.get("AG_RULES_PATH") or f"{DEFAULTS}:{USER}"
+    return [os.path.expanduser(d) for d in raw.split(":") if d]
+
+
+def user_dir():
+    """Where your own rules really live: ~/.ag/ag-rules, or the folder its links point into (e.g. dotfiles)."""
+    if os.path.isdir(USER):
+        for n in os.listdir(USER):
+            f = os.path.join(USER, n, "rule.md")
+            if os.path.islink(f):
+                return os.path.dirname(os.path.dirname(os.path.realpath(f)))
+    return USER
+
+
+def load(folder):
+    text = open(os.path.join(folder, "rule.md"), encoding="utf-8").read()
+    m = re.match(r"---\n(.*?)\n---\n?(.*)", text, re.S)
+    meta = dict(re.findall(r"^(\w+):[ \t]*(.*?)[ \t]*$", m.group(1), re.M)) if m else {}
+    meta["name"] = os.path.basename(folder)
+    meta["dir"] = folder
+    meta["enabled"] = meta.get("enabled", "true") != "false"
+    meta["text"] = (m.group(2) if m else text).strip()
+    if meta.get("code"):
+        meta["path"] = os.path.join(folder, meta["code"])
+    return meta
+
+
+def rules():
+    found = {}
+    for d in dirs():
+        if os.path.isdir(d):
+            for n in sorted(os.listdir(d)):
+                if os.path.isfile(os.path.join(d, n, "rule.md")):
+                    r = load(os.path.join(d, n))
+                    default = os.path.realpath(d) == os.path.realpath(DEFAULTS)
+                    r["source"] = "default" if default else ("yours, replaces a default" if n in found else "yours")
+                    found[n] = r
+    return [found[n] for n in sorted(found)]
+
+
+def keymap(app):
+    """Bindings of every enabled keys rule for `app`, in rule-name order (first match wins in the apps)."""
+    out = []
+    for r in rules():
+        if r["enabled"] and r.get("on") == "keys" and r.get("app") == app and r.get("path"):
+            spec = json.load(open(r["path"], encoding="utf-8"))
+            out += [{**b, "rule": r["name"]} for b in spec.get("bindings", [])]
+    return {"app": app, "bindings": out}
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return 0
+    cmd, rest = argv[0], argv[1:]
+    if cmd == "list":
+        rs = rules()
+        if "--json" in rest:
+            print(json.dumps(rs))
+        else:
+            for r in rs:
+                hook = r.get("on", "?") + (f":{r['app']}" if r.get("app") else "")
+                src = "" if r["source"] == "yours" else f" [{r['source']}]"
+                print(f"{r['name']:26} {hook:18} {'on ' if r['enabled'] else 'off'} {r.get('description', '')}{src}")
+            if not rs:
+                print(f"(no ag-rules in {':'.join(dirs())})")
+    elif cmd == "show" and len(rest) == 1:
+        r = next((r for r in rules() if r["name"] == rest[0]), None)
+        if not r:
+            print(f"ag-rules: no rule {rest[0]!r} (have: {', '.join(x['name'] for x in rules())})", file=sys.stderr)
+            return 1
+        print(f"{r['name']}: {r.get('description', '')}\non: {r.get('on')}{' app: ' + r['app'] if r.get('app') else ''}"
+              f"  enabled: {str(r['enabled']).lower()}  source: {r['source']}  code: {r.get('path', '-')}\n\n{r['text']}")
+    elif cmd == "keys" and len(rest) == 1:
+        print(json.dumps(keymap(rest[0]), indent=1))
+    elif cmd == "path":
+        print("\n".join(dirs()))
+    elif cmd == "eject" and len(rest) == 1:
+        r = next((r for r in rules() if r["name"] == rest[0]), None)
+        if not r:
+            print(f"ag-rules: no rule {rest[0]!r}", file=sys.stderr)
+            return 1
+        if r["source"] != "default":
+            print(f"{r['name']} is already yours: {r['dir']}")
+            return 0
+        dest = os.path.join(user_dir(), r["name"])
+        shutil.copytree(r["dir"], dest)
+        print(f"copied to {dest}: edit rule.md and its code there (enabled: false turns it off); it replaces the default."
+              + ("" if dest.startswith(USER) else f" Commit it in that repo; it reaches {USER} by stow."))
+    else:
+        print(__doc__.strip(), file=sys.stderr)
+        return 2
+    return 0
+
+
+sys.exit(main(sys.argv[1:]))

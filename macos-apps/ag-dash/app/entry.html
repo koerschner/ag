@@ -1,0 +1,141 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; script-src file: 'unsafe-inline'">
+<title>Ag</title>
+<style>
+  :root { color-scheme: light dark; --bg: rgba(250, 250, 252, .78); --text: #1d1d1f; --muted: #86868b; --line: rgba(0, 0, 0, .08); --chip: rgba(0, 0, 0, .05); --key: rgba(0, 0, 0, .06); --accent: #0a84ff; }
+  @media (prefers-color-scheme: dark) { :root { --bg: rgba(30, 30, 32, .74); --text: #f5f5f7; --muted: #98989d; --line: rgba(255, 255, 255, .1); --chip: rgba(255, 255, 255, .07); --key: rgba(255, 255, 255, .09); } }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: transparent; overflow: hidden; }
+  body { font: 16px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; color: var(--text); -webkit-user-select: none; }
+  .card { margin: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px 12px; display: flex; flex-direction: column; gap: 12px; }
+  .row { display: flex; gap: 14px; align-items: flex-start; }
+  .logo { width: 28px; height: 28px; margin-top: 1px; flex: none; border-radius: 7px; background: linear-gradient(135deg, #2b2b2e, #000); color: #fff; font: 700 13px/28px -apple-system; text-align: center; letter-spacing: -.3px; }
+  textarea { flex: 1; border: 0; outline: 0; resize: none; background: transparent; color: inherit; font: inherit; font-size: 21px; line-height: 1.4; padding: 0; min-height: 30px; max-height: 340px; -webkit-user-select: text; }
+  textarea::placeholder { color: var(--muted); }
+  .shot { display: none; align-items: center; gap: 10px; padding: 6px; padding-right: 10px; background: var(--chip); border-radius: 10px; align-self: flex-start; margin-left: 42px; }
+  .shot.on { display: flex; }
+  .shot img { height: 64px; border-radius: 6px; cursor: pointer; border: 1px solid var(--line); }
+  .shot img:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .shot .label { font-size: 12px; color: var(--muted); line-height: 1.35; }
+  .shot .label b { color: var(--text); font-weight: 600; display: block; }
+  .shot button { border: 0; background: transparent; color: var(--muted); font-size: 15px; cursor: pointer; padding: 2px 4px; border-radius: 6px; }
+  .shot button:hover { background: var(--key); color: var(--text); }
+  .pastes { display: none; flex-wrap: wrap; gap: 8px; margin-left: 42px; }
+  .pastes.on { display: flex; }
+  .pastes .chip { position: relative; }
+  .pastes img { height: 64px; border-radius: 6px; border: 1px solid var(--line); display: block; }
+  .pastes button { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 11px; line-height: 1; cursor: pointer; padding: 0; }
+  .foot { display: flex; align-items: center; gap: 14px; border-top: 1px solid var(--line); padding-top: 8px; font-size: 12.5px; color: var(--muted); }
+  .foot .sp { flex: 1; }
+  kbd { font: 500 12px -apple-system; background: var(--key); border-radius: 4px; padding: 1px 5px; margin-right: 4px; color: var(--text); }
+  .status { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="row">
+    <div class="logo">Ag</div>
+    <textarea id="text" rows="1" placeholder="Ask Ag anything…" autofocus></textarea>
+  </div>
+  <div class="shot" id="shot">
+    <img id="thumb" alt="Screenshot" title="Click to annotate in CleanShot">
+    <div class="label"><b id="shotTitle">Screenshot attached</b><span id="shotNote">Click to annotate</span></div>
+    <button id="drop" title="Remove screenshot">✕</button>
+  </div>
+  <div class="pastes" id="pastes"></div>
+  <div class="foot">
+    <span><kbd>↩</kbd>Send</span>
+    <span><kbd>⌘↩</kbd>Send &amp; pin</span>
+    <span><kbd>⇧↩</kbd>New line</span>
+    <span class="sp"></span>
+    <span class="status" id="status"><kbd>esc</kbd>Close</span>
+  </div>
+</div>
+<script src="../../../ag-dash/dot-local/share/ag-dash/keys.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const text = $("text");
+let hasShot = false;
+let pasted = []; // [{file, thumb}] images pasted into the box
+
+// Size the window to the content (the textarea grows with what you type).
+function fit() {
+  text.style.height = "auto";
+  text.style.height = Math.min(text.scrollHeight, 340) + "px";
+  agEntry.resize(Math.ceil($("card").getBoundingClientRect().height));
+}
+text.addEventListener("input", fit);
+
+function submit(pin) {
+  const value = text.value.trim();
+  if (!value && !pasted.length) return;
+  agEntry.send({ text: value, pin, shot: hasShot, pasted: pasted.map((p) => p.file) });
+}
+
+// Keys: the keys ag-rules' `when: entry` bindings for app ag-dash-app (sent by main.js on open), dispatched by ag-dash's
+// keys.js; without any rules, the defaults below.
+const DEFAULT_KEYS = [{ keys: "enter", do: "send" }, { keys: "cmd+enter", do: "sendPin" }, { keys: "esc", do: "close" }];
+const keyActions = { send: () => submit(false), sendPin: () => submit(true), close: () => agEntry.cancel() };
+agKeys.use(DEFAULT_KEYS);
+document.addEventListener("keydown", (e) => agKeys.dispatch(e, keyActions));
+// Pasted images (e.g. a CleanShot copy) become attachments; text pastes stay normal.
+function renderPasted() {
+  const box = $("pastes");
+  box.replaceChildren(...pasted.map((p) => {
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    const img = document.createElement("img");
+    img.src = p.thumb;
+    img.alt = "Pasted image";
+    const x = document.createElement("button");
+    x.textContent = "✕";
+    x.title = "Remove image";
+    x.addEventListener("click", () => { pasted = pasted.filter((q) => q !== p); renderPasted(); text.focus(); });
+    chip.append(img, x);
+    return chip;
+  }));
+  box.classList.toggle("on", pasted.length > 0);
+  requestAnimationFrame(fit);
+}
+text.addEventListener("paste", async (e) => {
+  const dt = e.clipboardData;
+  const files = [...(dt?.files || [])].filter((f) => f.type.startsWith("image/"));
+  const plain = dt?.getData("text/plain") || "";
+  if (!files.length && (plain.trim() || !dt?.types.some((t) => t.startsWith("image/") || t === "Files"))) return;
+  e.preventDefault();
+  const items = await Promise.all(files.map(async (f) => ({ type: f.type, data: await f.arrayBuffer() })));
+  const added = await agEntry.paste(items);
+  if (!added.length && plain) document.execCommand("insertText", false, plain);
+  pasted.push(...added);
+  renderPasted();
+});
+$("thumb").addEventListener("click", () => agEntry.annotate());
+$("drop").addEventListener("click", () => { hasShot = false; $("shot").classList.remove("on"); text.focus(); fit(); });
+
+agEntry.onOpen(({ thumb, keys }) => {
+  agKeys.use((keys?.length ? keys : DEFAULT_KEYS).map(({ when, ...b }) => b));
+  text.value = "";
+  pasted = [];
+  renderPasted();
+  hasShot = !!thumb;
+  $("shot").classList.toggle("on", hasShot);
+  if (thumb) { $("thumb").src = thumb; $("shotTitle").textContent = "Screenshot attached"; $("shotNote").textContent = "Click to annotate"; }
+  $("status").className = "status";
+  $("status").innerHTML = "<kbd>esc</kbd>Close";
+  text.focus();
+  requestAnimationFrame(fit);
+});
+agEntry.onAnnotated(({ thumb }) => {
+  $("thumb").src = thumb;
+  $("shotTitle").textContent = "Annotated screenshot";
+  $("shotNote").textContent = "Click to edit again";
+  text.focus();
+});
+agEntry.onFocus(() => text.focus());
+fit();
+</script>
+</body>
+</html>

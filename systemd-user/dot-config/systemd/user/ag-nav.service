@@ -1,0 +1,13 @@
+# Focus history back/forward and reopen closed panes. Runs on the session host only (machines/README.md role host); ported from macos-launchagents.
+[Unit]
+Description=Focus history back/forward and reopen closed panes
+After=network-online.target ag-mux.service
+
+[Service]
+ExecCondition=%h/.local/bin/ag-machine-role host
+ExecStart=/usr/bin/zsh -lc 'exec %h/.local/bin/ag-nav daemon'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

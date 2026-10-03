@@ -1,0 +1,151 @@
+#!/usr/bin/env bun
+// ag-private: a private chat page for personal questions, served on ag-mac's Tailscale IP (port 7375).
+//
+// Inference goes straight to OpenRouter (the user's personal account, OPENROUTER_API_KEY in
+// ~/.zshenv.local), never through TrueFoundry, Jev, or the ag-inbox. Every request asks OpenRouter
+// to deny provider data collection and to use zero-data-retention endpoints only.
+// Chats are kept only on ag-mac in ~/private-chat (mode 700); nothing about their content is logged.
+// The phone opens it with a Back Tap (triple tap) shortcut; see ios-shortcuts/private-ag.md.
+//
+//   GET  /                 chat page (a new chat; ?c=<id> reopens one)
+//   GET  /api/chats        list of saved chats
+//   GET  /api/chats/<id>   one chat
+//   DELETE /api/chats/<id> delete a chat
+//   POST /api/chat         {id?, model, messages} → streams the reply as plain text, saves the chat
+
+import { execFileSync } from "node:child_process";
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+
+const PORT = 7375;
+const DIR = `${process.env.HOME}/private-chat`;
+const MODELS = ["anthropic/claude-opus-5.5", "openai/gpt-6-sol", "google/gemini-3.8-flash"];
+mkdirSync(DIR, { recursive: true, mode: 0o700 });
+
+type Msg = { role: "user" | "assistant"; content: string };
+type Chat = { id: string; title: string; model: string; updated: string; messages: Msg[] };
+
+const path = (id: string) => `${DIR}/${id.replace(/[^\w-]/g, "")}.json`;
+const load = (id: string): Chat | null => {
+	try {
+		return JSON.parse(readFileSync(path(id), "utf8"));
+	} catch {
+		return null;
+	}
+};
+const save = (c: Chat) => writeFileSync(path(c.id), JSON.stringify(c), { mode: 0o600 });
+
+async function chat(req: Request): Promise<Response> {
+	const key = process.env.OPENROUTER_API_KEY;
+	if (!key) return new Response("OPENROUTER_API_KEY isn't set on ag-mac yet.", { status: 503 });
+	const body = (await req.json()) as { id?: string; model?: string; messages: Msg[] };
+	const model = MODELS.includes(body.model ?? "") ? body.model! : MODELS[0];
+	const messages = body.messages.filter((m) => m.content?.trim());
+	const c: Chat = {
+		id: body.id || `${new Date().toISOString().slice(0, 10)}-${crypto.randomUUID().slice(0, 8)}`,
+		title: messages[0]?.content.slice(0, 60) ?? "Chat",
+		model,
+		updated: new Date().toISOString(),
+		messages,
+	};
+	const upstream = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+		method: "POST",
+		headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+		body: JSON.stringify({ model, messages, stream: true, provider: { data_collection: "deny", zdr: true } }),
+	});
+	if (!upstream.ok || !upstream.body) return new Response(`OpenRouter ${upstream.status}: ${await upstream.text()}`, { status: 502 });
+
+	// OpenRouter streams SSE; pass only the text deltas on, and save the chat when it finishes.
+	let reply = "";
+	const dec = new TextDecoder(), enc = new TextEncoder();
+	let buf = "";
+	const stream = new ReadableStream({
+		async start(ctl) {
+			ctl.enqueue(enc.encode(`${c.id}\n`)); // first line: chat id
+			for await (const chunk of upstream.body!) {
+				buf += dec.decode(chunk, { stream: true });
+				const lines = buf.split("\n");
+				buf = lines.pop()!;
+				for (const l of lines) {
+					if (!l.startsWith("data: ") || l === "data: [DONE]") continue;
+					try {
+						const d = JSON.parse(l.slice(6)).choices?.[0]?.delta?.content;
+						if (d) {
+							reply += d;
+							ctl.enqueue(enc.encode(d));
+						}
+					} catch {}
+				}
+			}
+			save({ ...c, messages: [...messages, { role: "assistant", content: reply }] });
+			ctl.close();
+		},
+	});
+	return new Response(stream, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
+}
+
+const PAGE = `<!doctype html><html><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name=apple-mobile-web-app-capable content=yes><meta name=apple-mobile-web-app-title content=Private>
+<title>Private</title><style>
+:root{color-scheme:light dark;--b:#8884}
+body{margin:0;font:17px/1.45 -apple-system,system-ui,sans-serif;display:flex;flex-direction:column;height:100dvh}
+header{display:flex;gap:8px;align-items:center;padding:10px 12px;padding-top:max(10px,env(safe-area-inset-top));border-bottom:1px solid var(--b)}
+header b{flex:1}select,button{font:inherit;font-size:15px;padding:6px 10px;border-radius:8px;border:1px solid var(--b);background:none;color:inherit}
+#log{flex:1;overflow-y:auto;padding:12px}.m{white-space:pre-wrap;margin:0 0 14px;padding:10px 12px;border-radius:12px}
+.user{background:#0a84ff;color:#fff;margin-left:15%}.assistant{background:#8882;margin-right:5%}
+form{display:flex;gap:8px;padding:10px 12px;padding-bottom:max(10px,env(safe-area-inset-bottom));border-top:1px solid var(--b)}
+textarea{flex:1;font:inherit;padding:8px 10px;border-radius:10px;border:1px solid var(--b);background:none;color:inherit;resize:none;max-height:40vh}
+#list a{display:block;padding:10px 0;border-bottom:1px solid var(--b);color:inherit;text-decoration:none}#list small{opacity:.6}
+</style></head><body>
+<header><b>🔒 Private</b><select id=model>${MODELS.map((m) => `<option>${m}</option>`).join("")}</select>
+<button id=hist type=button>Chats</button><button id=new type=button>New</button></header>
+<div id=log></div>
+<form id=f><textarea id=t rows=1 placeholder="Ask privately…" autofocus></textarea><button>Send</button></form>
+<script>
+const $=s=>document.querySelector(s);let id=new URLSearchParams(location.search).get('c')||'',msgs=[];
+const add=(role,text)=>{const d=document.createElement('div');d.className='m '+role;d.textContent=text;$('#log').append(d);$('#log').scrollTop=1e9;return d};
+async function open(c){const r=await fetch('/api/chats/'+c);if(!r.ok)return;const j=await r.json();id=j.id;msgs=j.messages;$('#model').value=j.model;$('#log').innerHTML='';msgs.forEach(m=>add(m.role,m.content))}
+if(id)open(id);
+$('#new').onclick=()=>{location.href='/'};
+$('#hist').onclick=async()=>{const l=await (await fetch('/api/chats')).json();$('#log').innerHTML='<div id=list>'+(l.map(c=>'<a href="/?c='+c.id+'">'+c.title.replace(/</g,'&lt;')+'<br><small>'+c.updated.slice(0,16).replace('T',' ')+'</small></a>').join('')||'No chats yet.')+'</div>'};
+$('#t').oninput=e=>{e.target.style.height='auto';e.target.style.height=e.target.scrollHeight+'px'};
+$('#t').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!('ontouchstart' in window)){e.preventDefault();$('#f').requestSubmit()}};
+$('#f').onsubmit=async e=>{e.preventDefault();const q=$('#t').value.trim();if(!q)return;$('#t').value='';$('#t').style.height='auto';
+ if($('#list'))$('#log').innerHTML='',msgs.forEach(m=>add(m.role,m.content));
+ msgs.push({role:'user',content:q});add('user',q);const d=add('assistant','…');
+ const r=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({id,model:$('#model').value,messages:msgs})});
+ if(!r.ok){d.textContent='⚠️ '+await r.text();msgs.pop();return}
+ const rd=r.body.getReader(),dec=new TextDecoder();let s='',got=false;
+ for(;;){const {done,value}=await rd.read();if(done)break;s+=dec.decode(value,{stream:true});
+  if(!got){const i=s.indexOf('\\n');if(i<0)continue;id=s.slice(0,i);s=s.slice(i+1);got=true;history.replaceState(null,'','/?c='+id)}
+  d.textContent=s;$('#log').scrollTop=1e9}
+ msgs.push({role:'assistant',content:s})};
+</script></body></html>`;
+
+const host = execFileSync("/usr/local/bin/tailscale", ["ip", "-4"], { encoding: "utf8" }).trim().split("\n")[0];
+
+// Also on 127.0.0.1: the Tailscale Service svc:ag (ag-svc) proxies there (serve can't reach this machine's own tailnet IP).
+for (const hostname of [host, "127.0.0.1"]) Bun.serve({
+	hostname,
+	port: PORT,
+	idleTimeout: 0, // long replies stream for minutes
+	async fetch(req) {
+		const { pathname } = new URL(req.url);
+		if (req.method === "GET" && pathname === "/") return new Response(PAGE, { headers: { "content-type": "text/html", "cache-control": "no-store" } });
+		if (req.method === "POST" && pathname === "/api/chat") return chat(req);
+		if (pathname === "/api/chats") {
+			const list = readdirSync(DIR)
+				.filter((f) => f.endsWith(".json"))
+				.map((f) => load(f.slice(0, -5)))
+				.filter((c): c is Chat => !!c)
+				.map(({ id, title, updated }) => ({ id, title, updated }))
+				.sort((a, b) => b.updated.localeCompare(a.updated));
+			return Response.json(list);
+		}
+		const m = pathname.match(/^\/api\/chats\/([\w-]+)$/);
+		if (m && req.method === "GET") return load(m[1]) ? Response.json(load(m[1])) : new Response("not found", { status: 404 });
+		if (m && req.method === "DELETE") return rmSync(path(m[1]), { force: true }), new Response(null, { status: 204 });
+		return new Response("not found", { status: 404 });
+	},
+});
+console.log(`ag-private listening on http://${host}:${PORT}`);

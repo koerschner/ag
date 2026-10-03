@@ -1,0 +1,93 @@
+#!/bin/zsh
+# ag-client-people: the user's Contacts and Messages, driven on the client Mac (where both are signed in
+# and scriptable; ag-mac's own Contacts/iCloud sync isn't reliable). Used by the ag-inbox "contact" playbook.
+#
+#   ag-client-people find <name|phone|email>        matching contacts, one per line
+#   ag-client-people add --first F [--last L] [--phone P] [--email E] [--org O] [--note N]
+#   ag-client-people text <phone|email> <message>   send an iMessage/SMS as the user
+#
+# Host: $CLIENT_PEOPLE_HOST (default ag-client). Arguments reach AppleScript as argv, never
+# spliced into script text, so quotes in names or messages are safe.
+set -euo pipefail
+host=${CLIENT_PEOPLE_HOST:-ag-client}
+
+run() { # run <applescript> [args...] on the client
+  local script=$1; shift
+  local args=() a
+  for a in "$@"; do args+=("${(q)a}"); done
+  print -r -- "$script" | ssh "$host" "osascript - ${args[*]}"
+}
+
+case ${1:-} in
+find)
+  [[ -n ${2:-} ]] || { echo "usage: ag-client-people find <query>" >&2; exit 2; }
+  run 'on run argv
+  set q to item 1 of argv
+  set out to ""
+  tell application "Contacts"
+    set ps to (every person whose name contains q)
+    repeat with p in (every person whose value of phones contains q)
+      if ps does not contain p then set end of ps to p
+    end repeat
+    repeat with p in (every person whose value of emails contains q)
+      if ps does not contain p then set end of ps to p
+    end repeat
+    repeat with p in ps
+      set out to out & name of p & " | " & (value of phones of p as text) & " | " & (value of emails of p as text) & linefeed
+    end repeat
+  end tell
+  return out
+end run' "$2"
+  ;;
+add)
+  shift
+  first="" last="" phone="" email="" org="" note=""
+  while (( $# )); do
+    case $1 in
+      --first) first=$2;; --last) last=$2;; --phone) phone=$2;; --email) email=$2;;
+      --org) org=$2;; --note) note=$2;; *) echo "unknown option $1" >&2; exit 2;;
+    esac
+    shift 2
+  done
+  [[ -n $first ]] || { echo "--first is required" >&2; exit 2; }
+  run 'on run argv
+  set {f, l, ph, em, org, nt} to argv
+  tell application "Contacts"
+    set p to make new person with properties {first name:f}
+    if l is not "" then set last name of p to l
+    if org is not "" then set organization of p to org
+    if nt is not "" then set note of p to nt
+    if ph is not "" then make new phone at end of phones of p with properties {label:"mobile", value:ph}
+    if em is not "" then make new email at end of emails of p with properties {label:"home", value:em}
+    save
+    return "added " & name of p & " (" & id of p & ")"
+  end tell
+end run' "$first" "$last" "$phone" "$email" "$org" "$note"
+  ;;
+text)
+  [[ -n ${2:-} && -n ${3:-} ]] || { echo "usage: ag-client-people text <phone|email> <message>" >&2; exit 2; }
+  # iMessage first; if the handle has no iMessage, fall back to SMS (needs Text Message Forwarding).
+  run 'on run argv
+  set {h, msg} to argv
+  tell application "Messages"
+    try
+      set svc to first account whose service type is iMessage
+      send msg to participant h of svc
+      return "sent via iMessage to " & h
+    on error e1
+      try
+        set svc to first account whose service type is SMS
+        send msg to participant h of svc
+        return "sent via SMS to " & h
+      on error e2
+        error "not sent: " & e1 & " / " & e2
+      end try
+    end try
+  end tell
+end run' "$2" "$3"
+  ;;
+*)
+  sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+  exit 2
+  ;;
+esac

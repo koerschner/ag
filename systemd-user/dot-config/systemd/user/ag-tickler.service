@@ -1,0 +1,8 @@
+# ag-tickler: see bin/dot-local/bin/ag-tickler. Session host only.
+[Unit]
+Description=Fire due ag-tickler items (deferred tasks, wake-ups, waiting-for check-ins)
+
+[Service]
+Type=oneshot
+ExecCondition=%h/.local/bin/ag-machine-role host
+ExecStart=/usr/bin/zsh -lc 'exec %h/.local/bin/ag-tickler fire'

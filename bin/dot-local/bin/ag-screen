@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# ag-screen — the screen queues: anything that clicks, types or drives a computer-use run on a screen.
+#
+#   ag screen status                          running and queued jobs on ag-mac's screen
+#   ag screen cua "<task>"                    computer-use run on ag-mac's screen (same as `ag cua`)
+#   ag screen exec "<shell cmd>"              a shell command that drives ag-mac's screen (osascript
+#                                             keystrokes, cliclick, raising windows), in its own slot
+#   ag screen cancel <id> | attach <id>       cancel a job / re-read its report
+#   ag screen --client --why "<reason>" status|cua|exec …   the client Mac's screen (gated, last resort)
+#   ag screen --phone  --why "<reason>" cua "<task>"        the iPhone (mirrored on the client's screen)
+#
+# Options: --urgent (cua: jump the queue, pausing a running non-urgent job), --keep-open, --host <alias>.
+# The screen is the scarce resource: one job at a time per screen (ag-screen-queue on each Mac), and
+# nothing done between two jobs survives, so put a whole flow (focus, type, submit, check) in one job.
+# Secrets go in with `ag-type-secret op://…` run inside the job, never as text in a task.
+set -euo pipefail
+bin=$(dirname "$(readlink -f "$0")")
+target=mac why=${CLIENT_CUA_WHY:-} host=${CLIENT_CUA_HOST:-ag-client}
+usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
+q() { printf '%q ' "$@"; }
+args=()
+while (($#)); do
+  case $1 in
+    --mac) target=mac ;;
+    --client) target=client ;;
+    --phone) target=phone ;;
+    --why) why=${2:?--why needs a reason}; shift ;;
+    --host) host=${2:?--host needs an SSH alias}; export CLIENT_CUA_HOST=$host; shift ;;
+    --urgent) export CUA_URGENT=1 ;;
+    --keep-open) export CHATGPT_CUA_KEEP_OPEN=1 ;;
+    -h | --help | help) usage; exit 0 ;;
+    *) args+=("$1") ;;
+  esac
+  shift
+done
+set -- "${args[@]}"
+verb=${1:-status}; shift || true
+
+# Submit an exec job to a Mac's queue over SSH, cancelling it if we're stopped.
+remote_exec() {
+  local h=$1 snippet=$2 id caller b64 pid rc=0
+  id=${CUA_JOB_ID:-$(date +%Y%m%d-%H%M%S)-$(hostname -s)-exec-$$}
+  caller=${CUA_CALLER:-$(hostname -s) pid $PPID (exec)}
+  b64=$(printf '%s' "$snippet" | base64 | tr -d '\n')
+  ssh -o ConnectTimeout=10 -o BatchMode=yes "$h" "~/.local/bin/ag-screen-queue run --exec --id $(q "$id") --caller $(q "$caller") --b64 $b64" </dev/null &
+  pid=$!
+  trap 'ssh -o BatchMode=yes "$h" "~/.local/bin/ag-screen-queue cancel $(q "$id")" >&2; kill $pid 2>/dev/null; exit 130' TERM INT HUP
+  wait $pid || rc=$?
+  return $rc
+}
+
+case $target in
+  mac)
+    case $verb in
+      status | list) exec "$bin/ag-screen-queue" list ;;
+      json | cancel | attach) exec "$bin/ag-screen-queue" "$verb" "$@" ;;
+      cua) exec "$bin/ag-cua" "$@" ;;
+      exec)
+        (($#)) || { echo 'usage: ag screen exec "<shell cmd>"' >&2; exit 2; }
+        if [[ $(uname) == Darwin ]] && "$bin/ag-machine-role" extremity 2>/dev/null; then exec "$bin/ag-screen-queue" exec "$*"; fi
+        remote_exec ag-mac "$*" ;;
+      *) usage >&2; exit 2 ;;
+    esac ;;
+  client | phone)
+    case $verb in
+      status | list | json | cancel | attach) exec ssh -o BatchMode=yes "$host" "~/.local/bin/ag-screen-queue $verb $(q "$@")" ;;
+      cua) exec "$bin/ag-cua" --$target ${why:+--why "$why"} "$@" ;;
+      exec)
+        [[ $target == client ]] || { echo "ag screen: exec isn't available for the phone; use cua" >&2; exit 2; }
+        [[ -n $why ]] || { echo 'ag screen --client exec needs --why "<why this exists only on the client>"' >&2; exit 2; }
+        verdict=$("$bin/ag-client-cua-gate" --kind ssh --why "$why" --pane "${AG_PANE_ID:-${TMUX_PANE:-}}" -- "$*") ||
+          { echo "ag screen: blocked by the client gate: $verdict" >&2; exit 3; }
+        remote_exec "$host" "$*" ;;
+      *) usage >&2; exit 2 ;;
+    esac ;;
+esac

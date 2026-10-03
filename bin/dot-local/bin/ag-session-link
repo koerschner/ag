@@ -1,0 +1,16 @@
+#!/bin/sh
+# ag-session-link: print a link that opens this pi session on ag-dash (bin/dot-local/bin/ag-dash), for the
+# phone: https://ag.<tailnet>.ts.net:7377/<pi session id> (full name + https so iMessage linkifies it and the
+# phone resolves it without MagicDNS short names). The board shows the live session (transcript, reply), or a
+# hibernated/closed one with Wake / Resume; its "📱 Open in Moshi" button goes on to the terminal via ag-file-inbox
+# (GET /m/<session id> → moshi://tmux?session=ag).
+# Usage: ag-session-link [pi session file]   (default: $PI_SESSION_FILE)
+set -eu
+f=${1:-${PI_SESSION_FILE:?not in a pi session; pass a session file}}
+id=$(basename "$f" .jsonl | sed 's/.*_//')
+ts=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+[ -x "$ts" ] || ts=/usr/local/bin/tailscale
+# The Tailscale Service svc:ag (ag-svc), not a machine name, so links survive moving the session host.
+# Falls back to $AG_TAILNET (e.g. tail1234.ts.net), then to the MagicDNS short name `ag`.
+suffix=$("$ts" status --json 2>/dev/null | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["MagicDNSSuffix"])' 2>/dev/null || echo "${AG_TAILNET:-}")
+echo "https://ag${suffix:+.$suffix}:7377/$id"

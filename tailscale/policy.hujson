@@ -1,0 +1,75 @@
+// Tailscale policy for Ag's tailnet.
+// OWNER_EMAIL is a placeholder for the tailnet owner's login: ag-ts-apply-policy substitutes
+// $AG_TAILNET_OWNER for it before validating and applying, so no personal email lives in this repo.
+// Source of truth: ag repo tailscale/policy.hujson. Apply with `tailscale/apply-policy`
+// (needs the "Tailscale OAuth client (ag)" item in ag-vault via op-work). Don't edit it in the admin console.
+{
+	// Ag machines join with auth keys minted for these tags (see tailscale/README.md).
+	"tagOwners": {
+		// The OAuth client "ag IaC and auth key minting" carries these tags, and keys it mints are owned
+		// by them, so the tags must own themselves for new machines to be allowed to advertise them.
+		"tag:ag-engine":  ["autogroup:admin", "tag:ag-engine", "tag:ag-worker"],
+		"tag:ag-worker": ["autogroup:admin", "tag:ag-engine", "tag:ag-worker"],
+	},
+
+	"grants": [
+		// The owner's own devices (ag-mac, the client Mac, the phone) reach everything.
+		{"src": ["autogroup:member"], "dst": ["*"], "ip": ["*"]},
+		// The engine drives everything too: ag-mac for computer use, workers, the owner's devices.
+		{"src": ["tag:ag-engine"], "dst": ["*"], "ip": ["*"]},
+		// Workers only talk to the engine and each other, never to the owner's personal devices.
+		{"src": ["tag:ag-worker"], "dst": ["tag:ag-engine", "tag:ag-worker"], "ip": ["*"]},
+	],
+
+	"ssh": [
+		// The owner's devices (including ag-mac) SSH into Ag machines with no browser check,
+		// so scripts and attached terminals can connect unattended.
+		{
+			"action": "accept",
+			"src":    ["autogroup:member"],
+			"dst":    ["tag:ag-engine", "tag:ag-worker"],
+			"users":  ["autogroup:nonroot", "root"],
+		},
+		// The engine SSHes into workers it spins up.
+		{
+			"action": "accept",
+			"src":    ["tag:ag-engine"],
+			"dst":    ["tag:ag-worker"],
+			"users":  ["autogroup:nonroot", "root"],
+		},
+		// Default: members SSH into their own devices in check mode.
+		{
+			"action": "check",
+			"src":    ["autogroup:member"],
+			"dst":    ["autogroup:self"],
+			"users":  ["autogroup:nonroot", "root"],
+		},
+	],
+
+	// Tailscale Service `svc:ag` (ag.<tailnet>.ts.net, short name `ag`): Ag's machine-independent address
+	// for ag-dash, the inbox, show/phone review and the private chat. Whichever machine hosts sessions
+	// advertises it (ag-engine; until the move it forwards to ag-mac). See docs/ag-mux.md.
+	"autoApprovers": {
+		"services": {
+			"svc:ag": ["tag:ag-engine"],
+		},
+	},
+
+	"nodeAttrs": [
+		{
+			// Funnel for the owner's own devices.
+			"target": ["autogroup:member"],
+			"attr":   ["funnel"],
+		},
+	],
+
+	"tests": [
+		{"src": "OWNER_EMAIL", "accept": ["tag:ag-engine:22", "tag:ag-worker:22"]},
+		{"src": "tag:ag-engine", "accept": ["tag:ag-worker:22", "OWNER_EMAIL:22"]},
+		{"src": "tag:ag-worker", "accept": ["tag:ag-engine:22"], "deny": ["OWNER_EMAIL:22"]},
+	],
+	"sshTests": [
+		{"src": "OWNER_EMAIL", "dst": ["tag:ag-engine", "tag:ag-worker"], "accept": ["root"]},
+		{"src": "tag:ag-engine", "dst": ["tag:ag-worker"], "accept": ["root"]},
+	],
+}

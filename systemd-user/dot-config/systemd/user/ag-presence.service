@@ -1,0 +1,8 @@
+# ag-presence: see bin/dot-local/bin/ag-presence. Session host only.
+[Unit]
+Description=Check whether the owner is at their Mac (ag-presence poll)
+
+[Service]
+Type=oneshot
+ExecCondition=%h/.local/bin/ag-machine-role host
+ExecStart=/usr/bin/zsh -lc 'exec %h/.local/bin/ag-presence poll'

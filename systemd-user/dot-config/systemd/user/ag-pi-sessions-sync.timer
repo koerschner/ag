@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly Pi sessions archive
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

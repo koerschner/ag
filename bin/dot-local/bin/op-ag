@@ -1,0 +1,156 @@
+#!/usr/bin/env -S uv run --quiet --script
+"""Run 1Password CLI with a single-vault service-account Keychain credential.
+
+Invoked as op-ag: arcade.school vault. Invoked as op-shared (a symlink to this
+file): the user's personal machine-shared vault. Invoked as op-work (symlink):
+the ag-vault vault (formerly ag-shared) in the user's work 1Password account. Each name maps to its own
+Keychain item.
+"""
+import getpass
+import os
+import plistlib
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+from pathlib import Path
+
+SERVICES = {
+    "op-ag": "ag 1Password service account",
+    "op-shared": "ag machine-shared service account",
+    "op-work": "ag-shared 1Password service account",
+}
+NAME = Path(__file__).name
+if NAME not in SERVICES:
+    print(f"{NAME}: unknown wrapper name (expected one of {', '.join(SERVICES)})",
+          file=sys.stderr)
+    sys.exit(1)
+KEYCHAIN_COMMAND = [
+    "/usr/bin/security", "find-generic-password", "-a", getpass.getuser(),  # the Keychain item's account is the Mac user (install/doctor check -a $USER)
+    "-s", SERVICES[NAME], "-w",
+]
+
+
+def read_token():
+    if sys.platform.startswith("linux"):
+        # Ag Linux machines have no Keychain: the token lives in a 0600 file, e.g. ~/.config/ag/op-work.token.
+        token_file = Path.home() / ".config" / "ag" / f"{NAME}.token"
+        try:
+            return token_file.read_bytes().strip()
+        except OSError:
+            print(f"{NAME}: missing {token_file} (see the secrets checklist in ag's docs/reference.md)", file=sys.stderr)
+            sys.exit(1)
+    result = subprocess.run(KEYCHAIN_COMMAND, capture_output=True, timeout=10)
+    if result.returncode == 0:
+        return result.stdout.strip()
+
+    # SSH has a separate macOS security session. A one-shot job in the logged-in
+    # user's GUI session can read the same Keychain item. The credential travels
+    # through a private FIFO into memory; no token file or persistent agent exists.
+    target = f"gui/{os.getuid()}"
+    label = f"com.ag.{NAME}-keychain." + uuid.uuid4().hex
+    with tempfile.TemporaryDirectory(prefix=f"{NAME}-") as directory:
+        folder = Path(directory)
+        pipe = folder / "token.pipe"
+        os.mkfifo(pipe, 0o600)
+        descriptor = os.open(pipe, os.O_RDONLY | os.O_NONBLOCK)
+        job = folder / "job.plist"
+        job.write_bytes(plistlib.dumps({
+            "Label": label, "ProgramArguments": KEYCHAIN_COMMAND,
+            "RunAtLoad": True, "StandardOutPath": str(pipe),
+            "StandardErrorPath": "/dev/null",
+        }))
+        try:
+            result = subprocess.run(
+                ["/bin/launchctl", "bootstrap", target, str(job)],
+                capture_output=True, timeout=10,
+            )
+            if result.returncode != 0:
+                raise RuntimeError("the logged-in macOS session is unavailable")
+            data = b""
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                try:
+                    data += os.read(descriptor, 65536)
+                except BlockingIOError:
+                    pass
+                if b"\n" in data:
+                    return data.strip()
+                if len(data) > 65536:
+                    break
+                time.sleep(0.05)
+            raise RuntimeError("unlock the login Keychain or provision the token")
+        finally:
+            # Bootstrap can time out after registering the job, so always clean up.
+            try:
+                cleanup = subprocess.run(
+                    ["/bin/launchctl", "bootout", f"{target}/{label}"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    timeout=10,
+                )
+                if cleanup.returncode != 0:
+                    check = subprocess.run(
+                        ["/bin/launchctl", "print", f"{target}/{label}"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        timeout=5,
+                    )
+                    if check.returncode == 0:
+                        raise RuntimeError("could not unload the temporary Keychain job")
+            finally:
+                os.close(descriptor)
+
+
+# Keep op away from 1Password's Group Container. At startup op looks under
+# $HOME/Library/Group Containers/2BUA8C4S2C.com.1password for desktop-app
+# integration; on macOS that access raises the TCC prompt "“bun” would like to
+# access data from other apps" (attributed to Pi's bun), which blocks op and
+# isn't remembered when denied (2026-09-28/29). Service accounts never need the
+# app, so op runs with HOME pointed at a private, empty directory.
+PRIVATE_HOME = Path.home() / ".local/state/op-wrapper/home"
+# Whole-command cap (not for `op run`, which wraps arbitrary long commands).
+TIMEOUT_SECONDS = float(os.environ.get("OP_AG_TIMEOUT", "120"))
+
+
+def fail(message):
+    print(f"{NAME}: {message}", file=sys.stderr)
+    sys.stderr.flush()
+    os._exit(1)
+
+
+os.umask(0o077)
+try:
+    token = read_token().decode("ascii")
+    if not token:
+        raise RuntimeError("the service token is empty")
+except (RuntimeError, OSError, subprocess.TimeoutExpired, UnicodeError) as error:
+    print(f"{NAME}: {error}", file=sys.stderr)
+    sys.exit(1)
+
+# Inherited Connect credentials must not select a broader identity.
+environment = os.environ.copy()
+environment.pop("OP_CONNECT_HOST", None)
+environment.pop("OP_CONNECT_TOKEN", None)
+environment["OP_SERVICE_ACCOUNT_TOKEN"] = token
+arguments = sys.argv[1:]
+if sys.platform == "darwin":
+    PRIVATE_HOME.mkdir(parents=True, exist_ok=True)
+    environment["HOME"] = str(PRIVATE_HOME)
+    if arguments[:1] == ["run"] and "--" in arguments:
+        # The command op run wraps gets the real HOME back.
+        split = arguments.index("--") + 1
+        arguments[split:split] = ["/usr/bin/env", f"HOME={Path.home()}"]
+command = ["op", *arguments]
+if sys.argv[1:2] == ["run"] or TIMEOUT_SECONDS <= 0:
+    os.execvpe("op", command, environment)
+try:
+    child = subprocess.run(command, env=environment, timeout=TIMEOUT_SECONDS)
+except subprocess.TimeoutExpired:
+    fail(
+        f"op did not finish within {TIMEOUT_SECONDS:g}s and was stopped. Check "
+        "ag-mac's network and for pending macOS/1Password prompts on its screen "
+        "(set OP_AG_TIMEOUT to change the limit)."
+    )
+except KeyboardInterrupt:
+    sys.exit(130)
+sys.exit(child.returncode if child.returncode >= 0 else 128 - child.returncode)

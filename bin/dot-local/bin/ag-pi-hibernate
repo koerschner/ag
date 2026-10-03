@@ -1,0 +1,286 @@
+#!/usr/bin/env python3
+"""Hibernate idle pi sessions to save memory; wake them when you open their tab.
+
+Like Chrome's tab discarding: an idle pi process (~100-200 MB each) is stopped and
+its tmux pane shows a sleep screen. Visiting the pane (focus) or pressing any key
+resumes the same session (`pi --session <file>`) with full context.
+
+  ag-pi-hibernate daemon          watch focus to wake panes; sweep every SWEEP_EVERY_S
+                               (systemd user unit ag-pi-hibernate)
+  ag-pi-hibernate sweep [-n]      hibernate eligible sessions now (-n: dry run)
+  ag-pi-hibernate sweep --all     ignore the idle-time threshold (still only idle ones)
+  ag-pi-hibernate pane <pane-id>  hibernate one pane now (still must be an idle pi)
+  ag-pi-hibernate status          list hibernated panes
+  ag-pi-hibernate wait <session>  (internal) the sleep screen a hibernated pane runs
+
+Eligible: a pi pane whose agent state is `idle`, or `done` (unseen) for DONE_MIN minutes (it loses its badge), not
+the focused pane, whose session file hasn't changed for IDLE_MIN minutes (PRESSURE_IDLE_MIN
+under macOS memory pressure), and whose pi has no child processes besides MCP helpers.
+Stdlib only: launchd runs it with the system python3.
+"""
+
+import json
+import os
+import signal
+import socket
+import subprocess
+import sys
+import threading
+import time
+
+# agd's socket (ag-mux on tmux; bin/dot-local/lib/ag-mux).
+MUX_SOCK = os.path.expanduser(os.environ.get("AG_MUX_SOCKET") or "~/.local/state/ag-mux/agd.sock")
+
+STATE = os.path.expanduser("~/.local/state/ag-pi-hibernate")
+WAITING = os.path.join(STATE, "waiting")  # <pid> -> session file, one per sleep screen
+LOG = os.path.join(STATE, "log")
+IDLE_MIN = int(os.environ.get("PI_HIBERNATE_IDLE_MIN", 120))
+PRESSURE_IDLE_MIN = int(os.environ.get("PI_HIBERNATE_PRESSURE_IDLE_MIN", 30))
+DONE_MIN = int(os.environ.get("PI_HIBERNATE_DONE_MIN", 360))  # unseen finished sessions
+SWEEP_EVERY_S = 600
+MCP_HELPER = ("mcp-remote", "mcp-proxy", "npm exec", "bunx", "uvx", "npx")
+
+
+def log(msg):
+    os.makedirs(STATE, exist_ok=True)
+    with open(LOG, "a") as f:
+        f.write(time.strftime("%F %T ") + msg + "\n")
+
+
+def mux(method, params=None, timeout=5.0):
+    s = socket.socket(socket.AF_UNIX)
+    s.settimeout(timeout)
+    try:
+        s.connect(MUX_SOCK)
+        s.sendall((json.dumps({"id": "hib", "method": method, "params": params or {}}) + "\n").encode())
+        resp = json.loads(s.makefile().readline())
+    finally:
+        s.close()
+    if "error" in resp:
+        raise RuntimeError(resp["error"])
+    return resp.get("result")
+
+
+def shq(s):
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def descendants(pid):
+    out = subprocess.run(["ps", "-axo", "pid=,ppid=,args="], capture_output=True, text=True).stdout
+    kids, args = {}, {}
+    for line in out.splitlines():
+        p, pp, a = (line.split(None, 2) + [""])[:3]
+        kids.setdefault(int(pp), []).append(int(p))
+        args[int(p)] = a
+    found, todo = [], [pid]
+    while todo:
+        for c in kids.get(todo.pop(), []):
+            found.append((c, args[c]))
+            todo.append(c)
+    return found
+
+
+def uptime(pid):
+    """Seconds since pid started (ps etime: [[dd-]hh:]mm:ss)."""
+    et = subprocess.run(["ps", "-o", "etime=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    days, _, rest = et.rpartition("-")
+    secs = 0
+    for part in rest.split(":"):
+        secs = secs * 60 + int(part)
+    return secs + int(days or 0) * 86400
+
+
+def pressure():
+    """1 = normal, 2+ = under memory pressure (macOS level; on Linux, MemAvailable < 25% or PSI stalls)."""
+    if sys.platform == "darwin":
+        try:
+            return int(subprocess.run(["sysctl", "-n", "kern.memorystatus_vm_pressure_level"],
+                                      capture_output=True, text=True).stdout)
+        except ValueError:
+            return 1
+    try:
+        mem = dict(l.split(":", 1) for l in open("/proc/meminfo"))
+        if int(mem["MemAvailable"].split()[0]) < 0.25 * int(mem["MemTotal"].split()[0]):
+            return 2
+        some = open("/proc/pressure/memory").readline()  # some avg10=0.00 avg60=...
+        return 2 if float(some.split("avg60=")[1].split()[0]) > 5 else 1
+    except (OSError, KeyError, ValueError, IndexError):
+        return 1
+
+
+def candidates(ignore_idle=False, only=None):
+    snap = mux("session.snapshot")["snapshot"]
+    focused = snap.get("focused_pane_id")
+    me = os.environ.get("AG_PANE_ID")
+    idle_s = (PRESSURE_IDLE_MIN if pressure() >= 2 else IDLE_MIN) * 60
+    for p in snap["panes"]:
+        sess = (p.get("agent_session") or {}).get("value")
+        status = p.get("agent_status")
+        if p.get("agent") != "pi" or status not in ("idle", "done") or not sess or not os.path.exists(sess):
+            continue
+        min_s = idle_s if status == "idle" else max(idle_s, DONE_MIN * 60)
+        if only and p["pane_id"] != only:
+            continue
+        if p["pane_id"] in (focused, me):
+            continue
+        age = time.time() - os.path.getmtime(sess)
+        if not ignore_idle and age < min_s:
+            continue
+        info = mux("pane.process_info", {"pane_id": p["pane_id"]})["process_info"]
+        pis = [f for f in info["foreground_processes"] if f.get("argv0") == "pi"]
+        if len(pis) != 1:
+            continue
+        pid = pis[0]["pid"]
+        age = min(age, uptime(pid))  # just resumed counts as active
+        if not ignore_idle and age < min_s:
+            continue
+        busy = [a for _, a in descendants(pid) if not any(h in a for h in MCP_HELPER)]
+        if busy:
+            continue
+        yield p, pid, sess, age
+
+
+def hibernate(pane, pid, sess):
+    os.kill(pid, signal.SIGTERM)
+    for _ in range(50):
+        if not alive(pid):
+            break
+        time.sleep(0.1)
+    else:
+        log(f"skip {pane['pane_id']}: pi {pid} ignored SIGTERM")
+        return False
+    time.sleep(0.3)  # let the shell redraw its prompt
+    mux("pane.send_input", {"pane_id": pane["pane_id"],
+                              "text": f" ag-pi-hibernate wait {shq(sess)} && pi --session {shq(sess)}",
+                              "keys": ["enter"]})
+    log(f"hibernated {pane['pane_id']} ({pane['tab_id']}) {sess}")
+    return True
+
+
+def sweep(dry=False, ignore_idle=False, only=None):
+    n = 0
+    for pane, pid, sess, age in list(candidates(ignore_idle, only)):
+        print(f"{'would hibernate' if dry else 'hibernate'} {pane['pane_id']} idle {age / 3600:.1f}h {sess}")
+        if not dry:
+            try:
+                n += hibernate(pane, pid, sess)
+            except (OSError, RuntimeError) as e:
+                log(f"error {pane['pane_id']}: {e}")
+    return n
+
+
+def waiting():
+    """{pid: session} for live sleep screens."""
+    os.makedirs(WAITING, exist_ok=True)
+    live = {}
+    for name in os.listdir(WAITING):
+        path = os.path.join(WAITING, name)
+        if name.isdigit() and alive(int(name)):
+            with open(path) as f:
+                live[int(name)] = f.read()
+        else:
+            os.unlink(path)
+    return live
+
+
+def wake_if_sleeping(pane_id):
+    sleepers = waiting()
+    if not sleepers:
+        return
+    info = mux("pane.process_info", {"pane_id": pane_id})["process_info"]
+    if any(f.get("pid") in sleepers for f in info["foreground_processes"]):
+        mux("pane.send_keys", {"pane_id": pane_id, "keys": ["enter"]})
+        log(f"woke {pane_id}")
+
+
+def watch_focus():
+    subs = [{"type": t} for t in ("pane.focused", "tab.focused")]
+    while True:
+        try:
+            s = socket.socket(socket.AF_UNIX)
+            s.connect(MUX_SOCK)
+            s.sendall((json.dumps({"id": "hib-sub", "method": "events.subscribe",
+                                   "params": {"subscriptions": subs}}) + "\n").encode())
+            for line in s.makefile():
+                try:
+                    msg = json.loads(line)
+                    if not msg.get("event"):
+                        continue
+                    pid = (msg.get("data") or {}).get("pane_id") if msg["event"] == "pane_focused" else None
+                    wake_if_sleeping(pid or mux("session.snapshot")["snapshot"]["focused_pane_id"])
+                except (ValueError, KeyError, RuntimeError, OSError):
+                    continue
+        except OSError:
+            pass
+        time.sleep(1)
+
+
+def daemon():
+    threading.Thread(target=watch_focus, daemon=True).start()
+    while True:
+        try:
+            sweep()
+        except Exception as e:  # keep running
+            log(f"sweep error: {e}")
+        time.sleep(SWEEP_EVERY_S)
+
+
+def wait_screen(sess):
+    import termios
+    import tty
+    os.makedirs(WAITING, exist_ok=True)
+    marker = os.path.join(WAITING, str(os.getpid()))
+    with open(marker, "w") as f:
+        f.write(sess)
+    since = time.strftime("%a %H:%M", time.localtime(os.path.getmtime(sess)))
+    sys.stdout.write("\033]0;💤 π\007\033[2J\033[H")
+    sys.stdout.write(f"\n  💤 pi session hibernated to save memory (last active {since}).\n\n"
+                     f"  Resuming automatically when you open this tab. Any key resumes; Ctrl+C gives a shell.\n\n"
+                     f"  \033[2mpi --session {shq(sess)}\033[0m\n")
+    sys.stdout.flush()
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        ch = os.read(fd, 1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        os.unlink(marker)
+    sys.stdout.write("\033[2J\033[H")
+    sys.exit(1 if ch in (b"\x03", b"\x04") else 0)
+
+
+def status():
+    # agd reports each sleep screen's session in the snapshot; one call, not one per pane (that took >30s).
+    for p in mux("session.snapshot")["snapshot"]["panes"]:
+        if p.get("sleeping_session"):
+            print(p["pane_id"], p["tab_id"], p["sleeping_session"])
+
+
+def main():
+    a = sys.argv[1:]
+    cmd = a[0] if a else ""
+    if cmd == "daemon":
+        daemon()
+    elif cmd == "sweep":
+        print(f"hibernated {sweep(dry='-n' in a, ignore_idle='--all' in a)}")
+    elif cmd == "pane" and len(a) == 2:
+        print(f"hibernated {sweep(ignore_idle=True, only=a[1])}")
+    elif cmd == "status":
+        status()
+    elif cmd == "wait" and len(a) == 2:
+        wait_screen(a[1])
+    else:
+        sys.exit(__doc__)
+
+
+if __name__ == "__main__":
+    main()

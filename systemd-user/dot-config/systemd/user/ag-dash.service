@@ -1,0 +1,17 @@
+# ag-dash (http://ag:7376). Runs on the session host only (machines/README.md role host); ported from macos-launchagents.
+[Unit]
+Description=ag-dash (http://ag:7376)
+After=network-online.target ag-mux.service
+
+[Service]
+ExecCondition=%h/.local/bin/ag-machine-role host
+ExecStart=/usr/bin/zsh -lc 'exec %h/.local/bin/ag-dash'
+Restart=always
+RestartSec=5
+# Restarts drain: SIGTERM to the main process only (in-flight work, and the ag-mux calls it's waiting on, finish),
+# the rest of the cgroup is killed only if it overruns.
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

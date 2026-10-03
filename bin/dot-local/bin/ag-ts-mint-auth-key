@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Mint a fresh reusable, ephemeral, pre-authorized auth key (tag:ag-engine + tag:ag-worker, 90 days)
+# and store it in ag-vault as "Tailscale ag auth key" (field credential), replacing the old value.
+# The key never touches stdout or any command line (op can't edit from a template on stdin, so it
+# goes through a private temp file that's deleted on exit). The previous key stays valid until it expires.
+set -euo pipefail
+vault=ag-vault item="Tailscale ag auth key"
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT; chmod 700 "$tmp"
+body='{"description":"ag machines","expirySeconds":7776000,"capabilities":{"devices":{"create":{"reusable":true,"ephemeral":true,"preauthorized":true,"tags":["tag:ag-engine","tag:ag-worker"]}}}}'
+ag-ts-api POST tailnet/-/keys -H 'Content-Type: application/json' -d "$body" >"$tmp/resp.json"
+op-work item get "$item" --vault "$vault" --format json --reveal |
+	jq --slurpfile r "$tmp/resp.json" '.fields |= map(
+		if .id=="credential" then .value=$r[0].key
+		elif .id=="username" then .value=("key id "+$r[0].id)
+		elif .id=="expires" then .value=$r[0].expires[0:10] else . end)' >"$tmp/item.json"
+op-work item edit "$item" --vault "$vault" --template="$tmp/item.json" >/dev/null
+jq -r '"minted \(.id), expires \(.expires); stored in ag-vault \"Tailscale ag auth key\""' "$tmp/resp.json"

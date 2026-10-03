@@ -1,0 +1,8 @@
+# Archive this machine's Pi sessions to the owner's pi-sessions-NNN repos (redacted, git-crypt). docs/ag.md.
+[Unit]
+Description=Archive Pi sessions to GitHub
+
+[Service]
+Type=oneshot
+# The session host also pulls the client's sessions, as ag-mac's LaunchAgent did.
+ExecStart=/bin/zsh -c 'if %h/.local/bin/ag-machine-role host; then exec ag-pi-sessions-sync --remote ag-client; else exec ag-pi-sessions-sync; fi'

@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""ag ls — list open sessions (ag-dash's cards), most recent first.
+
+    ag ls [--inbox] [--pinned] [--waiting] [--needs-you] [--working] [--json]
+    --inbox: sessions the user hasn't replied to yet. Filters combine with OR.
+Columns: tab, state (pinned, 📥 inbox, ⏳ waiting, ❗ needs you, 💤 hibernated), title, last activity, ag-dash link.
+"""
+import json, os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def main(argv):
+    o, pos = flags(argv, {"--inbox": False, "--pinned": False, "--hot": False, "--waiting": False, "--needs-you": False, "--working": False, "--json": False})
+    if o.get("--help"):
+        return usage(__doc__)
+    ix = Index()
+    if ix.board is None:
+        raise AgError("ag-dash is unreachable")
+    asleep = {p["tab_id"] for p in ix.panes.values() if p.get("sleeping_session")}
+    o["--pinned"] = o.get("--pinned") or o.get("--hot")  # --hot: old name
+    want = [k for k in ("--inbox", "--pinned", "--waiting", "--needs-you", "--working") if o.get(k)]
+    test = {"--inbox": lambda c: c.get("inbox"), "--pinned": lambda c: c.get("pinned"), "--waiting": lambda c: c.get("waiting"),
+            "--needs-you": lambda c: c.get("needsYou") and not c.get("waiting"), "--working": lambda c: c.get("status") == "working"}
+    rows = []
+    for c in ix.board["cards"]:
+        if want and not any(test[k](c) for k in want):
+            continue
+        last = max([(c.get(k) or {}).get("ts", 0) for k in ("lastUser", "lastAssistant")] + [c.get("statusSince") or 0]) / 1000
+        rows.append({"tab": c["tab"], "title": c["title"], "status": c["status"],
+                     "pinned": c.get("pinned"), "waiting": [w.get("title") for w in c.get("waiting") or []], "needs_you": c.get("needsYou"), "inbox": c.get("inbox"),
+                     "hibernated": c["tab"] in asleep, "sid": c.get("sid"), "link": link(c["sid"]) if c.get("sid") else None, "last": last})
+    if o.get("--json"):
+        print(json.dumps(rows, ensure_ascii=False, indent=1))
+        return 0
+    rows.sort(key=lambda r: -r["last"])
+    for r in rows:
+        flags_ = ("pinned " if r["pinned"] else "") + ("📥" if r["inbox"] else "") + ("⏳" if r["waiting"] else "") + ("❗" if r["needs_you"] and not r["waiting"] else "") + ("💤" if r["hibernated"] else "")
+        st = "working" if r["status"] == "working" else flags_ or r["status"]
+        pad = 8 - sum(2 if ord(ch) > 0x2000 else 1 for ch in st)
+        print(f"  {r['tab']:<9} {st}{' ' * max(pad, 1)} {clip(r['title'], 44):<44} {ago(r['last']):>8}  {r['link'] or ''}")
+    if not rows:
+        print("(none)", file=sys.stderr)
+
+
+run_main(main)

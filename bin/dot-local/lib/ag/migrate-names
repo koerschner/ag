@@ -1,0 +1,41 @@
+#!/bin/sh
+# migrate-names: one-time cleanup after Ag's tools and services were renamed to ag-<name> (2026-10). Run by `install`
+# and `bootstrap-linux` before they start units; idempotent. Stops and unloads the old units/LaunchAgents, moves their
+# state to the new names, and deletes symlinks left dangling by renamed files (stow can't unstow what's gone).
+renamed="tickler presence file-inbox mcp-gateway mcp-tunnel pi-hibernate pi-sessions-sync toolsum-review nessie mem-watch
+moshi-hook headless-display chrome-tab-reaper tfy-env client-cua-gate cua-queue screen-record record-flow agrec ag-board"
+new_name() { case $1 in agrec) echo ag-rec ;; ag-board) echo ag-dash ;; *) echo "ag-$1" ;; esac; }
+
+if [ "$(uname)" = Darwin ]; then
+	# Old labels were com.<owner>.<name> (before the com.ag.<x> rename, which install handles).
+	loaded=$(launchctl list 2>/dev/null | awk 'NR > 1 {print $3}')
+	for n in $renamed; do
+		for l in $(printf '%s\n' "$loaded" | grep -E "^com\.[^.]+\.$n\$"); do launchctl bootout "gui/$(id -u)/$l" 2>/dev/null; done
+		for f in ~/Library/LaunchAgents/com.*."$n".plist; do [ -L "$f" ] && rm "$f"; done
+	done
+else
+	for n in $renamed; do
+		for k in service timer; do
+			systemctl --user stop "$n.$k" 2>/dev/null; systemctl --user disable "$n.$k" 2>/dev/null
+			f=~/.config/systemd/user/$n.$k; [ -L "$f" ] && rm "$f"
+		done
+	done
+	systemctl --user daemon-reload 2>/dev/null; systemctl --user reset-failed 2>/dev/null
+fi
+
+# Data: move it over (state, caches, logs). share/ holds stowed files only, so it's just cleaned below.
+for n in $renamed; do
+	new=$(new_name "$n")
+	for base in ~/.local/state ~/.cache ~/Library/Caches ~/Library/Logs; do
+		[ -d "$base/$n" ] && [ ! -L "$base/$n" ] && [ ! -e "$base/$new" ] && mv "$base/$n" "$base/$new" && echo "  moved $base/$n → $new"
+	done
+done
+
+# Symlinks into the ag checkout whose target is gone, and the directories they leave empty.
+for d in ~/.local/bin ~/.local/lib/ag ~/.local/share ~/.pi/agent ~/.agents/skills ~/.config/systemd/user ~/.hammerspoon; do
+	[ -d "$d" ] || continue
+	find "$d" -maxdepth 4 -type l ! -exec test -e {} \; -print 2>/dev/null | while read -r l; do
+		case $(readlink "$l") in *ag/*) rm "$l"; rmdir -p "$(dirname "$l")" 2>/dev/null ;; esac
+	done
+done
+exit 0

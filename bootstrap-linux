@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+# Bring an Ag Linux machine (Ubuntu 24.04; engine or worker) to parity. Idempotent: safe to re-run.
+# Run as the normal user (sudo without password). Cloud-init runs it on first boot (infra/hetzner).
+#
+#   ~/ag/bootstrap-linux     (cloud-init clones ~/ag first; the ag repo is private, so a bare curl won't work)
+#
+# Installs ~/ag (the agent system). The owner's personal dotfiles are stowed too, but only when a ~/dotfiles
+# checkout already exists (cloud-init clones it when dotfiles_repo is set); otherwise just ag. AG_DOTFILES=0|1 overrides.
+# The Mac-only parts (Homebrew casks, Hammerspoon, LaunchAgents, macOS defaults) don't apply.
+# Secrets are never fetched; the final checklist says what's still missing.
+set -uo pipefail
+
+AG=${AG:-$(cd "$(dirname "$(readlink -f "$0")")" && pwd)}
+DOTFILES=${DOTFILES:-$HOME/dotfiles}
+USE_DOTFILES=${AG_DOTFILES:-$([[ -d $DOTFILES/.git ]] && echo 1 || echo 0)}
+# Stow packages that make sense on Linux (no ghostty/hammerspoon/alfred), per repo.
+AG_PACKAGES=(ag-dash ag-inbox agents bin claude codex pi systemd-user tmux)
+DOTFILES_PACKAGES=(ag bin git mise nvim ssh tmux zsh)
+APT=(git git-crypt curl jq unzip zsh stow ripgrep fd-find fzf build-essential docker.io ca-certificates gnupg neovim tmux mosh python3 htop ffmpeg)
+backup=$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)
+failed=()
+export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.local/share/mise/shims:$PATH"
+
+step() { printf '\n\033[36m==> %s\033[0m\n' "$*"; }
+warn() { printf '\033[33m  ! %s\033[0m\n' "$*"; failed+=("$*"); }
+have() { command -v "$1" >/dev/null 2>&1; }
+
+step "apt packages"
+sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq &&
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${APT[@]}" >/dev/null || warn "apt install"
+sudo usermod -aG docker "$USER" 2>/dev/null || true
+
+step "GitHub CLI (from cli.github.com: Ubuntu's own gh is too old for \`gh pr create --attach\`, which needs 2.99+)"
+if ! have gh || ! dpkg -s gh 2>/dev/null | grep -q '^Version: 2\.\(99\|[1-9][0-9][0-9]\)'; then
+  sudo install -d -m 0755 /etc/apt/keyrings &&
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli.gpg >/dev/null &&
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" |
+      sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null &&
+    sudo apt-get update -qq && sudo apt-get install -y -qq gh >/dev/null || warn "gh"
+fi
+
+step "1Password CLI"
+if ! have op; then
+  curl -fsSL https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --dearmor --yes -o /etc/apt/keyrings/1password.gpg &&
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/1password.gpg] https://downloads.1password.com/linux/debian/$(dpkg --print-architecture) stable main" |
+      sudo tee /etc/apt/sources.list.d/1password.list >/dev/null &&
+    sudo apt-get update -qq && sudo apt-get install -y -qq 1password-cli >/dev/null || warn "1password-cli"
+fi
+
+step "cloudflared (arcade's scripts/db tunnels to the production database through it)"
+if ! have cloudflared; then
+  curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null &&
+    echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" |
+      sudo tee /etc/apt/sources.list.d/cloudflared.list >/dev/null &&
+    sudo apt-get update -qq && sudo apt-get install -y -qq cloudflared >/dev/null || warn "cloudflared"
+fi
+
+step "GNU Stow 2.4 (Ubuntu's 2.3 mishandles --dotfiles with dot-* directories)"
+if ! [[ $(stow --version 2>/dev/null) == *" 2.4"* || $(stow --version 2>/dev/null) == *" 2.5"* ]]; then
+  ( cd /tmp && curl -fsSL https://ftp.gnu.org/gnu/stow/stow-2.4.1.tar.gz | tar xz && cd stow-2.4.1 &&
+    ./configure --prefix=/usr/local >/dev/null && make >/dev/null 2>&1 && sudo make install >/dev/null 2>&1 ) || warn "stow 2.4"
+  hash -r
+fi
+echo "  $(stow --version)"
+
+if [[ $USE_DOTFILES == 1 ]]; then
+step "dotfiles repo -> $DOTFILES"
+cd "$DOTFILES" || exit 1
+
+step "oh-my-zsh"
+[[ -d ~/.oh-my-zsh ]] ||
+  RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" ||
+  warn "oh-my-zsh"
+[[ $(getent passwd "$USER" | cut -d: -f7) == */zsh ]] || sudo chsh -s "$(command -v zsh)" "$USER" || warn "chsh zsh"
+else
+  DOTFILES_PACKAGES=()
+  echo "  no ~/dotfiles checkout: installing ag only"
+fi
+
+step "personal layer (private ag-personal, optional)"
+# The owner's private instructions, configs and values (its `links` list, ~/ag-personal/env); skipped without access.
+# Cloned from <owner>/ag-personal, where <owner> is AG_GITHUB_OWNER or the owner of this ag checkout's origin.
+penv() { sed -n "s/^$1=//p" ~/ag-personal/env 2>/dev/null | tail -1; }  # a private value from ~/ag-personal/env
+gh_owner() { echo "${AG_GITHUB_OWNER:-$(penv AG_GITHUB_OWNER)}" | grep . || git -C "$AG" remote get-url origin 2>/dev/null | sed -E 's#.*[:/]([^/]+)/[^/]+$#\1#'; }
+[[ -d ~/ag-personal ]] || gh repo clone "$(gh_owner)/ag-personal" ~/ag-personal -- -q 2>/dev/null || echo "  no access to ag-personal: skipped"
+[[ -f ~/ag-personal/links ]] && { dir=~/ag-personal; while read -r f t; do case "$f" in ""|\#*) continue ;; esac; mkdir -p "$(dirname "$HOME/$t")"; ln -sfn "$dir/$f" "$HOME/$t"; done < "$dir/links"; echo "  linked ag-personal files into ~"; }
+
+step "mise"
+have mise || curl -fsSL https://mise.run | sh || warn "mise"
+
+step "Standalone CLIs (vendor installers)"
+[[ -x ~/.bun/bin/bun ]] || curl -fsSL https://bun.sh/install | bash >/dev/null || warn "bun"
+# Sessions, ag-tickler items and state moved from a Mac still name paths under its old home (e.g. /Users/<you>/...);
+# keep them valid by linking that home here. AG_LEGACY_HOME in ~/ag-personal/env; unset = nothing to keep.
+legacy_home=$(penv AG_LEGACY_HOME)
+[[ -z $legacy_home || -e $legacy_home ]] || { sudo mkdir -p "$(dirname "$legacy_home")" && sudo ln -sfn "$HOME" "$legacy_home"; }
+command -v pnpm >/dev/null || npm install -g pnpm >/dev/null 2>&1 || warn "pnpm"
+# Ghostty's terminfo, so `ssh ag-engine` from Ghostty (TERM=xterm-ghostty) can run tmux.
+infocmp xterm-ghostty >/dev/null 2>&1 || tic -x "$AG/tmux/terminfo/xterm-ghostty.src" 2>/dev/null || warn "ghostty terminfo"
+have claude || curl -fsSL https://claude.ai/install.sh | bash           || warn "claude"
+have codex  || curl -fsSL https://chatgpt.com/codex/install.sh | sh     || warn "codex"
+
+# Ag's services call /usr/local/bin/tailscale (where it lives on the Macs); Ubuntu's package puts it in /usr/bin.
+[[ -x /usr/bin/tailscale && ! -e /usr/local/bin/tailscale ]] && sudo ln -s /usr/bin/tailscale /usr/local/bin/tailscale
+
+step "agent instructions"
+"$AG/agents.md/build" || warn "agents.md/build"
+git -C "$AG" config core.hooksPath .githooks
+
+step "stow packages"
+"$AG/bin/dot-local/lib/ag/migrate-names"  # one-time cleanup after the ag-<name> rename
+stow_pkg() { # <repo dir> <package>: move aside any real file that would block a symlink, then stow.
+  local ign=(); [[ $2 == codex ]] && ign=(--ignore='(^|/)config\.toml$')   # per-machine copy; see install
+  stow --dotfiles --no-folding "${ign[@]}" -d "$1" -t "$HOME" -n "$2" 2>&1 |
+    sed -nE 's/.* over existing target (.+) since .*/\1/p; s/.*existing target is not owned by stow: (.+)$/\1/p; s/.*existing target is neither a link nor a directory: (.+)$/\1/p' |
+    while read -r rel; do
+      mkdir -p "$backup/$(dirname "$rel")" && mv "$HOME/$rel" "$backup/$rel" && echo "  backed up ~/$rel"
+    done
+  stow --dotfiles --no-folding "${ign[@]}" -d "$1" -t "$HOME" "$2" && echo "  $(basename "$1")/$2" || warn "stow $(basename "$1")/$2"
+}
+for pkg in "${DOTFILES_PACKAGES[@]}"; do stow_pkg "$DOTFILES" "$pkg"; done
+"$AG/agents.md/build" || warn "agents.md/build"  # again, now with the dotfiles layer (~/.ag/agents.md)
+for pkg in "${AG_PACKAGES[@]}"; do stow_pkg "$AG" "$pkg"; done
+[[ -e ~/.codex/config.toml || ! -f ~/ag-personal/codex-config.toml ]] || { mkdir -p ~/.codex && cp ~/ag-personal/codex-config.toml ~/.codex/config.toml && echo "  copied ~/.codex/config.toml (from ag-personal)"; }
+[[ -d $backup ]] && echo "  pre-existing files moved to $backup"
+
+step "node (mise, Linux-only untracked conf.d so the tracked mise config stays Mac-compatible)"
+mkdir -p ~/.config/mise/conf.d
+[[ -f ~/.config/mise/conf.d/linux.toml ]] || printf '[tools]\nnode = "lts"\n' > ~/.config/mise/conf.d/linux.toml
+mise install -y >/dev/null 2>&1 && echo "  node $(mise exec -- node --version)" || warn "mise install (node)"
+have uv     || curl -LsSf https://astral.sh/uv/install.sh | sh >/dev/null || warn "uv"
+have pi     || mise exec -- npm install -g --prefix "$HOME/.local" @earendil-works/pi-coding-agent >/dev/null || warn "pi"
+bash "$AG/agents/dot-agents/skills/discord-export/scripts/install.sh" >/dev/null && echo "  DiscordChatExporter" || warn "discord-export install.sh"
+have nessie-daemon || mise exec -- npm install -g --prefix "$HOME/.local" @nessielabs/daemon@latest >/dev/null || warn "nessie-daemon"
+
+step "~/.gitconfig.local (untracked identity + gh credential helper; ~/.gitconfig is tracked, so never git config --global)"
+if [[ $USE_DOTFILES != 1 ]]; then echo "  skipped (no dotfiles): set your own git identity and run gh auth setup-git"
+elif [[ ! -f ~/.gitconfig.local ]]; then
+# Identity from ~/ag-personal/env (AG_GIT_NAME, AG_GIT_EMAIL); without them, set [user] in ~/.gitconfig.local yourself.
+[[ -n $(penv AG_GIT_NAME) ]] || echo "  no AG_GIT_NAME/AG_GIT_EMAIL in ~/ag-personal/env: add [user] to ~/.gitconfig.local"
+cat > ~/.gitconfig.local <<GITLOCAL
+$([[ -n $(penv AG_GIT_NAME) ]] && printf '[user]\n\temail = %s\n\tname = %s' "$(penv AG_GIT_EMAIL)" "$(penv AG_GIT_NAME)")
+[credential "https://github.com"]
+	helper =
+	helper = !/usr/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper =
+	helper = !/usr/bin/gh auth git-credential
+GITLOCAL
+fi
+echo "  ok"
+
+step "~/.zshenv (untracked; loaded for SSH and persistent agents, like on ag-mac)"
+[[ -f ~/.zshenv ]] || cat > ~/.zshenv <<'ZSHENV'
+export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.local/share/mise/shims:$PATH"
+[[ -f "$HOME/.zshenv.local" ]] && source "$HOME/.zshenv.local"   # secrets: TFY_TOKEN, OPENROUTER_API_KEY
+if [[ -n ${TFY_TOKEN:-} ]]; then
+  export TFY_API_KEY="$TFY_TOKEN"
+  export ANTHROPIC_BASE_URL="$(sed -n 's/^AG_AI_GATEWAY=//p' "$HOME/ag-personal/env" 2>/dev/null)"
+  export ANTHROPIC_AUTH_TOKEN="$TFY_TOKEN"
+fi
+ZSHENV
+echo "  ok"
+
+step "engine → ag-mac SSH key + MCP tunnel"
+mkdir -p ~/.ssh/sockets
+if [[ ! -f ~/.ssh/ag-mac && -f ~/.config/ag/op-work.token ]]; then
+  ( umask 077; op-work item get "ag-brain → ag-mac SSH key" --vault ag-vault --fields "private key" --reveal --format json |
+      jq -r '.ssh_formats.openssh.value // .value' > ~/.ssh/ag-mac ) || warn "ag-mac SSH key"
+fi
+# Memory safety (incident 2026-10-03: no swap, a global OOM stalled the engine and it got rebooted mid-turn).
+# 16 GB swap absorbs spikes from big type-checks; each tmux pane is also capped (systemd-user tmux-spawn-.scope.d).
+if [[ ! -f /swapfile ]]; then
+  { sudo fallocate -l 16G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile >/dev/null; } || warn "swapfile"
+fi
+grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab >/dev/null
+grep -q '^/swapfile ' /proc/swaps || sudo swapon /swapfile || warn "swapon"
+echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/90-ag-swap.conf >/dev/null && sudo /usr/sbin/sysctl -q -p /etc/sysctl.d/90-ag-swap.conf
+sudo loginctl enable-linger "$USER" >/dev/null 2>&1 || true
+systemctl --user daemon-reload 2>/dev/null
+if ~/.local/bin/ag-machine-role host; then  # the gateway runs here; a tunnel would steal its ports
+  systemctl --user disable --now ag-mcp-tunnel.service >/dev/null 2>&1; echo "  ag-mcp-tunnel off (session host runs ag-mcp-gateway)"
+else
+  systemctl --user enable --now ag-mcp-tunnel.service >/dev/null 2>&1 && echo "  ag-mcp-tunnel on" || warn "ag-mcp-tunnel (needs ~/.ssh/ag-mac)"
+fi
+# A fresh session host (no ag-mux layout yet) pulls its state and Pi transcripts back from GitHub before agd
+# starts, so tabs, ag-tickler items and ag-dash come back as they were (docs/reference.md "Ag state archive").
+if ~/.local/bin/ag-machine-role host && [[ ! -f ~/.local/state/ag-mux/layout.json && -f ~/.config/ag/op-work.token ]] &&
+   gh repo view "$(gh_owner)/ag-state" >/dev/null 2>&1; then
+  ~/.local/bin/ag-state restore 2>&1 | sed 's/^/  /' || warn "ag-state restore"
+fi
+systemctl --user enable --now ag-state-sync.timer >/dev/null 2>&1 && echo "  ag-state-sync timer on" || warn "ag-state-sync timer"
+systemctl --user enable --now ag-pi-sessions-sync.timer >/dev/null 2>&1 && echo "  ag-pi-sessions-sync timer on" || warn "ag-pi-sessions-sync timer"
+systemctl --user enable --now ag-toolsum-review.timer >/dev/null 2>&1 && echo "  ag-toolsum-review routine on" || warn "ag-toolsum-review timer"
+~/.local/bin/ag routine apply 2>&1 | sed 's/^/  routines: /' || warn "ag routine apply"
+systemctl --user enable --now ag-mux.service >/dev/null 2>&1 && echo "  ag-mux (agd, tmux -L ag) on" || warn "ag-mux.service"
+systemctl --user enable --now ag-dash.service >/dev/null 2>&1 && echo "  ag-dash (http://ag:7376) on" || warn "ag-dash.service"
+~/.local/bin/ag-shortcuts-check >/dev/null 2>&1 && echo "  shortcuts match tmux/SHORTCUTS.md" || warn "ag shortcuts drifted (run ag-shortcuts-check)"
+systemctl --user enable --now ag-nessie.service >/dev/null 2>&1 && echo "  nessie (trace sync) on" || warn "ag-nessie.service"
+systemctl --user enable --now ag-telegram.service >/dev/null 2>&1 && echo "  ag-telegram (Telegram replies) on" || warn "ag-telegram.service"
+systemctl --user enable --now ag-telemetry.service >/dev/null 2>&1 && echo "  ag-telemetry (crash readout, http://ag:7378) on" || warn "ag-telemetry.service"
+# The rest of the host's services (each unit's ExecCondition keeps them off non-hosts, so enabling everywhere is safe).
+for u in ag-inbox.service ag-nav.service ag-private.service ag-file-inbox.service ag-mcp-gateway.service ag-pi-hibernate.service ag-tickler.timer ag-presence.timer; do
+  systemctl --user enable --now "$u" >/dev/null 2>&1 && echo "  $u on" || warn "$u"
+done
+# Advertise svc:ag (http://ag:7373-7377) from the session host, once; needs the tailnet up and svc:ag in the admin console.
+if "$AG/bin/dot-local/bin/ag-machine-role" host 2>/dev/null; then
+  if sudo tailscale serve status --json 2>/dev/null | jq -e '.Services["svc:ag"]' >/dev/null 2>&1; then echo "  svc:ag advertised"
+  else "$AG/bin/dot-local/bin/ag-svc" local >/dev/null 2>&1 && echo "  svc:ag advertised (http://ag:7376)" || warn "ag-svc local (needs Tailscale signed in and the svc:ag service in the admin console)"; fi
+fi
+
+step "Secrets checklist (move by hand or via op; never commit)"
+check() { [[ -e $1 ]] && echo "  ok   $2" || { echo "  TODO $2"; failed+=("secret: $2"); }; }
+check ~/.config/gh/hosts.yml       "gh auth login (GitHub)"
+check ~/.zshenv.local              "model keys (TFY_TOKEN, OPENROUTER_API_KEY) in ~/.zshenv.local, 0600"
+check ~/.pi/agent/auth.json        "Pi OAuth logins (anthropic, openai-codex, openrouter)"
+check ~/.pi/agent/mcp.json         "Pi MCP config"
+check ~/.config/ag/op-work.token   "ag-vault 1Password service-account token (op-work on Linux)"
+check ~/.local/share/nessie/credentials.json "Nessie sign-in (docs/reference.md \"Nessie\": nessie-daemon auth login --pair, then add integrations)"
+check ~/.ssh/ag-mac                "engine → ag-mac SSH key (fetched from ag-vault once op-work.token exists)"
+check ~/.config/ag/op-ag.token     "arcade.school 1Password service-account token (op-ag on Linux)"
+
+if ((${#failed[@]})); then
+  printf '\n\033[33m%d item(s) need attention:\033[0m\n' "${#failed[@]}"; printf '  - %s\n' "${failed[@]}"
+else
+  printf '\n\033[32mAll done.\033[0m\n'
+fi

@@ -1,0 +1,8 @@
+# Snapshot the session host's Ag state to the owner's private ag-state repo (git-crypt). bin/dot-local/bin/ag-state.
+[Unit]
+Description=Snapshot Ag state to GitHub
+
+[Service]
+Type=oneshot
+ExecCondition=%h/.local/bin/ag-machine-role host
+ExecStart=/bin/zsh -c 'exec ag-state sync'

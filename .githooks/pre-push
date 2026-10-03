@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Refuse to push the pre-2026-10-03 history back: ag's history was restarted to drop personal data
+# (the old history lives in a private archive repo). A branch that still descends from the old root
+# came from a stale checkout: reset it onto origin/main and cherry-pick your own commits instead.
+old_roots="0b1b635fec01aca39b51e14d52528fbd5c70de23 df40d2ac5855f818699085011dda7c5591a3c230 fd82c36840f129286be94910caf6fb506cfb267b"
+while read -r _ local_sha _ _; do
+  [[ -z $local_sha || $local_sha =~ ^0+$ ]] && continue
+  for root in $old_roots; do
+    if git merge-base --is-ancestor "$root" "$local_sha" 2>/dev/null; then
+      echo "pre-push: refusing to push the old (pre-rewrite) history. Reset onto origin/main and cherry-pick your commits." >&2
+      exit 1
+    fi
+  done
+done
+exit 0

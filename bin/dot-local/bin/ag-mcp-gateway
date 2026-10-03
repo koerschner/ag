@@ -1,0 +1,52 @@
+#!/bin/zsh
+# ag-mcp-gateway: one shared copy of each stdio MCP bridge for every Pi session on this machine.
+#
+# Without it, every Pi session spawns its own mcp-remote per server (~100 MB/session;
+# 96 sessions used ~9.5 GB on ag-mac). Each server here runs once behind its own
+# mcp-proxy (stdio -> streamable HTTP on 127.0.0.1:<port>/mcp), and pi/dot-pi/agent/mcp.json
+# points at those URLs. One proxy per server so a failing server can't take the others
+# down; each is restarted independently if it exits. --stateless so open Pi sessions keep
+# working across gateway restarts (no MCP session IDs to go stale). Run by com.ag.ag-mcp-gateway (KeepAlive).
+#
+#   ag-mcp-gateway            run all servers (foreground; the LaunchAgent does this)
+#   ag-mcp-gateway status     show which ports answer
+set -u
+
+typeset -A PORT CMD
+PORT[linear]=7381
+CMD[linear]='export MCP_REMOTE_CONFIG_DIR="$HOME/.local/share/arcade-linear-return/mcp-destination"; exec npx -y mcp-remote@0.14.3 https://mcp.linear.app/mcp --transport http-only --static-oauth-client-metadata "@$HOME/.local/share/arcade-linear-return/mcp-destination/client-metadata.json"'
+PORT[honeycomb]=7383
+CMD[honeycomb]='exec "$HOME/.bun/bin/bunx" --bun mcp-remote@0.8.3 https://mcp.honeycomb.io/mcp'
+# Private servers (employer/partner endpoints, Slack sessions) are defined in the user's private
+# ~/ag-personal/mcp-gateway.zsh, which adds PORT[...]/CMD[...] entries the same way.
+[[ -f $HOME/ag-personal/mcp-gateway.zsh ]] && source $HOME/ag-personal/mcp-gateway.zsh
+
+# mcp-proxy 0.12.0 breaks on mcp>=1.24 (request_ctx import); pin both.
+PROXY=(uvx --with 'mcp==1.23.*' mcp-proxy==0.12.0)
+LOGDIR=${TMPDIR:-/tmp}/ag-mcp-gateway
+
+if [[ ${1:-} == status ]]; then
+  for name in ${(ko)PORT}; do
+    code=$(curl -s -o /dev/null -w '%{http_code}' -m 3 -X POST -H 'content-type: application/json' \
+      -H 'accept: application/json, text/event-stream' \
+      -d '{"jsonrpc":"2.0","id":1,"method":"ping"}' http://127.0.0.1:${PORT[$name]}/mcp)
+    printf '%-14s :%s  %s\n' $name ${PORT[$name]} "$([[ $code == 000 ]] && echo DOWN || echo up)"
+  done
+  exit 0
+fi
+
+mkdir -p $LOGDIR
+run() {  # restart loop for one server, with backoff so a broken credential doesn't spin
+  local name=$1 delay=2
+  while true; do
+    local start=$SECONDS
+    echo "$(date '+%F %T') starting $name on :${PORT[$name]}" >>$LOGDIR/$name.log
+    $PROXY --port ${PORT[$name]} --stateless --pass-environment -- sh -c ${CMD[$name]} >>$LOGDIR/$name.log 2>&1
+    (( SECONDS - start > 60 )) && delay=2 || delay=$(( delay < 60 ? delay * 2 : 60 ))
+    echo "$(date '+%F %T') $name exited; restarting in ${delay}s" >>$LOGDIR/$name.log
+    sleep $delay
+  done
+}
+for name in ${(k)PORT}; do run $name & done
+trap 'kill 0' TERM INT
+wait

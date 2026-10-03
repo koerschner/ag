@@ -1,0 +1,14 @@
+# ag-telegram listen: routes the owner's Telegram replies to the ag bot back to the sessions that texted them.
+# Session host only (machines/README.md role host).
+[Unit]
+Description=ag-telegram (Telegram replies → sessions)
+After=network-online.target ag-mux.service
+
+[Service]
+ExecCondition=%h/.local/bin/ag-machine-role host
+ExecStart=/usr/bin/zsh -lc 'exec %h/.local/bin/ag-telegram listen'
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

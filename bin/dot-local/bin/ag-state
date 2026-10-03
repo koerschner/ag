@@ -1,0 +1,243 @@
+#!/usr/bin/env python3
+"""ag-state: snapshot the session host's Ag state to private GitHub, and rebuild a machine from it.
+
+Together with the ag, dotfiles and ag-personal repos (code and config) and the pi-sessions-NNN volumes
+(transcripts, `ag-pi-sessions-sync`), this makes the whole of Ag rebuildable from GitHub. docs/reference.md,
+"Ag state archive".
+
+  ag-state sync [--dry-run]          snapshot now (the ag-state-sync timer runs this every 15 min)
+  ag-state restore [--force]         pull state + Pi transcripts back onto this machine
+
+What a snapshot holds (under machines/<machine>/home/, mirroring $HOME):
+  .local/state/   every service's state: ag-mux layout (workspaces, tabs, agents), ag-tickler items, ag-dash
+                  (pins, waiting, archive), inbox, presence, routines, logs. Not pi-sessions (its own archive),
+                  sockets, locks, pids.
+  inbox/ review/  pasted screenshots, phone uploads, review pages.
+  .pi/todos/      Pi todos.
+Credentials are not here (auth.json, MCP tokens, op tokens come from 1Password; see bootstrap-linux).
+
+Repo <owner>/ag-state (<owner> = $AG_GITHUB_OWNER, else the gh account), git-crypt encrypted with the same
+key as pi-sessions (ag-vault "pi-sessions git-crypt key"). Encrypted blobs don't delta-compress, so `main` is force-pushed as a single snapshot commit
+each run, and `history` gets one commit per day (restore an older day with --ref history~N).
+"""
+import argparse, base64, os, re, shutil, socket, subprocess, sys, tempfile, time
+from pathlib import Path
+
+NAME = "ag-state"
+VAULT, KEY_ITEM = "ag-vault", "pi-sessions git-crypt key"
+HOME = Path.home()
+REPO = Path(os.environ.get("AG_STATE_REPO", HOME / ".local/share/ag-state/repo"))
+SOURCES = [".local/state/", "inbox/", "review/", ".pi/todos/"]
+EXCLUDES = ["/.local/state/pi-sessions/", "/.local/state/ag-pi-hibernate/", "/.local/state/ag-client-cua-gate/tokens/",
+            "*.sock", "*.lock", ".lock", "lock", "*.pid", "/.local/state/nvim/", "/.local/state/pnpm/", "/.local/state/mise/"]
+MAX_MB = 95  # GitHub rejects files over 100 MB
+
+
+def _personal_env(key):
+    try:
+        for line in (Path.home() / "ag-personal/env").read_text().splitlines():
+            if line.startswith(key + "="):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return ""
+
+
+_owner = None
+def owner():
+    """GitHub account that holds the private archive repos: $AG_GITHUB_OWNER (or its ~/ag-personal/env line),
+    else the account gh is signed in as."""
+    global _owner
+    if not _owner:
+        _owner = os.environ.get("AG_GITHUB_OWNER") or _personal_env("AG_GITHUB_OWNER") or subprocess.run(
+            ["gh", "api", "user", "-q", ".login"], capture_output=True, text=True).stdout.strip()
+        if not _owner:
+            sys.exit("no GitHub owner: set AG_GITHUB_OWNER or sign in with gh")
+    return _owner
+
+
+def machine_alias(n):
+    """Hostname -> inventory alias. Extra client names (old hostnames): $AG_CLIENT_ALIASES / ~/ag-personal/env."""
+    aliases = os.environ.get("AG_CLIENT_ALIASES") or _personal_env("AG_CLIENT_ALIASES")
+    if n in {a.lower() for a in re.split(r"[\s,]+", aliases) if a}:
+        return "ag-client"
+    return {"ag": "ag-mac"}.get(n, n)
+
+
+def sh(*cmd, cwd=None, check=True, capture=False):
+    r = subprocess.run(cmd, cwd=cwd, text=True, capture_output=capture)
+    if check and r.returncode:
+        sys.exit(f"ag-state: {' '.join(map(str, cmd[:3]))}… failed: {(r.stderr or '')[-400:]}")
+    return r.stdout.strip() if capture else r.returncode
+
+
+def machine():
+    n = socket.gethostname().split(".")[0].lower()
+    return machine_alias(n)
+
+
+def key_file():
+    r = subprocess.run(["op-work", "item", "get", KEY_ITEM, "--vault", VAULT, "--fields", "password", "--reveal"],
+                       text=True, capture_output=True)
+    if r.returncode or not r.stdout.strip():
+        sys.exit(f"ag-state: can't read the git-crypt key from {VAULT}: {r.stderr.strip()[-300:]}")
+    f = tempfile.NamedTemporaryFile(delete=False)
+    f.write(base64.b64decode(r.stdout.strip())); f.close()
+    return f.name
+
+
+def unlock(repo, kf):
+    """Make git-crypt encrypt on add (and decrypt the checkout, if any)."""
+    if sh("git", "config", "filter.git-crypt.clean", cwd=repo, check=False, capture=True):
+        return
+    if sh("git", "rev-parse", "-q", "--verify", "HEAD", cwd=repo, check=False, capture=True):
+        sh("git-crypt", "unlock", kf, cwd=repo)
+        return
+    gc = repo / ".git/git-crypt/keys"; gc.mkdir(parents=True, exist_ok=True)  # empty repo: install by hand
+    shutil.copy(kf, gc / "default"); os.chmod(gc / "default", 0o600)
+    for k, v in [("filter.git-crypt.smudge", '"git-crypt" smudge'), ("filter.git-crypt.clean", '"git-crypt" clean'),
+                 ("filter.git-crypt.required", "true"), ("diff.git-crypt.textconv", '"git-crypt" diff')]:
+        sh("git", "config", k, v, cwd=repo)
+
+
+def clone(dest, depth=True):
+    gh_clone(NAME, dest, depth)
+
+
+def gh_clone(name, dest, depth=True):
+    """HTTPS first (gh's credential helper works on every machine), SSH as the fallback."""
+    args = ["git", "clone", "-q"] + (["--depth", "1"] if depth else [])
+    if sh(*args, f"https://github.com/{owner()}/{name}.git", str(dest), check=False, capture=True) is not None and \
+            not (Path(dest) / ".git").exists():
+        sh(*args, f"git@github.com:{owner()}/{name}.git", str(dest))
+
+
+def ensure_repo(kf):
+    if (REPO / ".git").exists():
+        return
+    if subprocess.run(["gh", "repo", "view", f"{owner()}/{NAME}"], capture_output=True).returncode:
+        sh("gh", "repo", "create", f"{owner()}/{NAME}", "--private", "--description",
+           "Ag session-host state snapshots (git-crypt encrypted). See ag-state in the ag repo.")
+    REPO.parent.mkdir(parents=True, exist_ok=True)
+    clone(REPO)
+    unlock(REPO, kf)
+
+
+def sync(a):
+    m = machine()
+    kf = key_file()
+    try:
+        ensure_repo(kf)
+        unlock(REPO, kf)
+    finally:
+        os.unlink(kf)
+    dst = REPO / "machines" / m / "home"
+    dst.mkdir(parents=True, exist_ok=True)
+    (REPO / ".gitattributes").write_text("machines/** filter=git-crypt diff=git-crypt\n")
+    (REPO / "README.md").write_text("# Ag state\n\nSnapshots of the session host's state, git-crypt encrypted. "
+                                    "Written and restored by `ag-state` in the ag repo.\n")
+    cmd = ["rsync", "-a", "--delete", "--delete-excluded", f"--max-size={MAX_MB}m", "--relative"]
+    cmd += [f"--exclude={e}" for e in EXCLUDES]
+    cmd += [f"./{s}" for s in SOURCES if (HOME / s).exists()] + [f"{dst}/"]
+    r = subprocess.run(cmd, cwd=HOME, text=True, capture_output=True)
+    if r.returncode not in (0, 24):  # 24 = files vanished mid-copy (logs rotating); fine
+        sys.exit(f"ag-state: rsync failed: {r.stderr[-400:]}")
+    sh("git", "add", "-A", ".", cwd=REPO)
+    tree = sh("git", "write-tree", cwd=REPO, capture=True)
+    last = REPO / ".git/ag-state-last-tree"
+    if last.exists() and last.read_text().strip() == tree:
+        print("ag-state: no changes"); return
+    stamp = time.strftime("%Y-%m-%d %H:%M %Z")
+    if a.dry_run:
+        print(f"ag-state: (dry run) would push snapshot {tree[:10]}"); return
+    snap = sh("git", "commit-tree", tree, "-m", f"{m} snapshot {stamp}", cwd=REPO, capture=True)
+    sh("git", "push", "-q", "--force", "origin", f"{snap}:refs/heads/main", cwd=REPO, capture=True)
+    # One commit per day on `history`, so a bad state can be rolled back a day at a time.
+    out = sh("git", "ls-remote", "origin", "refs/heads/history", cwd=REPO, capture=True)
+    parent = out.split()[0] if out else None
+    rec = REPO / ".git/ag-state-history"  # "<sha> <day>" of the last history commit, to skip refetching it
+    pday = rec.read_text().split()[1] if rec.exists() and parent and rec.read_text().split()[0] == parent else None
+    if parent and pday is None:  # fresh clone: fetch the parent once (commit-tree needs the object)
+        sh("git", "fetch", "-q", "--depth", "1", "origin", "history", cwd=REPO, capture=True)
+        pday = sh("git", "log", "-1", "--format=%cd", "--date=format:%Y-%m-%d", parent, cwd=REPO, capture=True)
+    today = time.strftime("%Y-%m-%d")
+    if pday != today:
+        h = sh("git", "commit-tree", tree, *(["-p", parent] if parent else []), "-m", f"{m} {today}", cwd=REPO, capture=True)
+        sh("git", "push", "-q", "origin", f"{h}:refs/heads/history", cwd=REPO, capture=True)
+        parent, pday = h, today
+    rec.write_text(f"{parent} {pday}")
+    last.write_text(tree)
+    print(f"ag-state: pushed snapshot {snap[:10]} ({m}, {stamp})")
+
+
+def restore(a):
+    m = a.machine or machine()
+    to = Path(a.to).expanduser() if a.to else HOME
+    if (to / ".local/state/ag-mux/layout.json").exists() and not a.force:
+        sys.exit("ag-state: this machine already has Ag state (~/.local/state/ag-mux/layout.json); "
+                 "pass --force to overwrite it (stop ag-mux.service and the other ag services first)")
+    kf = key_file()
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            repo = Path(d) / NAME
+            clone(repo, depth=a.ref == "main")
+            if a.ref != "main":
+                sh("git", "checkout", "-q", f"origin/{a.ref}", cwd=repo)
+            sh("git-crypt", "unlock", kf, cwd=repo)
+            src = repo / "machines" / m / "home"
+            if not src.exists():
+                sys.exit(f"ag-state: no snapshot for machine {m!r} (have: {', '.join(p.name for p in (repo / 'machines').iterdir())})")
+            sh("rsync", "-a", f"{src}/", f"{to}/")
+            print(f"ag-state: restored {m} state from {a.ref} ({sh('git', 'log', '-1', '--format=%s', cwd=repo, capture=True)})")
+    finally:
+        os.unlink(kf)
+    if not a.no_sessions:
+        restore_sessions(m, to)
+
+
+def restore_sessions(m, to):
+    """Pi transcripts from the pi-sessions-NNN volumes, oldest first so the newest version wins.
+    --update keeps any local file that's newer (a local transcript is unredacted and may be ahead)."""
+    import json
+    out = sh("gh", "repo", "list", owner(), "--limit", "1000", "--json", "name", capture=True)
+    vols = sorted(v["name"] for v in json.loads(out) if v["name"].startswith("pi-sessions-"))
+    dest = to / ".pi/agent/sessions"; dest.mkdir(parents=True, exist_ok=True)
+    kf = key_file()
+    try:
+        for v in vols:
+            with tempfile.TemporaryDirectory() as d:
+                r = Path(d) / v
+                gh_clone(v, r)
+                sh("git-crypt", "unlock", kf, cwd=r)
+                src = r / "machines" / m
+                if src.exists():
+                    sh("rsync", "-a", "--update", f"{src}/", f"{dest}/")
+                    print(f"ag-state: Pi transcripts from {v}")
+    finally:
+        os.unlink(kf)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("sync"); s.add_argument("--dry-run", action="store_true")
+    r = sub.add_parser("restore")
+    r.add_argument("--force", action="store_true", help="overwrite existing state")
+    r.add_argument("--ref", default="main", help="main (latest) or a history commit, e.g. history~1")
+    r.add_argument("--machine", help="whose snapshot (default: this machine's name)")
+    r.add_argument("--no-sessions", action="store_true", help="skip the Pi transcripts")
+    r.add_argument("--to", help="restore into this directory instead of $HOME (for testing)")
+    a = ap.parse_args()
+    lock = HOME / ".local/share/ag-state/lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    import fcntl
+    with open(lock, "w") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("ag-state: already running"); return
+        (sync if a.cmd == "sync" else restore)(a)
+
+
+if __name__ == "__main__":
+    main()

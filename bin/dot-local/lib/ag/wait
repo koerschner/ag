@@ -1,0 +1,32 @@
+#!/usr/bin/env python3
+"""ag wait — put a session in ag-dash's Waiting for column (default: this one); ag unwait takes it out.
+
+    ag wait [session] [--off]
+Waiting always wakes up: the session must also have an ag-tickler item that wakes it (the ag-tickler tool, with
+waitingFor for a person or when: "check" for a signal). Until it does, ag-dash flags the card "no wake-up"
+and asks the session to schedule one. Waiting on the user is Needs you, not Waiting for.
+"""
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def main(argv, off=False):
+    o, pos = flags(argv, {"--off": False})
+    if o.get("--help"):
+        return usage(__doc__)
+    off = off or o.get("--off")
+    s = resolve(" ".join(pos) or None, allow_closed=False)
+    if not s.card:
+        raise AgError(f"{s.title} has no ag-dash card")
+    board_post("/api/card", {"tab": s.tab, "waiting": not off})
+    if off:
+        print(f"no longer waiting: {s.title}  {s.link or ''}")
+    else:
+        print(f"⏳ waiting: {s.title}  {s.link or ''}")
+        if not s.card.get("waiting"):
+            print("  schedule its wake-up with the ag-tickler (ag-dash flags it 'no wake-up' until one exists)", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    run_main(main)

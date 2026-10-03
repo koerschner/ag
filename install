@@ -1,0 +1,112 @@
+#!/usr/bin/env zsh
+# Install ag (the agent system) on a Mac. Idempotent: safe to re-run any time.
+# dotfiles' `bootstrap` clones this repo to ~/ag and runs it; it can also run on its own:
+#   ~/ag/install
+# Linux machines use ./bootstrap-linux instead.
+#
+# Files that would block a stow symlink are moved to ~/.dotfiles-backup/<ts>/.
+set -uo pipefail
+
+AG=${AG:-${0:A:h}}
+STOW_PACKAGES=(ag-dash ag-inbox agents bin claude codex hammerspoon pi tmux)
+backup=$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)
+failed=()
+STOW=(stow --dotfiles --no-folding -d $AG -t $HOME)
+
+step() { print -P "\n%F{cyan}==> [ag] $*%f"; }
+warn() { print -P "%F{yellow}  ! $*%f"; failed+=("$*"); }
+have() { command -v $1 >/dev/null 2>&1; }
+[[ -x /opt/homebrew/bin/brew ]] && eval "$(/opt/homebrew/bin/brew shellenv)"
+have stow || brew install stow || { echo "ag install needs GNU stow"; exit 1; }
+
+step "Agent CLIs (vendor installers)"
+[[ -x ~/.bun/bin/bun ]]   || curl -fsSL https://bun.sh/install | bash               || warn "bun"
+have claude               || curl -fsSL https://claude.ai/install.sh | bash          || warn "claude"
+have codex                || curl -fsSL https://chatgpt.com/codex/install.sh | sh    || warn "codex"
+have amp                  || curl -fsSL https://ampcode.com/install.sh | bash        || warn "amp"
+[[ -f ~/.bun/install/global/package.json ]] || ~/.bun/bin/bun add -g @oh-my-pi/pi-coding-agent || warn "omp"
+
+step "agent instructions + git hooks"
+"$AG/agents.md/build" || warn "agents.md/build"
+git -C $AG config core.hooksPath .githooks && echo "  core.hooksPath=.githooks"
+
+step "personal layer (private ag-personal, optional)"
+# The owner's private instructions, configs and values (its `links` list, ~/ag-personal/env); skipped without access.
+# Cloned from <owner>/ag-personal, where <owner> is AG_GITHUB_OWNER or the owner of this ag checkout's origin.
+gh_owner=${AG_GITHUB_OWNER:-$(git -C $AG remote get-url origin 2>/dev/null | sed -E 's#.*[:/]([^/]+)/[^/]+$#\1#')}
+[[ -d ~/ag-personal ]] || gh repo clone "$gh_owner/ag-personal" ~/ag-personal -- -q 2>/dev/null || echo "  no access to ag-personal: skipped"
+[[ -f ~/ag-personal/links ]] && { dir=~/ag-personal; while read -r f t; do case "$f" in ""|\#*) continue ;; esac; mkdir -p "$(dirname "$HOME/$t")"; ln -sfn "$dir/$f" "$HOME/$t"; done < "$dir/links"; echo "  linked ag-personal files into ~"; }
+
+step "stow packages"
+"$AG/bin/dot-local/lib/ag/migrate-names"  # one-time cleanup after the ag-<name> rename
+for pkg in $STOW_PACKAGES; do
+  # Move aside any real file that would block a symlink, then stow.
+  [[ $pkg == codex ]] && ign=(--ignore='(^|/)config\.toml$') || ign=()
+  $STOW $ign -n $pkg 2>&1 |
+    sed -nE 's/.* over existing target (.+) since .*/\1/p; s/.*existing target is not owned by stow: (.+)$/\1/p' |
+    while read -r rel; do
+      mkdir -p "$backup/${rel:h}" && mv "$HOME/$rel" "$backup/$rel" && echo "  backed up ~/$rel"
+    done
+  $STOW $ign $pkg && echo "  $pkg" || warn "stow $pkg"
+done
+# ~/.codex/config.toml is a per-machine copy (the Codex app rewrites it with absolute paths), so it is
+# ignored above; a new machine starts from the tracked one.
+[[ -e ~/.codex/config.toml || ! -f ~/ag-personal/codex-config.toml ]] || { mkdir -p ~/.codex && cp ~/ag-personal/codex-config.toml ~/.codex/config.toml && echo "  copied ~/.codex/config.toml (from ag-personal)"; }
+[[ -d $backup ]] && echo "  pre-existing files moved to $backup"
+
+step "LaunchAgents"
+mkdir -p ~/Library/LaunchAgents
+for plist in $AG/macos-launchagents/*.plist; do
+  dest=~/Library/LaunchAgents/${plist:t}
+  # One-time: retire this agent under an older label prefix (com.<owner>.<x>, renamed to com.ag.<x> 2026-10): unload
+  # it and remove its plist (a link into an ag checkout), so the new one below is the only copy loaded. Idempotent.
+  for old in ~/Library/LaunchAgents/com.*.${${plist:t}#com.ag.}(N@); do
+    [[ $old != $dest && $(readlink $old) == */macos-launchagents/* ]] || continue
+    launchctl bootout gui/$UID/${old:t:r} 2>/dev/null; rm -f $old ~/.local/state/ag-launchagents/${old:t}
+    echo "  retired ${old:t:r} (now ${plist:t:r})"
+  done
+  # Repoint links that still go to an old checkout (e.g. from before ag had its own repo).
+  [[ -L $dest && $(readlink $dest) != $plist ]] && rm $dest
+  [[ -L $dest ]] || { [[ -e $dest ]] && mkdir -p $backup && mv $dest $backup/; ln -s $plist $dest; }
+  # bootstrap is a no-op for a loaded agent, so reload it when the plist changed since the last install
+  # (otherwise launchd keeps running the old definition). Hashes: ~/.local/state/ag-launchagents/.
+  mkdir -p ~/.local/state/ag-launchagents; sum=$(shasum $plist | cut -d' ' -f1) seen=~/.local/state/ag-launchagents/${plist:t}
+  if [[ -f $seen && $(<$seen) != $sum ]] && launchctl print gui/$UID/${plist:t:r} >/dev/null 2>&1; then
+    launchctl bootout gui/$UID/${plist:t:r} 2>/dev/null; echo "  reloading ${plist:t} (changed)"
+  fi
+  launchctl bootstrap gui/$UID $dest 2>/dev/null || true   # already loaded is fine
+  print -r -- $sum >$seen
+  echo "  ${plist:t}"
+done
+
+step "macOS helper apps"
+zsh $AG/macos-apps/ag-chrome-tab-reaper/install.sh || warn "ag-chrome-tab-reaper"
+zsh $AG/macos-apps/ag-dash/install.sh || warn "ag-dash"
+
+step "Tool setup"
+# Moshi (iPhone terminal) hook daemon + Pi hook; the LaunchAgent runs it.
+$AG/bin/dot-local/bin/ag-moshi-hook-install >/dev/null && ~/.local/bin/moshi-hook install --target pi >/dev/null \
+  && echo "  moshi-hook" || warn "ag-moshi-hook-install"
+# DiscordChatExporter for the discord-export skill (pinned, checksum-verified).
+bash $AG/agents/dot-agents/skills/discord-export/scripts/install.sh >/dev/null \
+  && echo "  DiscordChatExporter" || warn "discord-export install.sh"
+# Sessions live in tmux on the session host; this Mac only forwards Cmd shortcuts into them (Hammerspoon).
+$AG/bin/dot-local/bin/ag-shortcuts-check || warn "ag shortcuts drifted (tmux/SHORTCUTS.md)"
+
+if $AG/bin/dot-local/bin/ag-machine-role host extremity; then
+  step "ag host secrets (Keychain)"
+  for svc in "ag 1Password service account" "ag machine-shared service account" "ag-shared 1Password service account"; do
+    security find-generic-password -a $USER -s "$svc" >/dev/null 2>&1 && echo "  ok      Keychain '$svc'" || { echo "  MISSING Keychain '$svc'  - 1Password service-account token for op-ag / op-shared / op-work (docs/reference.md \"Secrets\")"; failed+=("secret $svc"); }
+  done
+  ag-login-password check >/dev/null 2>&1 && echo "  ok      Keychain 'ag Mac login'" || echo "  MISSING Keychain 'ag Mac login'  - ag-mac's own login password so agents can answer ag-mac's password prompts: run ag-login-password set"
+  step "macOS permissions for agents (docs/reference.md \"macOS permissions for agents\")"
+  $AG/bin/dot-local/bin/ag-screen-approvals >/dev/null 2>&1 && echo "  ok      screen re-consent pushed to 2100" || warn "ag-screen-approvals (needs Full Disk Access; run it from an agent shell)"
+  PATH=$AG/bin/dot-local/bin:$PATH $AG/bin/dot-local/bin/ag-access | sed 's/^/  /' || echo "  MISSING grants for sshd-keygen-wrapper: see docs/reference.md \"macOS permissions for agents\""
+  security find-generic-password -a $USER -s "ag telegram bot" >/dev/null 2>&1 && echo "  ok      ag telegram bot" || echo "  MISSING Keychain 'ag telegram bot' + 'ag telegram chat'  - Telegram bot for ag-text (optional; falls back to iMessage)"
+fi
+
+if (( ${#failed} )); then
+  print -P "%F{yellow}[ag] needs attention:%f"; printf '  - %s\n' $failed
+  exit 1
+fi
+echo "[ag] all steps succeeded."

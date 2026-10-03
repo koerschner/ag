@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily tool-call summary review (9am Central)
+
+[Timer]
+OnCalendar=*-*-* 14:00:00 UTC
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

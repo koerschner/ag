@@ -1,0 +1,274 @@
+#!/usr/bin/env bun
+// ag-file-inbox: receive files (phone screenshots, photos) and optional text on ag-mac over Tailscale,
+// and optionally hand them to a pi session. Used by the iOS "Send to ag" Shortcut
+// (see ios-shortcuts/send-to-ag.md in the ag repo).
+//
+//   GET  /sessions   JSON {"<label>": "<pane id>"}: "Just save", "New session", then the
+//                    3 most recently active pi sessions (by session-file mtime).
+//   POST /send       multipart form: f=<file(s)>, text=<optional>, to=<pane id | "new" | "">
+//                    Saves files to ~/inbox/phone. to=pane → prompt that session with text +
+//                    file paths; to=new → the ag-inbox opens a new session; empty → just save.
+//   POST /upload?name=<optional>   raw file bytes → saved (curl-friendly)
+//   GET  /           browser form (same as /send)
+//   GET  /r/<slot>/<path>   review pages published by `ag-show` (~/review/<slot>), for the phone.
+//                    HTML gets a phone viewport and a Comment button injected.
+//   POST /r/<slot>/comment   JSON {text, section} → prompt the pi session that ran `ag-show`
+//                    (found by its session file, so it survives pane moves), else a new session.
+//   GET  /m/<pi session id>   phone deep link: finds the pane now running that pi session (by
+//                    session file, so it survives pane moves), selects its tab in the `ag` tmux
+//                    session and redirects to moshi://tmux?session=ag, which resumes Moshi's card
+//                    there. `ag-session-link` prints these; iMessage won't linkify moshi:// itself.
+//
+// Listens only on ag-mac's Tailscale IP (tailnet-only, like ag-inbox). Run by com.ag.ag-file-inbox.
+
+import { execFileSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { homedir } from "node:os";
+import { basename, extname, resolve } from "node:path";
+import { originTag } from "../../../pi/dot-pi/agent/extensions/ag-origin.ts";
+
+const PORT = 7374;
+const HOME = homedir();
+
+// Activity capture: note each prompt this script injects (hash only), so the Pi activity extension can tell it apart from typing.
+const injected = (by: string, text: string, extra: object = {}) => {
+	try {
+		mkdirSync(`${HOME}/.local/state/activity`, { recursive: true });
+		const sha = createHash("sha1").update(text.trim()).digest("hex").slice(0, 12);
+		appendFileSync(`${HOME}/.local/state/activity/injections.jsonl`, JSON.stringify({ ts: new Date().toISOString(), by, sha, ...extra }) + "\n");
+	} catch {}
+};
+const DIR = `${HOME}/inbox/phone`;
+const AG_MUX = `${HOME}/.local/bin/ag-mux`;
+const AG_INBOX = (host: string) => `http://${host}:7373/prompt`;
+const HOST = Bun.spawnSync(["/usr/local/bin/tailscale", "ip", "-4"]).stdout.toString().trim();
+if (!HOST) throw new Error("no Tailscale IP yet");
+const REVIEW = `${HOME}/review`;
+mkdirSync(DIR, { recursive: true });
+
+const log = (data: Record<string, unknown>) => console.log(JSON.stringify({ ts: new Date().toISOString(), ...data }));
+const mux = (...args: string[]) => JSON.parse(execFileSync(AG_MUX, args, { encoding: "utf8", timeout: 30_000 })).result;
+
+const EXT: Record<string, string> = {
+	"image/png": ".png", "image/jpeg": ".jpg", "image/heic": ".heic", "image/gif": ".gif",
+	"image/webp": ".webp", "video/quicktime": ".mov", "video/mp4": ".mp4", "application/pdf": ".pdf",
+};
+
+async function save(bytes: ArrayBuffer, name: string | null, type: string): Promise<string> {
+	const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+	const safe = name ? basename(name).replace(/[^\w.\- ]/g, "_") : "";
+	const ext = safe && extname(safe) ? "" : EXT[type.split(";")[0]] ?? "";
+	const path = `${DIR}/${stamp}${safe ? "-" + safe : ""}${ext}`;
+	await Bun.write(path, bytes);
+	log({ saved: path, bytes: bytes.byteLength });
+	return path;
+}
+
+// The 3 pi sessions with the most recently written session file, labelled by their tab.
+function sessions(): Record<string, string> {
+	const recent = mux("agent", "list").agents
+		.map((a: any) => {
+			const file = a.agent_session?.value;
+			let mtime = 0;
+			try { mtime = file ? statSync(file).mtimeMs : 0; } catch {}
+			return { pane: a.pane_id as string, tab: a.tab_id as string, mtime };
+		})
+		.filter((a: any) => a.mtime)
+		.sort((a: any, b: any) => b.mtime - a.mtime)
+		.slice(0, 3);
+	const out: Record<string, string> = { "Just save": "", "New session": "new" };
+	for (const a of recent) {
+		const tab = mux("tab", "get", a.tab).tab?.label ?? a.tab;
+		out[tab] = a.pane;
+	}
+	return out;
+}
+
+function message(text: string, paths: string[]): string {
+	const files = paths.map((p) => `- ${p}`).join("\n");
+	if (!paths.length) return text;
+	return `${text || "See the attached file(s)."}\n\nSent from my phone (read these files to view them):\n${files}`;
+}
+
+async function deliver(to: string, text: string, paths: string[]): Promise<string> {
+	if (!to) return "saved";
+	const msg = message(text, paths);
+	if (to === "new") {
+		const res = await fetch(AG_INBOX(HOST), { method: "POST", body: msg });
+		if (!res.ok) throw new Error(`ag-inbox ${res.status}`);
+		return "sent to a new session";
+	}
+	injected("ag-file-inbox", msg, { kind: "file" });
+	mux("agent", "prompt", to, msg);
+	return `sent to ${to}`;
+}
+
+// --- Review pages (published by `ag-show`) ---
+
+// Added to every served HTML page: phone viewport, zero-specificity image fit, and a Comment button
+// that sends the note (plus the heading nearest the top of the screen) back to the session.
+const WIDGET = `<style>:where(img){max-width:100%;height:auto}
+#agc-w{position:fixed;left:0;top:0;width:100%;height:100%;z-index:2147483647;pointer-events:none;transform-origin:0 0}#agc-w>*{pointer-events:auto}
+#agc-btn{position:absolute;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));z-index:2147483647;font:600 15px system-ui;background:#111;color:#fff;border:0;border-radius:24px;padding:12px 18px;box-shadow:0 2px 10px #0005}
+#agc{position:absolute;left:0;right:0;bottom:0;background:#fff;color:#111;font:15px system-ui;padding:14px 14px calc(14px + env(safe-area-inset-bottom));box-shadow:0 -2px 12px #0004;border-radius:14px 14px 0 0;display:none}
+#agc textarea{width:100%;box-sizing:border-box;font:16px system-ui;min-height:110px;padding:8px;border:1px solid #ccc;border-radius:8px}
+#agc .row{display:flex;gap:8px;justify-content:flex-end;margin-top:8px} #agc button{font:600 15px system-ui;padding:9px 16px;border-radius:8px;border:0}
+#agc-sec{font-size:12px;color:#666;margin:0 0 6px}</style>
+<div id=agc-w><button id=agc-btn>Comment</button><div id=agc><p id=agc-sec></p><textarea id=agc-t placeholder="Comment for the agent"></textarea>
+<div class=row><button id=agc-x style="background:#eee">Cancel</button><button id=agc-s style="background:#111;color:#fff">Send</button></div></div></div>
+<script>(()=>{const $=i=>document.getElementById(i),box=$("agc"),btn=$("agc-btn"),w=$("agc-w");let sec="";
+// Pin to the visible area: wide pages make the layout viewport wider than the screen, and pinch zoom scales it.
+const v=window.visualViewport,place=()=>{if(!v)return;const k=v.scale;Object.assign(w.style,{width:v.width*k+"px",height:v.height*k+"px",transform:"translate("+v.offsetLeft+"px,"+v.offsetTop+"px) scale("+1/k+")"})};
+if(v){v.addEventListener("resize",place);v.addEventListener("scroll",place);place()}
+const section=()=>{let s="";for(const h of document.querySelectorAll("h1,h2,h3,h4")){if(h.closest("#agc"))continue;if(h.getBoundingClientRect().top<innerHeight*0.4)s=h.textContent.trim();else break}return s.slice(0,200)};
+btn.onclick=()=>{sec=section();$("agc-sec").textContent=sec?"About: "+sec:"";box.style.display="block";btn.style.display="none";$("agc-t").focus()};
+const close=()=>{box.style.display="none";btn.style.display=""};$("agc-x").onclick=close;
+$("agc-s").onclick=async()=>{const text=$("agc-t").value.trim();if(!text)return;$("agc-s").disabled=true;
+try{const r=await fetch("comment",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text,section:sec,page:location.pathname})});
+const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);$("agc-t").value="";close();btn.textContent="Sent ✓";setTimeout(()=>btn.textContent="Comment",2500)}
+catch(e){alert("Not sent: "+e.message)}finally{$("agc-s").disabled=false}}})()</script>`;
+
+const VIEWPORT = `<meta name=viewport content="width=device-width,initial-scale=1">`;
+
+function injectReview(html: string): string {
+	if (!/<meta[^>]+name=["']?viewport/i.test(html)) {
+		html = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => m + VIEWPORT) : VIEWPORT + html;
+	}
+	return /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, WIDGET + "</body>") : html + WIDGET;
+}
+
+function reviewFile(slot: string, rel: string): string | null {
+	if (!/^[\w.-]+$/.test(slot) || slot.startsWith(".")) return null;
+	const root = `${REVIEW}/${slot}`;
+	const path = resolve(root, rel || "index.html");
+	if (!path.startsWith(root + "/") || basename(path).startsWith(".")) return null;
+	try {
+		return statSync(path).isDirectory() ? (existsSync(`${path}/index.html`) ? `${path}/index.html` : null) : path;
+	} catch { return null; }
+}
+
+// Review pages travel over Tailscale, sometimes through a slow relay: gzip text, and let the browser revalidate
+// everything else (ETag → 304) instead of downloading images and videos again on every visit.
+const gzipOk = (req: Request) => (req.headers.get("accept-encoding") ?? "").includes("gzip");
+const TEXT = /\.(css|js|mjs|json|svg|txt|csv|md|map)$/i;
+function serveReview(slot: string, rel: string, req: Request): Response {
+	const path = reviewFile(slot, rel);
+	if (!path) return new Response("not found\n", { status: 404 });
+	if (/\.html?$/i.test(path)) {
+		const html = injectReview(readFileSync(path, "utf8")), headers = { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" };
+		return gzipOk(req) ? new Response(Bun.gzipSync(Buffer.from(html)), { headers: { ...headers, "content-encoding": "gzip", vary: "accept-encoding" } }) : new Response(html, { headers });
+	}
+	const file = Bun.file(path), size = file.size;
+	const etag = `"${size.toString(36)}-${Math.floor(file.lastModified).toString(36)}"`;
+	const headers: Record<string, string> = { "accept-ranges": "bytes", "content-type": file.type, "cache-control": "no-cache", etag };
+	if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+	if (TEXT.test(path) && gzipOk(req) && !req.headers.get("range")) return new Response(Bun.gzipSync(readFileSync(path)), { headers: { ...headers, "content-encoding": "gzip", vary: "accept-encoding" } });
+	// Byte ranges: iPhone Safari won't play <video> without them.
+	const range = req.headers.get("range");
+	const m = range?.match(/^bytes=(\d*)-(\d*)$/);
+	if (!m || (!m[1] && !m[2])) return new Response(file, { headers });
+	const start = m[1] ? +m[1] : Math.max(0, size - +m[2]);
+	const end = m[1] && m[2] ? Math.min(+m[2], size - 1) : size - 1;
+	if (start > end || start >= size) return new Response(null, { status: 416, headers: { "content-range": `bytes */${size}` } });
+	return new Response(file.slice(start, end + 1), { status: 206, headers: { ...headers, "content-range": `bytes ${start}-${end}/${size}` } });
+}
+
+// meta.json (written by `ag-show`): {session, pane, source, url}. Prefer the live agent running the
+// same pi session file: pane IDs change when a pane moves to another tab.
+async function reviewComment(slot: string, body: any): Promise<string> {
+	const text = String(body?.text ?? "").trim();
+	if (!text) throw new Error("empty comment");
+	if (!/^[\w.-]+$/.test(slot)) throw new Error("bad page");
+	let meta: any = {};
+	try { meta = JSON.parse(readFileSync(`${REVIEW}/${slot}/.meta.json`, "utf8")); } catch {}
+	const section = String(body?.section ?? "").trim();
+	const page = meta.url || String(body?.page ?? slot);
+	const note = `Comment from the user's phone on the review page ${meta.source ?? slot} (${page})${section ? `, section "${section}"` : ""}. Treat it like any reply from them.`;
+	const msg = `${originTag({ kind: "comment", label: `Phone comment on ${basename(String(meta.source ?? slot))}${section ? ` · ${section}` : ""}`, note })}\n${text}`;
+	const agents = mux("agent", "list").agents as any[];
+	const agent = (meta.session && agents.find((a) => a.agent_session?.value === meta.session)) ||
+		(meta.pane && !meta.session && agents.find((a) => a.pane_id === meta.pane));
+	if (agent) {
+		injected("ag-file-inbox", msg, { kind: "review-comment", slot });
+		mux("agent", "prompt", agent.pane_id, msg);
+		const tab = mux("tab", "get", agent.tab_id).tab?.label ?? agent.tab_id;
+		return `sent to ${tab}`;
+	}
+	const res = await fetch(AG_INBOX(HOST), { method: "POST", body: `${msg}\n\n(The session that published this page is gone. The page's files are in ~/review/${slot}/ on ag.)` });
+	if (!res.ok) throw new Error(`ag-inbox ${res.status}`);
+	return "sent to a new Inbox session";
+}
+
+const FORM = `<!doctype html><meta name=viewport content="width=device-width">
+<form method=post action=/send enctype=multipart/form-data>
+<p><input type=file name=f multiple accept="image/*,video/*,application/pdf">
+<p><textarea name=text rows=4 cols=40 placeholder="message (optional)"></textarea>
+<p><select name=to>OPTIONS</select> <button>Send to ag</button></form>`;
+
+// Also on 127.0.0.1: the Tailscale Service svc:ag (ag-svc) proxies there (serve can't reach this machine's own tailnet IP).
+for (const hostname of [HOST, "127.0.0.1"]) Bun.serve({
+	hostname,
+	port: PORT,
+	maxRequestBodySize: 512 * 1024 * 1024,
+	async fetch(req) {
+		const url = new URL(req.url);
+		try {
+			if (req.method === "GET" && url.pathname === "/sessions") return Response.json(sessions());
+			const review = url.pathname.match(/^\/r\/([^/]+)(?:\/(.*))?$/);
+			if (review) {
+				const [, slot, rel = ""] = review.map((x) => x && decodeURIComponent(x));
+				if (req.method === "POST" && rel === "comment") {
+					const result = await reviewComment(slot, await req.json());
+					log({ comment: slot, result });
+					return Response.json({ result });
+				}
+				if (req.method === "GET" || req.method === "HEAD") {
+					if (review[2] === undefined) return Response.redirect(`/r/${review[1]}/`, 302);
+					return serveReview(slot, rel, req);
+				}
+			}
+			const m = url.pathname.match(/^\/m\/([0-9a-f-]{8,36})$/);
+			if (req.method === "GET" && m) {
+				const pane = mux("pane", "list").panes.find((p: any) => String(p.agent_session?.value ?? p.sleeping_session ?? "").includes(m[1]));
+				log({ moshi: m[1], pane: pane?.pane_id ?? null });
+				if (!pane) return new Response("That session isn't open anymore.\n", { status: 404 });
+				// Select the tab server-side (Moshi's tmux link only picks windows 0-9) in the session Moshi attaches
+				// to (every tab lives in one tmux session; terminals that ran `ag` have their own grouped views).
+				const snap = mux("api", "snapshot").snapshot;
+				const session: string = snap.tmux_session ?? "ag";
+				const win = snap.tabs.find((t: any) => t.tab_id === pane.tab_id)?.tmux_window;
+				if (win) execFileSync("tmux", ["-L", "ag", "select-window", "-t", `${session}:${win}`], { stdio: "ignore", timeout: 5000 });
+				return new Response(null, { status: 302, headers: { location: `moshi://tmux?${new URLSearchParams({ session })}` } });
+			}
+			if (req.method === "GET" && url.pathname === "/") {
+				const opts = Object.entries(sessions()).map(([l, v]) => `<option value="${v}">${Bun.escapeHTML(l)}</option>`).join("");
+				return new Response(FORM.replace("OPTIONS", opts), { headers: { "content-type": "text/html" } });
+			}
+			if (req.method === "POST" && url.pathname === "/upload") {
+				const bytes = await req.arrayBuffer();
+				if (!bytes.byteLength) return new Response("empty body\n", { status: 400 });
+				return new Response((await save(bytes, url.searchParams.get("name"), req.headers.get("content-type") ?? "")) + "\n");
+			}
+			if (req.method === "POST" && url.pathname === "/send") {
+				const form = await req.formData();
+				const paths: string[] = [];
+				for (const f of form.getAll("f")) {
+					if (f instanceof File && f.size) paths.push(await save(await f.arrayBuffer(), f.name, f.type));
+				}
+				const text = String(form.get("text") ?? "").trim();
+				const to = String(form.get("to") ?? "").trim();
+				if (!paths.length && !text) return new Response("nothing to send\n", { status: 400 });
+				const result = await deliver(to, text, paths);
+				log({ send: result, to, files: paths.length, chars: text.length });
+				return new Response(`${paths.length} file(s), ${result}\n`);
+			}
+			return new Response("not found\n", { status: 404 });
+		} catch (e) {
+			log({ error: String(e), path: url.pathname });
+			if (url.pathname.endsWith("/comment")) return Response.json({ error: String(e) }, { status: 500 });
+			return new Response(`error: ${e}\n`, { status: 500 });
+		}
+	},
+});
+log({ listening: `http://${HOST}:${PORT}`, dir: DIR });

@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+"""ag read — read a session's transcript (open, hibernated or closed): prompts and answers as text.
+
+    ag read [session] [--user|--assistant] [--last N | --all] [--tools] [--full] [--json]
+    default: the last 20 messages, user + assistant text, each clipped to 2000 chars (--full: no clipping)
+    --tools   also list tool calls, one line each
+"""
+import json, os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def main(argv):
+    o, pos = flags(argv, {"--user": False, "--assistant": False, "--last": True, "-n": "--last", "--all": False,
+                          "--tools": False, "--full": False, "--json": False})
+    if o.get("--help"):
+        return usage(__doc__)
+    s = resolve(" ".join(pos) or None)
+    if not s.file:
+        raise AgError(f"{s.title}: no transcript file")
+    roles = ("user",) if o.get("--user") else ("assistant",) if o.get("--assistant") else ("user", "assistant")
+    ms = messages(s.file, roles, tools=o.get("--tools"))
+    if not o.get("--all"):
+        ms = ms[-int(o.get("--last") or 20):]
+    if o.get("--json"):
+        print(json.dumps({"session": s.as_dict(), "messages": ms}, ensure_ascii=False, indent=1))
+        return 0
+    print(f"# {s.title}  ({s.state})  {s.link}\n# {s.file}\n")
+    for m in ms:
+        t = m["text"] if o.get("--full") or len(m["text"]) <= 2000 else m["text"][:2000] + " …[clipped]"
+        ts = (m.get("ts") or "")[:16].replace("T", " ")
+        if m["role"] == "tool":
+            print(f"  · {t}")
+        else:
+            print(f"## {m['role']}  {ts}\n{t}\n")
+
+
+run_main(main)

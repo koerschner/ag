@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""ag send — prompt another session (resolved fresh each call; wakes a hibernated one).
+
+    ag send <session> "message" [--interrupt]   (message "-" or omitted: read stdin)
+    --interrupt   stop what it's doing first (Esc), then send
+    --from        tag it as from this session even outside an agent (agents always tag theirs)
+Sent from an agent session, the message carries an <ag-origin kind="send"> tag naming the sender, so it shows
+as "Message from …" and prompt rules meant for the user's own words (e.g. square-brackets) skip it.
+Goes through ag-dash (marks the card seen), else ag-mux agent prompt. A closed session must be reopened
+first: ag resume <session>.
+"""
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def main(argv):
+    o, pos = flags(argv, {"--interrupt": False, "--from": False, "--json": False})
+    if o.get("--help") or not pos:
+        return usage(__doc__)
+    ref, text = pos[0], " ".join(pos[1:])
+    if not text or text == "-":
+        text = sys.stdin.read()
+    text = text.strip()
+    if not text:
+        raise AgError("empty message")
+    ix = Index()
+    s = resolve(ref, ix)
+    if o.get("--from") or os.environ.get("PI_SESSION_ID") or os.environ.get("PI_SESSION_FILE"):
+        me = self_session(ix)
+        text = origin_tag("send", "Message from", title=me.title, sid=me.sid,
+                          note=f"Message from session “{me.title}” ({me.link}).") + "\n" + text
+    prompt(s, text, o.get("--interrupt"))
+    print(f"sent to {s.title} ({s.tab})  {s.link or ''}")
+
+
+run_main(main)

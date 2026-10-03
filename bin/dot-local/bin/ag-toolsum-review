@@ -1,0 +1,102 @@
+#!/usr/bin/env zsh
+# ag-toolsum-review: the routine that keeps ag-dash's tool-call summaries growing (systemd: ag-toolsum-review.timer,
+# daily on the session host). See ~/ag/ag-toolsum/README.md.
+#
+#   1. Measure: `ag-toolsum coverage --days 7 --json` over every Pi session (report kept in the state dir).
+#   2. Gate: only when some unmatched shape (not in ag-toolsum/skip.json) has ≥ MIN_GAP calls does it go on.
+#   3. Improve: a non-interactive Pi run, in a fresh worktree of ag, extends ag-toolsum.ts (new rules, each with a
+#      fixture), may mark shapes as skip (raw is clearer), and reviews a sample of existing summaries for
+#      misleading ones.
+#   4. Verify: fixtures pass and coverage didn't drop; otherwise nothing is merged.
+#   5. Ship: commit, push to ag main, pull into ~/ag, restart ag-dash.
+#   Writes ~/.local/state/routines/ag-toolsum-review.json ({at, ok, summary, session}) for ag-dash's Routines view.
+#
+#   ag-toolsum-review [--dry-run] [--force]     --dry-run: measure + gate only; --force: skip the gate
+setopt err_exit pipe_fail
+MIN_GAP=${MIN_GAP:-10}
+STATE=~/.local/state/routines
+NAME=ag-toolsum-review
+mkdir -p $STATE/$NAME
+dry=0 force=0
+for a in "$@"; do case $a in --dry-run) dry=1 ;; --force) force=1 ;; esac; done
+
+reported=0
+status() { # ok summary [session]
+  reported=1
+  jq -n --arg ok "$1" --arg s "$2" --arg sid "${3:-}" --arg at "$(date -u +%FT%TZ)" \
+    '{at:$at, ok:($ok=="true"), summary:$s} + (if $sid=="" then {} else {session:$sid} end)' > $STATE/$NAME.json.tmp
+  mv $STATE/$NAME.json.tmp $STATE/$NAME.json
+}
+trap '(( reported )) || status false "failed (journalctl --user -u ag-toolsum-review)"' EXIT
+
+day=$(date -u +%Y%m%d)
+report=$STATE/$NAME/coverage-$day.json
+ag-toolsum coverage --days 7 --json --top 60 > $report
+before=$(jq .pct $report)
+skip=~/ag/ag-toolsum/skip.json
+gaps=$(jq --slurpfile skip <([[ -f $skip ]] && cat $skip || echo '[]') --argjson min $MIN_GAP \
+  '[.gaps[] | select(.calls >= $min) | select(.shape as $s | ($skip[0] | map(.shape) | index($s)) | not)]' $report)
+n=$(jq length <<<$gaps)
+echo "coverage ${before}%; $n open gap(s) with ≥ $MIN_GAP calls"
+if (( n == 0 && ! force )); then status true "${before}% of tool calls summarised; no new gaps"; exit 0; fi
+if (( dry )); then jq -r '.[] | "  \(.calls)  \(.shape)"' <<<$gaps; reported=1; exit 0; fi
+
+# Fresh worktree off origin/main, so concurrent hand edits in ~/ag never mix in.
+wt=~/ag-routine-toolsum
+git -C ~/ag fetch -q origin
+git -C ~/ag worktree remove --force $wt 2>/dev/null || true
+git -C ~/ag branch -D routine/ag-toolsum 2>/dev/null || true
+git -C ~/ag worktree add -q $wt -b routine/ag-toolsum origin/main
+cleanup() { cd ~; git -C ~/ag worktree remove --force $wt 2>/dev/null; git -C ~/ag branch -D routine/ag-toolsum 2>/dev/null; true; }
+trap 'cleanup; (( reported )) || status false "failed (journalctl --user -u ag-toolsum-review)"' EXIT
+cd $wt
+T=$wt/bin/dot-local/bin/ag-toolsum
+
+sid=$(cat /proc/sys/kernel/random/uuid)
+prompt=$(cat <<EOF
+You are running the "ag-toolsum review" routine for Ag (the user's agent system), non-interactively. Nobody will
+answer questions; finish on your own and stop.
+
+ag-dash shows a deterministic one-line summary for each agent tool call, from $wt/ag-toolsum/ag-toolsum.ts
+(read its header comment first). A call only gets a summary when every meaningful piece matched a rule; otherwise
+the raw command is shown. Your job: extend the rules so more calls get an accurate summary.
+
+Current coverage over the last 7 days: ${before}%. Full report: $report
+Open gaps (unmatched shapes, most calls first; examples are the piece that failed to match):
+$(jq -r '.[] | "- \(.calls) calls: \(.shape)\n    e.g. \(.examples | join("\n    e.g. "))"' <<<$gaps)
+
+Do this, working only inside $wt:
+1. For each gap, decide: add or extend a rule in ag-toolsum.ts, or, if no deterministic summary would be clearer than
+   the raw command (opaque variables like \$C, one-off scripts), add {"shape": "<shape>", "reason": "..."} to
+   $wt/ag-toolsum/skip.json (a JSON array; create it if missing).
+2. Summaries must be short (under ~70 chars), start with a verb, never claim more than the command does, and
+   keep the specific target (file, PR, host, table). Prefer general rules over one-off string matches.
+3. Add a fixture to $wt/ag-toolsum/fixtures.json for every new or changed rule (same shape as the existing entries).
+4. Review quality too: run \`$T sample --days 3 --n 60\` and fix any summary that is misleading or loses the
+   important part of the command (add a fixture for each fix).
+5. Verify: \`$T check\` must pass, and \`$T coverage --days 7\` must not be lower than ${before}%.
+6. Don't commit or push; the routine does that after re-checking. End with a 1-2 line summary of what you changed.
+EOF
+)
+log=$STATE/$NAME/pi-$day.log
+pi -p --session-id $sid --name "Routine: ag-toolsum review $day" "$prompt" > $log 2>&1 < /dev/null || true
+
+# Re-verify independently of what the agent said.
+if [[ -z $(git status --porcelain) ]]; then status true "${before}%; agent made no changes" $sid; exit 0; fi
+if ! $T check > $STATE/$NAME/check-$day.log 2>&1; then status false "agent's change failed the fixtures; not merged" $sid; exit 1; fi
+after=$($T coverage --days 7 --json | jq .pct)
+if (( after < before )); then status false "coverage dropped ${before}% → ${after}%; not merged" $sid; exit 1; fi
+
+git add ag-toolsum
+git commit -q -F - <<EOF
+Claude ($(jq -r .defaultModel ~/.pi/agent/settings.json)), assisting ${AG_USER_NAME:-$(sed -n 's/^AG_USER_NAME=//p' ~/ag-personal/env 2>/dev/null | tail -n 1 | grep . || echo the user)} (ag-toolsum-review routine, session $sid):
+
+ag-toolsum: routine review ${before}% → ${after}% tool calls summarised
+
+$(tail -5 $log)
+EOF
+for i in 1 2 3; do git pull -q --rebase origin main && git push -q origin HEAD:main && break; sleep 5; done
+git -C ~/ag pull -q --rebase --autostash origin main || echo "warning: ~/ag pull failed; ag-dash keeps the old rules until it's synced"
+systemctl --user restart ag-dash.service || true
+status true "${before}% → ${after}% of tool calls summarised" $sid
+echo "shipped: ${before}% → ${after}%"

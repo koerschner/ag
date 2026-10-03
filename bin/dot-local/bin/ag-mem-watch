@@ -1,0 +1,73 @@
+#!/bin/zsh
+# ag-mem-watch: keep an eye on memory on every machine.
+#
+#   ag-mem-watch check    one sample: log it, notify the user if something is wrong
+#                      (LaunchAgent com.ag.ag-mem-watch runs this every 5 min on all machines)
+#   ag-mem-watch          status of this machine and every machine in the inventory
+#
+# Alerts (each at most once an hour): macOS memory pressure warn/critical, swap in use
+# >= MEMWATCH_SWAP_GB (8), or one process >= MEMWATCH_PROC_GB (3) resident. Alerts show
+# as a notification on the client Mac where the user sits (MEMWATCH_CLIENT, default
+# ag-client), plus a tmux toast on the host. History: ~/Library/Logs/ag-mem-watch.log
+set -u
+SWAP_GB=${MEMWATCH_SWAP_GB:-8}
+PROC_GB=${MEMWATCH_PROC_GB:-3}
+CLIENT=${MEMWATCH_CLIENT:-ag-client}
+MACHINES=(ag-mac:ag-mac ag-client:ag-client)   # ssh-alias:LocalHostName[,other names]; keep in sync with machines/README.md
+LOG=~/Library/Logs/ag-mem-watch.log
+STATE=~/.local/state/ag-mem-watch; mkdir -p $STATE
+
+sample() {  # prints: host pressure(1/2/4) swap_used_gb free_mb top_proc_mb top_proc_name
+  local pressure=$(sysctl -n kern.memorystatus_vm_pressure_level)
+  local swap=$(sysctl -n vm.swapusage | awk '{for(i=1;i<=NF;i++) if($i=="used") {v=$(i+2); sub(/M/,"",v); printf "%.1f", v/1024}}')
+  local free=$(vm_stat | awk '/page size of/{ps=$8} /Pages free/{gsub(/\./,"",$3); printf "%d", $3*ps/1048576}')
+  local top=$(ps -Ao rss=,comm= -m | head -1 | awk '{n=$2; sub(/.*\//,"",n); printf "%d %s", $1/1024, n}')
+  echo "$(scutil --get LocalHostName) $pressure $swap $free $top"
+}
+
+notify() {  # title body
+  local host=$(scutil --get LocalHostName)
+  local script="display notification \"$2\" with title \"$1\" sound name \"Glass\""
+  if ~/.local/bin/ag-machine-role host extremity; then   # host: the user isn't looking at this screen
+    ssh -o BatchMode=yes -o ConnectTimeout=5 $CLIENT "osascript -e '$script'" 2>/dev/null || osascript -e $script
+    command -v ag-mux >/dev/null && ag-mux notification show "$1" --body "$2" --sound request >/dev/null 2>&1
+  else
+    osascript -e $script
+  fi
+}
+
+alert_once() {  # key title body; at most once per hour per key
+  local f=$STATE/$1
+  [[ -f $f && $(( $(date +%s) - $(stat -f %m $f) )) -lt 3600 ]] && return
+  touch $f; notify "$2" "$3"
+}
+
+case ${1:-status} in
+check)
+  read host pressure swap free topmb topname <<<"$(sample)"
+  echo "$(date '+%F %T') $host pressure=$pressure swap=${swap}G free=${free}M top=${topname}:${topmb}M" >>$LOG
+  (( pressure >= 2 )) && alert_once pressure "$host: memory pressure $([[ $pressure == 4 ]] && echo CRITICAL || echo high)" \
+    "Swap ${swap} GB. Biggest process: $topname (${topmb} MB). Run ag-mem-watch for details."
+  (( ${swap%.*} >= SWAP_GB )) && alert_once swap "$host: ${swap} GB swap in use" \
+    "The Mac is short on RAM. Biggest process: $topname (${topmb} MB)."
+  (( topmb >= PROC_GB * 1024 )) && alert_once "proc-$topname" "$host: $topname is using ${topmb} MB" \
+    "One process is hogging memory; consider restarting it."
+  (( $(wc -l <$LOG) > 20000 )) && tail -10000 $LOG >$LOG.tmp && mv $LOG.tmp $LOG
+  true
+  ;;
+status)
+  printf '%-22s %-9s %8s %8s  %s\n' HOST PRESSURE SWAP FREE BIGGEST
+  self=$(scutil --get LocalHostName)
+  for entry in $MACHINES; do
+    m=${entry%%:*}
+    if [[ ,${entry#*:}, == *,$self,* ]]; then line=$(sample)
+    else line=$(ssh -o BatchMode=yes -o ConnectTimeout=5 $m '~/.local/bin/ag-mem-watch sample' 2>/dev/null || echo "$m ? ? ? unreachable")
+    fi
+    read host pressure swap free topmb topname <<<"$line"
+    case $pressure in 1) p=normal;; 2) p=WARN;; 4) p=CRITICAL;; *) p=$pressure;; esac
+    printf '%-22s %-9s %7sG %7sM  %s (%s MB)\n' $host $p $swap $free $topname $topmb
+  done
+  ;;
+sample) sample ;;
+*) sed -n '2,12p' $0; exit 2 ;;
+esac

@@ -1,0 +1,56 @@
+#!/bin/sh
+# ag: Ag's command line (docs/ag-cli.md).
+#   ag                    attach this terminal to Ag's sessions on the session host (same as `ag attach`)
+#   ag <verb> [args…]     run a subcommand: ~/.local/lib/ag/<verb> first, else an `ag-<verb>` tool on PATH
+#                         (so `ag text`, `ag access`, `ag mux` … reach the existing ag-* tools)
+#   ag help               list every verb
+#   ag setup | doctor     set up / check this machine (always local, never forwarded)
+# Verbs that work on sessions run on the session host: off it, `ag <verb>` forwards over SSH.
+lib="$HOME/.local/lib/ag"
+
+attach() {
+	host=$("$HOME/.local/bin/ag-host")
+	# ssh -t <host> ag-mux attach
+	exec ssh -t "$host" '~/.local/bin/ag-mux attach' "$@"
+}
+
+verbs() {
+	for f in "$lib"/*; do [ -x "$f" ] && [ -f "$f" ] && printf '%s\n' "${f##*/}"; done
+	for d in $(printf '%s' "$PATH" | tr ':' ' '); do
+		for f in "$d"/ag-*; do [ -x "$f" ] && b=${f##*/} && printf '%s\n' "${b#ag-}"; done
+	done 2>/dev/null
+}
+
+case "${1:-}" in
+"" | attach | -*) [ "${1:-}" = attach ] && shift; attach "$@" ;;
+help | --help | -h)
+	echo "usage: ag [verb] [args…]   (no verb: attach to the session host)"
+	echo
+	for v in $(verbs | sort -u); do
+		f="$lib/$v"; [ -x "$f" ] || f=$(command -v "ag-$v")
+		d=$(sed -n '2,4{s/^[#/"]* *//;p;}' "$f" 2>/dev/null | grep -m1 -E "^(ag[- ]$v|$v)\b" | sed -E "s/^(ag[- ])?$v[: —-]* *//")
+		printf '  %-12s %s\n' "$v" "$d"
+	done
+	exit 0 ;;
+esac
+
+verb=$1; shift
+[ "$verb" = hot ] && verb=pin # renamed 2026-10-02
+# Machine-setup verbs run here, from this checkout, so they also work on a fresh machine before ~/.local/lib/ag
+# exists (first run: ~/ag/bin/dot-local/bin/ag setup).
+case $verb in setup | doctor)
+	self=$(readlink -f "$0"); exec "${self%/bin/ag}/lib/ag/$verb" "$@" ;;
+esac
+if [ -x "$lib/$verb" ]; then
+	# Session-host verbs (they read ~/.pi sessions, systemd, ag-mux) run there.
+	if ! "$HOME/.local/bin/ag-machine-role" host 2>/dev/null; then
+		cmd="~/.local/bin/ag $verb"
+		for a in "$@"; do cmd="$cmd '$(printf '%s' "$a" | sed "s/'/'\\\\''/g")'"; done
+		if [ -t 0 ]; then exec ssh -t "$("$HOME/.local/bin/ag-host")" "$cmd"; fi
+		exec ssh "$("$HOME/.local/bin/ag-host")" "$cmd"
+	fi
+	exec "$lib/$verb" "$@"
+fi
+command -v "ag-$verb" >/dev/null 2>&1 && exec "ag-$verb" "$@"
+echo "ag: unknown verb '$verb' (ag help lists them)" >&2
+exit 2

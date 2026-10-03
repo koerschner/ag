@@ -1,0 +1,1749 @@
+[
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/x && sed -n 10,40p src/a.ts | head"
+  },
+  "sum": "Read src/a.ts:10\u201340",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-mac run 'pkill -x Telegram; pkill -f \"CoreServicesUIAgent\"; xattr -dr com.apple.quarantine /Applications/Telegram.app'"
+  },
+  "sum": "Stop Telegram, CoreServicesUIAgent \u00b7 Clear quarantine on /Applications/Telegram.app",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "sleep 4; ag-mac run 'screencapture -x /tmp/tg5.png' >/dev/null 2>&1; ag-mac pull /tmp/tg5.png"
+  },
+  "sum": "Take a screenshot \u2192 /tmp/tg5.png \u00b7 Copy /tmp/tg5.png from ag-mac",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-mac run 'defaults read /Applications/Telegram.app/Contents/Info.plist CFBundleShortVersionString'"
+  },
+  "sum": "Read macOS setting \u2026/Contents/Info.plist",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "curl -s -o /tmp/qr.png http://ag-mac:8765/qr.png && echo ok"
+  },
+  "sum": "GET ag-mac:8765/qr.png",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "curl -sS -XPOST http://ag:7376/api/card -H 'content-type: application/json' -d '{\"tab\":\"w1:tC2\",\"hot\":true}'"
+  },
+  "sum": "POST ag:7376/api/card",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ssh ag-client 'ls -t ~/Library/Logs | head -3'"
+  },
+  "sum": "List ~/Library/Logs",
+  "hosts": [
+   "ag-client"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ssh client 'bash -s' <<'EOF'\nls\nEOF"
+  },
+  "sum": "Run a script on ag-client",
+  "hosts": [
+   "ag-client"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/arcade.school && q(){ bun scripts/db query --stage production arcade \"$1\" 2>&1 | grep -v x; }; q \"select * from play_sessions limit 3\""
+  },
+  "sum": "Query production arcade DB: play_sessions",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/arcade.school && timeout 90 bun scripts/db query --stage production arcade \"select u.username from roblox_links l join users u on u.id = l.user_id\""
+  },
+  "sum": "Query production arcade DB: roblox_links",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "git -C ~/ag push origin --delete ag-toolsum"
+  },
+  "sum": "Delete remote branch ag-toolsum (~/ag)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/ag && git add ag-toolsum && git commit -m 'ag-toolsum: deterministic tool summaries' && git push"
+  },
+  "sum": "Stage changes \u00b7 Commit \"ag-toolsum: deterministic tool summaries\" \u00b7 Push",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "gh pr checks 1842 --json name,state"
+  },
+  "sum": "Check CI on PR #1842",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "gh pr view 1777 --json headRefOid -q .headRefOid"
+  },
+  "sum": "View PR #1777",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/arcade.school && git show origin/dev:apps/arcade/src/lib/server/x.ts | sed -n 1,80p"
+  },
+  "sum": "Show apps/\u2026/server/x.ts at origin/dev",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "grep -n \"consent\\|ARC-729\" routes/api/chat/messages/server.test.ts | head -40"
+  },
+  "sum": "Search \"consent|ARC-729\" in routes/\u2026/messages/server.test.ts",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "rg -n 'toolDetail' bin/dot-local/bin/ag-dash"
+  },
+  "sum": "Search \"toolDetail\" in bin/dot-local/bin/ag-dash",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-mux pane list | jq -r '.result.panes[]'"
+  },
+  "sum": "List panes",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-mux pane read w2K:p1G --source recent-unwrapped --lines 40"
+  },
+  "sum": "Read pane w2K:p1G",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-mux tab create --label 'Dev server' --cwd ~/x --no-focus"
+  },
+  "sum": "Open tab \"Dev server\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "p=$(ag-mux pane list | jq -r '.result.panes[0].pane_id'); echo $p"
+  },
+  "sum": "List panes",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "timeout 900 ag-chatgpt-cua 'In Google Chrome on this Mac, go to example.com (the user should already be signed in).'"
+  },
+  "sum": "Go to example.com",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-client-cua --why 'only on client' 'Open iPhone Mirroring and take a screenshot.'"
+  },
+  "sum": "Open iPhone Mirroring and take a screenshot",
+  "hosts": [
+   "ag-client"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-mac cua --status"
+  },
+  "sum": "Check the computer-use queue",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "systemctl --user restart ag-dash && sleep 2 && systemctl --user status ag-dash --no-pager | head -5"
+  },
+  "sum": "Restart ag-dash \u00b7 Check ag-dash",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "launchctl kickstart -k gui/$UID/com.ag.ag-mcp-gateway"
+  },
+  "sum": "Restart ag-mcp-gateway",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "journalctl --user -u ag-tickler -n 50 --no-pager"
+  },
+  "sum": "Read logs of ag-tickler",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "op-ag item get 'Hetzner API token' --fields credential"
+  },
+  "sum": "Read secret \"Hetzner API token\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "osascript -e 'tell application \"Google Chrome\" to get URL of active tab of front window'"
+  },
+  "sum": "AppleScript \u2192 Google Chrome",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "open -a Telegram"
+  },
+  "sum": "Open Telegram",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "~/rec/snap.sh ~/rec/s1.png"
+  },
+  "sum": "Run snap.sh",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "python3 - <<'EOF'\nprint(1)\nEOF"
+  },
+  "sum": "Run Python script",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cat > /tmp/pr-body.md <<'EOF'\nhello\nEOF"
+  },
+  "sum": "Write /tmp/pr-body.md",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "sleep 25; echo slept"
+  },
+  "sum": "Wait 25s",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "for f in a b; do wc -l $f; done"
+  },
+  "sum": "Count lines in $f",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ls ~/inbox/clipboard/ | tail -5"
+  },
+  "sum": "List ~/inbox/clipboard/",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ps aux | grep -i telegram | xargs kill"
+  },
+  "sum": "Check processes/load \u00b7 Stop processes (each)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/x && bunx vitest run src/routes/api/a.test.ts 2>&1 | tail -20"
+  },
+  "sum": "Run tests (src/routes/api/a.test.ts)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "bun run check"
+  },
+  "sum": "Run check",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "some-unknown-tool --flag"
+  },
+  "sum": null,
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "git status --short; some-unknown-tool"
+  },
+  "sum": null,
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "echo hi"
+  },
+  "sum": null,
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "read",
+  "args": {
+   "path": "/home/user/inbox/shots/cs-1055.png"
+  },
+  "sum": "View image cs-1055.png",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "read",
+  "args": {
+   "path": "/home/user/ag/README.md",
+   "offset": 100,
+   "limit": 50
+  },
+  "sum": "Read ~/ag/README.md:100\u2013149",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "edit",
+  "args": {
+   "path": "/home/user/ag/bin/dot-local/bin/ag-dash",
+   "edits": [
+    {},
+    {}
+   ]
+  },
+  "sum": "Edit ~/\u2026/bin/ag-dash (2 changes)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "write",
+  "args": {
+   "path": "/tmp/x.md",
+   "content": "x"
+  },
+  "sum": "Write /tmp/x.md",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "ag-tickler",
+  "args": {
+   "action": "schedule",
+   "title": "Check PR",
+   "at": "2026-10-02T09:00:00-05:00"
+  },
+  "sum": "Schedule \"Check PR\" at 2026-10-02 09:00",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "ag-tickler",
+  "args": {
+   "action": "schedule",
+   "title": "Wait for CI",
+   "when": "check",
+   "check": "true"
+  },
+  "sum": "Schedule \"Wait for CI\" when its check passes",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "ag-tickler",
+  "args": {
+   "action": "list"
+  },
+  "sum": "List ag-tickler items",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "chatgpt_cua",
+  "args": {
+   "task": "On this Mac there is a macOS Gatekeeper dialog: '\"Telegram.app\" is an app downloaded from the Internet. Are you sure you want to open it?' (Homebrew Cask downloaded it; Apple checked it). Click \"Open\". Then bring the Telegram app window to the front."
+  },
+  "sum": "Telegram: Click \"Open\"",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "chatgpt_cua",
+  "args": {
+   "task": "On this Mac, the Telegram app (Telegram.app, macOS) is open on its \"Log in to Telegram by QR Code\" screen with a blue \"Update Telegram\" bar at the bottom. Click \"Update Telegram\" and complete the app update (accept any prompts)."
+  },
+  "sum": "Click \"Update Telegram\" and complete the app update",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "chatgpt_cua",
+  "args": {
+   "task": "In the Telegram desktop app on this Mac (Telegram.app; it should be signed in to the user's account), create a new Telegram bot via @BotFather:\n1. Open Telegram. If it is not signed in, stop."
+  },
+  "sum": "Create a new Telegram bot via @BotFather",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "chatgpt_cua",
+  "args": {
+   "task": "In Google Chrome, open Gmail (account testuser@example.com, https://mail.google.com). Search for emails mentioning \"invoice\"."
+  },
+  "sum": "Open Gmail",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "chatgpt_cua",
+  "args": {
+   "task": "In the Roblox desktop app window on this Mac (app name \"Roblox\", currently signed in as \"testuser\"), log out of Roblox. Report what screen it shows."
+  },
+  "sum": "Log out of Roblox",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "chatgpt_cua",
+  "args": {
+   "task": "Research only, DO NOT place any order. In Chrome on this Mac, Amazon is signed in. Check these items and report prices."
+  },
+  "sum": "Amazon: Check these items",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "chatgpt_cua",
+  "args": {
+   "task": "Harmless readiness test only."
+  },
+  "sum": null,
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "mcp_linear_get_issue",
+  "args": {
+   "id": "ARC-944"
+  },
+  "sum": "Linear: get issue \"ARC-944\"",
+  "hosts": [
+   "mcp"
+  ]
+ },
+ {
+  "tool": "mcp_tapkit_screenshot",
+  "args": {
+   "phone_id": "p1"
+  },
+  "sum": "iPhone: screenshot",
+  "hosts": [
+   "ag-phone"
+  ]
+ },
+ {
+  "tool": "mcp_slack_slack_search_public_and_private",
+  "args": {
+   "keywords": [
+    "Haven",
+    "consent"
+   ]
+  },
+  "sum": "Slack: search public and private \"Haven consent\"",
+  "hosts": [
+   "mcp"
+  ]
+ },
+ {
+  "tool": "subagent",
+  "args": {
+   "agent": "scout",
+   "task": "Find where tool rows render"
+  },
+  "sum": "Delegate to scout: Find where tool rows render",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ls"
+  },
+  "host": "ag-mac",
+  "sum": "List directory",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "timeout 2400 ag-client-cua \"$(cat /tmp/ab-swap.md)\" 2>&1"
+  },
+  "sum": "Run computer-use task from /tmp/ab-swap.md",
+  "hosts": [
+   "ag-client"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "timeout 2400 ag-client-cua \"$(cat <<'EOF'\nOn this Mac, in Google Chrome, open https://arcade.school/play and click Start.\nEOF\n)\" 2>&1"
+  },
+  "sum": "Open arcade.school/play and click Start",
+  "hosts": [
+   "ag-client"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "/opt/homebrew/bin/hs -c \"return hs.osascript.applescript([[tell application \\\"Google Chrome\\\" to return count of windows]])\""
+  },
+  "sum": "AppleScript \u2192 Google Chrome (via Hammerspoon)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "/opt/homebrew/bin/hs -c \"hs.reload()\" >/dev/null 2>&1"
+  },
+  "sum": "Reload Hammerspoon",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "hs -c 'return tostring(hs.hotkey.assigned({\"ctrl\",\"cmd\"},\"c\"))' 2>&1"
+  },
+  "sum": "Run Lua in Hammerspoon",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "for w in wF wM; do echo \"$w: $(ag-mux pane process-info --pane $w:p1 2>/dev/null | jq -c .result | head -c 150)\"; done"
+  },
+  "sum": "Inspect pane $w:p1",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/Library/Logs/Roblox && for f in $(ls -t *Player*last.log | head -8); do echo \"$f $(wc -l <$f) join=$(grep -ac 'Joining game' $f) hang=$(grep -ac HangDetected $f)\"; done"
+  },
+  "sum": "Count lines in $f \u00b7 Search \"Joining game\" in $f \u00b7 Search \"HangDetected\" in $f",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "curl -s -m 20 -H \"Authorization: Bearer ${!t}\" $B/api/svc/v1/users/me 2>&1"
+  },
+  "sum": "GET $B/api/svc/v1/users/me",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "sed -n \"$(rg -n 'arcadeFetch\\(' lib/domains/help/store.svelte.ts | head -1 | cut -d: -f1),+20p\" lib/domains/help/store.svelte.ts"
+  },
+  "sum": "Read part of lib/domains/help/store.svelte.ts",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "sed -n \"${a},${b}p\" $f"
+  },
+  "sum": "Read part of $f",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "strings ~/.local/bin/moshi-hook"
+  },
+  "sum": "Extract strings from ~/.local/bin/moshi-hook",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "tmux -L ag ls 2>&1"
+  },
+  "sum": "List tmux sessions",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "tmux -L ag capture-pane -p -t Inbox 2>/dev/null"
+  },
+  "sum": "Read tmux pane Inbox",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "timeout 10 ssh -o ConnectTimeout=6 client true"
+  },
+  "sum": "Check ag-client is reachable",
+  "hosts": [
+   "ag-client"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-mux pane rename $P \"watch #1533\" >/dev/null"
+  },
+  "sum": "Rename pane $P",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-mux pane layout --pane $P"
+  },
+  "sum": "Inspect layout of pane $P",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-mux --skill 2>/dev/null"
+  },
+  "sum": "Read the ag-mux skill",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-mux status 2>&1"
+  },
+  "sum": "Check ag-mux status",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-mux tab close --help 2>&1"
+  },
+  "sum": "Read ag-mux tab close help",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cat notes.md | pbcopy"
+  },
+  "sum": "Read notes.md \u00b7 Copy to clipboard",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "echo hi | ssh ag-mac 'cat > ~/.playcademy-dau-pipeline/RULES.md'"
+  },
+  "sum": "Write ~/.playcademy-dau-pipeline/RULES.md",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "(bun run typecheck > /tmp/gs-typecheck.log 2>&1; echo \"EXIT $?\" >> /tmp/gs-typecheck.log)"
+  },
+  "sum": "Run typecheck",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "(bun install --frozen-lockfile >/dev/null 2>&1)"
+  },
+  "sum": "Install dependencies",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-rec start 2>&1"
+  },
+  "sum": "Start recording ag-mac's screen",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --headless=new --disable-gpu --window-size=1440,1100 --screenshot=/tmp/devchart.png file:///tmp/devchart.html 2>/dev/null"
+  },
+  "sum": "Screenshot /tmp/devchart.html in headless Chrome \u2192 /tmp/devchart.png",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "luac -p hammerspoon/dot-hammerspoon/init.lua 2>&1"
+  },
+  "sum": "Syntax-check hammerspoon/dot-hammerspoon/init.lua",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "moshi-hook --help 2>&1"
+  },
+  "sum": "Read moshi-hook help",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "moshi-hook service install 2>&1"
+  },
+  "sum": "Install the moshi-hook service",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "moshi-hook install --target pi,claude,codex 2>&1"
+  },
+  "sum": "Install moshi-hook for pi,claude,codex",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "git check-ignore -q .env.local"
+  },
+  "sum": "Check if .env.local is git-ignored",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "time ag-messages thread +15555550100 5"
+  },
+  "sum": "Read iMessage thread with +15555550100",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "time ag-messages search \"meeting notes\" 3"
+  },
+  "sum": "Search iMessages for \"meeting notes\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "git ls-files | xargs wc -l"
+  },
+  "sum": "List tracked files \u00b7 Count lines in the listed files",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ls *.jsonl | xargs -I{} sh -c 'grep -l \"PRRT_kw\" {} 2>/dev/null'"
+  },
+  "sum": "List *.jsonl \u00b7 Search \"PRRT_kw\" in {} (each)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "grep -c \"\" docs/architecture/escalation.md"
+  },
+  "sum": "Count lines in docs/architecture/escalation.md",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "agent-instructions/build"
+  },
+  "sum": "Rebuild AGENTS.md",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "J=\"$(op-shared item get \"Example Card\" --vault $V --reveal --format json)\""
+  },
+  "sum": "Read secret \"Example Card\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "op --version"
+  },
+  "sum": "Check op version",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "/opt/homebrew/bin/op account list 2>&1"
+  },
+  "sum": "List 1Password accounts (op)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "for id in a b; do op-ag item share $id --vault jj --emails user@example.com --expires-in 30d > /tmp/share-$id.txt 2>&1; done"
+  },
+  "sum": "Share secret $id with user@example.com",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/arcade-escalation && timeout 115 bun run sync docs --yes \"Escalation protocol (SC-9)\" 2>&1 | tail -20"
+  },
+  "sum": "Sync docs",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/arcade-faction-switch && timeout 60 bun scripts/db --help 2>&1 | head -40"
+  },
+  "sum": "Read scripts/db help",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "git branch -m someuser/arc-938-lobby-voice"
+  },
+  "sum": "Rename branch to someuser/arc-938-lobby-voice",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "git branch --show-current"
+  },
+  "sum": "Show current branch",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "tmux -L ag display -p -t Inbox \"#{pane_pid}\""
+  },
+  "sum": "Query tmux",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "sed -i '' 's/^export const X/const X/' apps/arcade/src/lib/a.ts"
+  },
+  "sum": "Edit apps/\u2026/lib/a.ts (sed)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag me"
+  },
+  "sum": "Find this session (tab, pane, link)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag ls --pinned"
+  },
+  "sum": "List pinned sessions",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag find cua wrapper"
+  },
+  "sum": "Find sessions matching \"cua wrapper\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag peek \"Fix Ag Inbox\" -n 20"
+  },
+  "sum": "Peek at Fix Ag Inbox's screen",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag send tCY \"hello there\""
+  },
+  "sum": "Send \"hello there\" to tCY",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag spawn -f /tmp/p.md"
+  },
+  "sum": "Spawn a session from /tmp/p.md",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag report \"done: shipped\""
+  },
+  "sum": "Report back: \"done: shipped\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag merge tD2 --into tD4"
+  },
+  "sum": "Merge tD2 into tD4",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag close --after 5"
+  },
+  "sum": "Close this tab in 5s",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag hot off tCY"
+  },
+  "sum": "Unpin tCY",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/ag && ag sync ag"
+  },
+  "sum": "Sync ag to every machine",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag logs ag-tickler -n 5"
+  },
+  "sum": "Read logs of ag-tickler",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr tab get wN:tM"
+  },
+  "sum": "Inspect tab wN:tM",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr tab create --cwd /tmp --no-focus"
+  },
+  "sum": "Open tab",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr status 2>&1"
+  },
+  "sum": "Check herdr status",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr server reload-config"
+  },
+  "sum": "Reload herdr config",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr --skill 2>/dev/null"
+  },
+  "sum": "Read the herdr skill",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr worktree list --cwd ~/arcade.school 2>&1"
+  },
+  "sum": "List worktrees",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr-link --session \"$f\""
+  },
+  "sum": "Get link to session $f",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr-link --url --session"
+  },
+  "sum": "Get link to this session",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr-link w1:tCW wB:t7"
+  },
+  "sum": "Get link to w1:tCW, wB:t7",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr-link --grep -i Nessie"
+  },
+  "sum": "Get links to tabs matching \"Nessie\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "for w in wF wM; do echo \"$w: $(herdr pane process-info --pane $w:p1 2>/dev/null | jq -c .result | head -c 150)\"; done"
+  },
+  "sum": "Inspect pane $w:p1",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "tmux -L ag list-keys -T prefix"
+  },
+  "sum": "List tmux key bindings",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "tmux -L ag show-environment -g 2>/dev/null"
+  },
+  "sum": "Read tmux environment",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "tmux -L agdbg kill-server"
+  },
+  "sum": "Stop tmux server agdbg",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "sed -n 's/^token=//p' ~/.config/ag/telegram"
+  },
+  "sum": "Filter ~/.config/ag/telegram with sed",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "sed -e 's/refresh-0925/refresh-0926/' -e 's/for d in 24 25/for d in 26/' /tmp/rb.sh > /tmp/rb26.sh"
+  },
+  "sum": "Write /tmp/rb26.sh from /tmp/rb.sh (sed)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "curl -sI \"$L\""
+  },
+  "sum": "HEAD $L",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "curl -s -m 20 \"$B/$p\" \"${H[@]}\" -d \"$body\""
+  },
+  "sum": "POST $B/$p",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag doctor >/dev/null"
+  },
+  "sum": "Check what Ag still lacks on this machine",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag discord read core -n 5 2>&1"
+  },
+  "sum": "Read Discord #core",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag discord post --reply-to https://discord.com/channels/1/2/3 \"$(cat /tmp/msg.md)\""
+  },
+  "sum": "Reply on Discord",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "TZ=America/New_York date '+%A, %B %-d, %Y %-I:%M %p %Z'"
+  },
+  "sum": "Show the time in New York",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "echo $PI_MODEL; echo $PI_SESSION_FILE"
+  },
+  "sum": "Print $PI_MODEL, $PI_SESSION_FILE",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "T=$(date +%s); echo $T"
+  },
+  "sum": null,
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "op-shared item list --vault machine-shared --format json > /tmp/ms.json 2>/tmp/ms.err; wc -c /tmp/ms.json"
+  },
+  "sum": "List secrets (op-shared) \u00b7 Count bytes in /tmp/ms.json",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cliclick kp:esc"
+  },
+  "sum": "Press esc",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag $v --help 2>&1"
+  },
+  "sum": "Read help for ag verbs",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag discord channels 2>&1"
+  },
+  "sum": "List Discord channels and threads",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag messages send 5555550100 \"Claude: ; the user's ag CLI; in short\""
+  },
+  "sum": "Send iMessage to 5555550100",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag telegram done 42 2>&1"
+  },
+  "sum": "Mark Telegram message 42 done",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "aws ce get-cost-and-usage --time-period Start=2025-10-01,End=2026-10-02 --granularity MONTHLY --metrics UnblendedCost --output json"
+  },
+  "sum": "Query AWS ce get-cost-and-usage",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "aws ec2 terminate-instances --region us-east-1 --instance-ids i-0123456789abcdef0 --query \"TerminatingInstances[].CurrentState.Name\" --output text"
+  },
+  "sum": "Run AWS ec2 terminate-instances i-0123456789abcdef0",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "aws sts get-caller-identity --query Arn --output text 2>&1"
+  },
+  "sum": "Query AWS sts get-caller-identity",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "bin/dot-local/bin/ag-toolsum coverage --days 7 --top 25 2>&1"
+  },
+  "sum": "Measure ag-toolsum coverage (7 days)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "bin/dot-local/bin/ag-toolsum check"
+  },
+  "sum": "Check ag-toolsum fixtures",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr --default-config 2>/dev/null"
+  },
+  "sum": "Print herdr's default config",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr pane 2>&1"
+  },
+  "sum": "Read herdr pane usage",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr config show-keys 2>/dev/null"
+  },
+  "sum": "List herdr key bindings",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr agent explain zzmove 2>&1"
+  },
+  "sum": "Explain agent detection in zzmove",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr pane swap --source-pane $P --target-pane $N >/dev/null"
+  },
+  "sum": "Swap panes $P \u2194 $N",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr plugin log user.pin-inbox 2>&1"
+  },
+  "sum": "Read herdr plugin log user.pin-inbox",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr-nav reopen >/dev/null"
+  },
+  "sum": "Reopen the last closed pane (herdr-nav)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr-nav status"
+  },
+  "sum": "Print pane focus history (herdr-nav)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "uvx --from markdown python -c \"import markdown;print(1)\""
+  },
+  "sum": "Run Python snippet (uvx, markdown)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "uvx --from pdfminer.six pdf2txt.py doc.pdf"
+  },
+  "sum": "Run pdf2txt.py on doc.pdf (uvx)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "uvx --with \"mcp==$v\" mcp-proxy --help 2>&1"
+  },
+  "sum": "Read mcp-proxy help (uvx)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "uvx yt-dlp --flat-playlist --print \"%(id)s | %(title)s\" \"ytsearch12:$q\" 2>/dev/null"
+  },
+  "sum": "Run yt-dlp (uvx)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "gh workflow run launcher-release.yml -R example-org/example-app --ref dev -f stage=staging"
+  },
+  "sum": "Trigger workflow launcher-release.yml",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "curl -s -m5 -o /dev/null -w \"%{http_code}\\n\" http://ag-mac:7376/; echo $PI_SESSION_FILE | xargs basename"
+  },
+  "sum": "GET ag-mac:7376",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-pi-hibernate sweep --all -n 2>&1"
+  },
+  "sum": "List pi sessions to hibernate (ignoring idle time)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-pi-hibernate sweep -n"
+  },
+  "sum": "List pi sessions to hibernate",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-pi-hibernate status"
+  },
+  "sum": "List hibernated pi panes",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/arcade.school && timeout 300 bun scripts/db preview create --stage pr-1777 </dev/null 2>&1 | tail -1"
+  },
+  "sum": "Create preview DB pr-1777",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/arcade.school && bun db query arcade --stage production \"select scope, count(*) from consent_deliveries\""
+  },
+  "sum": "Query production arcade DB: consent_deliveries",
+  "hosts": [
+   "ag-engine"
+  ]
+ }
+]

@@ -1,0 +1,10 @@
+#!/bin/sh
+# Sleep screen for a restored Pi pane (ag-mux restore): any key, or a client opening the tab, resumes the
+# session; Ctrl+C gives a shell. Plain sh so a hundred sleeping panes cost next to nothing.
+printf '\033[2J\033[H  💤 Pi session asleep (restored by ag-mux):\n  %s\n\n  Resuming when you open this tab. Any key resumes; Ctrl+C gives a shell.\n' "$1"
+old=$(stty -g 2>/dev/null)
+stty raw -echo 2>/dev/null
+key=$(dd bs=1 count=1 2>/dev/null | od -An -tu1 | tr -d ' ')
+stty "$old" 2>/dev/null
+[ "$key" = 3 ] && exit 130
+exit 0

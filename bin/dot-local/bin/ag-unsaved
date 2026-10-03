@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# ag-unsaved: list git work under ~ that exists only on this machine: uncommitted or untracked changes,
+# commits not on any remote, stashes. Exit 1 if there is any (0 = safe to throw this machine away).
+#   ag-unsaved [--quiet] [root]      root defaults to $HOME; checks ~/<repo> and ~/<repo>-<topic> worktrees
+# `ag-infra down` runs it on the engine and refuses to destroy it while anything is listed.
+set -uo pipefail
+quiet=; [ "${1:-}" = --quiet ] && { quiet=1; shift; }
+root=${1:-$HOME}
+found=0
+tilde="~"
+for d in "$root"/*/; do
+	d=${d%/}
+	[ -e "$d/.git" ] || continue
+	g() { git -C "$d" "$@" 2>/dev/null; }
+	issues=()
+	n=$(g status --porcelain --ignore-submodules | wc -l | tr -d ' ')
+	[ "$n" -gt 0 ] && issues+=("$n uncommitted/untracked")
+	# Commits on the checked-out branch that no remote-tracking ref has. (Per checkout, so a repo's other
+	# worktrees don't all report the same stale local branches.)
+	u=$(g rev-list HEAD --not --remotes | wc -l | tr -d ' ')
+	[ "$u" -gt 0 ] && issues+=("$u unpushed commit(s)")
+	[ -d "$d/.git" ] && s=$(g stash list | wc -l | tr -d ' ') && [ "$s" -gt 0 ] && issues+=("$s stash(es)")
+	if [ ${#issues[@]} -gt 0 ]; then
+		found=1
+		[ -z "$quiet" ] && printf '%s: %s\n' "${d/#$HOME/$tilde}" "$(IFS=,; echo "${issues[*]}" | sed 's/,/, /g')"
+	fi
+done
+exit $found

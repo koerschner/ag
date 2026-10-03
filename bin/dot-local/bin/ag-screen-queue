@@ -1,0 +1,304 @@
+#!/usr/bin/env zsh
+# ag-screen-queue — FIFO queue for a Mac's screen: the screen is the scarce resource, so anything that
+# looks at it to act, clicks, or types runs as a job here, one at a time. (`ag screen` is the front end.)
+#
+#   ag-screen-queue list                  the running job and the queue (alias: status)
+#   ag-screen-queue cancel <id>           cancel a job: drop it if queued, stop it (and clean up) if running
+#   ag-screen-queue attach <id>           wait for a job and print its report (e.g. after the caller died)
+#   ag-screen-queue json                  the same as JSON (ag-dash reads it)
+#   ag-screen-queue run [--id ID] [--caller LABEL] [--keep-open] [--urgent] [--exec] (--b64 B64 | <task>)
+#                                      submit a job and wait for it
+#   ag-screen-queue exec <shell cmd>      run a shell command that drives the screen in its own slot
+#
+# Job kinds:
+#   cua   a computer-use run (ag-chatgpt-cua; what `ag cua` submits on ag-mac)
+#   exec  a shell command (`zsh -lc`) that clicks, types or raises windows: `ag screen exec`, the
+#         osascript/cliclick shims, the client's computer-use runs (ag-client-cua submits one)
+# Inside any job CUA_QUEUE_INNER=1 is set: that job owns the screen, and nested `exec`, the shims and
+# ag-type-secret run directly. Outside a job, the shims queue themselves, so input sent between two jobs
+# can't land in another session's run (2026-10-03: a card number typed with `ag-mac run osascript`
+# went into other sessions' Teams/Gmail windows).
+#
+# Every Mac runs its own queue for its own screen (ag-mac's, the client's; the iPhone is mirrored on
+# the client, so phone jobs use the client's). Jobs live in ~/.local/state/ag-screen-queue/jobs/<id>/.
+# Each job gets a detached runner that waits for its turn (oldest live job first, one global lock),
+# runs it with CUA_QUEUE_INNER=1, and records the report, log and exit code. The waiter (`run`/`attach`)
+# only watches: it streams status ("queued behind <caller>") and the run's log to stderr and prints the
+# report on stdout.
+#   - Later callers wait their turn; a normal job never interrupts another one.
+#   - --urgent jumps the queue (ahead of every non-urgent job) and preempts a running non-urgent cua job:
+#     its codex is stopped and the job is "paused" with its codex session id saved, the urgent job runs,
+#     then the paused job resumes first (`codex exec resume <session>`, told the screen may have
+#     changed) with its cleanup snapshot intact. Urgent jobs never preempt each other (FIFO).
+#   - Waiter killed (SIGTERM/SIGINT/SIGHUP, e.g. the Pi tool aborting): it cancels its own job.
+#   - Waiter vanished silently (SSH dropped): a queued job is abandoned; a running job finishes and
+#     its report stays available to `ag-screen-queue attach <id>`.
+# Machines without a screen (Linux) forward everything to ag-mac's queue. (Formerly ag-cua-queue.)
+set -uo pipefail
+zmodload zsh/system zsh/datetime
+
+if [[ $(uname) != Darwin ]]; then
+  case ${1:-} in
+    run) [[ " $* " == *" --exec "* ]] || { shift; exec ~/.local/bin/ag-mac cua "$@"; } ;;
+  esac
+  exec ssh -o ConnectTimeout=10 -o BatchMode=yes ${SCREEN_HOST:-ag-mac} "~/.local/bin/ag-screen-queue ${(j: :)${(@q)@}}"
+fi
+
+state=${CUA_QUEUE_DIR:-$HOME/.local/state/ag-screen-queue}
+# Renamed from ag-cua-queue (2026-10-03): move the state over, leaving a symlink so runners started
+# under the old name keep finding their jobs and the lock (same inode).
+old=$HOME/.local/state/ag-cua-queue
+if [[ -z ${CUA_QUEUE_DIR:-} && -d $old && ! -L $old && ! -e $state ]]; then
+  mv $old $state 2>/dev/null && ln -s $state $old 2>/dev/null
+fi
+jobs=$state/jobs
+lockfile=$state/lock
+mkdir -p $jobs; [[ -e $lockfile ]] || : > $lockfile
+self=${0:A}
+
+get() { [[ -f $jobs/$1/$2 ]] && print -r -- "$(<$jobs/$1/$2)"; }
+put() { print -r -- $3 > $jobs/$1/$2.tmp && mv -f $jobs/$1/$2.tmp $jobs/$1/$2; }
+alive() { [[ -n ${1:-} ]] && kill -0 $1 2>/dev/null; }
+now() { print -r -- ${EPOCHREALTIME%.*}; }
+dur() { local s=$(( $(now) - ${1:-$(now)} )); (( s >= 60 )) && print -r -- "$((s/60))m$((s%60))s" || print -r -- "${s}s"; }
+finished() { [[ $1 == (done|failed|cancelled|abandoned|lost) ]]; }  # live: queued, running, paused
+caller_of() { print -r -- "$(get $1 caller)${$(get $1 caller):+ }(job $1)"; }
+
+# Live jobs (queued/paused/running, runner alive) in run order: urgent first, then by arrival (a paused
+# job keeps its original place, so it resumes before anything that queued after it). Marks jobs whose
+# runner died as lost.
+live_jobs() {
+  local d id st
+  for d in $jobs/*(N/); do
+    id=${d:t}; st=$(get $id status)
+    finished $st && continue
+    # Runner died, or never started within 30s: the job can't run, so it must not block the queue.
+    if { [[ -f $d/runner.pid ]] && ! alive "$(get $id runner.pid)" } ||
+       { [[ ! -f $d/runner.pid ]] && (( $(now) - ${$(get $id created):-0} > 30 )) }; then
+      put $id status lost; [[ -f $d/rc ]] || put $id rc 1; continue
+    fi
+    print -r -- "$([[ -n $(get $id urgent) ]] && print 0 || print 1) $(get $id ticket) $id"
+  done | sort -k1,1n -k2,2n | awk '{print $3}'
+}
+
+# Kill a pid and all its descendants (children first).
+kill_tree() {
+  local p
+  for p in $(pgrep -P $1 2>/dev/null); do kill_tree $p; done
+  kill -TERM $1 2>/dev/null
+}
+
+# Stop a job's codex (not its wrapper): the inner ag-chatgpt-cua then pauses or cleans up and exits.
+stop_codex() { local c=$(get $1 codex.pid); alive "$c" && kill_tree $c; }
+
+cmd=${1:-list}; shift 2>/dev/null
+case $cmd in
+list|status)
+  local -a live=(${(f)"$(live_jobs)"})
+  if (( ! $#live )); then print "ag-screen-queue: idle (no running or queued screen jobs)"; fi
+  local n=0 id st
+  for id in $live; do
+    st=$(get $id status)
+    local u=${$(get $id urgent):+URGENT }${$(get $id exec):+exec }
+    if [[ $st == running ]]; then
+      print -r -- "running   $u$id  $(dur $(get $id started))  $(get $id caller)  — ${$(get $id task)[1,80]//$'\n'/ }"
+    else
+      n=$((n+1))
+      [[ $st == paused ]] && st="paused (resumes next)" || st="waiting $(dur $(get $id created))"
+      print -r -- "queued #$n $u$id  $st  $(get $id caller)  — ${$(get $id task)[1,80]//$'\n'/ }"
+    fi
+  done
+  local -a recent=($jobs/*(N/om[1,5]))
+  local d; local shown=0
+  for d in $recent; do
+    st=$(get ${d:t} status); finished $st || continue
+    (( shown++ )) || print "recent:"
+    print -r -- "  $st${$(get ${d:t} rc):+ (rc $(get ${d:t} rc))}  ${d:t}  $(get ${d:t} caller)  — ${$(get ${d:t} task)[1,60]//$'\n'/ }"
+  done
+  ;;
+
+json)
+  # Live jobs in run order, then the 5 most recent finished ones.
+  local -a live=(${(f)"$(live_jobs)"}) recent=()
+  for d in $jobs/*(N/om[1,8]); do finished "$(get ${d:t} status)" && recent+=(${d:t}); done
+  job_json() {
+    jq -nc --arg id $1 --arg status "$(get $1 status)" --arg caller "$(get $1 caller)" --arg task "$(get $1 task)" \
+      --arg urgent "$(get $1 urgent)" --arg created "$(get $1 created)" --arg started "$(get $1 started)" \
+      --arg finished "$(get $1 finished)" --arg rc "$(get $1 rc)" --arg pauses "$(get $1 pauses)" \
+      --arg kind "${$(get $1 exec):+exec}" \
+      '{id:$id,status:$status,caller:$caller,task:$task[0:300],urgent:($urgent!=""),kind:(if $kind=="" then "cua" else $kind end),
+        created:($created|tonumber? // null),started:($started|tonumber? // null),
+        finished:($finished|tonumber? // null),rc:($rc|tonumber? // null),pauses:($pauses|tonumber? // 0)}'
+  }
+  { for id in $live; do job_json $id; done; print -- '"---"'; for id in ${recent[1,5]}; do job_json $id; done } |
+    jq -sc --arg now $(now) 'index("---") as $i | {now:($now|tonumber), live:.[0:$i], recent:.[$i+1:]}'
+  ;;
+
+cancel)
+  id=${1:?usage: ag-screen-queue cancel <id>}
+  [[ -d $jobs/$id ]] || { print -u2 "ag-screen-queue: no job $id"; exit 1; }
+  st=$(get $id status)
+  if finished $st; then print "ag-screen-queue: job $id already $st"; exit 0; fi
+  put $id cancel 1
+  # Running: stop codex (the inner ag-chatgpt-cua then runs its cleanup); paused: the runner cleans up.
+  [[ $st == running ]] && stop_codex $id
+  for i in {1..40}; do finished "$(get $id status)" && break; sleep 0.5; done
+  print "ag-screen-queue: job $id $(get $id status)"
+  ;;
+
+attach)
+  id=${1:?usage: ag-screen-queue attach <id>}
+  [[ -d $jobs/$id ]] || { print -u2 "ag-screen-queue: no job $id"; exit 1; }
+  exec $self _wait $id
+  ;;
+
+exec)
+  [[ $# -gt 0 ]] || { print -u2 'usage: ag-screen-queue exec <shell cmd>'; exit 2; }
+  # Already inside a queued job (a CUA run's shell, or another exec job): we hold the desktop, just run it.
+  [[ -n ${CUA_QUEUE_INNER:-} ]] && exec zsh -lc "$*"
+  exec $self run --exec --caller "${CUA_CALLER:-exec}" -- "$*"
+  ;;
+
+run)
+  local id= caller= keep= b64= urgent=${CUA_URGENT:-} execjob=
+  while (( $# )); do
+    case $1 in
+      --id) id=$2; shift 2 ;;
+      --caller) caller=$2; shift 2 ;;
+      --keep-open) keep=1; shift ;;
+      --urgent) urgent=1; shift ;;
+      --exec) execjob=1; shift ;;
+      --b64) b64=$2; shift 2 ;;
+      --) shift; break ;;
+      *) break ;;
+    esac
+  done
+  local task
+  if [[ -n $b64 ]]; then task=$(print -rn -- $b64 | base64 -d) || { print -u2 "ag-screen-queue: bad --b64"; exit 2; }
+  else task=${*:-}; fi
+  [[ -n $task ]] || { print -u2 'usage: ag-screen-queue run [--id ID] [--caller LABEL] [--keep-open] [--urgent] "<task>"'; exit 2; }
+  [[ -n $id ]] || id=$(strftime %Y%m%d-%H%M%S $EPOCHSECONDS)-$RANDOM
+  [[ $id =~ '^[A-Za-z0-9._-]+$' ]] || { print -u2 "ag-screen-queue: bad job id"; exit 2; }
+  [[ ! -e $jobs/$id ]] || { print -u2 "ag-screen-queue: job $id already exists (use: ag-screen-queue attach $id)"; exit 2; }
+  # Prune finished jobs older than a week.
+  for d in $jobs/*(N/m+7); do finished "$(get ${d:t} status)" && rm -rf $d; done
+  # Build the job in a hidden dir, then move it in whole, so no one sees a half-written job.
+  local tmp=$jobs/.new-$id-$$; mkdir -p $tmp
+  print -r -- "$task" > $tmp/task; print -r -- "${caller:-${CUA_CALLER:-local}}" > $tmp/caller
+  print -r -- "${keep:-${CHATGPT_CUA_KEEP_OPEN:-}}" > $tmp/keep; print -r -- $(now) > $tmp/created
+  print -r -- $EPOCHREALTIME > $tmp/ticket; print -r -- $$ > $tmp/waiter.pid; print queued > $tmp/status
+  print -r -- "$urgent" > $tmp/urgent; print -r -- "$execjob" > $tmp/exec
+  : > $tmp/log; : > $tmp/out
+  mv $tmp $jobs/$id || exit 1
+  # Detached runner: survives the waiter (and its SSH session).
+  ( $self _runner $id </dev/null >>$jobs/$id/runner.log 2>&1 & ) &!
+  exec $self _wait $id
+  ;;
+
+_wait)
+  id=$1; dir=$jobs/$id
+  mine=$(( $(get $id waiter.pid) == $$ ))
+  # A killed waiter cancels its own job (only the waiter that submitted it, not an `attach`).
+  if (( mine )); then trap 'print -u2 "ag-screen-queue: caller stopped, cancelling job $id"; $self cancel $id >&2; exit 130' TERM INT HUP; fi
+  local off=0 last= lastbeat=0 st key msg ahead run size
+  local -a live
+  print -u2 "ag-screen-queue: job $id submitted"
+  while true; do
+    st=$(get $id status)
+    # Stream the run's log.
+    size=$(stat -f %z $dir/log 2>/dev/null || print 0)
+    if (( size > off )); then tail -c +$((off+1)) $dir/log | head -c $((size-off)) >&2; off=$size; fi
+    if finished $st; then
+      cat $dir/out
+      case $st in
+        cancelled) print -u2 "ag-screen-queue: job $id cancelled" ;;
+        abandoned|lost) print -u2 "ag-screen-queue: job $id $st" ;;
+      esac
+      exit ${$(get $id rc):-1}
+    fi
+    # key = what changed; msg = what to say. Print on change, and every 20s as a heartbeat
+    # (a write to a dead SSH channel is what ends a waiter whose caller vanished).
+    if [[ $st == queued || $st == paused ]]; then
+      live=(${(f)"$(live_jobs)"}); ahead=$(( ${live[(i)$id]} - 1 )); run=
+      for j in $live; do [[ $j != $id && $(get $j status) == running ]] && run=$j; done
+      local what=queued; [[ $st == paused ]] && what="paused (progress saved, resumes next)"
+      if [[ -n $run && -n $(get $id urgent) && -z $(get $run urgent) ]]; then key="pausing $run"; msg="URGENT: pausing $(caller_of $run) (its progress is saved; it resumes after this job)"
+      elif [[ -n $run ]]; then key="$st $run $ahead"; msg="$what behind ${$(get $run urgent):+URGENT }$(caller_of $run), running $(dur $(get $run started)); $ahead ahead of this job"
+      elif (( ahead > 0 )); then key="$st ${live[1]} $ahead"; msg="$what behind $(caller_of ${live[1]}); $ahead ahead of this job"
+      else key=starting; msg=starting; fi
+    else key=running; msg="running ($(dur $(get $id started)))"; fi
+    if [[ $key != $last ]] || (( $(now) - lastbeat >= 20 )); then
+      print -u2 "ag-screen-queue: job $id $msg"; last=$key; lastbeat=$(now)
+    fi
+    sleep 1
+  done
+  ;;
+
+_runner)
+  id=$1; dir=$jobs/$id
+  put $id runner.pid $$
+  local fd= preempted= rc sess; local -a live
+  # A paused job's cancel: close what it had opened (its snapshot is kept in the job dir).
+  cancelled() {
+    [[ $(get $id status) == paused && -z $(get $id keep) ]] && ${self:h}/ag-cua-cleanup restore $dir/cua-snapshot-$id >>$dir/out
+    put $id rc 130; put $id status cancelled; exit 0
+  }
+  while true; do
+    # Wait for our turn: head of the queue and the desktop lock free.
+    preempted=
+    while true; do
+      [[ -f $dir/cancel ]] && cancelled
+      # A caller that vanished before its job ever started abandons it; started jobs always finish.
+      if [[ $(get $id status) == queued ]] && ! alive "$(get $id waiter.pid)"; then put $id rc 1; put $id status abandoned; exit 0; fi
+      live=(${(f)"$(live_jobs)"})
+      if [[ ${live[1]:-} == $id ]]; then
+        zsystem flock -t 0 -f fd $lockfile 2>/dev/null && break
+        # Urgent and blocked by a running non-urgent job: pause it (once).
+        if [[ -n $(get $id urgent) && -z $preempted ]]; then
+          for j in $live; do
+            if [[ $(get $j status) == running && -z $(get $j urgent) ]]; then
+              print -r -- $id > $jobs/$j/preempt; stop_codex $j; preempted=1
+            fi
+          done
+        fi
+      fi
+      sleep 1
+    done
+    # Our turn, lock held (released on unlock or when this process exits, however it exits).
+    [[ -f $dir/cancel ]] && { zsystem flock -u $fd; cancelled; }
+    sess=$(get $id session)
+    [[ -n $(get $id started) ]] || put $id started $(now)
+    put $id status running
+    local -a envs=(CUA_QUEUE_INNER=1 CUA_JOB_DIR=$dir CUA_JOB_ID=$id)
+    [[ -n $(get $id keep) ]] && envs+=(CHATGPT_CUA_KEEP_OPEN=1)
+    [[ -n $sess ]] && envs+=(CUA_RESUME_SESSION=$sess)
+    [[ -n $(get $id pauses) ]] && envs+=(CUA_RESUMED=1)
+    if [[ -n $(get $id exec) ]]; then  # a raw desktop command, not a codex run
+      env $envs zsh -lc "$(get $id task)" >>$dir/out 2>>$dir/log </dev/null &
+    else
+      env $envs ${self:h}/ag-chatgpt-cua "$(get $id task)" >>$dir/out 2>>$dir/log </dev/null &
+    fi
+    put $id inner.pid $!
+    wait $!; rc=$?
+    # Paused by an urgent job (the inner run exits 75 and skips its cleanup): save the codex session
+    # so the next turn resumes it, give up the desktop, and queue again in our original place.
+    if (( rc == 75 )) && [[ -f $dir/preempt && ! -f $dir/cancel ]]; then
+      sess=$(grep -o 'session id: [0-9a-fA-F-]*' $dir/log | tail -1 | cut -d' ' -f3)
+      [[ -n $sess ]] && put $id session $sess
+      put $id pauses $(( ${$(get $id pauses):-0} + 1 ))
+      print -r -- "ag-screen-queue: paused for urgent job $(<$dir/preempt)${sess:+, codex session $sess saved}" >>$dir/log
+      rm -f $dir/preempt; put $id status paused
+      zsystem flock -u $fd; fd=
+      continue
+    fi
+    rm -f $dir/preempt
+    break
+  done
+  put $id finished $(now); put $id rc $rc
+  if [[ -f $dir/cancel ]]; then put $id rc 130; put $id status cancelled
+  elif (( rc == 0 )); then put $id status done
+  else put $id status failed; fi
+  ;;
+
+*) sed -n '2,36p' $self; [[ $cmd == (help|-h|--help) ]] || exit 2 ;;
+esac

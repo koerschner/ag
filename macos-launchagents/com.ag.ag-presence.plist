@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ag.ag-presence</string>
+  <!-- Presence: every 30s, check whether the owner is at the client Mac; on arrival, fire "when online" ag-tickler items. Host only (ag-mac). -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>"$HOME/.local/bin/ag-machine-role" host || exit 0; exec "$HOME/.local/bin/ag-presence" poll</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>30</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/ag-presence.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/ag-presence.log</string>
+</dict>
+</plist>

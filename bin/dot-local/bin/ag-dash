@@ -1,0 +1,1674 @@
+#!/usr/bin/env bun
+// ag-dash: the app over every agent session (ag-mux on tmux), chat-style: http://ag:7376/chat (Tailscale only).
+//
+// ag-mux stays the runtime; this is a view on it plus a little metadata ag-mux doesn't keep.
+//   - Polls `ag-mux api snapshot` (~15 ms) every POLL_MS; each tab hosting an agent is a card.
+//   - Reads each card's Pi session file incrementally (only appended bytes) for the latest ask/answer,
+//     live activity (thinking / running a tool since when), recent tools, thinking, cost and context size.
+//   - Keeps its own state in ~/.local/state/ag-dash/state.json: pinned flag, list, seenAt, status timing, lists.
+//   - Pushes the whole board to browsers over SSE (/events) whenever anything changes.
+// Card semantics:
+//   ready     = agent idle/done/blocked (at its prompt)
+//   needsYou  = blocked, or ready with an answer newer than seenAt. Seen = opened on the board, replied
+//               from it, jumped to in tmux, or the tab is focused in tmux.
+//   resolved  = Jev read the latest answer and judged the session done (nothing left for the user); see judgeDone.
+//               Only judged for chats archived while working.
+//   pinned    = top priority (shift+click / long-press). Pinned to the top everywhere; its siren ring runs
+//               whenever the agent isn't working (throb). Becoming needsYou fires the fast lane: ag-text + a tmux toast.
+//               While the siren runs, the client keeps a persistent desktop alert up (GET /api/pinned → ag-dash).
+// Every page is a URL (views, columns, /new, /help, /<session id>[/live]); the page's router handles back/forward.
+// Deep links: http://ag:7376/<pi session id> (the UUID in the session filename; stable, unlike tab ids) serves the
+// board with that session open: the live card's drawer, or, for a hibernated pane or a closed session, its
+// transcript read-only with Wake in tmux / Resume (POST /api/resume: new tab running `pi --session <file>`).
+// GET /api/session/<id> resolves an id; GET /api/transcript?sid=<id> reads any session file.
+// Media: GET /api/file?path= (image/video files under ~ or /tmp, Range-capable), GET /api/embedded?tab=&line=&idx=
+// (base64 images inside the session, e.g. pasted screenshots and read-tool images).
+// Also: dictated replies (POST /api/dictate: answered at once, Whisper via TrueFoundry in the background, then
+// sent), pasted files (POST /api/upload → ~/inbox/clipboard), new items (POST /api/new: text and/or a recording,
+// handed to the ag-inbox, which opens it in Inbox and names it), renaming tabs (POST /api/rename). Served on the Tailscale IP (http://ag:7376), on
+// 127.0.0.1 (for tailscale serve), and at https://ag.<tailnet>.ts.net:7377 (set up at startup), where voice works.
+// Waiting for: a session with a live ag-tickler item (a wake-up on CI / a condition / an event, a presence item, a
+// scheduled time, or a GTD waiting-for on a person; ~/.local/state/ag-tickler/*.json, matched by session file), or
+// marked by hand (POST /api/card {waiting}). Waiting cards sit in their own column, aren't "needs you", never ping
+// or get the red siren; they get a blue orbit instead.
+// "Waiting always wakes up" (AGENTS.md → GTD model): nothing may sit in Waiting for without an ag-tickler item that will
+// wake it. A hand-set wait prompts the session (once it's at its prompt) to schedule its own wake-up at an interval
+// it chooses; until the item exists the card is flagged "no wake-up" (noWake) and re-asked up to WAKE_MAX times,
+// WAKE_EVERY_MS apart. When the ag-tickler item appears it takes over and the hand-set flag drops; the flag also clears
+// if the session is given new work (a prompt that isn't ours).
+// Control (Pi semantics): a prompt sent while the agent works is queued as steering (delivered after the
+// current step). Interrupt = Esc twice (this Pi setup asks for a second Esc); Pi puts any queued steering
+// back in its editor. Interrupt & send = interrupt, wait until ready, clear the editor (Ctrl+U), then send.
+// Telemetry: the page sends one POST /api/click {name, view} per control click (sendBeacon); it's appended to
+// ~/.local/state/ag-dash/clicks.jsonl. GET /api/stats?days=N ranks controls by clicks (`ag-dash-stats` prints it).
+// New item routing: POST /api/new asks Jev what the text is for. Looking for an existing session → it answers
+// {kind:"find"} and the page calls POST /api/search {q} → `ag search --json` (an LLM picks the matching sessions)
+// and shows them as cards, with "Start a new session instead" (route=new skips the check).
+// API: GET /api/state, /api/transcript?tab=, /api/screen?tab=, /api/stats?days=
+//      POST /api/card {tab, pinned?, list?, seen?}, /api/lists {lists}, /api/prompt {tab, text, interrupt?},
+//           /api/interrupt {tab}, /api/keys {tab, keys[]}, /api/focus {tab}, /api/close {tab}
+// System strip (board.sys, header pills): engine memory (/proc/meminfo + PSI) and ag-mac's screen queue
+// (`ssh ag-mac ag-cua-queue json` every 5 s, in the background).
+// Restarts (deploys happen many times a day) must not show: SIGTERM drains in-flight requests before exiting
+// (unit KillMode=mixed), /api/state, /events and actions wait for the first poll instead of serving an empty board,
+// and POST /api/prompt {id} delivers a retried reply once. The page rides out the gap on its own (chat.html: saved
+// board and transcripts, outbox, reconnecting event stream).
+// Page: ~/.local/share/ag-dash/chat.html (stowed from the ag repo, ag-dash/), re-read on every request.
+// Run by the com.ag.ag-dash LaunchAgent (only on ag-mac). Log: /tmp/ag-dash.log.
+
+import { execFileSync } from "node:child_process";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname } from "node:path";
+import { originTag, parseOrigins, stripOrigins } from "../../../pi/dot-pi/agent/extensions/ag-origin.ts";
+import { constants as zc, createGzip } from "node:zlib";
+// Deterministic one-line summaries of tool calls + the machine each runs on (~/ag/ag-toolsum; `ag-toolsum` CLI).
+import { sessionHost, summarize } from "../../../ag-toolsum/ag-toolsum.ts";
+import * as agRules from "../../../ag-rules/engine.ts"; // hooks `answer` (judgeDone) and `new-item` (newIntent)
+
+const PORT = 7376;
+// Ag's machine-independent address: the Tailscale Service svc:ag (ag-svc), wherever sessions are hosted.
+const AG_FQDN = process.env.AG_FQDN ?? (() => {
+	try {
+		return `ag.${JSON.parse(execFileSync("/usr/local/bin/tailscale", ["status", "--json"], { encoding: "utf8" })).MagicDNSSuffix}`;
+	} catch {
+		// AG_TAILNET (e.g. tail1234.ts.net) when tailscale isn't reachable; else the MagicDNS short name.
+		return process.env.AG_TAILNET ? `ag.${process.env.AG_TAILNET}` : "ag";
+	}
+})();
+const HTTPS_PORT = 7377; // `tailscale serve` → https://ag.<tailnet>.ts.net:7377 (browsers only allow the mic on https)
+const POLL_MS = 1500;
+const HOME = homedir();
+const AG_MUX = `${HOME}/.local/bin/ag-mux`;
+const AG_TEXT = `${HOME}/.local/bin/ag-text`;
+const STATE_DIR = `${HOME}/.local/state/ag-dash`;
+const STATE_FILE = `${STATE_DIR}/state.json`;
+const GONE_KEEP_MS = 7 * 24 * 3600_000;
+const CLICKS_FILE = `${STATE_DIR}/clicks.jsonl`;
+const PAGE = `${HOME}/.local/share/ag-dash/chat.html`; // the app, at /chat (ChatGPT-desktop style); the page routes itself
+// Static assets sit next to the page in the ag checkout (the page itself is a symlink into it).
+const STATIC_DIR = dirname(realpathSync(PAGE));
+const STATIC = new Set(["telemetry.js", "keys.js", "marked.umd.js", "purify.min.js", "manifest.json", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"]);
+const UPLOAD_DIR = `${HOME}/inbox/clipboard`;
+const INBOX_URL = process.env.AG_INBOX_URL || "http://ag:7373/prompt?new=1"; // the ag-inbox: new items land in Inbox
+// The AI gateway (TrueFoundry): $AG_AI_GATEWAY, else its line in the private ~/ag-personal/env.
+const AI_GATEWAY = (process.env.AG_AI_GATEWAY || (() => { try { return readFileSync(`${HOME}/ag-personal/env`, "utf8").match(/^AG_AI_GATEWAY=(.*)$/m)?.[1].trim() ?? ""; } catch { return ""; } })()).replace(/\/$/, "");
+const STT_URL = `${AI_GATEWAY}/audio/transcriptions`;
+const STT_MODELS = ["whisper-1", "openai-esw/whisper-1"]; // second is the fallback route
+const STT_HINT = "tmux, ag, pi, Arcade, arcade.school, Jev, TrueFoundry, Linear, Honeycomb, Hammerspoon, dotfiles, Roblox, pinned.";
+const FAST_LANE_GAP_MS = 60_000; // at most one fast-lane ping per card per minute
+const READY = new Set(["idle", "done", "blocked"]);
+const WAKE_EVERY_MS = 15 * 60_000;
+const WAKE_MAX = 3;
+// The user's display name: $AG_USER_NAME, else its line in the private ~/ag-personal/env, else "the user".
+const USER_NAME = process.env.AG_USER_NAME || (() => { try { return readFileSync(`${HOME}/ag-personal/env`, "utf8").match(/^AG_USER_NAME=(.*)$/m)?.[1].trim() ?? ""; } catch { return ""; } })() || "the user";
+// A tickler item "waiting for" the user themselves (their first name, "me", "the user") belongs in Needs you.
+const USER_RE = new RegExp(`^(${[...(USER_NAME === "the user" ? [] : [USER_NAME.split(/\s+/)[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")]), "me", "you", "the user"].join("|")})\\b`, "i");
+const waitingOnUser = (who: string) => USER_RE.test(who.trim());
+const WAKE_PREFIX = "[ag-dash] The user moved this session to Waiting for.";
+const WAKE_NOTE = `${WAKE_PREFIX} Per "Waiting always wakes up" (AGENTS.md → GTD model), schedule your own wake-up with the ag-tickler now, at an interval you choose: a waitingFor item if you're waiting on a person, or when: "check" with a cheap shell check plus expires for a machine or programmatic signal (if it can't be checked programmatically, the woken session checks by computer use). Don't follow up with outside parties without the user's OK; draft it for them instead. Then reply in one or two lines: what you're waiting on and when you'll next check. The card stays flagged "no wake-up" on the board until the ag-tickler item exists.`;
+// The visible text is the action; the why and how ride in an origin tag (a chip in the UIs).
+const WAKE_PROMPT = `${originTag({ kind: "dash", label: "You moved this to Waiting for", note: WAKE_NOTE })}\nSchedule your wake-up.`;
+const BIG_LINE = 256 * 1024; // tool results this big (screenshots) are summarised by regex, not parsed
+const KEYS = new Set(["esc", "enter", "up", "down", "left", "right", "tab", "backspace", "ctrl+u", "y", "n", "1", "2", "3"]);
+
+type CardState = { judged?: { ts: number; done: boolean } /* Jev's verdict on the answer at ts */; archived?: number /* archived while working: hidden, closes when it finishes cleanly */; goneAt?: number /* tab missing since; forgotten after GONE_KEEP_MS */; waiting?: boolean /* marked by hand */; wakeAskedAt?: number; wakeAsks?: number; pinned?: boolean; pinnedAt?: number /* when pinned: ag-dash chat's Pinned order */; hot?: boolean; red?: boolean /* older names of pinned */; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
+type List = { id: string; name: string };
+type State = { cards: Record<string, CardState>; lists: List[]; pinnedModels?: string[] /* models pinned to the top of its model picker */ };
+type Msg = { role: "user" | "assistant"; text: string; ts: number; raw?: string /* user text with origin tags, for media paths */ };
+type Tool = { id?: string; name: string; detail: string; sum?: string; hosts?: string[]; ts: number; end?: number; error?: boolean };
+type Activity = { kind: "thinking" | "tool" | "idle" | "error"; since: number; tool?: string; detail?: string; sum?: string; hosts?: string[]; error?: string };
+type Session = {
+	mtime: number;
+	size: number;
+	offset: number;
+	cwd?: string;
+	startedAt?: number;
+	model?: string;
+	thinkingLevel?: string;
+	first?: string;
+	name?: string; // pi session name (latest session_info): a rename that outlives the tab
+	lastUser?: Msg;
+	lastAssistant?: Msg;
+	thinking?: string;
+	thinkingTs?: number;
+	tools: Tool[];
+	toolCount: number;
+	turns: number;
+	cost: number;
+	ctx: number;
+	activity: Activity;
+	lastAt: number; // newest entry timestamp (file mtimes aren't reliable: migrations copy files)
+	replied?: boolean; // the user has prompted it after its first prompt: it's out of the Inbox
+};
+
+// ---------- state ----------
+// Renamed from ag-board (2026-10): carry its state over once.
+if (!existsSync(STATE_DIR) && existsSync(`${HOME}/.local/state/ag-board`)) renameSync(`${HOME}/.local/state/ag-board`, STATE_DIR);
+mkdirSync(STATE_DIR, { recursive: true });
+const firstRun = !existsSync(STATE_FILE);
+let state: State = { cards: {}, lists: [{ id: "now", name: "Now" }, { id: "next", name: "Next" }, { id: "later", name: "Later" }] };
+try {
+	state = { ...state, ...JSON.parse(readFileSync(STATE_FILE, "utf8")) };
+} catch {}
+// "red" became "hotpath" (hot), then "pinned"; carry old flags over.
+for (const cs of Object.values(state.cards)) {
+	if (cs.red !== undefined) ((cs.hot = cs.red), delete cs.red);
+	if (cs.hot !== undefined) ((cs.pinned = cs.hot), delete cs.hot);
+}
+let dirty = false;
+const save = () => {
+	if (!dirty) return;
+	writeFileSync(`${STATE_FILE}.tmp`, JSON.stringify(state, null, 1));
+	renameSync(`${STATE_FILE}.tmp`, STATE_FILE);
+	dirty = false;
+};
+
+// ---------- helpers ----------
+async function run(args: string[]) {
+	const p = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
+	const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+	return { code, out, err };
+}
+const mux = (...a: string[]) => run([AG_MUX, ...a]);
+const cleanLabel = (s: string) => s.replace(/\s*●\s*$/, "").trim();
+const textOf = (content: unknown): string =>
+	typeof content === "string"
+		? content
+		: Array.isArray(content)
+			? content
+					.filter((c: any) => c?.type === "text")
+					.map((c: any) => c.text)
+					.join("\n")
+			: "";
+const oneLine = (s: string, n: number) => {
+	const t = String(s ?? "").replace(/\s+/g, " ").trim();
+	return t.length > n ? `${t.slice(0, n - 1)}…` : t;
+};
+// Short human description of a tool call: the command for bash, the path for file tools, else the first string arg.
+function toolDetail(name: string, args: any): string {
+	if (!args || typeof args !== "object") return "";
+	if (typeof args.command === "string") return oneLine(args.command.split("\n")[0], 140);
+	for (const k of ["path", "file_path", "url", "query", "sql", "task", "prompt", "text"]) if (typeof args[k] === "string") return oneLine(args[k], 140);
+	const first = Object.values(args).find((v) => typeof v === "string") as string | undefined;
+	return oneLine(first ?? "", 140);
+}
+const shortTool = (n: string) => n.replace(/^mcp_/, "").replace(/_/g, " ");
+// detail = the raw command/argument; sum = ag-toolsum's summary when every part matched a rule (else absent);
+// hosts = machines the call runs on (the session's own machine for local work).
+function toolInfo(name: string, args: any, cwd?: string) {
+	const r = summarize(name, args, { host: sessionHost(cwd) });
+	return { name: shortTool(name), detail: toolDetail(name, args), sum: r.sum, hosts: r.hosts };
+}
+
+// ---------- media ----------
+// Images/videos mentioned by path in prompts and answers render on the board. Only media files under the home
+// folder or /tmp are served (GET /api/file, with Range support so videos seek).
+const MEDIA_TYPES: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", heic: "image/heic", mp4: "video/mp4", m4v: "video/mp4", mov: "video/quicktime", webm: "video/webm" };
+const MEDIA_ROOTS = [HOME, "/tmp", "/private/tmp", "/private/var/folders", "/var/folders"];
+const MEDIA_RE = /(?:~|\/(?:Users|tmp|private|var))[^\s"'`<>()[\]{}|,;]*?\.(png|jpe?g|gif|webp|svg|heic|mp4|m4v|mov|webm)\b/gi;
+type Media = { src: string; kind: "image" | "video"; name: string };
+const mediaType = (path: string) => MEDIA_TYPES[path.split(".").pop()!.toLowerCase()];
+function allowedMedia(raw: string): string | null {
+	let path = raw.replace(/^~(?=\/)/, HOME);
+	try {
+		path = realpathSync(path);
+	} catch {
+		return null;
+	}
+	if (!mediaType(path) || !MEDIA_ROOTS.some((r) => path === r || path.startsWith(`${r}/`))) return null;
+	try {
+		return statSync(path).isFile() ? path : null;
+	} catch {
+		return null;
+	}
+}
+const mediaCache = new Map<string, Media[]>();
+function mediaIn(text?: string): Media[] {
+	if (!text) return [];
+	const hit = mediaCache.get(text);
+	if (hit) return hit;
+	const out: Media[] = [];
+	const seen = new Set<string>();
+	for (const m of text.matchAll(MEDIA_RE)) {
+		const path = allowedMedia(m[0].replace(/[.:]+$/, ""));
+		if (!path || seen.has(path)) continue;
+		seen.add(path);
+		out.push({ src: `/api/file?path=${encodeURIComponent(path)}`, kind: mediaType(path).startsWith("video") ? "video" : "image", name: path.split("/").pop()! });
+		if (out.length >= 8) break;
+	}
+	if (mediaCache.size > 500) mediaCache.clear();
+	mediaCache.set(text, out);
+	return out;
+}
+function serveFile(path: string, req: Request): Response {
+	const file = Bun.file(path);
+	const size = file.size;
+	// ETag from size+mtime: after max-age the browser revalidates and gets a 304 instead of the whole file again.
+	const etag = `"${size.toString(36)}-${Math.floor(file.lastModified).toString(36)}"`;
+	const headers: Record<string, string> = { "content-type": mediaType(path), "accept-ranges": "bytes", "cache-control": "private, max-age=300", etag };
+	if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+	const range = req.headers.get("range")?.match(/bytes=(\d*)-(\d*)/);
+	if (!range) return new Response(file, { headers: { ...headers, "content-length": String(size) } });
+	const start = range[1] ? +range[1] : Math.max(0, size - +range[2]);
+	const end = range[1] && range[2] ? Math.min(+range[2], size - 1) : range[1] ? size - 1 : size - 1;
+	if (start >= size || start > end) return new Response(null, { status: 416, headers: { "content-range": `bytes */${size}` } });
+	return new Response(file.slice(start, end + 1), { status: 206, headers: { ...headers, "content-range": `bytes ${start}-${end}/${size}`, "content-length": String(end - start + 1) } });
+}
+// Session lines, cached briefly, so embedded images (base64 in the session file) can be served one at a time.
+const linesCache = new Map<string, { mtime: number; lines: string[] }>();
+function sessionLines(path: string): string[] {
+	const mtime = statSync(path).mtimeMs;
+	const hit = linesCache.get(path);
+	if (hit?.mtime === mtime) return hit.lines;
+	const lines = readFileSync(path, "utf8").split("\n");
+	if (linesCache.size > 4) linesCache.clear();
+	linesCache.set(path, { mtime, lines });
+	return lines;
+}
+const imagesOf = (content: unknown) => (Array.isArray(content) ? content.filter((c: any) => c?.type === "image") : []);
+
+function readRange(path: string, start: number, len: number) {
+	const fd = openSync(path, "r");
+	try {
+		const buf = Buffer.alloc(len);
+		const n = readSync(fd, buf, 0, len, start);
+		return buf.subarray(0, n).toString("utf8");
+	} finally {
+		closeSync(fd);
+	}
+}
+
+// Persist a name in the session file as a pi session_info entry, so it outlives the tab (hibernate, close,
+// resume) and pi itself, ag find and ag-tab-name (which pins it) all see it. Parented on the last entry so
+// the conversation's leaf stays where it was.
+function nameSession(file: string, name: string) {
+	const size = statSync(file).size;
+	const tail = readRange(file, Math.max(0, size - 65536), Math.min(size, 65536));
+	let parentId: string | null = null;
+	for (const l of tail.trimEnd().split("\n").reverse()) {
+		try {
+			parentId = JSON.parse(l).id ?? null;
+			if (parentId) break;
+		} catch {} // a big line cut off at the window's start, or a half-written one
+	}
+	const entry = { type: "session_info", id: crypto.randomUUID().slice(0, 8), parentId, timestamp: new Date().toISOString(), name };
+	appendFileSync(file, (tail && !tail.endsWith("\n") ? "\n" : "") + JSON.stringify(entry) + "\n");
+}
+
+// ---------- session parsing ----------
+// Session summaries, read incrementally: the first read scans the whole file, later reads only the
+// bytes appended since (Pi appends). A file that shrank was rewritten, so it's rescanned.
+const sessions = new Map<string, Session>();
+// The Inbox is a state, not a place: a session sits there until the user replies to it (any prompt after its first).
+// Prompts Ag injects (spawn, report, the ag-tickler, restarts, ag-dash's wake-up ask…) carry an origin tag and
+// don't count; ones the user sends with a tag (a forwarded capture, a phone comment, a screenshot) do.
+const USER_ORIGINS = new Set(["follow", "comment", "review-comment", "screenshot", "share"]);
+const byUser = (raw: string) => [...raw.matchAll(/<ag-origin\b[^>]*\bkind="([^"]+)"/g)].every((m) => USER_ORIGINS.has(m[1]));
+const blank = (): Session => ({ mtime: 0, size: 0, offset: 0, tools: [], toolCount: 0, turns: 0, cost: 0, ctx: 0, activity: { kind: "idle", since: 0 }, lastAt: 0 });
+
+function ingest(s: Session, line: string) {
+	if (!line) return;
+	// Header / settings entries (small).
+	if (line.startsWith('{"type":"session"') || line.includes('"session_info"') || line.includes('"type":"model_change"') || line.includes('"type":"thinking_level_change"')) {
+		try {
+			const e = JSON.parse(line);
+			if (e.type === "session") (s.cwd = e.cwd), (s.startedAt = Date.parse(e.timestamp));
+			if (e.type === "session_info") s.name = e.name?.trim() || undefined;
+			if (e.type === "model_change") s.model = e.modelId;
+			if (e.type === "thinking_level_change") s.thinkingLevel = e.thinkingLevel;
+		} catch {}
+		return;
+	}
+	if (!line.includes('"type":"message"')) return;
+	if (line.includes('"role":"toolResult"')) {
+		let id: string | undefined, error = false, ts = 0;
+		if (line.length > BIG_LINE) {
+			id = line.match(/"toolCallId":"([^"]+)"/)?.[1];
+			error = /"isError":true/.test(line);
+			ts = Date.parse(line.match(/"timestamp":"([^"]+)"/)?.[1] ?? "") || 0;
+		} else {
+			try {
+				const e = JSON.parse(line);
+				(id = e.message.toolCallId), (error = !!e.message.isError), (ts = Date.parse(e.timestamp) || 0);
+			} catch {
+				return;
+			}
+		}
+		const t = s.tools.find((x) => x.id === id);
+		if (t) (t.end = ts), (t.error = error);
+		// All tools of the last call finished → the model is thinking again.
+		if (!s.tools.some((x) => !x.end)) s.activity = { kind: "thinking", since: ts };
+		return;
+	}
+	let e: any;
+	try {
+		e = JSON.parse(line);
+	} catch {
+		return;
+	}
+	const m = e.message;
+	const ts = Date.parse(e.timestamp) || 0;
+	if (ts > s.lastAt) s.lastAt = ts;
+	if (m?.role === "user") {
+		const raw = textOf(m.content);
+		const text = stripOrigins(raw).trim();
+		s.turns++;
+		if (s.turns > 1 && byUser(raw)) s.replied = true;
+		s.activity = { kind: "thinking", since: ts };
+		if (text) (s.lastUser = { role: "user", text, ts, raw }), (s.first ??= text);
+		return;
+	}
+	if (m?.role !== "assistant") return;
+	if (m.model) s.model = m.model;
+	s.cost += m.usage?.cost?.total ?? 0;
+	if (m.usage?.totalTokens) s.ctx = m.usage.totalTokens;
+	const content: any[] = Array.isArray(m.content) ? m.content : [];
+	const thinking = content
+		.filter((c) => c.type === "thinking" && c.thinking)
+		.map((c) => c.thinking)
+		.join("\n")
+		.trim();
+	if (thinking) (s.thinking = thinking.slice(-1500)), (s.thinkingTs = ts);
+	const text = textOf(content).trim();
+	if (text) s.lastAssistant = { role: "assistant", text, ts };
+	const calls = content.filter((c) => c.type === "toolCall");
+	for (const c of calls) {
+		s.tools.push({ id: c.id, ...toolInfo(c.name, c.arguments, s.cwd), ts });
+		s.toolCount++;
+	}
+	if (s.tools.length > 12) s.tools.splice(0, s.tools.length - 12);
+	if (calls.length) {
+		const c = calls[calls.length - 1];
+		const t = toolInfo(c.name, c.arguments, s.cwd);
+		s.activity = { kind: "tool", since: ts, tool: t.name, detail: t.detail, sum: t.sum, hosts: t.hosts };
+	} else if (m.stopReason === "error" || m.stopReason === "aborted") {
+		s.activity = { kind: "error", since: ts, error: m.errorMessage || m.stopReason };
+	} else {
+		s.activity = { kind: "idle", since: ts };
+	}
+}
+
+function session(path?: string): Session | undefined {
+	if (!path) return;
+	let st;
+	try {
+		st = statSync(path);
+	} catch {
+		return;
+	}
+	let s = sessions.get(path);
+	if (s && s.mtime === st.mtimeMs && s.size === st.size) return s;
+	if (!s || st.size < s.offset) s = blank();
+	const chunk = readRange(path, s.offset, st.size - s.offset);
+	const complete = chunk.lastIndexOf("\n") + 1; // leave a half-written last line for next time
+	for (const l of chunk.slice(0, complete).split("\n")) ingest(s, l);
+	s.offset += Buffer.byteLength(chunk.slice(0, complete));
+	s.mtime = st.mtimeMs;
+	s.size = st.size;
+	sessions.set(path, s);
+	return s;
+}
+
+// ---------- sessions by id ----------
+const SESSIONS_DIR = `${HOME}/.pi/agent/sessions`;
+const SID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const sidOf = (file?: string) => file?.match(/_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/)?.[1];
+const fileBySid = new Map<string, string>();
+function sessionFileFor(sid: string): string | undefined {
+	const hit = fileBySid.get(sid);
+	if (hit && existsSync(hit)) return hit;
+	for (const f of new Bun.Glob(`**/*_${sid}.jsonl`).scanSync({ cwd: SESSIONS_DIR, absolute: true })) {
+		fileBySid.set(sid, f);
+		return f;
+	}
+}
+// Hibernated panes (pi stopped, sleep screen; focusing the pane wakes it): pane, tab, session file.
+async function hibernated(): Promise<{ pane: string; tab: string; file: string }[]> {
+	const r = await run([`${HOME}/.local/bin/ag-pi-hibernate`, "status"]);
+	return r.out
+		.split("\n")
+		.map((l) => l.trim().split(/\s+/))
+		.filter((x) => x.length >= 3 && x[2].endsWith(".jsonl"))
+		.map(([pane, tab, file]) => ({ pane, tab, file }));
+}
+// Any session's file by id: live card, hibernated pane, or the sessions directory.
+async function fileForSid(sid: string): Promise<string | undefined> {
+	if (!SID_RE.test(sid)) return;
+	return board.cards.find((c) => c.sid === sid)?.sessionFile ?? sessionFileFor(sid) ?? (await hibernated()).find((h) => sidOf(h.file) === sid)?.file;
+}
+let tabLabels: Record<string, string> = {};
+type Resolved =
+	| { state: "live"; sid: string; tab: string }
+	| { state: "hibernated" | "closed"; sid: string; tab?: string; file: string; title: string; cwd?: string; startedAt?: number; lastAt: number; model?: string; stats: Card["stats"] };
+async function resolveSession(sid: string): Promise<Resolved | null> {
+	const live = board.cards.find((c) => c.sid === sid);
+	if (live) return { state: "live", sid, tab: live.tab };
+	const hidden = hiddenCards.find((c) => c.sid === sid); // archived while working: read-only until restored
+	const h = hidden ? undefined : (await hibernated()).find((x) => sidOf(x.file) === sid);
+	const file = h?.file ?? sessionFileFor(sid);
+	if (!file || !existsSync(file)) return null;
+	const s = session(file)!;
+	const title = s.name || (h && cleanLabel(tabLabels[h.tab] ?? "")) || oneLine(s.first ?? "(no prompt)", 70);
+	return { state: h ? "hibernated" : "closed", sid, tab: h?.tab, file, title, cwd: s.cwd, startedAt: s.startedAt, lastAt: s.lastAt || s.mtime, model: s.model, stats: { cost: Math.round(s.cost * 100) / 100, ctx: s.ctx, turns: s.turns, tools: s.toolCount } };
+}
+async function resumeSession(sid: string): Promise<string> {
+	const r = await resolveSession(sid);
+	if (!r) throw new Error("no such session");
+	if (r.state === "live") return r.tab;
+	const hidden = hiddenCards.find((c) => c.sid === sid);
+	if (hidden) {
+		// Archived while working: Restore just un-archives it (its pi is still running).
+		const cs = state.cards[cardKey.get(hidden.tab) ?? hidden.tab];
+		if (cs) (delete cs.archived, (dirty = true));
+		await after();
+		return hidden.tab;
+	}
+	if (r.state === "hibernated" && r.tab) {
+		await mux("tab", "focus", r.tab); // focusing a hibernated pane wakes it (ag-pi-hibernate daemon)
+		return r.tab;
+	}
+	const cwd = r.cwd && existsSync(r.cwd) ? r.cwd : HOME;
+	const t = await mux("tab", "create", "--cwd", cwd, "--no-focus");
+	if (t.code !== 0) throw new Error(t.err.trim() || "tab create failed");
+	const { tab, root_pane } = JSON.parse(t.out).result;
+	await mux("tab", "rename", tab.tab_id, r.title.slice(0, 60)); // its name (or first prompt), not a number
+	const a = await mux("agent", "start", `resume-${sid.slice(-8)}`, "--kind", "pi", "--pane", root_pane.pane_id, "--timeout", "30000", "--", "--session", r.file);
+	if (a.code !== 0) throw new Error(a.err.trim() || "pi didn't start");
+	return tab.tab_id;
+}
+
+// Transcript for the drawer: prompts, answers, thinking, tool calls with a short result, and media
+// (images embedded in the session, plus image/video files mentioned by path). The newest `limit` items; `more`
+// says older ones exist, and the clients ask for a bigger limit as you scroll up (like ChatGPT's history).
+function transcript(file: string, ref: string, limit = 150) {
+	const lines = sessionLines(file);
+	const out: any[] = [];
+	const embedded = (line: number, n: number): Media[] => Array.from({ length: n }, (_, k) => ({ src: `/api/embedded?${ref}&line=${line}&idx=${k}`, kind: "image" as const, name: `image ${k + 1}` }));
+	const results = new Map<string, { text: string; error: boolean; media: Media[] }>();
+	let cwd: string | undefined;
+	try {
+		cwd = JSON.parse(lines[0]).cwd;
+	} catch {}
+	let i = lines.length - 1;
+	for (; i >= 0 && out.length < limit; i--) {
+		const l = lines[i];
+		if (!l.includes('"type":"message"')) continue;
+		if (l.includes('"role":"toolResult"')) {
+			try {
+				const e = JSON.parse(l);
+				const t = textOf(e.message.content);
+				results.set(e.message.toolCallId, { text: t.length > 2500 ? `${t.slice(0, 2500)}\n…` : t, error: !!e.message.isError, media: [...embedded(i, imagesOf(e.message.content).length), ...mediaIn(t)] });
+			} catch {}
+			continue;
+		}
+		let e: any;
+		try {
+			e = JSON.parse(l);
+		} catch {
+			continue;
+		}
+		const m = e.message;
+		const ts = Date.parse(e.timestamp) || 0;
+		const clip = (t: string, n = 8000) => (t.length > n ? `${t.slice(0, n)}\n…` : t);
+		if (m.role === "user") {
+			// Origin tags (ag-origin.ts) leave the text; the client shows them as chips. Media paths are read from the raw text.
+			const raw = textOf(m.content).trim();
+			const { text, origins } = parseOrigins(raw);
+			out.push({ role: "user", ts, text: clip(text), media: [...embedded(i, imagesOf(m.content).length), ...mediaIn(raw)], ...(origins.length ? { origins: origins.map(({ note, ...o }) => o) } : {}) });
+		} else if (m.role === "assistant") {
+			const c: any[] = Array.isArray(m.content) ? m.content : [];
+			if (m.stopReason === "error" || m.stopReason === "aborted") out.push({ role: "error", ts, text: m.errorMessage || m.stopReason });
+			for (const x of [...c].reverse()) {
+				if (x.type === "toolCall") out.push({ role: "tool", ts, ...toolInfo(x.name, x.arguments, cwd), args: clip(JSON.stringify(x.arguments, null, 1), 3000), result: results.get(x.id) });
+				else if (x.type === "text" && x.text?.trim()) out.push({ role: "assistant", ts, text: clip(x.text.trim()), media: mediaIn(x.text) });
+				else if (x.type === "thinking" && x.thinking?.trim()) out.push({ role: "thinking", ts, text: clip(x.thinking.trim(), 4000) });
+			}
+		}
+	}
+	const more = lines.slice(0, i + 1).some((l) => l.includes('"type":"message"') && /"role":"(user|assistant)"/.test(l));
+	return { items: out.reverse(), more };
+}
+
+// ---------- waiting for (ag-tickler) ----------
+const TICKLER_DIR = `${HOME}/.local/state/ag-tickler`;
+type Waiting = { id?: string; title: string; kind: "check" | "event" | "online" | "at" | "person" | "manual"; detail: string; since?: number; due?: number };
+function ticklerWaits(): Map<string, Waiting[]> {
+	const out = new Map<string, Waiting[]>();
+	let files: string[] = [];
+	try {
+		files = readdirSync(TICKLER_DIR).filter((f) => f.endsWith(".json"));
+	} catch {
+		return out;
+	}
+	for (const f of files) {
+		let i: any;
+		try {
+			i = JSON.parse(readFileSync(`${TICKLER_DIR}/${f}`, "utf8"));
+		} catch {
+			continue;
+		}
+		const sid = sidOf(i.session);
+		if (i.status !== "waiting" || !sid) continue;
+		if (i.needs_user || i.needs_nathan || waitingOnUser(i.waiting_for ?? "")) continue; // waiting on the user = Needs you, not Waiting for
+		const due = i.due ? Date.parse(i.due) : undefined;
+		const w: Waiting = i.waiting_for
+			? { id: i.id, title: i.title, kind: "person", detail: `on ${i.waiting_for}${i.attempt > 1 ? ` (check-in ${i.attempt})` : ""}`, due }
+			: i.when === "check"
+				? { id: i.id, title: i.title, kind: "check", detail: oneLine(i.check ?? "", 90), due: i.expires ? Date.parse(i.expires) : undefined }
+				: i.when === "event"
+					? { id: i.id, title: i.title, kind: "event", detail: "webhook / another session", due: i.expires ? Date.parse(i.expires) : undefined }
+					: i.when === "online"
+						? { id: i.id, title: i.title, kind: "online", detail: "until you're back at your Mac" }
+						: { id: i.id, title: i.title, kind: "at", detail: "scheduled", due };
+		w.since = Date.parse(i.created_at) || undefined;
+		out.set(sid, [...(out.get(sid) ?? []), w]);
+	}
+	return out;
+}
+
+// ---------- board ----------
+type Card = {
+	tab: string;
+	pane: string;
+	title: string;
+	status: string;
+	statusSince: number;
+	pinned: boolean;
+	pinnedAt?: number;
+	list?: string;
+	needsYou: boolean;
+	inbox: boolean; // the user hasn't replied to it yet (see byUser)
+	resolved: boolean;
+	throb: boolean; // pinned, not working, not waiting: the red siren runs
+	ping: boolean; // pinned and needs you (not waiting): fast lane + page beep
+	waiting: Waiting[]; // non-empty: waiting for something (blue orbit, Waiting for column)
+	noWake?: { askedAt?: number; asks: number }; // waiting only by hand: no ag-tickler item will wake it yet
+	focused: boolean;
+	model?: string;
+	thinkingLevel?: string;
+	cwd?: string;
+	startedAt?: number;
+	first?: string;
+	lastUser?: Msg;
+	lastAssistant?: Msg;
+	thinking?: string;
+	thinkingTs?: number;
+	activity?: Activity;
+	tools: Tool[];
+	media: Media[];
+	stats: { cost: number; ctx: number; turns: number; tools: number };
+	sessionFile?: string;
+	sid?: string;
+	archived?: number; // archived while working: kept off board.cards (see settleArchived)
+};
+// ---------- system strip: engine memory + ag-mac's screen queue ----------
+// Memory: /proc/meminfo (used = 1 - MemAvailable/MemTotal) and PSI (/proc/pressure/memory: % of time tasks
+// stalled on memory over the last 10 s; "some" = at least one task, "full" = all). Level ok/warn/bad.
+type Mem = { usedPct: number; totalGB: number; availGB: number; swapUsedGB: number; swapTotalGB: number; psiSome: number; psiFull: number; level: "ok" | "warn" | "bad" };
+function readMem(): Mem | undefined {
+	try {
+		const kb = Object.fromEntries(readFileSync("/proc/meminfo", "utf8").split("\n").map((l) => l.split(/:\s+/)).filter((p) => p.length === 2).map(([k, v]) => [k, Number.parseInt(v)]));
+		let psiSome = 0, psiFull = 0;
+		try {
+			const psi = readFileSync("/proc/pressure/memory", "utf8");
+			// Whole percents: finer values change every poll and would rebroadcast the board each time.
+			psiSome = Math.round(Number(psi.match(/^some avg10=([\d.]+)/m)?.[1] ?? 0));
+			psiFull = Math.round(Number(psi.match(/^full avg10=([\d.]+)/m)?.[1] ?? 0));
+		} catch {}
+		const gb = (k: number) => Math.round((k / 1048576) * 10) / 10;
+		const usedPct = Math.round((1 - kb.MemAvailable / kb.MemTotal) * 100);
+		const swapUsed = (kb.SwapTotal ?? 0) - (kb.SwapFree ?? 0);
+		const level = usedPct >= 95 || psiFull >= 5 ? "bad" : usedPct >= 85 || psiSome >= 10 ? "warn" : "ok";
+		return { usedPct, totalGB: gb(kb.MemTotal), availGB: gb(kb.MemAvailable), swapUsedGB: gb(swapUsed), swapTotalGB: gb(kb.SwapTotal ?? 0), psiSome, psiFull, level };
+	} catch {
+		return undefined;
+	}
+}
+// CUA queue: `ag-screen-queue json` on ag-mac over SSH (shared ControlMaster connection), every CUA_POLL_MS in the
+// background so a slow or unreachable ag-mac never stalls the board poll.
+type CuaJob = { id: string; status: string; caller: string; task: string; urgent: boolean; created?: number; started?: number; finished?: number; rc?: number; pauses: number };
+type Cua = { ok: boolean; error?: string; live: CuaJob[]; recent: CuaJob[] };
+const CUA_POLL_MS = 5000;
+let cua: Cua = { ok: false, error: "not checked yet", live: [], recent: [] };
+async function cuaLoop() {
+	for (;;) {
+		try {
+			const p = Bun.spawn(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "ag-mac", "ag-screen-queue json"], { stdout: "pipe", stderr: "pipe" });
+			const timer = setTimeout(() => p.kill(), 15000);
+			const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
+			clearTimeout(timer);
+			if (code !== 0) throw new Error(err.trim().split("\n").pop() || `exit ${code}`);
+			const j = JSON.parse(out);
+			cua = { ok: true, live: j.live ?? [], recent: j.recent ?? [] };
+		} catch (e) {
+			cua = { ...cua, ok: false, error: String((e as Error).message ?? e).slice(0, 200) };
+		}
+		await Bun.sleep(CUA_POLL_MS);
+	}
+}
+// ---------- routines ----------
+// A routine is a recurring job Ag runs on its own (AGENTS.md → "Routines"): every systemd user timer from the ag
+// repo on the session host, plus ag-mac's interval LaunchAgents. GET /api/routines lists them with schedule, last
+// run, result and next run; a routine may write ~/.local/state/routines/<name>.json ({at, ok, summary, session})
+// to say what its last run did. POST /api/routines/run {id} starts an engine routine now; GET /api/routines/log?id=.
+type Routine = { id: string; machine: string; name: string; description: string; schedule: string; last?: number; next?: number; running: boolean; result?: string; exit?: number; duration?: number; outcome?: { at?: string; ok?: boolean; summary?: string; session?: string } };
+const ROUTINE_STATE = `${HOME}/.local/state/routines`;
+const AG_DIR = (() => { try { return dirname(dirname(dirname(dirname(realpathSync(import.meta.path))))); } catch { return `${HOME}/ag`; } })();
+const human = (sec: number) => (sec % 86400 === 0 ? `${sec / 86400}d` : sec % 3600 === 0 ? `${sec / 3600}h` : sec % 60 === 0 ? `${sec / 60} min` : `${sec}s`);
+const usec = (s: string) => { const m = s.match(/^(\d+(?:\.\d+)?)(us|ms|s|min|h|d)?$/); if (!m) return 0; return Number(m[1]) * ({ us: 1e-6, ms: 1e-3, s: 1, min: 60, h: 3600, d: 86400 } as any)[m[2] ?? "s"]; };
+function outcomeOf(name: string) {
+	try { return JSON.parse(readFileSync(`${ROUTINE_STATE}/${name}.json`, "utf8")); } catch { return undefined; }
+}
+async function engineRoutines(): Promise<Routine[]> {
+	const lt = await run(["systemctl", "--user", "list-timers", "--all", "--output=json", "--no-pager"]);
+	const timers: { unit: string; activates: string; next?: number; last?: number }[] = lt.code === 0 ? JSON.parse(lt.out || "[]") : [];
+	if (!timers.length) return [];
+	const props = "Id,Description,FragmentPath,TimersMonotonic,TimersCalendar,ActiveState,SubState,Result,ExecMainStatus,ExecMainStartTimestamp,ExecMainExitTimestamp";
+	const sh = await run(["systemctl", "--user", "show", "--timestamp=unix", "-p", props, "--no-pager", ...timers.flatMap((t) => [t.unit, t.activates])]);
+	const blocks = new Map<string, Record<string, string>>();
+	for (const b of sh.out.split("\n\n")) {
+		const o: Record<string, string> = {};
+		for (const l of b.split("\n")) { const i = l.indexOf("="); if (i > 0) o[l.slice(0, i)] = (o[l.slice(0, i)] ? `${o[l.slice(0, i)]}\n` : "") + l.slice(i + 1); }
+		if (o.Id) blocks.set(o.Id, o);
+	}
+	const ts = (v?: string) => (v?.startsWith("@") ? Number(v.slice(1)) * 1000 : undefined);
+	const out: Routine[] = [];
+	for (const t of timers) {
+		const tm = blocks.get(t.unit) ?? {};
+		const sv = blocks.get(t.activates) ?? {};
+		if (!(tm.FragmentPath ?? "").startsWith(`${HOME}/.config/systemd/user`)) continue; // only ag's own timers
+		const cal = [...(tm.TimersCalendar ?? "").matchAll(/OnCalendar=([^;]+?)\s*;/g)].map((m) => m[1].trim().replace(/^\*-\*-\* (\d\d:\d\d):00( \S+)?$/, "daily $1$2"));
+		const mono = [...(tm.TimersMonotonic ?? "").matchAll(/On(UnitActive|UnitInactive)USec=(\S+)/g)].map((m) => `every ${human(usec(m[2]))}`);
+		const name = t.unit.replace(/\.timer$/, "");
+		const start = ts(sv.ExecMainStartTimestamp), end = ts(sv.ExecMainExitTimestamp);
+		const running = sv.ActiveState === "activating" || sv.SubState === "running" || sv.SubState === "start";
+		out.push({
+			id: `engine:${name}`, machine: "ag-engine", name, description: sv.Description || tm.Description || name,
+			schedule: [...cal, ...mono].join(", ") || "—",
+			last: t.last ? Math.round(t.last / 1000) : start, next: t.next ? Math.round(t.next / 1000) : undefined, running,
+			result: running ? "running" : sv.Result === "success" ? "ok" : sv.Result || undefined, exit: sv.ExecMainStatus ? Number(sv.ExecMainStatus) : undefined,
+			duration: start && end && end >= start ? end - start : undefined, outcome: outcomeOf(name),
+		});
+	}
+	return out;
+}
+// ag-mac: interval LaunchAgents from the repo (schedule + description from the plist), status from launchctl list.
+let macRoutines: Routine[] = [];
+let macCheckedAt = 0;
+async function refreshMacRoutines() {
+	if (Date.now() - macCheckedAt < 30_000) return;
+	macCheckedAt = Date.now();
+	const dir = `${AG_DIR}/macos-launchagents`;
+	const defs: Routine[] = [];
+	try {
+		for (const f of readdirSync(dir)) {
+			if (!f.endsWith(".plist")) continue;
+			const x = readFileSync(`${dir}/${f}`, "utf8");
+			const iv = x.match(/<key>StartInterval<\/key>\s*<integer>(\d+)<\/integer>/)?.[1];
+			const cal = /<key>StartCalendarInterval<\/key>/.test(x);
+			if (!iv && !cal) continue;
+			// Host-only agents ("ag-machine-role host || exit 0") are inert on ag-mac now that the engine hosts sessions;
+			// their engine timers are listed instead.
+			if (/ag-machine-role"? host \|\||ag-machine-role[^<]*\)" = host \]/.test(x)) continue;
+			const label = f.replace(/\.plist$/, "");
+			const desc = x.match(/<!--\s*([\s\S]*?)\s*-->/)?.[1]?.replace(/\s+/g, " ") ?? label;
+			defs.push({ id: `mac:${label}`, machine: "ag-mac", name: label.replace(/^com\.[^.]+\./, ""), description: desc, schedule: iv ? `every ${human(Number(iv))}` : "calendar", running: false });
+		}
+		const p = Bun.spawn(["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "ag-mac", "launchctl list"], { stdout: "pipe", stderr: "pipe" });
+		const timer = setTimeout(() => p.kill(), 10000);
+		const outText = await new Response(p.stdout).text();
+		clearTimeout(timer);
+		const st = new Map(outText.split("\n").map((l) => l.split("\t")).filter((c) => c.length === 3).map(([pid, code, label]) => [label, { pid, code }]));
+		for (const d of defs) {
+			const s = st.get(d.id.slice(4));
+			if (!s) { d.result = "not loaded"; continue; }
+			d.running = s.pid !== "-";
+			d.exit = Number(s.code);
+			d.result = d.running ? "running" : d.exit === 0 ? "ok" : `exit ${d.exit}`;
+		}
+		macRoutines = defs;
+	} catch {}
+}
+async function routinesJson() {
+	void refreshMacRoutines();
+	return { now: Date.now(), routines: [...(await engineRoutines()), ...macRoutines] };
+}
+
+type Sys = { mem?: Mem; cua: Cua };
+
+let board: { cards: Card[]; lists: List[]; page: number; sys?: Sys } = { cards: [], lists: state.lists, page: 0 };
+let boardJson = "";
+// Until the first poll has built the board, /api/state and /events wait for it (up to 10 s) instead of handing a
+// just-restarted page an empty board (which reads as "every chat is gone").
+const boardReady = async () => {
+	for (let i = 0; !boardJson && i < 100; i++) await Bun.sleep(100);
+	return boardJson || JSON.stringify(board);
+};
+// Reply ids already delivered (POST /api/prompt {id}), for the page's retries; kept 10 minutes.
+const sentPrompts = new Map<string, number>();
+setInterval(() => {
+	for (const [k, t] of sentPrompts) if (Date.now() - t > 600_000) sentPrompts.delete(k);
+}, 60_000);
+const cardKey = new Map<string, string>(); // tab id → board state key (pi session id, else tab id)
+// SSE senders, one per open page. The client Mac reaches ag through a Tailscale relay (~4 Mbps), so each stream is
+// gzipped and flushed per message: the ~400 KB board goes out as ~40 KB.
+const clients = new Set<(msg: string) => void>();
+// Updates after the first go out as a named "delta" event: cards unchanged since the last broadcast are sent as
+// {tab, same: 1} and the page reuses its copy (usually only the few working cards change: ~126 KB → a few KB).
+// A new page version goes out whole, as a plain message, so pages too old to know deltas still see it and reload.
+let cardJson = new Map<string, string>();
+let lastPage = 0;
+const broadcast = () => {
+	const next = new Map(board.cards.map((c) => [c.tab, JSON.stringify(c)]));
+	const full = board.page !== lastPage;
+	const msg = full ? `data: ${boardJson}\n\n` : `event: delta\ndata: ${JSON.stringify({ ...board, cards: board.cards.map((c) => (cardJson.get(c.tab) === next.get(c.tab) ? { tab: c.tab, same: 1 } : c)) })}\n\n`;
+	cardJson = next;
+	lastPage = board.page;
+	for (const send of clients) {
+		try {
+			send(msg);
+		} catch {
+			clients.delete(send);
+		}
+	}
+};
+// Gzip a response body when the browser accepts it (the relay makes bytes the bottleneck, not CPU).
+const gzipped = (req: Request, body: string | Uint8Array, headers: Record<string, string>, status = 200) =>
+	(req.headers.get("accept-encoding") ?? "").includes("gzip") && body.length > 1024
+		? new Response(Bun.gzipSync(typeof body === "string" ? Buffer.from(body) : body, { level: 5 }), { status, headers: { ...headers, "content-encoding": "gzip", vary: "accept-encoding" } })
+		: new Response(body, { status, headers });
+const jsonRes = (req: Request, v: unknown) => gzipped(req, typeof v === "string" ? v : JSON.stringify(v), { "content-type": "application/json", "cache-control": "no-store" });
+const pageRes = (req: Request, page = PAGE) => gzipped(req, readFileSync(page), { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+
+function fastLane(card: Card, prefix = "Pinned") {
+	const snippet = (card.status === "blocked" ? "is blocked and needs you" : "is ready") + (card.lastAssistant ? `: ${oneLine(card.lastAssistant.text, 160)}` : "");
+	void run([AG_TEXT, `${prefix}: ${card.title} ${snippet}\n${card.sid ? `http://ag:${PORT}/${card.sid}` : `${HTTPS_URL}/#${card.tab}`}`]);
+	void mux("notification", "show", `${prefix}: ${card.title}`, "--body", snippet.slice(0, 120), "--sound", "request");
+	console.log(new Date().toISOString(), "fast-lane", prefix, card.tab, card.title);
+}
+
+// Archive while working (ag-dash chat / ag-dash archive on a working chat): the tab stays open and the agent keeps
+// going, but the card is hidden (off board.cards; Archived chats lists it as running). Once the agent stops
+// (SETTLE_MS at its prompt, not waiting on an ag-tickler item, and judged by judgeDone), a resolved card (done,
+// nothing left for the user) closes the tab for real; a failure, blocker or question un-archives it, pinned (top of
+// the list, siren) with a fast-lane notification. A hidden card waiting on an ag-tickler wake-up stays hidden.
+const SETTLE_MS = 5000;
+const settling = new Set<string>();
+let hiddenCards: Card[] = [];
+async function closeCard(card: Card) {
+	// Keep the tab's name (usually auto-named, so only on the tab) in the session file, so Archived chats
+	// and ag find show "Fix Ag Mac Access" rather than the first prompt.
+	const f = card.sessionFile;
+	if (f && existsSync(f) && card.title && !/^\d+$/.test(card.title) && sessions.get(f)?.name !== card.title) nameSession(f, card.title);
+	return mux("tab", "close", card.tab);
+}
+// "Resolved": the `answer` ag-rule (default ag-dash-judge-done: one small Jev call) per new final answer of a chat archived while working (cached in the card's state as judged {ts, done}): does the
+// session look done, or does it still need the user? Replaces the old "ends with a DONE line" convention.
+// At most JUDGE_MAX calls at once, so the first poll after a restart doesn't fire one per card.
+const JUDGE_MAX = 3;
+const judging = new Set<string>();
+async function judgeDone(key: string, ts: number, request: string, reply: string) {
+	let done = false;
+	try {
+		// The ag-rule for hook `answer` (default: ag-dash-judge-done, a Jev call). No rule, or it fails → not done.
+		done = (await agRules.runRule("answer", { request, reply }))?.done === true;
+	} catch (e) {
+		console.error(new Date().toISOString(), "done check failed", key, e);
+	} finally {
+		judging.delete(key);
+	}
+	const cs = state.cards[key];
+	if (cs) ((cs.judged = { ts, done }), (dirty = true));
+}
+async function settleArchived(key: string, card: Card) {
+	try {
+		const clean = card.status !== "blocked" && card.resolved;
+		const cs = state.cards[key];
+		if (!cs?.archived || !READY.has(cs.status ?? "")) return; // restored, or working again, meanwhile
+		if (clean) {
+			const r = await closeCard(card);
+			console.log(new Date().toISOString(), "archived chat finished, closing", card.tab, card.title, r.code === 0 ? "" : r.err.trim());
+			if (r.code === 0) return;
+		}
+		delete cs.archived;
+		if (!cs.pinned) cs.pinnedAt = Date.now();
+		cs.pinned = true;
+		cs.seenAt = 0;
+		cs.wasNeedsYou = true; // the fast lane below is its ping
+		cs.pingedAt = Date.now();
+		dirty = true;
+		fastLane(card, "Archived chat needs you");
+		await after();
+	} finally {
+		settling.delete(key);
+	}
+}
+
+// One line for an alert: the reply's question if it asks one, else its opening paragraph (cards keep only the
+// last 3000 chars, so at that length the first paragraph is probably cut and the next one is used).
+function gist(text: string) {
+	const paras = text.replace(/\s*\bDONE\s*$/, "").split(/\n\s*\n/).filter((x) => x.trim());
+	return (paras.findLast((x) => /\?\s*$/.test(x)) ?? paras[text.length >= 3000 && paras.length > 1 ? 1 : 0] ?? "").replace(/[*`]/g, "");
+}
+
+async function poll() {
+	const r = await mux("api", "snapshot");
+	if (r.code !== 0) return;
+	const snap = JSON.parse(r.out).result.snapshot;
+	const now = Date.now();
+	const tabs: Record<string, any> = Object.fromEntries(snap.tabs.map((t: any) => [t.tab_id, t]));
+	tabLabels = Object.fromEntries(snap.tabs.map((t: any) => [t.tab_id, t.label]));
+	const cards: Card[] = [];
+	const seenTabs = new Set<string>();
+	const keys = new Set<string>(); // state keys still alive this poll
+	const waits = ticklerWaits();
+	// Panes ag-mux restored asleep (`ag-mux _sleep`; pi starts when the tab is viewed) have no agent yet: show
+	// them as idle cards for their session, so a restore or host move doesn't empty the board.
+	const awake = new Set(snap.agents.map((a: any) => a.pane_id));
+	const sleepers = (snap.panes ?? [])
+		.filter((p: any) => p.sleeping_session && !awake.has(p.pane_id))
+		.map((p: any) => ({ ...p, agent: "pi", agent_status: "idle", agent_session: { agent: "pi", kind: "path", value: p.sleeping_session } }));
+	for (const a of [...snap.agents, ...sleepers]) {
+		if (seenTabs.has(a.tab_id)) continue; // one card per tab (first agent pane)
+		seenTabs.add(a.tab_id);
+		const s = session(a.agent_session?.value);
+		// Board state is keyed by the pi session id (stable) rather than the tab id, which changes when a pane moves
+		// to another tab; tabs without a session fall back to the tab id. Older tab-keyed entries migrate.
+		const key = sidOf(a.agent_session?.value) ?? a.tab_id;
+		keys.add(key);
+		if (key !== a.tab_id && state.cards[a.tab_id] && !state.cards[key]) ((state.cards[key] = state.cards[a.tab_id]), delete state.cards[a.tab_id], (dirty = true));
+		cardKey.set(a.tab_id, key);
+		let cs = state.cards[key];
+		if (!cs) {
+			// First sight. On the board's very first run, treat existing sessions as already seen (clean slate).
+			cs = state.cards[key] = { seenAt: firstRun ? now : 0, status: a.agent_status, statusSince: firstRun ? s?.lastAt || now : now };
+			dirty = true;
+		}
+		if (cs.status !== a.agent_status) {
+			cs.status = a.agent_status;
+			cs.statusSince = now;
+			dirty = true;
+		}
+		const ready = READY.has(a.agent_status);
+		const focused = snap.focused_tab_id === a.tab_id;
+		if (focused && ready && (s?.lastAssistant?.ts ?? 0) > cs.seenAt) {
+			cs.seenAt = now; // he's looking at it in tmux
+			dirty = true;
+		}
+		const sid = sidOf(a.agent_session?.value);
+		const tick = (sid && waits.get(sid)) || [];
+		if (cs.waiting) {
+			// The ag-tickler item takes over from a hand-set wait; new work (a prompt that isn't our wake-up ask) ends it.
+			const lu = s?.lastUser;
+			const newWork = lu && lu.ts > (cs.wakeAskedAt ?? 0) + 2000 && !/^\[(ag-dash|ag board)\] .{1,40} moved this session to Waiting for\./.test(lu.text) && !(lu.raw ?? "").includes('<ag-origin kind="dash"') && cs.wakeAskedAt;
+			if (tick.length || newWork) {
+				delete cs.waiting, delete cs.wakeAskedAt, delete cs.wakeAsks;
+				dirty = true;
+			} else if (ready && a.agent_status !== "blocked" && (cs.wakeAsks ?? 0) < WAKE_MAX && now - (cs.wakeAskedAt ?? 0) > WAKE_EVERY_MS) {
+				cs.wakeAskedAt = now;
+				cs.wakeAsks = (cs.wakeAsks ?? 0) + 1;
+				dirty = true;
+				void mux("agent", "prompt", a.pane_id, WAKE_PROMPT).then((r) => console.log(new Date().toISOString(), "wake-up ask", a.tab_id, r.code === 0 ? "sent" : r.err.trim()));
+			}
+		}
+		const waiting: Waiting[] = a.agent_status === "working" ? [] : [...tick, ...(cs.waiting ? [{ title: "Marked waiting", kind: "manual" as const, detail: "asked the session to schedule its wake-up" }] : [])];
+		const isWaiting = waiting.length > 0 && a.agent_status !== "blocked";
+		const needsYou = a.agent_status === "blocked" || (!isWaiting && ready && (s?.lastAssistant?.ts ?? 0) > cs.seenAt);
+		const ats = s?.lastAssistant?.ts ?? 0;
+		// Only chats archived while working need the verdict (close, or bounce back).
+		const judgeIt = !!cs.archived;
+		const judged = judgeIt && a.agent_status !== "blocked" && cs.judged?.ts === ats;
+		if (judgeIt && ready && ats && a.agent_status !== "blocked" && !judged && !judging.has(key) && judging.size < JUDGE_MAX) {
+			judging.add(key);
+			void judgeDone(key, ats, s?.lastUser?.text ?? s?.first ?? "", s?.lastAssistant?.text ?? "");
+		}
+		const resolved = ready && judged && !!cs.judged?.done;
+		const card: Card = {
+			tab: a.tab_id,
+			pane: a.pane_id,
+			title: cleanLabel(tabs[a.tab_id]?.label ?? a.name ?? a.tab_id),
+			status: a.agent_status,
+			statusSince: cs.statusSince,
+			pinned: !!cs.pinned,
+			pinnedAt: cs.pinnedAt,
+			list: cs.list,
+			needsYou,
+			inbox: !s?.replied,
+			resolved,
+			throb: !!cs.pinned && a.agent_status !== "working" && !isWaiting,
+			ping: !!cs.pinned && needsYou,
+			waiting: isWaiting ? waiting : [],
+			noWake: cs.waiting && !tick.length ? { askedAt: cs.wakeAskedAt, asks: cs.wakeAsks ?? 0 } : undefined,
+			focused,
+			model: s?.model,
+			thinkingLevel: s?.thinkingLevel,
+			cwd: s?.cwd ?? a.cwd,
+			startedAt: s?.startedAt,
+			first: s?.first?.slice(0, 600),
+			lastUser: s?.lastUser && { role: s.lastUser.role, ts: s.lastUser.ts, text: s.lastUser.text.slice(0, 1500) },
+			lastAssistant: s?.lastAssistant && { ...s.lastAssistant, text: s.lastAssistant.text.slice(-3000) },
+			thinking: s?.thinking?.slice(-600),
+			thinkingTs: s?.thinkingTs,
+			activity: s?.activity,
+			tools: (s?.tools ?? []).slice(-6).map(({ id: _, ...t }) => t),
+			media: [...new Map([...mediaIn(s?.lastAssistant?.text), ...mediaIn(s?.lastUser?.raw ?? s?.lastUser?.text)].map((m) => [m.src, m])).values()].slice(0, 6),
+			stats: { cost: Math.round((s?.cost ?? 0) * 100) / 100, ctx: s?.ctx ?? 0, turns: s?.turns ?? 0, tools: s?.toolCount ?? 0 },
+			sessionFile: a.agent_session?.value,
+			sid,
+		};
+		if (cs.archived) {
+			card.archived = cs.archived;
+			if (ready && !isWaiting && now - cs.statusSince >= SETTLE_MS && (judged || a.agent_status === "blocked") && !settling.has(key)) {
+				settling.add(key);
+				void settleArchived(key, card);
+			}
+		} else if (card.ping && !cs.wasNeedsYou && now - (cs.pingedAt ?? 0) > FAST_LANE_GAP_MS) {
+			cs.pingedAt = now;
+			fastLane(card);
+		}
+		if (cs.wasNeedsYou !== needsYou) {
+			cs.wasNeedsYou = needsYou;
+			dirty = true;
+		}
+		cards.push(card);
+	}
+	// Forget cards whose tabs have been gone a week. Not at once: a stopped session layer or a host move
+	// briefly shows no agents, and forgetting right away wiped every pin and list on 2026-09-29.
+	for (const [id, cs] of Object.entries(state.cards)) {
+		if (keys.has(id)) {
+			if (cs.goneAt) (delete cs.goneAt, (dirty = true));
+		} else if (!cs.goneAt) (cs.goneAt = now), (dirty = true);
+		else if (now - cs.goneAt > GONE_KEEP_MS) (delete state.cards[id], (dirty = true));
+	}
+	save();
+	// page: the served chat.html's mtime, so open tabs (desktop and the phone PWA) reload themselves onto a new
+	// version instead of rendering with stale code until someone refreshes by hand.
+	let page = 0;
+	try {
+		page = statSync(realpathSync(PAGE)).mtimeMs;
+	} catch {}
+	hiddenCards = cards.filter((c) => c.archived);
+	board = { cards: cards.filter((c) => !c.archived), lists: state.lists, page, sys: { mem: readMem(), cua } };
+	const json = JSON.stringify(board);
+	if (json !== boardJson) {
+		boardJson = json;
+		broadcast();
+	}
+}
+
+async function loop() {
+	for (;;) {
+		try {
+			await poll();
+		} catch (e) {
+			console.error(new Date().toISOString(), "poll failed", e);
+		}
+		await Bun.sleep(POLL_MS);
+	}
+}
+
+const markSeen = (tab: string) => {
+	const cs = state.cards[cardKey.get(tab) ?? tab];
+	if (cs) (cs.seenAt = Date.now()), (dirty = true);
+};
+
+// ---------- voice / uploads / new sessions ----------
+function tfyToken(): string {
+	if (process.env.TFY_TOKEN) return process.env.TFY_TOKEN;
+	const m = readFileSync(`${HOME}/.zshenv.local`, "utf8").match(/TFY_TOKEN=["']?([^"'\s]+)/);
+	if (!m) throw new Error("TFY_TOKEN not found in ~/.zshenv.local");
+	return m[1];
+}
+async function transcribe(file: File): Promise<string> {
+	let last: unknown;
+	for (const model of STT_MODELS) {
+		try {
+			const body = new FormData();
+			body.set("model", model);
+			body.set("prompt", STT_HINT);
+			body.set("file", file, file.name || "voice.webm");
+			const res = await fetch(STT_URL, { method: "POST", headers: { authorization: `Bearer ${tfyToken()}` }, body, signal: AbortSignal.timeout(60_000) });
+			if (!res.ok) throw new Error(`stt ${model} ${res.status}: ${await res.text()}`);
+			return String((await res.json()).text ?? "").trim();
+		} catch (e) {
+			last = e;
+		}
+	}
+	throw last;
+}
+async function saveUpload(f: File): Promise<string> {
+	mkdirSync(UPLOAD_DIR, { recursive: true });
+	const safe = (f.name || "paste").replace(/[^\w.-]+/g, "_").slice(-60);
+	const path = `${UPLOAD_DIR}/${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}-board-${safe}`;
+	writeFileSync(path, Buffer.from(await f.arrayBuffer()));
+	return path;
+}
+// New item: handed to the ag-inbox (?new=1: always a new session in Inbox; it names the tab). With a recording
+// the inbox answers at once and transcribes in the background; text alone waits until pi has it and returns the tab.
+// What the New item box is for, by the `new-item` ag-rule (default new-item-intent: Jev, ~250 ms): find an existing session, or work for an agent (new or a
+// follow-up; the inbox tells those apart): "where's the session about X", "the roblox launch triage one" → find;
+// tasks, research and housekeeping on sessions → new; "any update on X?" → follow. A bare topic word leans new.
+// Any error → "new".
+async function newIntent(text: string): Promise<"find" | "new"> {
+	try {
+		// The ag-rule for hook `new-item` (default: new-item-intent, a Jev call). No rule, or it fails → new.
+		return (await agRules.runRule("new-item", { text }))?.intent === "find" ? "find" : "new";
+	} catch (e) {
+		console.error(new Date().toISOString(), "new item routing failed", e);
+		return "new";
+	}
+}
+// model: a pi model id (provider/id) the new session starts with (ag-dash chat's New chat picker); empty = pi's default.
+// `id` (the page's id for this new chat) lets the ag-inbox drop a retry of a request whose answer was lost.
+async function newItem(text: string, audio: File | null, model = "", id = ""): Promise<string | null> {
+	if (!audio) {
+		const q = [model && `model=${encodeURIComponent(model)}`, id && `id=${encodeURIComponent(id)}`].filter(Boolean).join("&");
+		const r = await fetch(q ? `${INBOX_URL}&${q}` : INBOX_URL, { method: "POST", headers: { "content-type": "text/plain" }, body: text, signal: AbortSignal.timeout(90_000) });
+		if (!r.ok) throw new Error((await r.text()).trim() || `inbox ${r.status}`);
+		if (r.status === 202) return null; // a retry of one the ag-inbox already has
+		return (await r.json()).tab ?? null;
+	}
+	const fd = new FormData();
+	fd.set("audio", audio, audio.name || "voice.webm");
+	if (text) fd.set("text", text);
+	if (model) fd.set("model", model);
+	if (id) fd.set("id", id);
+	const r = await fetch(INBOX_URL, { method: "POST", body: fd, redirect: "manual", signal: AbortSignal.timeout(30_000) });
+	if (r.status >= 400) throw new Error((await r.text()).trim() || `inbox ${r.status}`);
+	return null;
+}
+// Dictated reply: answered at once; transcribed here in the background, then sent (typed text first). If
+// transcription fails the recording isn't lost: the agent gets its path.
+async function sendDictation(pane: string, typed: string, audio: File, interruptFirst: boolean) {
+	const path = await saveUpload(new File([audio], audio.name || "voice.webm", { type: audio.type }));
+	void (async () => {
+		let text: string;
+		try {
+			const said = await transcribe(audio);
+			text = [typed, said].filter(Boolean).join("\n\n");
+			if (!text) return;
+		} catch (e) {
+			console.error(new Date().toISOString(), "dictation stt failed", e);
+			text = [typed, `I sent a voice recording but transcription failed. Transcribe it (e.g. Whisper via TrueFoundry) and do what it says:\n${path}`].filter(Boolean).join("\n\n");
+		}
+		const r = interruptFirst ? await interruptAndSend(pane, text) : await mux("agent", "prompt", pane, text);
+		if (r.code !== 0) console.error(new Date().toISOString(), "dictation prompt failed", r.err);
+		void after();
+	})();
+}
+
+// ---------- control ----------
+const keys = async (pane: string, ...ks: string[]) => {
+	for (const k of ks) {
+		const r = await mux("agent", "send-keys", pane, k);
+		if (r.code !== 0) return r;
+		await Bun.sleep(60);
+	}
+	return { code: 0, out: "", err: "" };
+};
+async function interrupt(pane: string) {
+	const r = await keys(pane, "esc");
+	await Bun.sleep(250);
+	return r.code === 0 ? keys(pane, "esc") : r;
+}
+// Interrupt, wait until the agent is at its prompt, clear whatever Pi put back in the editor, then send.
+async function interruptAndSend(pane: string, text: string) {
+	await interrupt(pane);
+	await mux("agent", "wait", pane, "--until", "idle", "--until", "done", "--timeout", "20000");
+	for (let i = 0; i < 8; i++) await keys(pane, "ctrl+u", "backspace");
+	return mux("agent", "prompt", pane, text);
+}
+
+// ---------- server ----------
+// At boot Tailscale may not have an address yet: wait for it (up to 2 min) instead of crash-looping.
+async function tailscaleIp() {
+	for (let i = 0; ; i++) {
+		try {
+			const ip = execFileSync("/usr/local/bin/tailscale", ["ip", "-4"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim().split("\n")[0];
+			if (ip) return ip;
+		} catch (e) {
+			if (i >= 120) throw e;
+		}
+		await Bun.sleep(1000);
+	}
+}
+const host = await tailscaleIp();
+const ok = () => Response.json({ ok: true });
+
+// Clicks per control (optionally only the last `days` days), most used first, split by view.
+function clickStats(days: number) {
+	const since = days > 0 ? Date.now() - days * 86_400_000 : 0;
+	const by = new Map<string, { name: string; total: number; desktop: number; phone: number; last: number }>();
+	let lines: string[] = [];
+	try {
+		lines = readFileSync(CLICKS_FILE, "utf8").split("\n");
+	} catch {}
+	let total = 0;
+	for (const l of lines) {
+		let e: any;
+		try {
+			e = JSON.parse(l);
+		} catch {
+			continue;
+		}
+		if (!e?.name || e.ts < since) continue;
+		const s = by.get(e.name) ?? { name: e.name, total: 0, desktop: 0, phone: 0, last: 0 };
+		s.total++, total++;
+		s[e.view === "phone" ? "phone" : "desktop"]++;
+		s.last = Math.max(s.last, e.ts);
+		by.set(e.name, s);
+	}
+	return { since: since || null, total, controls: [...by.values()].sort((a, b) => b.total - a.total) };
+}
+const bad = (msg: string, status = 400) => Response.json({ ok: false, error: msg }, { status });
+// The browser-to-app hand-off page for a session link: opens agdash://chat/<rest>?h=<nonce>; the app acknowledges
+// the nonce (POST /api/handoff), and the page, polling GET /api/handoff, then goes back to the page the link was on,
+// or closes the tab the link opened. No ack (no app on this Mac, or Chrome's "Open ag-dash?" prompt still up) leaves
+// it in place with a link to the web chat. It runs on the https origin (an http one first moves there with
+// location.replace): Chrome offers "Always allow" for that prompt only on secure origins, so it's asked just once.
+// An iPad (Mac UA, touch) uses the web chat; `?web` skips the hand-off.
+const handoffs = new Map<string, number>(); // acknowledged nonce → when
+function appHandoff(rest: string) {
+	const web = `/chat/${rest}`;
+	const html = `<!doctype html><meta charset=utf-8><title>Opening in ag-dash…</title><meta name=color-scheme content="light dark">
+<style>body{font:15px -apple-system,system-ui,sans-serif;display:grid;place-items:center;height:90vh;margin:0}p{color:#888}</style>
+<div><h3>Opening in the ag-dash app…</h3><p><a href="${web}">Open in the browser instead</a></p></div>
+<script>
+const https = ${JSON.stringify(HTTPS_URL.startsWith("https:") ? HTTPS_URL : "")};
+if (navigator.maxTouchPoints > 1) location.replace(${JSON.stringify(web)});
+else if (https && location.protocol !== "https:") location.replace(https + location.pathname);
+else {
+  const h = crypto.randomUUID();
+  const tick = setInterval(async () => {
+    try { if (!(await (await fetch("/api/handoff?h=" + h, { cache: "no-store" })).json()).ok) return; } catch { return; }
+    clearInterval(tick);
+    if (history.length > 1) history.back(); else window.close();
+  }, 300);
+  setTimeout(() => clearInterval(tick), 10 * 60_000);
+  location.href = ${JSON.stringify(`agdash://chat/${rest}?h=`)} + h;
+}
+</script>`;
+	return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
+}
+const after = async () => {
+	save();
+	await poll();
+};
+
+const gz = new Map<string, { mtime: number; body: Uint8Array }>();
+function staticFile(name: string, req: Request) {
+	const path = `${STATIC_DIR}/${name}`;
+	const st = statSync(path);
+	const type = name.endsWith(".js") ? "text/javascript" : name.endsWith(".svg") ? "image/svg+xml" : name.endsWith(".png") ? "image/png" : "application/manifest+json";
+	const etag = `"${st.mtimeMs.toString(36)}"`;
+	if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304 });
+	const headers: Record<string, string> = { "content-type": type, etag, "cache-control": "no-cache" };
+	if (!(req.headers.get("accept-encoding") ?? "").includes("gzip")) return new Response(Bun.file(path), { headers });
+	let hit = gz.get(path);
+	if (!hit || hit.mtime !== st.mtimeMs) gz.set(path, (hit = { mtime: st.mtimeMs, body: Bun.gzipSync(readFileSync(path)) }));
+	return new Response(hit.body, { headers: { ...headers, "content-encoding": "gzip" } });
+}
+
+async function handle(req: Request): Promise<Response> {
+		const url = new URL(req.url);
+		const p = url.pathname;
+		if (req.method === "GET") {
+			if (p === "/") return Response.redirect(`${url.origin}/chat`, 302);
+			// Chat view: /chat, /chat/<session id>, /chat/t/<tab> (the page routes itself).
+			if (/^\/chat(?:\/(?:[0-9a-f-]{36}|[tp]\/[^/]+))?\/?$/.test(p)) return pageRes(req);
+			const sf = p.match(/^\/static\/([\w.-]+)$/)?.[1];
+			if (sf && STATIC.has(sf)) return staticFile(sf, req);
+			if (p === "/api/file") {
+				const path = allowedMedia(url.searchParams.get("path") ?? "");
+				return path ? serveFile(path, req) : bad("not an allowed media file", 404);
+			}
+			if (p === "/api/embedded") {
+				const sid = url.searchParams.get("sid");
+				const file = sid ? await fileForSid(sid) : board.cards.find((c) => c.tab === url.searchParams.get("tab"))?.sessionFile;
+				if (!file) return bad("no such session", 404);
+				try {
+					const e = JSON.parse(sessionLines(file)[Number(url.searchParams.get("line"))] ?? "");
+					const img: any = imagesOf(e.message?.content)[Number(url.searchParams.get("idx") ?? 0)];
+					if (!img?.data) return bad("no such image", 404);
+					return new Response(Buffer.from(img.data, "base64"), { headers: { "content-type": img.mimeType || "image/png", "cache-control": "private, max-age=3600" } });
+				} catch {
+					return bad("no such image", 404);
+				}
+			}
+			if (p === "/api/config") return Response.json({ httpsUrl: HTTPS_URL, home: HOME, userName: USER_NAME === "the user" ? "" : USER_NAME, fileInbox: `http://${AG_FQDN}:7374`, models: piModels(), defaultModel: piDefaultModel(), pinnedModels: state.pinnedModels ?? [] });
+			if (p === "/api/stats") return Response.json(clickStats(Number(url.searchParams.get("days")) || 0));
+			if (p === "/api/state") return jsonRes(req, await boardReady());
+			// Stalled pinned cards (siren running), for the client's persistent desktop alerts (ag-dash, macos-apps/ag-dash/main.js).
+			if (p === "/api/pinned")
+				return Response.json(
+					board.cards
+						.filter((c) => c.throb)
+						.map((c) => ({
+							tab: c.tab,
+							sid: c.sid,
+							title: c.title,
+							status: c.status,
+							since: c.statusSince,
+							body: (c.status === "blocked" ? "Blocked, needs you" : c.needsYou ? "Ready" : "Stalled") + (c.lastAssistant ? `: ${oneLine(gist(c.lastAssistant.text), 160)}` : ""),
+							url: c.sid ? `http://ag:${PORT}/${c.sid}` : `${HTTPS_URL}/#${c.tab}`,
+						})),
+				);
+			if (p === "/api/handoff") return Response.json({ ok: handoffs.has(url.searchParams.get("h") ?? "") });
+			if (p === "/api/routines") return Response.json(await routinesJson());
+			// ag-rules (~/ag/ag-rules): the list for the ag-rules view, and an app's merged keymap (the keys hook).
+			if (p === "/api/ag-rules" || p === "/api/ag-rules/keys") {
+				const app = url.searchParams.get("app") ?? "";
+				if (p.endsWith("/keys") && !/^[\w-]+$/.test(app)) return bad("app?");
+				const r = await run([`${HOME}/.local/bin/ag-rules`, ...(p.endsWith("/keys") ? ["keys", app] : ["list", "--json"])]);
+				if (r.code !== 0) return bad(r.err.trim() || "ag-rules failed", 502);
+				return new Response(r.out, { headers: { "content-type": "application/json", "cache-control": "no-store" } });
+			}
+			if (p === "/api/archived") {
+				// ag-dash chat's Archived chats: recently closed sessions (`ag find --closed`).
+				const days = Math.min(90, Number(url.searchParams.get("days")) || 14);
+				const r = await run([`${HOME}/.local/bin/ag`, "find", "--closed", "--json", "--days", String(days), "--limit", "200"]);
+				if (r.code !== 0) return bad(r.err.trim() || "ag find failed", 502);
+				// Chats archived while working come first, marked running (they close themselves when done).
+				const running = hiddenCards.map((c) => ({ sid: c.sid, title: c.title, last: Math.round((c.archived ?? Date.now()) / 1000), running: true, status: c.status }));
+				return Response.json([...running, ...JSON.parse(r.out || "[]")]);
+			}
+			if (p === "/api/routines/log") {
+				const id = url.searchParams.get("id") ?? "";
+				if (!/^engine:[\w.@-]+$/.test(id)) return bad("engine routines only");
+				const r = await run(["journalctl", "--user", "-u", `${id.slice(7)}.service`, "-n", "60", "--no-pager", "-o", "short-iso"]);
+				return new Response(r.out || r.err, { headers: { "content-type": "text/plain; charset=utf-8" } });
+			}
+			if (p === "/api/transcript") {
+				const sid = url.searchParams.get("sid");
+				const file = sid ? await fileForSid(sid) : board.cards.find((c) => c.tab === url.searchParams.get("tab"))?.sessionFile;
+				// No file yet (or gone): an empty transcript, never an error the drawer would hang on.
+				if (!file || !existsSync(file)) return Response.json([]);
+				const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 150, 1), 100_000);
+				const t = transcript(file, sid ? `sid=${sid}` : `tab=${encodeURIComponent(url.searchParams.get("tab")!)}`, limit);
+				const res = jsonRes(req, t.items);
+				res.headers.set("x-more", t.more ? "1" : "0");
+				return res;
+			}
+			const sp = p.match(/^\/api\/session\/([0-9a-f-]{36})$/)?.[1];
+			if (sp) {
+				const r = SID_RE.test(sp) ? await resolveSession(sp) : null;
+				return r ? jsonRes(req, r) : bad("no such session", 404);
+			}
+			// Links from before the Kanban board was retired (ag link prints http://ag:7376/<session id>): /<sid>[/live],
+			// /t/<tab>[/live], /state|lists|workspaces[/<column>], /routines, /ag-rules, /new, /help → the app's URLs.
+			const old = p.replace(/\/live\/?$/, "").replace(/\/$/, "");
+			const to = SID_RE.test(old.slice(1)) ? `/chat${old}` : old.startsWith("/t/") ? `/chat${old}` : old === "/routines" ? "/chat?view=routines" : old === "/ag-rules" ? "/chat?view=rules"
+				: /^\/(?:(?:state|lists|workspaces)(?:\/[^/]+)?|new|help)$/.test(old) ? "/chat" : null;
+			// Session links (/<sid>, /t/<tab>) clicked in a Mac browser (an HTML page, Ghostty, Slack) hand off to the
+			// ag-dash app (agdash://chat/…, macos-apps/ag-dash/app/main.js) instead of opening the chat in the browser.
+			const ua = req.headers.get("user-agent") ?? "";
+			if (to?.startsWith("/chat/") && /Macintosh/.test(ua) && !/Electron\//.test(ua) && !url.searchParams.has("web")) return appHandoff(to.slice(6));
+			if (to) return Response.redirect(`${url.origin}${to}`, 302);
+			if (p === "/api/screen") {
+				const card = board.cards.find((c) => c.tab === url.searchParams.get("tab"));
+				if (!card) return bad("no such card", 404);
+				const r = await mux("agent", "read", card.pane, "--source", "visible", "--lines", "120");
+				return new Response(r.code === 0 ? r.out : r.err, { status: r.code === 0 ? 200 : 409, headers: { "content-type": "text/plain; charset=utf-8" } });
+			}
+			if (p === "/events") {
+				await boardReady();
+				const gz = (req.headers.get("accept-encoding") ?? "").includes("gzip");
+				let send: (msg: string) => void;
+				let ping: Timer;
+				const z = gz ? createGzip({ level: 5 }) : null;
+				const stop = () => (clients.delete(send), clearInterval(ping), z?.destroy());
+				return new Response(
+					new ReadableStream({
+						start(c) {
+							if (z) {
+								z.on("data", (chunk: Buffer) => {
+									try {
+										c.enqueue(new Uint8Array(chunk));
+									} catch {
+										stop();
+									}
+								});
+								// Sync-flush after every message so the browser gets it now, not when the gzip buffer fills.
+								send = (msg) => (z.write(msg), z.flush(zc.Z_SYNC_FLUSH));
+							} else send = (msg) => c.enqueue(msg);
+							clients.add(send);
+							send(`data: ${boardJson}\n\n`);
+							ping = setInterval(() => {
+								try {
+									send(": ping\n\n");
+								} catch {
+									stop();
+								}
+							}, 20_000);
+						},
+						cancel: stop,
+					}),
+					{ headers: { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive", ...(gz ? { "content-encoding": "gzip", vary: "accept-encoding" } : {}) } },
+				);
+			}
+			return bad("not found", 404);
+		}
+		if (req.method !== "POST") return bad("not found", 404);
+		// The ag-dash app took a session link's hand-off (appHandoff): its nonce, for the page waiting on it.
+		if (p === "/api/handoff") {
+			const h = url.searchParams.get("h") ?? "";
+			if (!/^[\w-]{8,64}$/.test(h)) return bad("h?");
+			for (const [k, at] of handoffs) if (Date.now() - at > 15 * 60_000) handoffs.delete(k);
+			handoffs.set(h, Date.now());
+			return Response.json({ ok: true });
+		}
+		await boardReady(); // just restarted: actions look their card up on the board
+		// Page errors (static/telemetry.js) → ag-telemetry's spool on this host (http://ag:7378).
+		if (p === "/api/telemetry") {
+			const b = (await req.json().catch(() => null)) as any;
+			if (b?.message) {
+				const ua = req.headers.get("user-agent") ?? "";
+				const app = /Electron/.test(ua) ? "ag-dash app" : /iPhone|iPad/.test(ua) ? "ag-dash (phone)" : "ag-dash (browser)";
+				const ev = { id: crypto.randomUUID(), at: new Date().toISOString(), machine: req.headers.get("x-ag-machine") ?? "browser", source: `${app}:${String(b.page ?? "").slice(0, 40)}`, kind: "page-error", severity: "error", message: String(b.message).slice(0, 500), detail: { stack: String(b.stack ?? "").slice(0, 4000), url: b.url, ua } };
+				mkdirSync(`${HOME}/.local/state/ag-telemetry`, { recursive: true });
+				appendFileSync(`${HOME}/.local/state/ag-telemetry/spool.jsonl`, JSON.stringify(ev) + "\n");
+			}
+			return new Response(null, { status: 204 });
+		}
+		// Multipart endpoints first (voice, files).
+		if (p === "/api/new") {
+			const fd = await req.formData().catch(() => null);
+			const text = String(fd?.get("text") ?? "").trim();
+			const a = fd?.get("audio");
+			const audio = a instanceof File && a.size ? a : null;
+			if (!text && !audio) return bad("say or type something");
+			try {
+				// Route first: looking for an existing session ("find" → the page runs /api/search and shows the
+				// cards); otherwise a new item for the ag-inbox (which still routes follow-ups into their session).
+				// A recording is transcribed here so it can be routed; if that fails the inbox gets the audio as before.
+				let said = text, rec = audio;
+				if (audio) {
+					try {
+						said = [text, await transcribe(audio)].filter(Boolean).join("\n\n");
+						rec = null;
+					} catch (e) {
+						console.error(new Date().toISOString(), "new item stt failed", e);
+					}
+				}
+				const intent = fd?.get("route") !== "new" && !rec && said ? await newIntent(said) : "new";
+				if (intent === "find") return Response.json({ ok: true, kind: "find", q: said });
+				const model = String(fd?.get("model") ?? "");
+				if (model && !piModels().some((m) => m.id === model)) return bad("unknown model");
+				const tab = await newItem(said, rec, model, String(fd?.get("id") ?? ""));
+				void after();
+				return Response.json({ ok: true, kind: "new", tab });
+			} catch (e: any) {
+				return bad(String(e?.message ?? e), 502);
+			}
+		}
+		if (p === "/api/dictate") {
+			const fd = await req.formData().catch(() => null);
+			const a = fd?.get("audio");
+			const c = board.cards.find((c) => c.tab === String(fd?.get("tab") ?? ""));
+			if (!c || !(a instanceof File) || !a.size) return bad("tab and audio required");
+			await sendDictation(c.pane, String(fd?.get("text") ?? "").trim(), a, fd?.get("interrupt") === "1");
+			markSeen(c.tab);
+			return ok();
+		}
+		if (p === "/api/transcribe") {
+			// Chat view's mic: speech → text for the composer (nothing is sent).
+			const a = (await req.formData().catch(() => null))?.get("audio");
+			if (!(a instanceof File) || !a.size) return bad("audio required");
+			try {
+				return Response.json({ ok: true, text: await transcribe(a) });
+			} catch (e: any) {
+				return bad(String(e?.message ?? e), 502);
+			}
+		}
+		if (p === "/api/upload") {
+			const files = (await req.formData()).getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
+			if (!files.length) return bad("file required");
+			return Response.json({ ok: true, paths: await Promise.all(files.map(saveUpload)) });
+		}
+		const body: any = await req.json().catch(() => ({}));
+		if (p === "/api/click") {
+			const name = String(body.name ?? "").trim().slice(0, 80);
+			if (!name) return bad("name required");
+			const view = body.view === "phone" ? "phone" : "desktop";
+			appendFileSync(CLICKS_FILE, JSON.stringify({ ts: Date.now(), name, view }) + "\n");
+			return new Response(null, { status: 204 });
+		}
+		if (p === "/api/routines/run") {
+			const id = String(body.id ?? "");
+			if (!/^engine:[\w.@-]+$/.test(id)) return bad("engine routines only");
+			const r = await run(["systemctl", "--user", "start", "--no-block", `${id.slice(7)}.service`]);
+			return r.code === 0 ? Response.json({ ok: true }) : bad(r.err.trim() || "start failed", 409);
+		}
+		if (p === "/api/search") {
+			// The New item box's "find" path: `ag search` has an LLM pick the sessions a description means (~6-10 s).
+			const q = String(body.q ?? "").trim().slice(0, 2000);
+			if (!q) return bad("q required");
+			const r = await run(["timeout", "90", `${HOME}/.local/lib/ag/search`, "--json", "--", q]);
+			if (r.code !== 0) return bad(r.err.trim().replace(/^ag: /, "") || "search failed", 502);
+			return new Response(r.out, { headers: { "content-type": "application/json" } });
+		}
+		const tab = String(body.tab ?? "");
+		const card = board.cards.find((c) => c.tab === tab);
+		const fail = (r: { err: string }, what: string) => bad(r.err.trim() || `${what} failed`, 409);
+		switch (p) {
+			case "/api/card": {
+				const cs = state.cards[cardKey.get(tab) ?? tab];
+				if (!cs) return bad("no such card", 404);
+				const pin = body.pinned ?? body.hot; // hot: the old name
+				if (typeof pin === "boolean") {
+					if (pin && !cs.pinned) cs.pinnedAt = Date.now();
+					if (!pin) delete cs.pinnedAt;
+					cs.pinned = pin;
+				}
+				if (typeof body.waiting === "boolean") {
+					if (body.waiting) cs.waiting = true; // the next poll asks the session to schedule its wake-up
+					else delete cs.waiting, delete cs.wakeAskedAt, delete cs.wakeAsks;
+				}
+				if ("list" in body) cs.list = body.list || undefined;
+				if (body.seen === true) cs.seenAt = Date.now();
+				if (body.seen === false) cs.seenAt = 0;
+				if (body.archived === false) delete cs.archived;
+				dirty = true;
+				await after();
+				return ok();
+			}
+			case "/api/lists": {
+				if (!Array.isArray(body.lists)) return bad("lists required");
+				state.lists = body.lists.map((l: any) => ({ id: String(l.id), name: String(l.name).slice(0, 40) }));
+				const ids = new Set(state.lists.map((l) => l.id));
+				for (const cs of Object.values(state.cards)) if (cs.list && !ids.has(cs.list)) delete cs.list;
+				dirty = true;
+				await after();
+				return ok();
+			}
+			case "/api/model-pins": {
+				// ag-dash chat's model picker: models pinned to the top (provider/model ids), in pin order.
+				if (!Array.isArray(body.models)) return bad("models required");
+				state.pinnedModels = body.models.map(String).slice(0, 50);
+				dirty = true;
+				return ok();
+			}
+			case "/api/model": {
+				// ag-dash chat's model picker: pi's own `/model <provider/id>` and `/thinking <level>` (session-only, like
+				// ChatGPT's per-chat switch). Only models from pi's enabledModels, so `/model` never opens its selector.
+				if (!card) return bad("no such card", 404);
+				const model = body.model ? String(body.model) : "";
+				const level = body.thinking ? String(body.thinking) : "";
+				if (model && !piModels().some((m) => m.id === model)) return bad("unknown model");
+				if (level && !THINKING.includes(level)) return bad("unknown thinking level");
+				if (!model && !level) return bad("model or thinking required");
+				for (const cmd of [model && `/model ${model}`, level && `/thinking ${level}`].filter(Boolean) as string[]) {
+					const r = await mux("agent", "prompt", card.pane, cmd);
+					if (r.code !== 0) return fail(r, "switch");
+					if (cmd.startsWith("/model") && !(await finishModelSelector(card.pane, model))) return bad("pi didn't switch; is that model available in this session?", 409);
+				}
+				await after();
+				return ok();
+			}
+			case "/api/prompt": {
+				const text = String(body.text ?? "").trim();
+				if (!card || !text) return bad("tab and text required");
+				// The page retries a reply it couldn't confirm (its outbox) with the same id: deliver it once.
+				const pid = body.id ? String(body.id) : "";
+				if (pid && sentPrompts.has(pid)) return ok();
+				if (pid) sentPrompts.set(pid, Date.now());
+				const r = body.interrupt ? await interruptAndSend(card.pane, text) : await mux("agent", "prompt", card.pane, text);
+				if (r.code !== 0) {
+					if (pid) sentPrompts.delete(pid);
+					return fail(r, "prompt");
+				}
+				markSeen(tab);
+				void after(); // answer right away; the board refresh follows over SSE
+				return ok();
+			}
+			case "/api/interrupt": {
+				if (!card) return bad("no such card", 404);
+				const r = await interrupt(card.pane);
+				if (r.code !== 0) return fail(r, "interrupt");
+				console.log(new Date().toISOString(), "interrupt", tab, card.title);
+				await after();
+				return ok();
+			}
+			case "/api/keys": {
+				if (!card) return bad("no such card", 404);
+				const ks: string[] = Array.isArray(body.keys) ? body.keys.map(String) : [];
+				if (!ks.length || ks.some((k) => !KEYS.has(k))) return bad(`keys must be from: ${[...KEYS].join(", ")}`);
+				const r = await keys(card.pane, ...ks);
+				if (r.code !== 0) return fail(r, "keys");
+				await after();
+				return ok();
+			}
+			case "/api/resume": {
+				const sid = String(body.sid ?? "");
+				if (!SID_RE.test(sid)) return bad("sid required");
+				try {
+					const id = await resumeSession(sid);
+					void after();
+					return Response.json({ ok: true, tab: id });
+				} catch (e: any) {
+					return bad(String(e?.message ?? e), 409);
+				}
+			}
+			case "/api/rename": {
+				// A live card (tab) or any session by id (sid: hibernated or closed too). The name goes on the
+				// tab and into the session file, so it persists.
+				const label = String(body.label ?? "").trim().slice(0, 60);
+				const sid = body.sid ? String(body.sid) : card?.sid;
+				const r = !card && sid && SID_RE.test(sid) ? await resolveSession(sid) : null;
+				const tabId = card?.tab ?? r?.tab;
+				const file = card ? card.sessionFile : r?.state === "live" ? board.cards.find((c) => c.tab === r.tab)?.sessionFile : r?.file;
+				if (!label || (!tabId && !file)) return bad("tab or sid, and label required");
+				if (tabId) {
+					const m = await mux("tab", "rename", tabId, label);
+					if (m.code !== 0) return fail(m, "rename");
+				}
+				if (file && existsSync(file)) nameSession(file, label);
+				await after();
+				return ok();
+			}
+			case "/api/focus": {
+				if (!card) return bad("no such card", 404);
+				const r = await mux("tab", "focus", tab);
+				if (r.code !== 0) return fail(r, "focus");
+				markSeen(tab);
+				await after();
+				return ok();
+			}
+			case "/api/close": {
+				if (!card) return bad("no such card", 404);
+				// Still working: keep it running, hidden, until it finishes (settleArchived).
+				const cs = state.cards[cardKey.get(tab) ?? tab];
+				if (card.status === "working" && cs) {
+					cs.archived = Date.now();
+					dirty = true;
+					await after();
+					return Response.json({ ok: true, running: true });
+				}
+				const r = await closeCard(card);
+				if (r.code !== 0) return fail(r, "close");
+				await after();
+				return ok();
+			}
+		}
+		return bad("not found", 404);
+}
+
+// A session started before a model joined enabledModels still has the old scope, so pi's `/model <id>` opens its
+// selector (pre-filtered, "scoped" tab) instead of switching. Finish it: Tab to "all" if needed, Enter on the exact
+// row, or Escape so the pane is never left stuck in the selector (later prompts would be typed into its search).
+async function finishModelSelector(pane: string, model: string) {
+	const [provider, ...rest] = model.split("/");
+	const row = new RegExp(`→\\s+${rest.join("/").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\[${provider}\\]`);
+	const screen = async () => (await mux("pane", "read", pane, "--lines", "40")).out;
+	let open = false;
+	for (let i = 0; i < 5 && !open; i++) { await Bun.sleep(300); open = (await screen()).includes("Enter to select"); }
+	if (!open) return true; // in scope: pi switched directly
+	for (const k of ["", "tab"]) {
+		if (k) { await keys(pane, k); await Bun.sleep(500); }
+		if (row.test(await screen())) { await keys(pane, "enter"); return true; }
+	}
+	await keys(pane, "esc");
+	return false;
+}
+
+// pi's enabled models (settings.json enabledModels: "provider/model-id"), for ag-dash chat's model picker.
+const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh"];
+function piModels(): { id: string; name: string }[] {
+	try {
+		const st = JSON.parse(readFileSync(`${HOME}/.pi/agent/settings.json`, "utf8"));
+		return (st.enabledModels ?? []).map((id: string) => ({ id, name: id.split("/").slice(1).join("/") }));
+	} catch {
+		return [];
+	}
+}
+
+// pi's default model as an enabledModels id (provider/id), for the New chat picker's fallback.
+function piDefaultModel(): string | null {
+	try {
+		const st = JSON.parse(readFileSync(`${HOME}/.pi/agent/settings.json`, "utf8"));
+		return st.defaultProvider && st.defaultModel ? `${st.defaultProvider}/${st.defaultModel}` : null;
+	} catch {
+		return null;
+	}
+}
+
+// In-flight requests (not the endless SSE streams), so a restart can let them finish (see SIGTERM below).
+let busy = 0;
+async function tracked(req: Request): Promise<Response> {
+	if (new URL(req.url).pathname === "/events") return handle(req);
+	busy++;
+	try {
+		return await handle(req);
+	} finally {
+		busy--;
+	}
+}
+const serveOpts = { port: PORT, idleTimeout: 0 /* SSE streams stay open */, maxRequestBodySize: 64 * 1024 * 1024, fetch: tracked };
+const servers = [Bun.serve({ ...serveOpts, hostname: host }), Bun.serve({ ...serveOpts, hostname: "127.0.0.1" })]; // tailscale serve proxies to 127.0.0.1 (it can't reach this machine's own Tailscale IP)
+// Restart/stop (systemd SIGTERM, KillMode=mixed): stop listening, let in-flight requests (a reply being typed into
+// a pane, a new chat waiting on the ag-inbox) finish, save state, exit. Pages reconnect on their own and retry.
+let stopping = false;
+process.on("SIGTERM", async () => {
+	if (stopping) return;
+	stopping = true;
+	for (const s of servers) s.stop();
+	for (let i = 0; busy > 0 && i < 250; i++) await Bun.sleep(100);
+	dirty = true;
+	save();
+	process.exit(0);
+});
+// HTTPS on the tailnet (idempotent; persists in tailscaled). Voice needs it: browsers only allow the mic on https.
+const HTTPS_URL = (() => {
+	try {
+		execFileSync("/usr/local/bin/tailscale", ["serve", "--bg", `--https=${HTTPS_PORT}`, `http://127.0.0.1:${PORT}`], { stdio: "ignore", timeout: 15_000 });
+		// Links use the Tailscale Service svc:ag (ag-svc), never this machine's own name.
+		return `https://${AG_FQDN}:${HTTPS_PORT}`;
+	} catch (e) {
+		console.error("tailscale serve failed", e);
+		return `http://ag:${PORT}`;
+	}
+})();
+console.log(`ag-dash listening on http://${host}:${PORT}, http://127.0.0.1:${PORT}, ${HTTPS_URL}`);
+void loop();
+void cuaLoop();

@@ -1,0 +1,1 @@
+{"id":"cli:pane:process_info","result":{"process_info":{"foreground_process_group_id":64905,"foreground_processes":[{"argv0":"pi","cwd":"/Users/user","name":"node","pid":64905}],"pane_id":"wN:p6K","shell_pid":64860},"type":"pane_process_info"}}

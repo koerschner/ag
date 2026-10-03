@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# ag-svc: advertise the Tailscale Service svc:ag from this machine, Ag's machine-independent address:
+#   http://ag:7373 inbox · :7374 show/phone review/file inbox · :7375 private chat · :7376 ag-dash · :7378 telemetry
+#   https://ag.<tailnet>.ts.net:7377 ag-dash over HTTPS (the mic needs a secure context)
+# The session host advertises it. Links never name a machine, so moving hosts changes nothing user-facing.
+#
+#   ag-svc local           serve this machine's own Ag ports (run on the session host)
+#   ag-svc status | off
+# Needs sudo (tailscale serve) and the svc:ag service + autoApprover in tailscale/policy.hujson.
+set -euo pipefail
+PORTS=(7373 7374 7375 7376 7378)
+svc=svc:ag
+ts() { sudo tailscale "$@"; }
+apply() { # $1 = port offset
+	ts serve clear "$svc" >/dev/null 2>&1 || true
+	for p in "${PORTS[@]}"; do ts serve --bg --service="$svc" --http="$p" "http://127.0.0.1:$(($1 + p))" >/dev/null; done
+	ts serve --bg --service="$svc" --https=7377 "http://127.0.0.1:$(($1 + 7376))" >/dev/null
+	ts serve advertise "$svc" >/dev/null
+}
+case ${1:-status} in
+local) apply 0 ;;
+off) ts serve drain "$svc" >/dev/null 2>&1 || true; ts serve clear "$svc" ;;
+status) ts serve status ;;
+*) sed -n '2,13p' "$0"; exit 2 ;;
+esac
+[ "${1:-}" = off ] || ts serve status | grep -E "^https?://" 

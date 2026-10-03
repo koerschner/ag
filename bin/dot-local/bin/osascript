@@ -1,0 +1,35 @@
+#!/bin/zsh
+# osascript shim (ag): AppleScript that drives the screen (keystrokes, clicks, raising or activating
+# windows) runs through this Mac's screen queue, so it can't land in another job's computer-use run.
+# Read-only scripts (notifications, queries) and anything already inside a screen job
+# (CUA_QUEUE_INNER=1) go straight to /usr/bin/osascript. AG_SCREEN_OK=1 skips the queue on purpose
+# (ag-access answering a permission prompt that is itself blocking the running job). See ag-screen-queue.
+real=/usr/bin/osascript
+[[ -x $real ]] || { print -u2 "osascript: not on this machine"; exit 127; }
+[[ -n ${CUA_QUEUE_INNER:-}${AG_SCREEN_OK:-} ]] && exec $real "$@"
+local -a args=("$@"); local text="$*" tmp= prog i=1 rc
+if (( ! ${args[(I)-e]} )); then
+  # osascript [-l lang] [-i] [-s flags] [programfile | -] [argument …]; no programfile = stdin.
+  while (( i <= $#args )); do case $args[i] in -l|-s) (( i += 2 )) ;; -i) (( i++ )) ;; *) break ;; esac; done
+  prog=${args[i]:-}
+  if [[ -z $prog || $prog == - ]]; then
+    tmp=$(mktemp -t ag-osascript); cat > $tmp; text+=$'\n'"$(<$tmp)"
+    args=("${(@)args[1,i-1]}" $tmp "${(@)args[i+1,-1]}")
+  elif [[ -f $prog ]]; then
+    text+=$'\n'"$(LC_ALL=C tr -cd '[:print:]\n' < $prog)"
+    args[i]=${prog:A}  # the job runs in another directory
+  fi
+fi
+if print -r -- "$text" | grep -Eqi 'keystroke|key code|key down|key up|(^|[^a-z])click([^a-z]|$)|AXRaise|AXPress|perform action|(^|[^a-z])activate([^a-z]|$)|set frontmost|frontmost to true'; then
+  # The job doesn't inherit this environment, so a script typing a secret from it can't be replayed.
+  if print -r -- "$text" | grep -qi 'system attribute'; then
+    print -u2 "osascript: this types a value from the environment (a secret?) outside a screen job; run it inside one (an \`ag cua\` task, or \`ag screen exec\`), e.g. with ag-type-secret"
+    [[ -n $tmp ]] && rm -f $tmp; exit 3
+  fi
+  print -u2 "osascript: drives the screen, queueing it (ag-screen-queue exec)"
+  ~/.local/bin/ag-screen-queue exec "osascript ${(j: :)${(@q)args}}"; rc=$?
+else
+  $real "${args[@]}"; rc=$?
+fi
+[[ -n $tmp ]] && rm -f $tmp
+exit $rc

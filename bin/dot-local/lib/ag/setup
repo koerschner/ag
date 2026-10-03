@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# ag setup — set up (or update) Ag on this machine: tools, linked config, services, then what's still missing.
+#
+#   ag setup [--pull]
+#
+# Runs on this machine (never forwarded to the session host) and is idempotent, so re-run it any time.
+# macOS runs ./install; Linux (Ubuntu 24.04) runs ./bootstrap-linux. Both end with a checklist of secrets and
+# grants they can't fetch; `ag doctor` prints that checklist again without installing anything.
+#   --pull         git pull --ff-only this checkout first
+# First run on a new machine, before `ag` is on PATH:  ~/ag/bin/dot-local/bin/ag setup
+set -euo pipefail
+AG=$(cd "$(dirname "$(readlink -f "$0")")/../../../.." && pwd)
+pull=0
+for a in "$@"; do
+	case $a in
+	--pull) pull=1 ;;
+	-h | --help) sed -n '2,10{s/^# \{0,1\}//;p;}' "$0"; exit 0 ;;
+	*) echo "ag setup: unknown option $a (ag setup --help)" >&2; exit 2 ;;
+	esac
+done
+((pull)) && git -C "$AG" pull --ff-only
+case $(uname -s) in
+Darwin) exec zsh "$AG/install" ;;
+Linux) exec bash "$AG/bootstrap-linux" ;;
+*) echo "ag setup: unsupported OS $(uname -s) (macOS or Ubuntu Linux)" >&2; exit 2 ;;
+esac

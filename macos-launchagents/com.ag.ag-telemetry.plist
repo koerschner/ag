@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ag.ag-telemetry</string>
+  <!-- ag-telemetry: every 60s ship this Mac's crash reports, Electron minidumps, failed com.ag.* LaunchAgents,
+       unclean reboots and spooled app events to the session host (http://ag:7378). Every Mac. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>PATH="$HOME/.bun/bin:$PATH" exec "$HOME/.local/bin/ag-telemetry" collect</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>60</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/ag-telemetry.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/ag-telemetry.log</string>
+</dict>
+</plist>

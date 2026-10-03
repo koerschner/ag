@@ -1,0 +1,8 @@
+#!/bin/sh
+# ag-mux launcher (implementation: ~/.local/lib/ag-mux/ag-mux.ts, docs/ag-mux.md).
+# Works from minimal PATHs (Hammerspoon over SSH, systemd).
+for bun in "${BUN:-}" "$HOME/.bun/bin/bun" /opt/homebrew/bin/bun /usr/local/bin/bun "$(command -v bun 2>/dev/null)"; do
+	[ -n "$bun" ] && [ -x "$bun" ] && exec "$bun" "${AG_MUX_LIB:-$HOME/.local/lib/ag-mux}/ag-mux.ts" "$@"
+done
+echo '{"error":{"code":"no_bun","message":"ag-mux needs bun (~/.bun/bin/bun)"},"id":null}' >&2
+exit 1

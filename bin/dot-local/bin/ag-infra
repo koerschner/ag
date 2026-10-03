@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# ag-infra: create, scale and destroy Ag's rented Linux machines (infra/hetzner, OpenTofu).
+#   ag-infra plan | up | down | scale N | status | ssh [name]
+# Secrets are read from the ag-vault work vault via op-work, only into this process.
+set -euo pipefail
+here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+dir="$(cd "$here/../../../infra/hetzner" && pwd)"
+state="$HOME/.local/state/ag-infra"; mkdir -p "$state"
+VAULT=${AG_INFRA_VAULT:-ag-vault} # op-work's service account only sees this vault
+
+secrets() {
+  export HCLOUD_TOKEN TF_VAR_tailscale_auth_key TF_VAR_ssh_public_key TF_VAR_ag_deploy_key
+  HCLOUD_TOKEN=$(op-work read "op://$VAULT/Hetzner Cloud/credential")
+  TF_VAR_tailscale_auth_key=$(op-work read "op://$VAULT/Tailscale ag auth key/credential")
+  TF_VAR_ssh_public_key=$(cat "$HOME/.ssh/id_ed25519.pub")
+  TF_VAR_ag_deploy_key=$(op-work read "op://$VAULT/ag repo deploy key/private key")
+}
+tf() { tofu -chdir="$dir" "$@"; }
+init() { tf init -input=false -upgrade=false -backend-config="path=$state/terraform.tfstate" >/dev/null; }
+workers() { tf output -json workers 2>/dev/null | jq length 2>/dev/null || echo 0; }
+
+cmd=${1:-status}; shift || true
+case $cmd in
+  plan)   secrets; init; tf plan -var "worker_count=$(workers)" "$@" ;;
+  up)     secrets; init; tf apply -auto-approve -var "worker_count=${AG_WORKERS:-$(workers)}" "$@" ;;
+  scale)  secrets; init; tf apply -auto-approve -var "worker_count=${1:?usage: ag-infra scale N}" ;;
+  down)   # Repos and worktrees live on the engine's local disk, not /data: refuse while any work exists only there.
+          if [ -z "${AG_INFRA_FORCE:-}" ]; then
+            unsaved=$(ssh -o ConnectTimeout=5 ag-engine '~/.local/bin/ag-unsaved' 2>&1); rc=$?
+            if [ $rc -ne 0 ]; then
+              [ $rc -eq 1 ] && printf 'ag-infra down: refusing; ag-engine has work that exists only there:\n%s\n' "$unsaved" >&2 \
+                || printf "ag-infra down: refusing; couldn't check ag-engine for unsaved work (ssh/ag-unsaved exit %s):\n%s\n" "$rc" "$unsaved" >&2
+              echo "Commit and push it (or copy it off), or override with AG_INFRA_FORCE=1." >&2
+              exit 1
+            fi
+          fi
+          secrets; init
+          # Free the tailnet names first so a rebuilt machine gets the same hostname back.
+          for h in $(tf output -json 2>/dev/null | jq -r '[.engine.value.name?, (.workers.value[]?.name)] | .[] // empty'); do
+            ssh -o ConnectTimeout=5 "$h" sudo tailscale logout 2>/dev/null || true
+          done; tf apply -auto-approve -var engine_enabled=false -var worker_count=0
+          # A rebuilt machine has a new host key: forget the old one so ssh doesn't refuse it.
+          for h in ag-engine ${AG_TAILNET:+ag-engine.$AG_TAILNET} $(seq -f 'ag-worker-%g' 1 20); do ssh-keygen -R "$h" >/dev/null 2>&1; done ;;
+  status) init; tf output ;;
+  ssh)    exec ssh "${1:-ag-engine}" ;;
+  *) sed -n '2,4p' "$0"; exit 2 ;;
+esac

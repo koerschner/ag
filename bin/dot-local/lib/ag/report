@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""ag report — report back to the session that spawned this one (falls back to the ag-inbox).
+
+    ag report "message" [--to <session>]     (message "-" or omitted: stdin)
+The parent is found in this session's first prompt: the <ag-origin kind="spawn" sid=…> tag `ag spawn` adds (or the
+older [ag-parent: <sid>] marker), else the first session id/file/link mentioned after "report". Delivers the
+message under a "Report from <my tab>" origin tag (a chip in the UIs; waking the parent if hibernated). If the parent is closed or unreachable, the report goes to the ag
+inbox with the parent's link, so it isn't lost.
+"""
+import os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def parent_of(me):
+    first = next((m["text"] for m in messages(me.file, ("user",))), "") if me.file else ""
+    spawn = next((o for o in origins_of(first) if o.get("kind") == "spawn" and o.get("sid")), None)
+    if spawn:
+        return spawn["sid"]
+    m = re.search(r"\[ag-parent: (" + SID + r")\]", first)
+    if m:
+        return m.group(1)
+    after = first[first.lower().find("report"):] if "report" in first.lower() else ""
+    for chunk in (after, first):
+        for s in SID_RE.findall(chunk):
+            if s != me.sid:
+                return s
+    return None
+
+
+def main(argv):
+    o, pos = flags(argv, {"--to": True})
+    if o.get("--help"):
+        return usage(__doc__)
+    text = " ".join(pos).strip()
+    if not text or text == "-":
+        text = sys.stdin.read().strip()
+    if not text:
+        raise AgError("empty report")
+    ix = Index()
+    me = self_session(ix)
+    ref = o.get("--to") or parent_of(me)
+    if not ref:
+        raise AgError("can't find the session that spawned this one in my first prompt; pass --to <session>")
+    tag = lambda note: origin_tag("report", "Report from", title=me.title, sid=me.sid,
+                                  note=f"Report from the session you split out, “{me.title}” ({me.link}).{note}")
+    msg = f"{tag('')}\n{text}"
+    try:
+        p = resolve(ref, ix)
+        if p.state != "closed":
+            prompt(p, msg)
+            print(f"reported to {p.title} ({p.tab})  {p.link}")
+            return 0
+        why = f"the originating session {p.link} is closed (ag resume {p.sid[-8:]} reopens it)"
+    except AgError as e:
+        why = f"couldn't reach the originating session {ref}: {e}"
+    res = http("POST", INBOX, f"{tag(f' It came through the ag-inbox because {why}.')}\n{text}", ctype="text/plain", timeout=90)
+    print(f"parent unavailable ({why}); sent to the ag-inbox: {res.get('label') if isinstance(res, dict) else res}")
+
+
+run_main(main)

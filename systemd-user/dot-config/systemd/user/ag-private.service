@@ -1,0 +1,13 @@
+# private chat (http://ag:7375). Runs on the session host only (machines/README.md role host); ported from macos-launchagents.
+[Unit]
+Description=private chat (http://ag:7375)
+After=network-online.target ag-mux.service
+
+[Service]
+ExecCondition=%h/.local/bin/ag-machine-role host
+ExecStart=/usr/bin/zsh -lc 'exec %h/.local/bin/ag-private'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

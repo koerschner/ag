@@ -1,0 +1,12 @@
+#!/bin/zsh
+# cliclick shim (ag): clicks and keystrokes run through this Mac's screen queue (ag-screen-queue), so
+# they can't land in another job's computer-use run. Inside a screen job (CUA_QUEUE_INNER=1), with
+# AG_SCREEN_OK=1, or for read-only calls (p: print the mouse position, -h, -V) it runs directly.
+real=/opt/homebrew/bin/cliclick
+[[ -x $real ]] || { print -u2 "cliclick: not installed"; exit 127; }
+[[ -n ${CUA_QUEUE_INNER:-}${AG_SCREEN_OK:-} ]] && exec $real "$@"
+local a ro=1
+for a in "$@"; do [[ $a == (p|p:*|-h|-V|-m|test|verbose) ]] || ro=; done
+(( $# )) && [[ -n $ro ]] && exec $real "$@"
+print -u2 "cliclick: drives the screen, queueing it (ag-screen-queue exec)"
+exec ~/.local/bin/ag-screen-queue exec "cliclick ${(j: :)${(@q)@}}"

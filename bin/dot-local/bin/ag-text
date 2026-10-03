@@ -1,0 +1,52 @@
+#!/bin/sh
+# ag-text: send the user a short message on their phone, from "ag".
+#   ag-text "<message>"      (or pipe the message on stdin)
+# Transport, first that works:
+#   1. Telegram bot "ag": token in login Keychain item "ag telegram bot" (account: this Mac's login user),
+#      chat id in "ag telegram chat". Messages come from a separate contact, so they notify.
+#      Otherwise (Linux, or a Mac whose Keychain is locked over SSH): ~/.config/ag/telegram
+#      (mode 600), lines `token=…` and `chat=…`. Recovery copy in op-shared
+#      item "ag telegram bot".
+#      Each Telegram send is logged with its session ($AG_TEXT_SESSION, else $PI_SESSION_ID) in
+#      ~/.local/state/ag/telegram-sent.jsonl, so ag-telegram can route the user's replies back to it.
+#      AG_TEXT_KIND=notify (ag-notify's ✅/⚠️ texts) also logs the text, so ag-telegram can edit its
+#      status emoji later (🔄 in progress, ✅ done, ➡️ followed up).
+#   2. iMessage from the client Mac to the user's number (needs the client awake; texts their own
+#      number, so it may arrive silently). $AG_TEXT_CLIENT, default ag-client.
+set -eu
+msg=${1:-$(cat)}
+[ -n "$msg" ] || { echo "ag-text: empty message" >&2; exit 2; }
+kc() { security find-generic-password -a "$(id -un)" -s "$1" -w 2>/dev/null || true; }
+tg() { sed -n "s/^$1=//p" ~/.config/ag/telegram 2>/dev/null; }
+
+token= chat=
+if command -v security >/dev/null; then token=$(kc "ag telegram bot"); chat=$(kc "ag telegram chat"); fi
+[ -n "$token" ] && [ -n "$chat" ] || { token=$(tg token); chat=$(tg chat); }
+if [ -n "$token" ] && [ -n "$chat" ]; then
+  if out=$(curl -fsS -m 15 "https://api.telegram.org/bot$token/sendMessage" \
+    --data-urlencode "chat_id=$chat" --data-urlencode "text=$msg" -d disable_web_page_preview=true); then
+    id=$(printf '%s' "$out" | sed -n 's/^{"ok":true,"result":{"message_id":\([0-9]*\).*/\1/p')
+    sess=${AG_TEXT_SESSION:-${PI_SESSION_ID:-}}; sess=${sess##*_}; sess=${sess%.jsonl}
+    mkdir -p ~/.local/state/ag
+    [ -n "$id" ] && ID=$id SESS=$sess KIND=${AG_TEXT_KIND:-} MSG=$msg python3 -c '
+import json, os, time
+e = {"message_id": int(os.environ["ID"]), "session": os.environ["SESS"], "at": int(time.time())}
+if os.environ["KIND"]: e.update(kind=os.environ["KIND"], text=os.environ["MSG"])
+print(json.dumps(e, ensure_ascii=False))' >>~/.local/state/ag/telegram-sent.jsonl
+    # A new agent notification supersedes the session's earlier ones (their status turns ➡️).
+    if [ -n "$id" ] && [ "${AG_TEXT_KIND:-}" = notify ] && [ -n "$sess" ]; then
+      "$(dirname "$0")/ag-telegram" supersede "$sess" "$id" >/dev/null 2>&1 || true
+    fi
+    exit 0
+  fi
+  echo "ag-text: telegram failed, falling back to iMessage" >&2
+fi
+
+client=${AG_TEXT_CLIENT:-ag-client}
+# The user's number: $AG_TEXT_NUMBER, else the AG_TEXT_NUMBER= line in ~/ag-personal/env (private checkout).
+number=${AG_TEXT_NUMBER:-$(sed -n 's/^AG_TEXT_NUMBER=//p' ~/ag-personal/env 2>/dev/null | tail -n 1 | tr -d '"'"'"' ')}
+[ -n "$number" ] || { echo "ag-text: no phone number: set AG_TEXT_NUMBER or add AG_TEXT_NUMBER=+1… to ~/ag-personal/env" >&2; exit 1; }
+timeout 30 ssh -o ConnectTimeout=8 "$client" \
+  "osascript -e 'on run argv' -e 'tell application \"Messages\" to send (item 2 of argv) to participant (item 1 of argv) of (1st account whose service type = iMessage)' -e 'end run' '$number' \"\$(cat)\"" <<EOF
+$msg
+EOF

@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""ag link — print a session's ag-dash link (default: this one), stable across tab moves.
+
+    ag link [session…] [--phone] [--url]
+    --phone   the https link for the phone (https://ag.<tailnet>.ts.net:7377/<sid>; iMessage linkifies it)
+    --url     just the URL, no tab label
+Put the URL on its own line, bare, when you give it to the user.
+"""
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def main(argv):
+    o, pos = flags(argv, {"--phone": False, "--url": False})
+    if o.get("--help"):
+        return usage(__doc__)
+    ix = Index(with_board=False)
+    for ref in pos or [None]:
+        s = resolve(ref, ix)
+        if not s.sid:
+            raise AgError(f"{s.title} ({s.tab}) has no pi session, so no ag-dash link")
+        url = phone_link(s.sid) if o.get("--phone") else s.link
+        print(url if o.get("--url") else f"{s.title}  {url}")
+
+
+run_main(main)

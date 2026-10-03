@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""ag rename — rename a session (default: this one). Open, hibernated or closed.
+
+    ag rename "New label" [session]
+The name goes on its tab and into its session file (a pi session_info entry), so it persists through
+hibernate, close and resume, and auto-naming leaves it alone.
+"""
+import datetime, os, secrets, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+
+def main(argv):
+    o, pos = flags(argv, {})
+    if o.get("--help") or not pos:
+        return usage(__doc__)
+    label = pos[0].strip()[:60]
+    s = resolve(" ".join(pos[1:]) or None)
+    if s.tab:
+        mux("tab", "rename", s.tab, label)
+    if s.file:
+        now = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        append_entries(s.file, [{"type": "session_info", "id": secrets.token_hex(4), "timestamp": now, "name": label}])
+    print(f"renamed {s.tab or s.sid}: {s.title} → {label}")
+
+
+run_main(main)

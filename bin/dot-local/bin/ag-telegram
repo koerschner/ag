@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""ag-telegram: the user's Telegram follow-ups to the ag bot, routed back to sessions.
+
+  ag telegram done <message_id>             react 👌 on their message: that thread is completed
+  ag telegram more <message_id> "context"   react ✍ on their message and reply to it (threaded) with more
+  ag telegram reply <message_id> "text"     threaded reply, no reaction
+  ag telegram listen                        long-poll the bot (ag-telegram.service on the session host)
+  ag telegram status <session> [working|done|attention]
+                                            print, or set, the status of the session's latest notification
+  ag telegram supersede <session> <message_id>
+                                            mark the session's notifications before <message_id> ➡️
+
+Status emoji on ag-notify's own texts (edited in place, so no new notification): ✅ done,
+⚠️ attention needed, 🔄 in progress (the user came back to that session and it's working again),
+➡️ followed up (the session sent a newer notification). ag-notify drives these.
+
+`ag-text` logs every message it sends with the sending session (~/.local/state/ag/telegram-sent.jsonl).
+When the user replies to one in Telegram, `listen` prompts that session (`ag send`); if that session can't
+be reached the reply goes to the ag-inbox (which routes it to the right session or opens a new one).
+A plain message (not a reply) always opens a new Inbox session (`/prompt?new=1`). Either way the prompt carries their message id and asks the agent to finish with
+`done` or `more`. Telegram only allows a fixed reaction set for bots (no ✅ or ➡️), hence 👌 and ✍.
+Credentials: ~/.config/ag/telegram (token=…, chat=…), else Keychain "ag telegram bot"/"ag telegram chat".
+"""
+import getpass, json, os, re, subprocess, sys, time, urllib.parse, urllib.request
+from pathlib import Path
+
+STATE = Path.home() / ".local/state/ag"
+SENT = STATE / "telegram-sent.jsonl"
+OFFSET = STATE / "telegram-offset"
+STATUS = STATE / "telegram-status.json"
+HEADS = {"done": "✅ Done", "attention": "⚠️ Attention needed", "working": "🔄 In progress",
+         "followed": "➡️ Followed up"}
+LOG = STATE / "telegram-log.jsonl"
+BIN = Path.home() / ".local/bin"
+DONE, MORE = "👌", "✍"
+
+
+def creds():
+    cfg = Path.home() / ".config/ag/telegram"
+    kv = dict(l.split("=", 1) for l in cfg.read_text().splitlines() if "=" in l) if cfg.exists() else {}
+    tok, chat = kv.get("token"), kv.get("chat")
+    if not (tok and chat):
+        kc = lambda s: subprocess.run(["security", "find-generic-password", "-a", getpass.getuser(), "-s", s, "-w"],
+                                      capture_output=True, text=True).stdout.strip()
+        tok, chat = kc("ag telegram bot"), kc("ag telegram chat")
+    if not (tok and chat):
+        sys.exit("ag-telegram: no bot token/chat (~/.config/ag/telegram or Keychain)")
+    return tok, chat
+
+
+def api(method, http_timeout=30, **params):
+    tok, _ = creds()
+    req = urllib.request.Request(f"https://api.telegram.org/bot{tok}/{method}", json.dumps(params).encode(),
+                                 {"content-type": "application/json"})
+    with urllib.request.urlopen(req, timeout=http_timeout) as r:
+        d = json.load(r)
+    if not d.get("ok"):
+        raise RuntimeError(d)
+    return d["result"]
+
+
+def log(**d):
+    STATE.mkdir(parents=True, exist_ok=True)
+    with LOG.open("a") as f:
+        f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), **d}) + "\n")
+
+
+def react(mid, emoji):
+    api("setMessageReaction", chat_id=creds()[1], message_id=int(mid), reaction=[{"type": "emoji", "emoji": emoji}])
+
+
+def reply(mid, text):
+    api("sendMessage", chat_id=creds()[1], text=text, disable_web_page_preview=True,
+        reply_parameters={"message_id": int(mid), "allow_sending_without_reply": True})
+
+
+def sent_by(mid):
+    if not SENT.exists():
+        return None
+    for line in SENT.read_text().splitlines():
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if e.get("message_id") == mid:
+            return e
+    return None
+
+
+def sess_id(s):
+    # Same normalization as ag-text: a session file path or id → the bare pi session id.
+    return s.rsplit("/", 1)[-1].rsplit("_", 1)[-1].removesuffix(".jsonl")
+
+
+def notifies(session):
+    sid, out = sess_id(session), []
+    for line in SENT.read_text().splitlines() if SENT.exists() else []:
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if e.get("kind") == "notify" and e.get("text") and e.get("session") == sid:
+            out.append(e)
+    return out
+
+
+def statuses():
+    try:
+        return json.loads(STATUS.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def current(e, st):
+    if str(e["message_id"]) in st:
+        return st[str(e["message_id"])]
+    return next((k for k, h in HEADS.items() if e["text"].startswith(h)), "done")
+
+
+def set_status(e, state, st):
+    if current(e, st) == state:
+        return
+    first, _, rest = e["text"].partition("\n")
+    tab = first.split(" · ", 1)[1] if " · " in first else ""
+    text = f"{HEADS[state]} · {tab}" + (f"\n{rest}" if rest else "")
+    try:
+        api("editMessageText", chat_id=creds()[1], message_id=e["message_id"], text=text,
+            disable_web_page_preview=True)
+    except Exception as ex:
+        if "not modified" not in str(ex):
+            log(mid=e["message_id"], status=state, error=str(ex)[:300])
+            return
+    st[str(e["message_id"])] = state
+    STATE.mkdir(parents=True, exist_ok=True)
+    STATUS.write_text(json.dumps(st))
+
+
+def handle(msg):
+    mid = msg["message_id"]
+    text = msg.get("text") or msg.get("caption") or "[non-text message: open Telegram to see it]"
+    orig = msg.get("reply_to_message") or {}
+    e = sent_by(orig.get("message_id")) if orig else None
+    quoted = (orig.get("text") or "")[:500]
+    ctx = f' replying to the ag text "{quoted}"' if quoted else ""
+    kind = "follow-up" if orig else "message"
+    prompt = (f"Telegram {kind} from the user (Telegram message {mid}){ctx}:\n\n{text}\n\n"
+              f"Handle it. Then mark their Telegram message: if it's completed, run `ag telegram done {mid}` (👌); "
+              f"if there's more to it, run `ag telegram more {mid} \"<short context: what's next or what you need>\"` "
+              f"(✍ plus a threaded reply).")
+    if e and e.get("session"):
+        r = subprocess.run([BIN / "ag", "send", e["session"], prompt], capture_output=True, text=True, timeout=120)
+        if r.returncode == 0:
+            return log(mid=mid, to=e["session"], via="send")
+        log(mid=mid, to=e["session"], via="send", error=(r.stderr or r.stdout).strip()[-300:])
+    # Plain message → always a new session; an orphaned reply → let the inbox route it.
+    url = "http://ag:7373/prompt" + ("" if orig else "?new=1")
+    r = subprocess.run(["curl", "-fsS", "-m", "120", "--data-binary", "@-", url],
+                       input=prompt, capture_output=True, text=True)
+    log(mid=mid, via="inbox" if orig else "new", ok=r.returncode == 0, out=(r.stdout or r.stderr).strip()[-300:])
+
+
+def listen():
+    _, chat = creds()
+    off = int(OFFSET.read_text()) if OFFSET.exists() else 0
+    while True:
+        try:
+            ups = api("getUpdates", http_timeout=70, offset=off, timeout=50, allowed_updates=["message"])
+        except Exception as ex:
+            log(error=str(ex)[:300]); time.sleep(10); continue
+        for u in ups:
+            off = u["update_id"] + 1
+            m = u.get("message")
+            if m and str(m["chat"]["id"]) == str(chat) and not (m.get("text") or "").startswith("/start"):
+                try:
+                    handle(m)
+                except Exception as ex:
+                    log(mid=m.get("message_id"), error=str(ex)[:300])
+            STATE.mkdir(parents=True, exist_ok=True)
+            OFFSET.write_text(str(off))
+
+
+def main(a):
+    if not a or a[0] in ("-h", "--help", "help"):
+        print(__doc__.strip()); return
+    cmd = a[0]
+    if cmd == "listen":
+        return listen()
+    if cmd == "status" and len(a) >= 2:
+        es, st = notifies(a[1]), statuses()
+        if len(a) == 2:
+            print(current(es[-1], st) if es else "none"); return
+        if a[2] not in ("working", "done", "attention"):
+            sys.exit("ag-telegram status: state must be working, done or attention")
+        if es:
+            set_status(es[-1], a[2], st)
+        return
+    if cmd == "supersede" and len(a) >= 3 and a[2].isdigit():
+        st = statuses()
+        for e in notifies(a[1]):
+            if e["message_id"] < int(a[2]):
+                set_status(e, "followed", st)
+        return
+    if cmd in ("done", "more", "reply") and len(a) >= 2 and a[1].isdigit():
+        if cmd == "done":
+            react(a[1], DONE)
+        else:
+            text = " ".join(a[2:]).strip() or sys.stdin.read().strip()
+            if not text:
+                sys.exit(f"ag-telegram {cmd}: needs the reply text")
+            if cmd == "more":
+                react(a[1], MORE)
+            reply(a[1], text)
+        print(f"ok: {cmd} on Telegram message {a[1]}"); return
+    sys.exit("usage: ag telegram done|more|reply <message_id> [text] | status <session> [state]"
+             " | supersede <session> <message_id> | listen")
+
+
+main(sys.argv[1:])

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Validate, then apply ag tailscale/policy.hujson to the tailnet (the policy's source of truth).
+set -euo pipefail
+# The file's OWNER_EMAIL placeholder becomes $AG_TAILNET_OWNER (the tailnet owner's login email).
+src="$(cd "$(dirname "$(readlink -f "$0")")/../../.." && pwd)/tailscale/policy.hujson"
+AG_TAILNET_OWNER=${AG_TAILNET_OWNER:-$(sed -n 's/^AG_TAILNET_OWNER=//p' ~/ag-personal/env 2>/dev/null | tail -n 1)}
+[[ -n $AG_TAILNET_OWNER ]] || { echo "ag-ts-apply-policy: set AG_TAILNET_OWNER (or its line in ~/ag-personal/env) to the tailnet owner's email" >&2; exit 1; }
+policy=$(mktemp "${TMPDIR:-/tmp}/ag-policy.XXXXXX")
+trap 'rm -f "$policy"' EXIT
+sed "s|OWNER_EMAIL|$AG_TAILNET_OWNER|g" "$src" >"$policy"
+out=$(ag-ts-api POST tailnet/-/acl/validate -H 'Content-Type: application/hujson' --data-binary @"$policy")
+[[ $out == "{}" || -z $out ]] || { echo "invalid policy: $out" >&2; exit 1; }
+ag-ts-api POST tailnet/-/acl -H 'Content-Type: application/hujson' --data-binary @"$policy" >/dev/null
+echo "applied $src"

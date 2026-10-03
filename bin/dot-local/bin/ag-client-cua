@@ -1,0 +1,75 @@
+#!/usr/bin/env zsh
+# ag-client-cua — run a computer-use task on the CLIENT Mac's desktop from ag.
+#
+#   ag-client-cua --why "<why this exists only on the client>" "click Allow on the ... prompt"
+#   echo "task" | CLIENT_CUA_WHY="..." ag-client-cua
+#
+# Gated: driving the client is an antipattern (do the work on ag-mac). Every run is judged by
+# ag-client-cua-gate (Jev) and allowed only when the thing exists solely on the client (a dialog or
+# permission prompt showing there, iPhone Mirroring, a client-only setting). Otherwise it exits 3
+# and spins out an Inbox session to get the missing access onto ag. Pi's ag-client-cua-guard
+# extension runs the same gate first and passes CLIENT_CUA_GATE_TOKEN so it isn't judged twice.
+#
+# Plain `ssh client codex exec` can't see the screen (no GUI session), so this submits the job
+# into the client's GUI launchd domain with `launchctl submit` from a job on the client's screen
+# queue (ag-screen-queue), which waits for the result.
+# Submitted jobs are KeepAlive, so the job removes itself when codex finishes.
+# Uses the Codex CLI bundled in ChatGPT.app on the client, via TFY (gpt-6-astra).
+# Afterwards the client's ag-cua-cleanup closes what the run opened (see ag-chatgpt-cua);
+# CHATGPT_CUA_KEEP_OPEN=1 skips it.
+set -euo pipefail
+
+client=${CLIENT_CUA_HOST:-ag-client}
+effort=${CHATGPT_CUA_EFFORT:-medium}
+why=${CLIENT_CUA_WHY:-}
+[[ ${1:-} == --why ]] && { why=${2:-}; shift 2 || true; }
+task=${*:-$(cat)}
+[[ -n $task ]] || { echo 'usage: ag-client-cua --why "<why only the client can do this>" <task>' >&2; exit 2; }
+
+gate=${0:A:h}/ag-client-cua-gate
+if [[ -n ${CLIENT_CUA_GATE_TOKEN:-} ]] && $gate --consume "$CLIENT_CUA_GATE_TOKEN"; then
+  :  # already approved by the Pi guard for this call
+else
+  [[ -n $why ]] || { echo 'ag-client-cua: a justification is required: --why "<why this exists only on the client>" (or CLIENT_CUA_WHY). Driving the client desktop is an antipattern; only a dialog/prompt showing there, iPhone Mirroring, or a client-only setting qualifies. Do everything else on ag.' >&2; exit 2; }
+  if ! verdict=$($gate --kind cua --why "$why" --pane "${AG_PANE_ID:-${TMUX_PANE:-}}" -- "$task"); then
+    print -r -- "ag-client-cua: $(print -r -- $verdict | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin).get("reason","blocked"))' 2>/dev/null || print -r -- $verdict)" >&2
+    exit 3
+  fi
+fi
+
+id=ag-client-cua-$$-$RANDOM
+dir=/tmp/$id
+keep=${CHATGPT_CUA_KEEP_OPEN:-}
+prompt="You are a computer-use agent operating the user's Mac. Use your computer-use tools (cua_repl) to do this task, then reply with a concise final report of what you did and what you observed.
+${keep:+Leave open the apps, windows and tabs the task needs.}${keep:-When you're done, close the apps, windows and tabs you opened (leave anything that was already open).}
+
+Task: $task"
+
+ssh "$client" "mkdir -p $dir && cat > $dir/prompt" <<<"$prompt"
+ssh "$client" "cat > $dir/run && chmod +x $dir/run" <<EOF
+#!/bin/zsh
+source ~/.zshenv.local 2>/dev/null; export TFY_API_KEY=\$TFY_TOKEN CUA_QUEUE_INNER=1; cd ~
+${keep:+# }~/.local/bin/ag-cua-cleanup snapshot $dir/snap
+/Applications/ChatGPT.app/Contents/Resources/codex exec --skip-git-repo-check \\
+  --dangerously-bypass-approvals-and-sandbox -c model_provider=tfy \\
+  -c model_reasoning_effort=$effort -m gpt-6-astra \\
+  --output-last-message $dir/out "\$(cat $dir/prompt)" </dev/null >$dir/log 2>&1
+rc=\$?
+${keep:+# }{ echo; ~/.local/bin/ag-cua-cleanup restore $dir/snap; } >> $dir/out
+echo \$rc > $dir/done
+launchctl remove $id  # submit jobs are KeepAlive; stop the rerun
+EOF
+# The run takes a slot on the client's screen queue (ag-screen-queue, an exec job): one job at a time on
+# that screen, and the shims there queue stray osascript/cliclick input behind it.
+inner="launchctl submit -l $id -- $dir/run || exit 1
+trap 'launchctl remove $id 2>/dev/null' EXIT TERM INT HUP
+until test -f $dir/done; do sleep 5; done
+cat $dir/out 2>/dev/null || tail -20 $dir/log
+exit \$(cat $dir/done)"
+b64=$(print -rn -- "$inner" | base64 | tr -d '\n')
+caller=${CUA_CALLER:-$(hostname -s) pid $PPID}" (client cua)"
+echo "ag-client-cua: queued on $client's screen (log: ${client}:$dir/log)" >&2
+ssh "$client" "~/.local/bin/ag-screen-queue run --exec --id $id --caller ${(q)caller} --b64 $b64" </dev/null &
+pid=$!
+trap 'ssh "$client" "~/.local/bin/ag-screen-queue cancel $id; launchctl remove $id 2>/dev/null; true" >/dev/null 2>&1; kill $pid 2>/dev/null; exit 130' TERM INT HUP
+wait $pid

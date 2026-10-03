@@ -1,0 +1,3 @@
+# Only dot-config/ stows into ~; terminfo is compiled by bootstrap-linux (tic), SHORTCUTS.md is docs.
+^/terminfo
+^/SHORTCUTS\.md

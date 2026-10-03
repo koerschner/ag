@@ -1,0 +1,248 @@
+#!/usr/bin/env bun
+// ag-presence: is the user actually at the client Mac right now? The central "user is online" signal on ag.
+//
+//   ag-presence            # one-line status (same as `ag-presence status`)
+//   ag-presence status [--json]
+//   ag-presence poll       # run by the com.ag.ag-presence LaunchAgent every 30s, host (ag-mac) only
+//
+// How: ag polls the client over SSH (ControlMaster, ~0.2s): HID idle time (any real keyboard/mouse/trackpad
+// input), screen lock, and the console user. Polling from ag-mac keeps all state and logic in one place and
+// needs nothing running on the client; a sleeping or offline client simply stops answering.
+// Debounce, so brief wakes don't count:
+//   online   the client has had input within the last minute, unlocked, for ≥ 90s straight
+//   offline  locked, asleep/unreachable for 3 polls in a row (~90s), or no input for 15 min
+//   held     while an ag-client-cua job is driving the client (its synthetic input isn't the user), nothing changes
+// On every offline→online arrival it runs `ag-tickler fire`, which launches ag-tickler items queued with
+// `--when online` ("resume this next time I'm on the client"). Each item fires once.
+// State: ~/.local/state/ag-presence/state.json. Transitions: log.jsonl beside it. Client: $PRESENCE_CLIENT
+// (default ag-client, the client in machines/README.md).
+
+import { execFileSync, spawnSync } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+
+const HOME = homedir();
+const DIR = `${HOME}/.local/state/ag-presence`;
+const STATE = `${DIR}/state.json`;
+const CLIENT = process.env.PRESENCE_CLIENT ?? "ag-client";
+const ACTIVE_IDLE_S = 60; // input within this long = active right now
+const ARRIVE_S = 90; // active this long straight = online
+const AWAY_IDLE_S = 15 * 60; // no input this long = offline
+const UNREACHABLE_POLLS = 3; // consecutive failed polls = offline
+const STALE_S = 5 * 60; // state older than this is "unknown" (poller not running)
+mkdirSync(DIR, { recursive: true });
+
+export type State = {
+	client: string;
+	state: "online" | "offline" | "unknown";
+	since?: string; // when the current state began
+	online_since?: string; // start of the current/last online period
+	last_seen?: string; // last poll with fresh input
+	active_since?: string; // start of the current active streak (arrival debounce)
+	last_poll?: string;
+	idle_s?: number;
+	locked?: boolean;
+	reachable?: boolean;
+	fails: number;
+	held?: string; // why transitions are paused this poll
+};
+
+const load = (): State => (existsSync(STATE) ? JSON.parse(readFileSync(STATE, "utf8")) : { client: CLIENT, state: "unknown", fails: 0 });
+const log = (step: string, data: object = {}) =>
+	appendFileSync(`${DIR}/log.jsonl`, JSON.stringify({ ts: new Date().toISOString(), client: CLIENT, step, ...data }) + "\n");
+const ago = (iso?: string) => {
+	if (!iso) return "never";
+	const s = Math.round((Date.now() - +new Date(iso)) / 1000);
+	return s < 90 ? `${s}s ago` : s < 5400 ? `${Math.round(s / 60)}m ago` : `${(s / 3600).toFixed(1)}h ago`;
+};
+const local = (iso?: string) =>
+	iso ? new Date(iso).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" }) : "?";
+
+// ─── Activity capture (for the time review) ────────────────────────────────────
+// Piggybacks on this poll so nothing else wakes up: the same SSH round trip pulls new lines
+// from the client's event-driven Hammerspoon log (activity_log.lua), and one local `ps` notices
+// which device has Ag's tmux attached. Everything lands in ~/.local/state/activity/ as JSONL.
+const ACT = `${HOME}/.local/state/activity`;
+const ACT_STATE = `${ACT}/state.json`;
+mkdirSync(ACT, { recursive: true });
+type MuxClient = { via: string; ip?: string; device?: string; since: string };
+type ActState = { offset: number; clients: Record<string, MuxClient> };
+const actLoad = (): ActState =>
+	existsSync(ACT_STATE) ? { offset: 0, clients: {}, ...JSON.parse(readFileSync(ACT_STATE, "utf8")) } : { offset: 0, clients: {} };
+const actLog = (file: string, data: object) =>
+	appendFileSync(`${ACT}/${file}`, JSON.stringify({ ts: new Date().toISOString(), ...data }) + "\n");
+const EVENTS_MARK = "@@EVENTS";
+const EVENTS_CHUNK = 256 * 1024;
+
+// Save complete lines from the client's log; returns the new byte offset.
+function saveClientEvents(offset: number, size: number, chunk: string): number {
+	if (size < offset) offset = 0; // client log was reset
+	const end = chunk.lastIndexOf("\n");
+	if (end < 0) return offset;
+	const lines = chunk.slice(0, end + 1);
+	appendFileSync(`${ACT}/client-${CLIENT}.jsonl`, lines);
+	return offset + Buffer.byteLength(lines);
+}
+
+// Tailscale IP → device name, refreshed only when an unknown IP shows up.
+let tsNames: Record<string, string> | undefined;
+function deviceFor(ip: string): string | undefined {
+	const load = () => {
+		const r = spawnSync("/usr/local/bin/tailscale", ["status", "--json"], { encoding: "utf8", timeout: 5000 });
+		const j = JSON.parse(r.stdout || "{}");
+		tsNames = {};
+		for (const p of [j.Self, ...Object.values(j.Peer ?? {})] as any[])
+			for (const a of p?.TailscaleIPs ?? []) tsNames[a] = p.HostName;
+	};
+	try {
+		if (!tsNames?.[ip]) load();
+	} catch {}
+	return tsNames?.[ip];
+}
+
+// tmux clients attached to Ag's server on this host: over SSH (the client's `ag` command), mosh (iPhone Moshi),
+// or a local Ghostty. Logs attach/detach transitions only.
+function trackMuxClients(a: ActState) {
+	const ps = spawnSync("ps", ["-axo", "pid=,ppid=,command="], { encoding: "utf8", timeout: 5000 }).stdout ?? "";
+	const procs = new Map<string, { ppid: string; cmd: string }>();
+	for (const line of ps.split("\n")) {
+		const m = line.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/);
+		if (m) procs.set(m[1], { ppid: m[2], cmd: m[3] });
+	}
+	const isClient = (cmd: string) =>
+		!/^\/usr\/bin\/login /.test(cmd) &&
+		/^tmux -L ag attach-session\b/.test(cmd);
+	const now: Record<string, MuxClient> = {};
+	for (const [pid, p] of procs) {
+		if (!isClient(p.cmd)) continue;
+		if (a.clients[pid]) {
+			now[pid] = a.clients[pid];
+			continue;
+		}
+		let via = "unknown", sshd: string | undefined;
+		for (let cur = p.ppid, n = 0; cur && cur !== "1" && n < 12; cur = procs.get(cur)?.ppid ?? "", n++) {
+			const c = procs.get(cur)?.cmd ?? "";
+			if (/^sshd-session: \S+@/.test(c) || /^sshd: \S+@/.test(c)) { via = "ssh"; sshd = cur; break; }
+			if (/mosh-server/.test(c)) { via = "mosh"; break; }
+			if (/ghostty/i.test(c)) { via = "local"; break; }
+		}
+		if (via === "unknown") continue; // mid-startup or exiting; look again next poll
+		const c: MuxClient = { via, since: new Date().toISOString(), device: via === "local" ? "ag-mac (local)" : undefined };
+		if (sshd) {
+			const l = spawnSync("lsof", ["-nP", "-a", "-p", sshd, "-iTCP", "-sTCP:ESTABLISHED"], { encoding: "utf8", timeout: 5000 }).stdout ?? "";
+			c.ip = l.match(/->([\d.]+):\d+/)?.[1];
+			if (c.ip) c.device = deviceFor(c.ip);
+		}
+		now[pid] = c;
+		actLog("ag.jsonl", { ev: "mux_attach", pid: Number(pid), ...c });
+	}
+	for (const [pid, c] of Object.entries(a.clients))
+		if (!now[pid]) actLog("ag.jsonl", { ev: "mux_detach", pid: Number(pid), via: c.via, ip: c.ip, device: c.device, attached_since: c.since });
+	a.clients = now;
+}
+
+// One SSH round trip: idle ns, locked, console user, running ag-client-cua jobs, then new activity-log bytes.
+const probe = (offset: number) => `ioreg -c IOHIDSystem -d 4 | awk '/HIDIdleTime/ {print $NF; exit}'
+ioreg -n Root -d1 | grep -q '"IOConsoleLocked" = Yes' && echo locked || echo unlocked
+stat -f %Su /dev/console
+launchctl list | grep -c ag-client-cua- || true
+f=~/.local/state/activity/events.jsonl; z=$(stat -f %z "$f" 2>/dev/null || echo 0); echo "${EVENTS_MARK} $z"
+o=${offset}; [ "$z" -lt "$o" ] && o=0; [ "$z" -gt "$o" ] && tail -c +$((o+1)) "$f" | head -c ${EVENTS_CHUNK}; true`;
+
+type Sample = { idle_s: number; locked: boolean; user: string; cua: number; events?: { size: number; chunk: string } } | null;
+function sample(offset: number): Sample {
+	const r = spawnSync("ssh", ["-o", "ConnectTimeout=5", "-o", "BatchMode=yes", CLIENT, probe(offset)], { encoding: "utf8", timeout: 15_000 });
+	const out = r.stdout ?? "";
+	const mark = out.indexOf(EVENTS_MARK);
+	const [idle, lock, user, cua] = (mark >= 0 ? out.slice(0, mark) : out).trim().split("\n");
+	if (r.status !== 0 || !idle || isNaN(Number(idle))) return null;
+	let events: { size: number; chunk: string } | undefined;
+	if (mark >= 0) {
+		const nl = out.indexOf("\n", mark);
+		const size = Number(out.slice(mark + EVENTS_MARK.length, nl < 0 ? undefined : nl).trim()) || 0;
+		events = { size, chunk: nl < 0 ? "" : out.slice(nl + 1) };
+	}
+	return { idle_s: Math.round(Number(idle) / 1e9), locked: lock === "locked", user, cua: Number(cua) || 0, events };
+}
+
+function poll() {
+	const s = load();
+	const now = new Date().toISOString();
+	const act = actLoad();
+	const x = sample(act.offset);
+	if (x?.events) act.offset = saveClientEvents(act.offset, x.events.size, x.events.chunk);
+	try {
+		trackMuxClients(act);
+	} catch (e) {
+		log("mux_clients_failed", { error: String(e) });
+	}
+	writeFileSync(ACT_STATE, JSON.stringify(act, null, 2) + "\n");
+	const next: State = { ...s, client: CLIENT, last_poll: now, held: undefined };
+	const become = (state: "online" | "offline", why: string) => {
+		if (next.state === state) return;
+		next.state = state;
+		next.since = now;
+		if (state === "online") next.online_since = now;
+		log(state, { why, idle_s: next.idle_s });
+	};
+
+	if (!x) {
+		next.reachable = false;
+		next.fails = s.fails + 1;
+		next.active_since = undefined;
+		if (next.fails >= UNREACHABLE_POLLS) become("offline", "unreachable (asleep or off Tailscale)");
+	} else {
+		Object.assign(next, { reachable: true, fails: 0, idle_s: x.idle_s, locked: x.locked });
+		const expectedUser = (x.user ?? "") !== "root" && x.user !== "loginwindow";
+		if (x.cua > 0) {
+			next.held = "ag-client-cua job running (synthetic input)";
+			next.active_since = undefined; // CUA input must not count toward an arrival
+		}
+		else if (x.locked || !expectedUser) {
+			next.active_since = undefined;
+			become("offline", x.locked ? "screen locked" : `console user ${x.user}`);
+		} else if (x.idle_s < ACTIVE_IDLE_S) {
+			next.last_seen = new Date(Date.now() - x.idle_s * 1000).toISOString();
+			next.active_since ??= next.last_seen;
+			if (Date.now() - +new Date(next.active_since) >= ARRIVE_S * 1000) become("online", "active ≥ 90s");
+		} else {
+			next.active_since = undefined;
+			// Online stays online through short idle stretches (reading); anything else settles to offline.
+			if (x.idle_s >= AWAY_IDLE_S || next.state !== "online") become("offline", `idle ${Math.round(x.idle_s / 60)}m`);
+		}
+	}
+	writeFileSync(STATE, JSON.stringify(next, null, 2) + "\n");
+	if (s.state !== "online" && next.state === "online") {
+		// Arrival: launch items queued for "next time the user is online". ag-tickler fire also runs every minute on its own.
+		try {
+			execFileSync(`${HOME}/.local/bin/ag-tickler`, ["fire"], { stdio: "inherit", timeout: 300_000 });
+		} catch (e) {
+			log("tickler_fire_failed", { error: String(e) });
+		}
+	}
+}
+
+// Current state, with "unknown" when the poller hasn't written recently.
+export function current(): State {
+	const s = load();
+	if (!s.last_poll || Date.now() - +new Date(s.last_poll) > STALE_S * 1000) return { ...s, state: "unknown" };
+	return s;
+}
+
+function describe(s: State): string {
+	if (s.state === "online") return `The user is online at ${s.client} (since ${local(s.online_since)}, last input ${ago(s.last_seen)}).`;
+	if (s.state === "offline") return `The user is offline from ${s.client} (since ${local(s.since)}; last input ${ago(s.last_seen)}).`;
+	const fresh = s.last_poll && Date.now() - +new Date(s.last_poll) <= STALE_S * 1000;
+	if (fresh) return `The user's presence at ${s.client} is not determined yet (${s.held ?? `unreachable ${s.fails}×`}).`;
+	return `The user's presence at ${s.client} is unknown (last poll ${ago(s.last_poll)}; is com.ag.ag-presence running on ag-mac?).`;
+}
+
+if (import.meta.main) {
+	const [cmd = "status", ...rest] = process.argv.slice(2);
+	if (cmd === "poll") poll();
+	else if (cmd === "status") console.log(rest.includes("--json") ? JSON.stringify(current(), null, 2) : describe(current()));
+	else {
+		console.error("usage: ag-presence [status [--json] | poll]");
+		process.exit(2);
+	}
+}

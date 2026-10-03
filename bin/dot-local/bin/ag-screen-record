@@ -1,0 +1,77 @@
+#!/usr/bin/env zsh
+# ag-screen-record — record this Mac's screen (or one app's front window) to an iPhone-playable mp4,
+# e.g. while an ag-chatgpt-cua run drives Chrome on ag.
+#
+#   ag-screen-record start [-w "Google Chrome"] [-s N] [-o out.mp4] [--fps 15] [--max 1800]
+#   ag-screen-record stop          stops, finalizes, prints the mp4 path
+#   ag-screen-record status
+#
+#   -w APP   crop to APP's front window (bounds read at start; don't move the window mid-recording)
+#   -s N     screen number (default 0 = main display; `ffmpeg -f avfoundation -list_devices true -i ""`)
+#   --max S  safety cap in seconds (default 30 min) in case nobody calls stop
+#
+# Needs Screen Recording for the TCC identity running it (on ag-mac: sshd-keygen-wrapper, see
+# `ag-access`). Without it screencapture fails and ffmpeg hangs, so start checks first.
+set -euo pipefail
+state=~/.local/state/ag-screen-record
+mkdir -p $state
+cmd=${1:-}; shift || true
+
+alive() { [[ -f $state/pid ]] && kill -0 $(<$state/pid) 2>/dev/null; }
+
+case $cmd in
+start)
+	win= screen=0 fps=15 max=1800 out=
+	while (( $# )); do case $1 in
+		-w) win=$2; shift 2 ;; -s) screen=$2; shift 2 ;; -o) out=$2; shift 2 ;;
+		--fps) fps=$2; shift 2 ;; --max) max=$2; shift 2 ;;
+		*) echo "ag-screen-record: unknown option $1" >&2; exit 2 ;;
+	esac; done
+	alive && { echo "ag-screen-record: already recording → $(<$state/out) (run: ag-screen-record stop)" >&2; exit 1; }
+	if ! screencapture -x -D $(( screen + 1 )) $state/probe.png 2>/dev/null; then
+		echo "ag-screen-record: no Screen Recording permission for this process (parent: $(ps -o comm= -p $PPID))." >&2
+		echo "  Run ag-access, and see docs/reference.md, \"macOS permissions for agents\"." >&2
+		exit 3
+	fi
+	# Pixels per point on this screen, from the probe capture vs the screen's size in points.
+	px=$(sips -g pixelWidth $state/probe.png | awk '/pixelWidth/{print $2}')
+	pts=$(osascript -l JavaScript -e "ObjC.import('AppKit'); \$.NSScreen.screens.objectAtIndex($screen).frame.size.width")
+	scale=$(( px / pts ))
+	vf="scale=trunc(min(1920\,iw)/2)*2:-2"
+	if [[ -n $win ]]; then
+		# Window bounds in global points (top-left origin), relative to this screen's top-left.
+		read x y w h < <(osascript -e "tell application \"System Events\" to tell (first process whose name is \"$win\") to tell front window to set {p, s} to {position, size}" \
+			-e 'return (item 1 of p as text) & " " & (item 2 of p as text) & " " & (item 1 of s as text) & " " & (item 2 of s as text)')
+		read sx sy < <(osascript -l JavaScript -e "ObjC.import('AppKit'); const s=\$.NSScreen.screens, f=s.objectAtIndex($screen).frame, m=s.objectAtIndex(0).frame; [f.origin.x, m.size.height-(f.origin.y+f.size.height)].join(' ')")
+		e() { printf '%d' $(( ($1) * scale / 2 * 2 )); }
+		vf="crop=$(e $w):$(e $h):$(e "x - sx"):$(e "y - sy"),$vf"
+	fi
+	[[ -n $out ]] || out=/tmp/ag-screen-record/$(date +%Y-%m-%dT%H-%M-%S)${win:+-${win// /-}}.mp4
+	mkdir -p ${out:h}
+	# The avfoundation device name is stable; its index shifts with cameras.
+	nohup ffmpeg -nostdin -y -loglevel error -f avfoundation -pixel_format nv12 -capture_cursor 1 -framerate $fps \
+		-i "Capture screen $screen:none" -t $max -vf $vf -r $fps \
+		-c:v libx264 -preset veryfast -crf 23 -pix_fmt yuv420p -movflags +faststart $out \
+		> $state/ffmpeg.log 2>&1 &
+	print $! > $state/pid; print -r -- ${out:A} > $state/out
+	# An idle display keeps "recording" duplicate frames; keep it awake for the recording.
+	caffeinate -u -t $max >/dev/null 2>&1 & print $! > $state/caffeinate
+	sleep 2
+	alive || { echo "ag-screen-record: ffmpeg exited:" >&2; cat $state/ffmpeg.log >&2; exit 1; }
+	echo "recording → ${out:A}"
+	;;
+stop)
+	alive || { echo "ag-screen-record: not recording" >&2; exit 1; }
+	pid=$(<$state/pid)
+	kill -INT $pid   # ffmpeg finalizes the mp4 on SIGINT
+	for _ in {1..100}; do kill -0 $pid 2>/dev/null || break; sleep 0.1; done
+	kill -0 $pid 2>/dev/null && kill -9 $pid
+	[[ -f $state/caffeinate ]] && kill $(<$state/caffeinate) 2>/dev/null; rm -f $state/caffeinate
+	rm -f $state/pid
+	cat $state/out
+	;;
+status)
+	if alive; then echo "recording → $(<$state/out)"; else echo "not recording"; fi
+	;;
+*) sed -n '2,15p' $0 | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+esac

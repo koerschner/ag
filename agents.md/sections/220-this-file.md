@@ -1,0 +1,5 @@
+## This file
+
+This is the single global agent instructions file, `pi/dot-pi/agent/AGENTS.md` in the ag checkout (`~/ag`). Pi (`~/.pi/agent/AGENTS.md`), Claude Code (`~/.claude/CLAUDE.md`) and Codex (`~/.codex/AGENTS.md`) all symlink to it.
+
+It is generated (untracked, never committed) from two layers: ag's generic `agents.md/` (one file per top-level section in `agents.md/sections/`, concatenated in filename order, so renumber to reorder; longer docs in `agents.md/includes/`, such as `sessions.md`, pulled in by `<!-- include: NAME.md -->`), and the user's own layer in dotfiles, `~/dotfiles/ag/dot-ag/agents.md/` (stowed to `~/.ag/agents.md/`, same layout; its sections merge into the same order, and it holds their personal rules such as the AI attribution rule and its `attribution.md`). Generic agent-system behavior goes in ag; the user's own preferences go in the dotfiles layer; anything private goes in ag-personal. Edit the sources, then run `agents.md/build` (`ag sync` rebuilds on every machine). Add a new section as a new numbered file rather than growing an existing one. Never edit the generated file: a rebuild overwrites it.

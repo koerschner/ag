@@ -1,0 +1,620 @@
+#!/usr/bin/env bun
+// ag-inbox: the ag-inbox, the top-level endpoint that starts a new pi session on ag.
+//
+// POST a prompt to http://ag:7373/prompt (or use the test page at /). Every capture path uses it:
+// the Mac quick capture (Hammerspoon), the iPhone Action Button, ag-file-inbox's "New session".
+// Pipeline, one function per step, one JSON log line per step (~/.local/state/ag-inbox/log.jsonl):
+//   receive → open (new tab named instantly by quickName, pi starting) in parallel with
+//   route (cheap multimodal model names the tab and picks a playbook)
+//   + follow-on match (the `capture` ag-rule, default inbox-follow-on: is this new context for an open session?)
+//   → follow (sure: prompt that session, toast, close the speculative tab) or send (rename the tab to
+//     the router's label, send; when the
+//     match is plausible but unsure, the prompt names the likely session so the agent can confirm and forward)
+// Durable: every capture is journaled (~/.local/state/ag-inbox/pending/<id>.json) until it reaches a session or
+// fails. A restart drains (SIGTERM: stop accepting, finish what's in flight; the unit's KillMode=mixed keeps the
+// ag-mux children alive meanwhile), and anything a crash or kill cut off is replayed at startup (its half-opened
+// tab closed first), so a capture is never lost to a deploy.
+// Response: a form (phone, Hammerspoon, test page) gets an immediate 303, send-only (failures are toasted).
+// A raw-text body (curl, agents, scripts) waits until pi has the prompt: 200 + JSON {id, action ("new" or
+// "follow"), label, tab, pane}, or 502 + a plain-text error (e.g. pi wouldn't start; the empty tab is closed).
+// Body: raw text, or a form with `text` and optional fields:
+//   id          the phone's queue file name (or ?id=, ag-dash's id for a new chat): a repeat id within 24h is
+//               acknowledged but not relaunched, so a sender can safely resend an item whose first response was lost.
+//   audio       voice recording (multipart; iPhone Action Button). Saved to ~/inbox/capture and transcribed
+//               with Whisper (TrueFoundry); the transcript becomes the prompt (any `text` is appended)
+//               The phone's queue sends `text` itself as a file (.txt prompt or .m4a recording); both work.
+//   screenshot  image file (multipart) grabbed at capture time. Saved to ~/inbox/capture and always attached
+//               (the sender decides: on the Mac, holding Shift with the capture shortcut adds one)
+//   app, window frontmost app and window title when captured (context for the agent)
+//   source      "iphone" = the screenshot is the phone's screen (Action Button); default is the Mac. "mac" = the
+//               `file`s were pasted on the Mac (quick entry), not shared from the iPhone
+//   model       pi model id (provider/id, form field or ?model=) the new session starts with (ag-dash chat's New
+//               chat picker); default = pi's own default
+//   pin         "1" = pin the session it lands in (Cmd+Enter in ag-dash's quick entry)
+//   file        shared files (repeatable; iPhone share sheet, or images pasted into ag-dash's quick entry with
+//               source=mac). Always attached, saved to ~/inbox/share
+//   url, shared shared link / shared text. With files or a link, `text` may be empty.
+//   dry         "1" = route and gate only; responds with the label, playbook and prompt, opens nothing
+//   new         "1" (form field or ?new=1) = always open a new session, never a follow-on (e.g. ag-client-cua-gate's
+//               access sessions)
+// Playbooks (~/.config/ag-inbox/playbooks/*.md, stowed from the ag repo, re-read per request): typical
+// kinds of captures (e.g. a name + phone number) with a set workflow. The router picks at most one and
+// its instructions are prepended to the prompt.
+// Also: POST /ag-tickler/<id> (body = optional note) fires a waiting ag-tickler wake-up (bin/dot-local/bin/ag-tickler).
+// Listens only on ag-mac's Tailscale IP. Never focuses anything, so attached tmux clients aren't disturbed.
+// Run by the com.ag.ag-inbox LaunchAgent.
+
+import { execFile, execFileSync } from "node:child_process";
+import { promisify } from "node:util";
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { createHash } from "node:crypto";
+// Same instant, deterministic namer the ag-tab-name pi extension uses for numbered tabs.
+import { quickName } from "../../../pi/dot-pi/agent/extensions/ag-tab-name.ts";
+import { originTag, promptGist, stripOrigins } from "../../../pi/dot-pi/agent/extensions/ag-origin.ts";
+import * as agRules from "../../../ag-rules/engine.ts"; // hook `capture` (matchThread)
+
+const execFileP = promisify(execFile);
+
+const PORT = 7373;
+const HOME = homedir();
+
+// Activity capture: note each prompt this script injects (hash only), so the Pi activity extension can tell it apart from typing.
+const injected = (by: string, text: string, extra: object = {}) => {
+	try {
+		mkdirSync(`${HOME}/.local/state/activity`, { recursive: true });
+		const sha = createHash("sha1").update(text.trim()).digest("hex").slice(0, 12);
+		appendFileSync(`${HOME}/.local/state/activity/injections.jsonl`, JSON.stringify({ ts: new Date().toISOString(), by, sha, ...extra }) + "\n");
+	} catch {}
+};
+const AG_MUX = `${HOME}/.local/bin/ag-mux`;
+const LOG_DIR = `${HOME}/.local/state/ag-inbox`;
+const CAPTURE_DIR = `${HOME}/inbox/capture`;
+const SHARE_DIR = `${HOME}/inbox/share`;
+const PLAYBOOK_DIR = `${HOME}/.config/ag-inbox/playbooks`;
+const MODEL = "gemini-group/gemini-3.5-flash-lite";
+// The AI gateway (TrueFoundry): $AG_AI_GATEWAY, else its line in the private ~/ag-personal/env.
+const AI_GATEWAY = (process.env.AG_AI_GATEWAY || (() => { try { return readFileSync(`${HOME}/ag-personal/env`, "utf8").match(/^AG_AI_GATEWAY=(.*)$/m)?.[1].trim() ?? ""; } catch { return ""; } })()).replace(/\/$/, "");
+const TFY_URL = `${AI_GATEWAY}/chat/completions`;
+const STT_URL = `${AI_GATEWAY}/audio/transcriptions`;
+const STT_MODELS = ["whisper-1", "openai-esw/whisper-1"]; // second is the fallback route
+// Vocabulary hint so Whisper spells the user's usual names right.
+const STT_HINT = "tmux, ag, pi, Arcade, arcade.school, Jev, TrueFoundry, Linear, Honeycomb, Hammerspoon, dotfiles, Roblox.";
+// Follow-on routing (deliver into an existing session, or hint at it in a new one) is the ag-rule for hook
+// `capture` (default inbox-follow-on: a Jev call; ~/ag/ag-rules). No rule → always a new session.
+
+mkdirSync(LOG_DIR, { recursive: true });
+mkdirSync(CAPTURE_DIR, { recursive: true });
+mkdirSync(SHARE_DIR, { recursive: true });
+
+function log(id: string, step: string, data: Record<string, unknown> = {}) {
+	const line = JSON.stringify({ ts: new Date().toISOString(), id, step, ...data });
+	appendFileSync(`${LOG_DIR}/log.jsonl`, line + "\n");
+	console.log(line);
+}
+
+function mux(...args: string[]): any {
+	return muxT(60_000, ...args);
+}
+function muxT(timeout: number, ...args: string[]): any {
+	const out = execFileSync(AG_MUX, args, { encoding: "utf8", timeout, stdio: ["ignore", "pipe", "pipe"] });
+	return out.trim() ? JSON.parse(out).result : null;
+}
+// Error code from a failed ag-mux call (JSON on stderr), e.g. "agent_pane_busy".
+const muxCode = (e: any): string | undefined => {
+	try { return JSON.parse(String(e?.stderr ?? "")).error?.code; } catch { return String(e?.stderr ?? e).match(/"code":"(\w+)"/)?.[1]; }
+};
+
+// launchd doesn't source zsh files; read the token the same way ag-tfy-env does.
+function tfyToken(): string {
+	if (process.env.TFY_TOKEN) return process.env.TFY_TOKEN;
+	const m = readFileSync(`${HOME}/.zshenv.local`, "utf8").match(/TFY_TOKEN=["']?([^"'\s]+)/);
+	if (!m) throw new Error("TFY_TOKEN not found in ~/.zshenv.local");
+	return m[1];
+}
+
+type Playbook = { name: string; when: string; body: string };
+
+function playbooks(): Playbook[] {
+	let files: string[] = [];
+	try { files = readdirSync(PLAYBOOK_DIR).filter((f) => f.endsWith(".md")); } catch { return []; }
+	return files.flatMap((f) => {
+		const m = readFileSync(`${PLAYBOOK_DIR}/${f}`, "utf8").match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+		if (!m) return [];
+		const meta = Object.fromEntries(m[1].split("\n").map((l) => l.split(/:\s*(.*)/s).slice(0, 2)));
+		return meta.name && meta.when ? [{ name: meta.name.trim(), when: meta.when.trim(), body: m[2].trim() }] : [];
+	});
+}
+
+// Small JPEG data URL for the router (it only needs to recognise what the image is).
+function thumb(path: string): string | null {
+	const out = `/tmp/ag-inbox-thumb-${crypto.randomUUID()}.jpg`;
+	try {
+		execFileSync("/usr/bin/sips", ["-s", "format", "jpeg", "-Z", "1024", path, "--out", out], { stdio: "ignore", timeout: 15_000 });
+		return `data:image/jpeg;base64,${readFileSync(out).toString("base64")}`;
+	} catch { return null; } finally { rmSync(out, { force: true }); }
+}
+
+// Step 2: one cheap multimodal call names the tab and picks a playbook (or none).
+// Every capture becomes a new session, in the Inbox (GTD inbox) until the user first replies to it.
+async function route(text: string, images: string[], books: Playbook[]): Promise<{ label: string; playbook: Playbook | null }> {
+	const list = books.map((b) => `- ${b.name}: ${b.when}`).join("\n") || "(none)";
+	const prompt = `The user sent this to their AI agent inbox${images.length ? " with the attached image(s)" : ""}.
+1. Name the task in 1-3 words, Title Case.
+2. Pick the playbook that clearly fits it, or "none". Only pick one when the capture is plainly that kind of thing.
+
+Playbooks:
+${list}
+
+Reply with only JSON: {"label": "...", "playbook": "<name or none>"}
+
+Capture:
+${text.slice(0, 4000)}`;
+	const content = [{ type: "text", text: prompt }, ...images.slice(0, 4).flatMap((p) => {
+		const url = thumb(p);
+		return url ? [{ type: "image_url", image_url: { url } }] : [];
+	})];
+	const res = await fetch(TFY_URL, {
+		method: "POST",
+		headers: { authorization: `Bearer ${tfyToken()}`, "content-type": "application/json" },
+		body: JSON.stringify({ model: MODEL, messages: [{ role: "user", content }] }),
+		signal: AbortSignal.timeout(25_000),
+	});
+	if (!res.ok) throw new Error(`model ${res.status}: ${await res.text()}`);
+	const raw = String((await res.json()).choices[0].message.content);
+	const j = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
+	const label = String(j.label ?? "").replace(/["'`*\n]/g, " ").trim().slice(0, 40) || "Inbox Task";
+	return { label, playbook: books.find((b) => b.name === j.playbook) ?? null };
+}
+
+function withPlaybook(text: string, book: Playbook): string {
+	const note = `Playbook "${book.name}" (the ag-inbox matched this capture to it; if it clearly doesn't fit, ignore it and just handle the capture):\n\n${book.body}`;
+	return `${originTag({ kind: "playbook", label: `Playbook: ${book.name}`, note })}\n${text}`;
+}
+
+// Step 1b: voice capture → text. Tries each Whisper route; throws if all fail.
+async function transcribe(path: string): Promise<string> {
+	let last: unknown;
+	for (const model of STT_MODELS) {
+		try {
+			const body = new FormData();
+			body.set("model", model);
+			body.set("prompt", STT_HINT);
+			body.set("file", Bun.file(path));
+			const res = await fetch(STT_URL, { method: "POST", headers: { authorization: `Bearer ${tfyToken()}` }, body, signal: AbortSignal.timeout(60_000) });
+			if (!res.ok) throw new Error(`stt ${model} ${res.status}: ${await res.text()}`);
+			return String((await res.json()).text ?? "").trim();
+		} catch (e) { last = e; }
+	}
+	throw last;
+}
+
+// Transcript first, then anything typed. If transcription fails the capture isn't lost: the agent gets the file.
+async function voiceText(id: string, text: string, audio: string | null): Promise<string> {
+	if (!audio) return text;
+	try {
+		const said = await transcribe(audio);
+		log(id, "transcribed", { chars: said.length, text: said, audio });
+		return [said || "(The voice recording was silent.)", text].filter(Boolean).join("\n\n");
+	} catch (e) {
+		log(id, "stt_failed", { error: String(e), audio });
+		return [text, `I sent a voice recording but transcription failed. Transcribe it (e.g. Whisper via TrueFoundry) and do what it says:\n${audio}`].filter(Boolean).join("\n\n");
+	}
+}
+
+type Shot = { path: string; app: string; window: string; iphone: boolean };
+
+type Session = { tab: string; pane: string; title: string; first: string; latest: string; file: string };
+type Thread = { action: "follow" | "hint" | "new"; ongoing: number; p: number; session: Session | null };
+
+function userPrompts(file: string): string[] {
+	const out: string[] = [];
+	try {
+		for (const l of readFileSync(file, "utf8").split("\n")) {
+			if (!l.includes('"role":"user"')) continue;
+			const e = JSON.parse(l);
+			if (e.type !== "message" || e.message?.role !== "user") continue;
+			const c = e.message.content;
+			out.push(stripOrigins(typeof c === "string" ? c : c.filter((x: any) => x.type === "text").map((x: any) => x.text).join(" ")));
+		}
+	} catch {}
+	return out;
+}
+
+// Every open pi session (one per tab), described by its tab title, first and latest prompt.
+function openSessions(): Session[] {
+	const tabs = new Map<string, string>(mux("tab", "list").tabs.map((t: any) => [t.tab_id, t.label]));
+	const seenTabs = new Set<string>();
+	return mux("pane", "list").panes.flatMap((p: any) => {
+		const file = p.agent === "pi" ? p.agent_session?.value : null;
+		if (!file || seenTabs.has(p.tab_id)) return [];
+		const prompts = userPrompts(file);
+		if (!prompts.length) return [];
+		seenTabs.add(p.tab_id);
+		const clip = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 200);
+		return [{
+			tab: p.tab_id, pane: p.pane_id, file,
+			title: tabs.get(p.tab_id) ?? p.tab_id,
+			first: clip(prompts[0]), latest: prompts.length > 1 ? clip(prompts.at(-1)!) : "",
+		}];
+	}).slice(0, 250);
+}
+
+// Step 2c: is this capture more context for something already going? Asks the `capture` ag-rule, given the open
+// sessions; throws if the rule fails (the caller retries once, then opens a new session).
+async function matchThread(text: string): Promise<Thread> {
+	const sessions = openSessions();
+	if (!sessions.length) return { action: "new", ongoing: 0, p: 0, session: null };
+	const r = await runCapture(promptGist(text), sessions);
+	if (!r) return { action: "new", ongoing: 0, p: 0, session: null };
+	const session = r.session ? sessions.find((s) => s.tab === r.session) ?? null : null;
+	return { action: session ? r.action : "new", ongoing: r.ongoing, p: r.p, session };
+}
+async function runCapture(text: string, sessions: Session[]) {
+	// Run the rule directly (not runRule) so a failure throws to the caller's retry instead of reading as "new".
+	for (const rule of agRules.rulesFor("capture")) {
+		const run = await agRules.loadRule(rule);
+		if (!run) continue;
+		const out = await run({ text, sessions: sessions.map((s) => ({ id: s.tab, title: s.title, first: s.first, latest: s.latest })) }, agRules.makeAg());
+		if (out !== undefined) return out as { action: "follow" | "hint" | "new"; session: string | null; ongoing: number; p: number };
+	}
+	return undefined;
+}
+
+const sidOf = (file: string) => file.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)?.[0];
+
+function withHint(text: string, s: Session): string {
+	return `${text}\n\n${originTag({ kind: "hint", label: "Maybe new context for", title: s.title, sid: sidOf(s.file), note: hintNote(s) })}`;
+}
+
+function hintNote(s: Session): string {
+	return `The ag-inbox thinks this may be new context for an existing session, "${s.title}" (tab ${s.tab}, pi session ${s.file}), but wasn't sure enough to add it there. If it clearly fits, don't ask: forward it with \`ag send ${s.pane} "<my message plus any context you gathered, prefixed with a line saying it was forwarded from the Inbox>"\`, give me the link from \`ag link ${s.tab}\`, and close this session. Ask first only if it's genuinely ambiguous; otherwise handle it here.`;
+}
+
+// Deliver into the matched session instead of opening a new one. Throws (→ new session) if it can't take input.
+function follow(id: string, text: string, s: Session, p: number) {
+	const agent = mux("agent", "get", s.pane);
+	if ((agent?.agent_status ?? agent?.agent?.agent_status) === "blocked") throw new Error("session is blocked on a dialog");
+	const note = "The user sent this through the ag-inbox, which routed it into this session as new context. If it clearly doesn't belong here, say so and suggest where it goes.";
+	const msg = `${originTag({ kind: "follow", label: "Routed here from the ag-inbox", note })}\n${text}`;
+	injected("ag-inbox", msg, { id, action: "follow" });
+	mux("agent", "prompt", s.pane, msg);
+	log(id, "followed", { tab: s.tab, pane: s.pane, title: s.title, p });
+	try { execFileSync(AG_MUX, ["notification", "show", `Added to ${s.title}`, "--body", text.slice(0, 120)], { timeout: 10_000 }); } catch {}
+}
+
+function withShot(text: string, shot: Shot): string {
+	const where = shot.iphone ? "iPhone" : [shot.app, shot.window].filter(Boolean).join(" — ");
+	const note = `Screenshot of my ${shot.iphone ? "phone " : ""}screen when I wrote this${where ? ` (${where})` : ""}; read it to view:\n${shot.path}`;
+	return `${text}\n\n${originTag({ kind: "screenshot", label: `Screenshot${where ? ` · ${where}` : ""}`, note })}`;
+}
+
+// Step 3: new tab (no focus), start pi in it, send the text.
+// Hot path: the tab opens with quickName's instant deterministic label and pi starts while the
+// router/Jev are still thinking (open() runs in parallel with prepare()). send() then renames the tab
+// to the router's label (before the prompt, so ag-tab-name treats it as the starting name) and
+// sends. A follow-on closes the speculative tab instead.
+// A fresh tab's shell may still be starting up (zsh init running a child), so ag-mux refuses with
+// agent_pane_busy for a moment; retry until it's an available shell. If pi can't start, close the
+// empty tab and throw, so the caller gets an error instead of a bare shell with no prompt in it.
+const SHELL_READY_MS = 30_000;
+type Opened = { tab: string; pane: string; agent: string; label: string };
+async function open(id: string, label: string, model = ""): Promise<Opened> {
+	const t = mux("tab", "create", "--cwd", HOME, "--label", label, "--no-focus");
+	const pane: string = t.root_pane.pane_id, tab: string = t.tab.tab_id;
+	log(id, "tab", { pane, tab, label, via: "quick" });
+
+	const agent = `inbox-${id}`;
+	try {
+		const deadline = Date.now() + SHELL_READY_MS;
+		for (let tries = 1; ; tries++) {
+			try {
+				// Async, so routing's fetches keep running while pi boots.
+				await execFileP(AG_MUX, ["agent", "start", agent, "--kind", "pi", "--pane", pane, "--timeout", "60000", ...(model ? ["--", "--model", model] : [])], { timeout: 75_000 });
+				log(id, "pi_started", { agent, tries, model: model || undefined });
+				break;
+			} catch (e) {
+				if (muxCode(e) !== "agent_pane_busy" || Date.now() > deadline) throw e;
+				await Bun.sleep(250);
+			}
+		}
+	} catch (e) {
+		discard({ tab, pane, agent, label });
+		throw new Error(`couldn't start pi in the new tab "${label}" (closed it): ${String((e as any)?.stderr || e).trim()}`);
+	}
+	return { tab, pane, agent, label };
+}
+function discard(o: Opened) {
+	try { mux("tab", "close", o.tab); } catch {}
+}
+function send(id: string, o: Opened, text: string, label: string): Launched {
+	if (label && label !== o.label) {
+		try { mux("tab", "rename", o.tab, label); log(id, "renamed", { tab: o.tab, from: o.label, label }); } catch {}
+	}
+	try {
+		injected("ag-inbox", text, { id, action: "new" });
+		mux("agent", "prompt", o.agent, text);
+		log(id, "sent");
+	} catch (e) {
+		discard(o);
+		throw new Error(`couldn't send the prompt to the new tab "${label}" (closed it): ${String((e as any)?.stderr || e).trim()}`);
+	}
+	return { action: "new", label, tab: o.tab, pane: o.pane, agent: o.agent };
+}
+type Launched = { action: "new" | "follow"; label: string; tab: string; pane: string; agent?: string };
+
+type Share = { files: string[]; url: string; shared: string; mac?: boolean };
+
+// What was shared (iPhone share sheet, or images pasted into the Mac's quick entry box), as text for the agent.
+function withShare(text: string, share: Share): string {
+	// The link and shared text are what the user sent: they stay in the visible text. Files and how it arrived go in the tag.
+	const visible = [text, share.url, share.shared && share.shared !== share.url && share.shared].filter(Boolean).join("\n\n");
+	const how = share.mac ? "Pasted into my message on my Mac" : "Shared from my iPhone";
+	const note = [
+		!text && "I shared this without a message. Work out what it is and what I most likely want, do the obvious safe part, and ask before anything irreversible.",
+		share.files.length ? `${how} (read the files to view them):\n${share.files.map((p) => `- ${p}`).join("\n")}` : `${how}.`,
+	].filter(Boolean).join("\n\n");
+	return `${visible}\n\n${originTag({ kind: "share", label: how, note })}`.trim();
+}
+
+async function prepare(id: string, typed: string, shot: Shot | null, share: Share | null, audio: string | null = null, fresh = false) {
+	const text = await voiceText(id, typed, audio);
+	const books = playbooks();
+	const images = share?.files.filter((p) => /\.(png|jpe?g|gif|webp)$/i.test(p)) ?? [];
+	const routeText = share ? withShare(text, share) : text;
+	// One retry: the model gateway returns the occasional transient 502.
+	const [{ label, playbook }, prompt, thread] = await Promise.all([
+		route(routeText, images, books).catch(() => route(routeText, images, books)).catch((e) => {
+			log(id, "route_failed", { error: String(e) });
+			return { label: "Inbox Task", playbook: null };
+		}),
+		shot ? withShot(routeText, shot) : routeText,
+		// On a Jev failure, open a new session as before.
+		fresh ? Promise.resolve<Thread>({ action: "new", ongoing: 0, p: 0, session: null }) : matchThread(routeText).catch(() => matchThread(routeText)).catch((e): Thread => {
+			log(id, "thread_failed", { error: String(e) });
+			return { action: "new", ongoing: 0, p: 0, session: null };
+		}),
+	]);
+	// A playbook capture (e.g. a new contact) is its own task, never a follow-on.
+	if (playbook && thread.action !== "new") thread.action = "new";
+	log(id, "routed", { label, playbook: playbook?.name ?? null });
+	log(id, "thread", { action: thread.action, ongoing: thread.ongoing, p: thread.p, tab: thread.session?.tab, title: thread.session?.title });
+	const full = playbook ? withPlaybook(prompt, playbook) : prompt;
+	return {
+		label, playbook: playbook?.name ?? null,
+		thread: { action: thread.action, ongoing: thread.ongoing, p: thread.p, tab: thread.session?.tab ?? null, title: thread.session?.title ?? null },
+		prompt: thread.action === "hint" ? withHint(full, thread.session!) : full,
+		session: thread.session,
+	};
+}
+
+// Throws when the prompt couldn't be delivered anywhere (logged, and toasted for fire-and-forget callers).
+// Pin the session a capture landed in (Cmd+Enter in ag-dash's quick entry). Best effort.
+function pinSession(id: string, r: Launched): Launched {
+	try { execFileSync(`${HOME}/.local/bin/ag`, ["pin", "on", r.tab], { timeout: 15_000, stdio: "ignore" }); log(id, "pinned", { tab: r.tab }); }
+	catch (e) { log(id, "pin_failed", { tab: r.tab, error: String(e) }); }
+	return r;
+}
+
+// The capture stays journaled until it lands in a session or fails for real (see "Durable" at the top).
+const PENDING_DIR = `${LOG_DIR}/pending`;
+mkdirSync(PENDING_DIR, { recursive: true });
+type Job = { id: string; text: string; shot: Shot | null; share: Share | null; audio: string | null; fresh: boolean; pin: boolean; model: string; at: number };
+const inflight = new Set<Promise<unknown>>();
+async function handle(id: string, text: string, shot: Shot | null, share: Share | null, audio: string | null, fresh: boolean, pin = false, model = ""): Promise<Launched> {
+	const job: Job = { id, text, shot, share, audio, fresh, pin, model, at: Date.now() };
+	writeFileSync(`${PENDING_DIR}/${id}.json`, JSON.stringify(job));
+	const p = (async () => (pin ? pinSession(id, await launch(id, text, shot, share, audio, fresh, model)) : launch(id, text, shot, share, audio, fresh, model)))();
+	inflight.add(p);
+	try {
+		return await p;
+	} finally {
+		inflight.delete(p);
+		rmSync(`${PENDING_DIR}/${id}.json`, { force: true });
+	}
+}
+
+// Startup: captures a crash or kill cut off (journaled, never delivered) run again. A half-opened tab from the
+// first try (logged "tab", never "sent") is closed first; one that was delivered ("sent"/"followed") is just cleared.
+const REPLAY_MAX_MS = 24 * 3600_000;
+function replayPending() {
+	let files: string[] = [];
+	try { files = readdirSync(PENDING_DIR).filter((f) => f.endsWith(".json")); } catch { return; }
+	if (!files.length) return;
+	const steps = new Map<string, any[]>();
+	try {
+		const lines = readFileSync(`${LOG_DIR}/log.jsonl`, "utf8").split("\n").slice(-5000);
+		for (const l of lines) {
+			try { const e = JSON.parse(l); if (e.id) steps.set(e.id, [...(steps.get(e.id) ?? []), e]); } catch {}
+		}
+	} catch {}
+	for (const f of files) {
+		const path = `${PENDING_DIR}/${f}`;
+		let job: Job;
+		try { job = JSON.parse(readFileSync(path, "utf8")); } catch { rmSync(path, { force: true }); continue; }
+		const done = (steps.get(job.id) ?? []).some((e) => ["sent", "followed"].includes(e.step));
+		if (done || Date.now() - job.at > REPLAY_MAX_MS) {
+			rmSync(path, { force: true });
+			if (!done) log(job.id, "replay_expired", { at: job.at });
+			continue;
+		}
+		for (const e of steps.get(job.id) ?? []) if (e.step === "tab" && e.tab) try { mux("tab", "close", e.tab); } catch {}
+		log(job.id, "replayed", { at: job.at });
+		handle(job.id, job.text, job.shot, job.share, job.audio, job.fresh, job.pin, job.model).catch(() => {});
+	}
+}
+
+async function launch(id: string, text: string, shot: Shot | null, share: Share | null, audio: string | null, fresh: boolean, model = ""): Promise<Launched> {
+	// Start the tab and pi now; failures surface (or are dropped, on a follow-on) after routing.
+	const quick = quickName(text || share?.shared || "") || (audio ? "Voice Note" : share ? "Shared Item" : "Inbox Task");
+	const opening = open(id, quick, model);
+	opening.catch(() => {}); // handled below
+	try {
+		const { label, prompt, thread, session } = await prepare(id, text, shot, share, audio, fresh);
+		if (thread.action === "follow" && session) {
+			try {
+				follow(id, prompt, session, thread.p);
+				opening.then(discard, () => {});
+				return { action: "follow", label: session.title, tab: session.tab, pane: session.pane };
+			} catch (e) { log(id, "follow_failed", { error: String(e) }); }
+		}
+		return send(id, await opening, prompt, label);
+	} catch (e) {
+		opening.then(discard, () => {}); // prepare failed: don't leave an empty pi tab behind
+		const error = e instanceof Error ? e.message : String(e);
+		log(id, "failed", { error });
+		try { execFileSync(AG_MUX, ["notification", "show", "ag-inbox failed", "--body", error.slice(0, 200)], { timeout: 10_000 }); } catch {}
+		throw new Error(error);
+	}
+}
+
+// Save a shared file. Formats pi can't read (HEIC photos etc.) are converted to JPEG.
+async function saveShared(id: string, file: File, n: number): Promise<string> {
+	const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+	const name = (file.name || `file-${n}`).replace(/[^\w.-]+/g, "_").slice(-80);
+	const path = `${SHARE_DIR}/${stamp}-${id}-${n}-${name}`;
+	writeFileSync(path, Buffer.from(await file.arrayBuffer()));
+	if ((/^image\//.test(file.type) || /\.(heic|heif|tiff?|bmp)$/i.test(path)) && !/\.(png|jpe?g|gif|webp)$/i.test(path)) {
+		const jpg = path.replace(/\.[^./]*$/, "") + ".jpg";
+		try {
+			execFileSync("/usr/bin/sips", ["-s", "format", "jpeg", path, "--out", jpg], { stdio: "ignore", timeout: 30_000 });
+			rmSync(path);
+			return jpg;
+		} catch {}
+	}
+	return path;
+}
+
+const PAGE = `<!doctype html><meta name=viewport content="width=device-width,initial-scale=1">
+<title>ag-inbox</title>
+<style>body{font:16px system-ui;max-width:640px;margin:2rem auto;padding:0 1rem}textarea{width:100%;height:40vh;font:inherit}button{font:inherit;padding:.5rem 1.5rem;margin-top:.5rem}</style>
+<form method=post action=/prompt><textarea name=text autofocus placeholder="prompt…"></textarea><br><button>Send</button></form>`;
+
+// At boot Tailscale may not have an address yet: wait for it (up to 2 min) instead of crash-looping.
+async function tailscaleIp() {
+	for (let i = 0; ; i++) {
+		try {
+			const ip = execFileSync("/usr/local/bin/tailscale", ["ip", "-4"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim().split("\n")[0];
+			if (ip) return ip;
+		} catch (e) {
+			if (i >= 120) throw e;
+		}
+		await Bun.sleep(1000);
+	}
+}
+const host = await tailscaleIp();
+
+// Client ids accepted in the last day (rebuilt from the log so restarts don't forget them).
+// Expiring matters: iOS may send the capture text itself as the id, and a repeat capture days later must go through.
+const DEDUP_MS = 24 * 3600_000;
+const seen = new Map<string, number>();
+try {
+	for (const l of readFileSync(`${LOG_DIR}/log.jsonl`, "utf8").split("\n")) {
+		if (l.includes('"received"') && l.includes('"clientId"')) {
+			const e = JSON.parse(l);
+			if (e.clientId) seen.set(e.clientId, Date.parse(e.ts));
+		}
+	}
+} catch {}
+
+// Also on 127.0.0.1: the Tailscale Service svc:ag (ag-svc) proxies there (serve can't reach this machine's own tailnet IP).
+const servers = [host, "127.0.0.1"].map((hostname) => Bun.serve({
+	hostname,
+	maxRequestBodySize: 64 * 1024 * 1024,
+	port: PORT,
+	async fetch(req, server) {
+		const url = new URL(req.url);
+		if (req.method === "GET" && url.pathname === "/") return new Response(PAGE, { headers: { "content-type": "text/html" } });
+		// Tickler wake-up webhook: POST /ag-tickler/<id> (optional body = note) fires that waiting item now.
+		const wake = url.pathname.match(/^\/ag-tickler\/([0-9a-f]{8})$/);
+		if (req.method === "POST" && wake) {
+			const note = (await req.text()).trim().slice(0, 2000);
+			const r = Bun.spawnSync([`${HOME}/.local/bin/ag-tickler`, "trigger", wake[1], ...(note ? ["--note", note] : [])]);
+			const out = (r.stdout.toString() + r.stderr.toString()).trim();
+			return new Response(out + "\n", { status: r.exitCode === 0 ? 200 : 404 });
+		}
+		if (req.method !== "POST" || url.pathname !== "/prompt") return new Response("not found", { status: 404 });
+
+		const type = req.headers.get("content-type") ?? "";
+		// Forms (test page, Shortcuts, curl -F) carry a "text" field; anything else (curl -d) is the raw body.
+		const form = type.includes("form") ? await req.formData() : null;
+		const field = (k: string) => {
+			const v = form?.get(k);
+			return typeof v === "string" ? v.trim() : "";
+		};
+		// The phone's queue flush sends each queued file as `text` (File): a .txt prompt or a voice recording.
+		const queued = form?.get("text");
+		const queuedAudio = queued instanceof File && (/^audio\//.test(queued.type) || /\.(m4a|caf|aac|wav|mp3)$/i.test(queued.name));
+		const text = !form ? (await req.text()).trim() : queued instanceof File ? (queuedAudio ? "" : (await queued.text()).trim()) : field("text");
+		const clientId = field("id") || url.searchParams.get("id") || null; // ?id= for raw-body callers (ag-dash retries)
+		const sharedFiles = (form?.getAll("file") ?? []).filter((f): f is File => f instanceof File && f.size > 0);
+		const url_ = field("url"), shared = field("shared");
+		const voice = queuedAudio ? queued : form?.get("audio");
+		const hasVoice = voice instanceof File && voice.size > 0;
+		if (!text && !hasVoice && !sharedFiles.length && !url_ && !shared) return new Response("empty", { status: 400 });
+
+		if (clientId && Date.now() - (seen.get(clientId) ?? 0) < DEDUP_MS) {
+			log("dup", "duplicate", { clientId });
+			return new Response(null, { status: 202 });
+		}
+		if (clientId) seen.set(clientId, Date.now());
+		const id = crypto.randomUUID().slice(0, 8);
+		const file = form?.get("screenshot");
+		let shot: Shot | null = null;
+		if (file instanceof File && file.size) {
+			const ext = file.type === "image/jpeg" ? "jpg" : "png";
+			const path = `${CAPTURE_DIR}/${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}-${id}.${ext}`;
+			writeFileSync(path, Buffer.from(await file.arrayBuffer()));
+			shot = { path, app: field("app"), window: field("window"), iphone: field("source") === "iphone" };
+		}
+		let audio: string | null = null;
+		if (hasVoice) {
+			const ext = (voice.name.match(/\.(\w+)$/)?.[1] ?? "m4a").toLowerCase();
+			audio = `${CAPTURE_DIR}/${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}-${id}.${ext}`;
+			writeFileSync(audio, Buffer.from(await voice.arrayBuffer()));
+		}
+		let share: Share | null = null;
+		if (sharedFiles.length || url_ || shared) {
+			share = { files: await Promise.all(sharedFiles.map((f, n) => saveShared(id, f, n + 1))), url: url_, shared, mac: field("source") === "mac" };
+		}
+		// Capture metadata for the time review: which device sent it (Tailscale peer), and the Mac's front app/window.
+		const ip = server.requestIP(req)?.address?.replace(/^::ffff:/, "");
+		const from = { ip, device: field("source") || (field("id") ? "iphone" : undefined), app: field("app") || undefined, window: field("window") || undefined, ua: req.headers.get("user-agent")?.slice(0, 80) };
+		const fresh = url.searchParams.get("new") === "1" || field("new") === "1";
+		const pin = field("pin") === "1";
+		const model = url.searchParams.get("model") || field("model");
+		if (model && !/^[\w.-]+(\/[\w.:@-]+)+$/.test(model)) return new Response("ag-inbox: bad model id\n", { status: 400, headers: { "content-type": "text/plain" } });
+		log(id, "received", { chars: text.length, text, clientId, screenshot: shot?.path, audio, share, from, fresh: fresh || undefined, pin: pin || undefined, model: model || undefined });
+		// dry=1: route and gate only, return what would be sent, open nothing (for testing).
+		if (field("dry") === "1") {
+			const { session: _, ...dry } = await prepare(id, text, shot, share, audio, fresh);
+			return Response.json(dry);
+		}
+		// Forms (phone, Hammerspoon, test page) are send-only and must answer fast: no result, the form lands
+		// back on a blank page, and a failure is toasted. Raw-body callers (curl, agents, scripts) wait for
+		// the session to start: 200 + JSON {action, label, tab, pane}, or 502 + the error.
+		if (type.includes("form")) {
+			handle(id, text, shot, share, audio, fresh, pin, model).catch(() => {});
+			return new Response(null, { status: 303, headers: { location: "/" } });
+		}
+		try {
+			return Response.json({ id, ...(await handle(id, text, shot, share, audio, fresh, pin, model)) });
+		} catch (e) {
+			return new Response(`ag-inbox: ${e instanceof Error ? e.message : e}\n`, { status: 502, headers: { "content-type": "text/plain" } });
+		}
+	},
+}));
+console.log(`ag-inbox listening on http://${host}:${PORT}`);
+replayPending();
+
+// Restart/stop (systemd SIGTERM): stop taking captures, let the ones in flight reach their sessions (callers retry
+// while the port is closed), then exit. systemd's TimeoutStopSec bounds it; a kill leaves the journal for replay.
+let draining = false;
+process.on("SIGTERM", async () => {
+	if (draining) return;
+	draining = true;
+	for (const s of servers) s.stop();
+	if (inflight.size) console.log(`ag-inbox draining ${inflight.size} capture(s)`);
+	await Promise.race([Promise.allSettled([...inflight]), Bun.sleep(100_000)]);
+	process.exit(0);
+});

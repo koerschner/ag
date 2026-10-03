@@ -596,6 +596,7 @@ details.steps > summary .n { font-size: 13px; opacity: .85; white-space: nowrap;
     <tr><td>Archive and open the next chat</td><td><kbd>E</kbd></td></tr>
     <tr><td>Undo (archive, move)</td><td><kbd>Z</kbd> · <kbd>⌘</kbd><kbd>Z</kbd></td></tr>
     <tr><td>New chat</td><td><kbd>C</kbd></td></tr>
+    <tr><td>Unselect the chat</td><td><kbd>Esc</kbd></td></tr>
     <tr><td>Back to Needs you</td><td><kbd>U</kbd></td></tr>
     <tr><td>Mark unread</td><td><kbd>⇧</kbd><kbd>U</kbd></td></tr>
     <tr><td>Pin / unpin (star)</td><td><kbd>S</kbd></td></tr>
@@ -2169,7 +2170,9 @@ document.addEventListener("keydown", (e) => {
     if (rec) endRec(true);
     else if (pop) closePop();
     else if ($(".back.open")) closeModals();
-    else $("#lightbox").classList.remove("open");
+    else if ($("#lightbox").classList.contains("open")) $("#lightbox").classList.remove("open");
+    // Outside a field, Esc unselects the open chat (Esc in the composer only leaves the box).
+    else if ((route.kind === "card" || route.kind === "sid") && !e.target.closest?.("textarea,input,select,[contenteditable]")) go("/chat");
   }
 });
 setInterval(() => { const c = current(); if (c && working(c)) renderLive(c); }, 1000);

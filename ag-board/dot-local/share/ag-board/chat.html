@@ -29,7 +29,7 @@
 <!--
   Ag Chat (/chat): a ChatGPT-desktop-style view over the same sessions and APIs as AG Dash (the board at / is
   unchanged). Installable on its own (chat-manifest.json: "Ag Chat", scope /chat, window-controls-overlay).
-  Sidebar: New chat, Search (⌘K), Needs you / Working / Waiting, Projects (= workspaces), Pinned, Chats.
+  Sidebar: New chat, Search (⌘K), Needs you / Working / Waiting, Pinned, Areas (= workspaces, Things 3 style: drag chats between them, drag areas to reorder), Inbox.
   Chat: the session transcript as a thread (thinking + tool calls folded into "Thought for …" steps), live activity,
   dialog keys when blocked, composer (Enter sends; steers while working; ■ stops; mic → text; voice → send).
   APIs: /events (board over SSE), /api/transcript, /api/prompt, /api/interrupt, /api/keys, /api/new (route=new,
@@ -127,6 +127,35 @@ kbd { font: 12px var(--sans); color: var(--faint); }
 .profile .who b { font-weight: 500; }
 .profile .who span { font-size: 12px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; }
 .empty-list { color: var(--faint); font-size: 13px; padding: 10px; }
+.sec-hw { display: flex; align-items: center; }
+.sec-hw .sec-h { flex: 1; }
+.sec-hw .ib.sm { width: 26px; height: 26px; border-radius: 6px; margin-right: 4px; opacity: 0; }
+.sec-hw:hover .ib.sm, .sec-hw .ib.sm:focus-visible { opacity: 1; }
+.sec-hw .ib.sm svg { width: 15px; height: 15px; }
+.sec-h .n, .area-h .n { font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+@media (hover: none) { .sec-hw .ib.sm { opacity: 1; } }
+/* Areas: Things 3's bold area rows with their chats nested under them. */
+.area { border-radius: 10px; }
+.area + .area { margin-top: 2px; }
+.area-h { font-weight: 600; }
+.area-h svg { color: var(--muted) !important; }
+.area-h .ind { display: flex; align-items: center; gap: 6px; flex: none; }
+.area-h .tw { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; color: var(--faint); margin-right: -4px; flex: none; }
+.area-h .tw:hover { background: var(--hover2); color: var(--text); }
+.area-h .tw svg { width: 14px; height: 14px; color: inherit !important; transition: transform .15s; }
+.area.closed .area-h .tw svg { transform: rotate(-90deg); }
+.area.closed .area-b { display: none; }
+.area-b .item { padding-left: 38px; }
+.area-b .see-more.sub { padding-left: 38px; font-size: 13px; }
+@media (hover: hover) { .area-h .tw { display: none; } .area-h:hover .tw { display: grid; } .area-h:hover .n { display: none; } }
+/* Drag and drop */
+.dragged { opacity: .4; }
+body.dragging .item:hover .arch, body.dragging .item:hover .more { display: none; }
+.drop { background: color-mix(in srgb, var(--blue) 14%, transparent); box-shadow: inset 0 0 0 1.5px var(--blue); border-radius: 10px; }
+.drop > .sec > .sec-hw .sec-h, .area.drop > .area-h { color: var(--text); }
+.drop-before { box-shadow: 0 -2px 0 var(--blue); }
+.drop-after { box-shadow: 0 2px 0 var(--blue); }
+.page.drop { border-radius: 0; }
 
 /* collapsed rail */
 .rail { width: 52px; flex: none; background: var(--side); border-right: 1px solid var(--line); display: none; flex-direction: column; align-items: center; padding: env(safe-area-inset-top) 0 calc(8px + env(safe-area-inset-bottom)); gap: 2px; }
@@ -384,7 +413,8 @@ details.steps > summary .n { font-size: 13px; opacity: .8; }
     <div class="side-head"><button class="logo" data-do="toggle" title="Open sidebar (⇧⌘S)" aria-label="Open sidebar"><img src="/static/icon.svg" alt=""><svg class="tog" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg></button></div>
     <button class="ib" data-do="new" title="New chat (⇧⌘O)" aria-label="New chat" data-icon="compose"></button>
     <button class="ib" data-do="search" title="Search chats (⌘K)" aria-label="Search chats" data-icon="search"></button>
-    <button class="ib" data-go="/chat?view=you" title="Needs you" aria-label="Needs you" data-icon="inbox"></button>
+    <button class="ib" data-go="/chat/p/inbox" title="Inbox" aria-label="Inbox" data-icon="tray" id="railInbox"></button>
+    <button class="ib" data-go="/chat?view=you" title="Needs you" aria-label="Needs you" data-icon="star"></button>
     <span class="grow"></span>
     <button class="avatar" data-do="profile" aria-label="Menu">N</button>
   </div>
@@ -396,7 +426,8 @@ details.steps > summary .n { font-size: 13px; opacity: .8; }
     <nav class="nav">
       <button class="row" data-do="new" data-t="chat-new"><i data-icon="compose"></i><span class="lbl">New chat</span><kbd>⇧⌘O</kbd></button>
       <button class="row" data-do="search" data-t="chat-search"><i data-icon="search"></i><span class="lbl">Search chats</span><kbd>⌘K</kbd></button>
-      <a class="row" href="/chat?view=you" data-go="/chat?view=you" data-nav="you"><i data-icon="inbox"></i><span class="lbl">Needs you</span><span class="badge" id="nYou"></span></a>
+      <a class="row" href="/chat/p/inbox" data-go="/chat/p/inbox" data-nav="inbox" id="inboxRow"><i data-icon="tray"></i><span class="lbl">Inbox</span><span class="badge" id="nInbox"></span></a>
+      <a class="row" href="/chat?view=you" data-go="/chat?view=you" data-nav="you"><i data-icon="star"></i><span class="lbl">Needs you</span><span class="badge" id="nYou"></span></a>
       <a class="row" href="/chat?view=working" data-go="/chat?view=working" data-nav="working"><i data-icon="bolt"></i><span class="lbl">Working</span><span class="badge" id="nWorking"></span></a>
       <a class="row" href="/chat?view=waiting" data-go="/chat?view=waiting" data-nav="waiting"><i data-icon="clock"></i><span class="lbl">Waiting for</span><span class="badge" id="nWaiting"></span></a>
     </nav>
@@ -489,6 +520,9 @@ const ICON = {
   sun: S('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
   moon: S('<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/>'),
   monitor: S('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>'),
+  area: S('<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>'),
+  star: S('<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9Z"/>'),
+  tray: S('<path d="M3 13h5l1.5 3h5l1.5-3h5"/><path d="M3 13l2.5-8h13L21 13v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z"/>'),
   hourglass: S('<path d="M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9s10 4 10 9"/>'),
 };
 const fillIcons = (root = document) => { for (const el of $$("[data-icon]", root)) if (!el.dataset.filled) { el.insertAdjacentHTML("afterbegin", ICON[el.dataset.icon] || ""); el.dataset.filled = 1; } };
@@ -544,7 +578,6 @@ let loadSeq = 0, txRef = "", txLimit = TX_PAGE, txMore = false, loadingOlder = f
 let pending = [];
 const drafts = JSON.parse(localStorage.getItem("agchat.drafts") || "{}");
 const secClosed = JSON.parse(localStorage.getItem("agchat.secs") || "{}");
-let projectsAll = localStorage.getItem("agchat.projectsAll") === "1";
 let attachments = [];
 let startingTab = null;
 let loaded = false;
@@ -625,7 +658,7 @@ function apply(b, delta) {
   if (delta) b.cards = b.cards.map((c) => (c.same ? byTab.get(c.tab) : c)).filter(Boolean);
   board = b;
   byTab.clear();
-  for (const c of b.cards) byTab.set(c.tab, c);
+  for (const c of b.cards) { if (moving.has(c.tab)) c.workspace = moving.get(c.tab); byTab.set(c.tab, c); }
   if (archiving.size) board.cards = b.cards.filter((c) => !archiving.has(c.tab));
   if (!loaded) return;
   if (startingTab && byTab.has(startingTab)) { const c = byTab.get(startingTab); startingTab = null; go(urlOf(c), true); return; }
@@ -648,45 +681,140 @@ function itemHtml(c, cur) {
     : c.status === "blocked" ? '<span class="dot blocked" title="Asking something"></span>'
     : c.waiting?.length ? '<span class="dot waiting" title="Waiting for something"></span>'
     : c.needsYou ? '<span class="dot unread" title="New answer"></span>' : "";
-  return `<a class="row item" href="${urlOf(c)}" data-tab="${esc(c.tab)}" ${cur && cur.tab === c.tab ? 'aria-current="page"' : ""} title="${esc(c.title)}">
+  return `<a class="row item" href="${urlOf(c)}" draggable="true" data-drag-tab="${esc(c.tab)}" data-tab="${esc(c.tab)}" ${cur && cur.tab === c.tab ? 'aria-current="page"' : ""} title="${esc(c.title)}">
     <span class="lbl">${esc(c.title)}</span><span class="ind">${ind}</span><button class="arch" data-archive="${esc(c.tab)}" title="Archive" aria-label="Archive chat" data-t="chat-item-archive">${ICON.archive}</button><button class="more" data-item-menu="${esc(c.tab)}" aria-label="Options">${ICON.dots}</button></a>`;
 }
-function sec(id, title, body) {
-  return `<div class="sec ${secClosed[id] ? "closed" : ""}" data-sec="${id}"><button class="sec-h" data-sec-toggle="${id}">${title}${ICON.chevdown}</button><div class="sec-b">${body}</div></div>`;
+function sec(id, title, body, extra = "") {
+  return `<div class="sec ${secClosed[id] ? "closed" : ""}" data-sec="${id}"><div class="sec-hw"><button class="sec-h" data-sec-toggle="${id}">${title}${ICON.chevdown}</button>${extra}</div><div class="sec-b">${body}</div></div>`;
 }
-function projects() {
-  const act = new Map();
-  for (const c of board.cards) act.set(c.workspace, Math.max(act.get(c.workspace) || 0, lastAt(c)));
-  return board.workspaces.filter((w) => act.has(w.id) || w.label === "Inbox")
-    .sort((a, b) => (a.label === "Inbox" ? -1 : b.label === "Inbox" ? 1 : (act.get(b.id) || 0) - (act.get(a.id) || 0)));
+// Areas (Things 3) = workspaces (ChatGPT's projects): every topic workspace but Inbox and Meta, in the order you
+// dragged them (kept by the server, so every device agrees); new ones go last.
+const inboxWs = () => board.workspaces.find((w) => w.label.toLowerCase() === "inbox");
+function areas() {
+  const list = board.workspaces.filter((w) => w.label !== "Meta" && w !== inboxWs());
+  const order = board.areas || [];
+  const at = (w) => { const i = order.indexOf(w.id); return i < 0 ? 1e6 : i; };
+  return list.sort((a, b) => at(a) - at(b) || a.label.localeCompare(b.label));
 }
+const AREA_CAP = 5;
+const areaOpen = JSON.parse(localStorage.getItem("agchat.areas") || "{}"); // id → "open" | "all"; collapsed by default, like ChatGPT's projects
+const saveAreaOpen = () => localStorage.setItem("agchat.areas", JSON.stringify(areaOpen));
+function areaHtml(w, cards, cur, curWs) {
+  const mine = cards.filter((c) => c.workspace === w.id);
+  const st = areaOpen[w.id];
+  const shown = st === "all" ? mine : mine.slice(0, AREA_CAP);
+  const ind = mine.some(working) ? '<span class="spin" title="Working"></span>' : "";
+  const more = mine.length > AREA_CAP ? `<button class="row see-more sub" data-area-more="${w.id}"><span class="lbl">${st === "all" ? "Show less" : `${mine.length - AREA_CAP} more`}</span></button>` : "";
+  return `<div class="area ${st ? "" : "closed"}" data-area="${w.id}" data-drop-ws="${w.id}">
+    <a class="row area-h" href="/chat/p/${w.id}" data-go="/chat/p/${w.id}" draggable="true" data-drag-area="${w.id}" ${curWs === w.id ? 'aria-current="page"' : ""}>${ICON.area}<span class="lbl">${esc(w.label)}</span><span class="ind">${ind}<span class="n">${mine.length || ""}</span></span><button class="tw" data-area-toggle="${w.id}" aria-label="${st ? "Collapse" : "Expand"} ${esc(w.label)}">${ICON.chevdown}</button></a>
+    <div class="area-b">${shown.map((c) => itemHtml(c, cur)).join("")}${more}</div></div>`;
+}
+let dragging = null, sideDirty = false;
 function renderSide() {
+  if (dragging) { sideDirty = true; return; } // re-rendering would drop the element being dragged
   const cur = current();
   const cards = [...board.cards].sort((a, b) => lastAt(b) - lastAt(a));
   const counts = { you: cards.filter(needsYou).length, working: cards.filter(working).length, waiting: cards.filter((c) => c.waiting?.length).length };
   for (const [k, id] of [["you", "nYou"], ["working", "nWorking"], ["waiting", "nWaiting"]]) { const el = $(`#${id}`); el.textContent = counts[k] || ""; el.hidden = !counts[k]; el.classList.toggle("hot", k === "you"); }
   for (const a of $$(".nav [data-nav]")) a.toggleAttribute("aria-current", route.kind === "list" && route.view === a.dataset.nav);
-  const ps = projects();
-  const shown = projectsAll ? ps : ps.slice(0, 5);
   const curWs = route.kind === "project" ? route.ws : null;
-  let projHtml = shown.map((w) => {
-    const you = board.cards.some((c) => c.workspace === w.id && needsYou(c));
-    return `<a class="row" href="/chat/p/${w.id}" data-go="/chat/p/${w.id}" ${curWs === w.id ? 'aria-current="page"' : ""}>${ICON.folder}<span class="lbl">${esc(w.label)}</span>${you ? '<span class="dot unread"></span>' : ""}</a>`;
-  }).join("");
-  if (ps.length > 5) projHtml += `<button class="row see-more" data-do="projectsAll">${projectsAll ? ICON.chevdown.replace("<svg", '<svg style="transform:rotate(180deg)"') : ICON.dots}<span class="lbl">${projectsAll ? "Show less" : "See more"}</span></button>`;
+  const loose = cards.filter((c) => !c.pinned);
   const pinned = cards.filter((c) => c.pinned);
-  const rest = cards.filter((c) => !c.pinned);
+  const inbox = inboxWs();
+  const inboxCards = loose.filter((c) => c.workspace === inbox?.id || !board.workspaces.some((w) => w.id === c.workspace));
+  const ir = $("#inboxRow"), ni = $("#nInbox");
+  if (inbox) { $("#railInbox").dataset.go = `/chat/p/${inbox.id}`; ir.dataset.dropWs = inbox.id; ir.href = ir.dataset.go = `/chat/p/${inbox.id}`; ir.toggleAttribute("aria-current", curWs === inbox.id); }
+  ni.textContent = inboxCards.length || ""; ni.hidden = !inboxCards.length;
+  const areasHtml = areas().map((w) => areaHtml(w, loose, cur, curWs)).join("");
   const scroll = $("#sideScroll");
   const st = scroll.scrollTop;
-  scroll.innerHTML = sec("projects", "Projects", projHtml)
-    + (pinned.length ? sec("pinned", "Pinned", pinned.map((c) => itemHtml(c, cur)).join("")) : "")
-    + sec("chats", "Chats", rest.map((c) => itemHtml(c, cur)).join("") || '<div class="empty-list">No chats yet.</div>');
+  scroll.innerHTML = (pinned.length ? `<div data-drop-pin>${sec("pinned", "Pinned", pinned.map((c) => itemHtml(c, cur)).join(""))}</div>` : "")
+    + sec("areas", "Areas", areasHtml || '<div class="empty-list">No areas yet.</div>', `<button class="ib sm" data-do="newArea" title="New area" aria-label="New area" data-t="chat-new-area">${ICON.plus}</button>`)
+    + `<div data-drop-ws="${inbox?.id || ""}">${sec("chats", `Inbox <span class="n">${inboxCards.length || ""}</span>`, inboxCards.map((c) => itemHtml(c, cur)).join("") || '<div class="empty-list">Inbox zero.</div>')}</div>`;
   scroll.scrollTop = st;
   if (openMenuTab) $(`.item[data-tab="${CSS.escape(openMenuTab)}"]`)?.classList.add("menu-open");
   const parts = [`${cards.length} chats`, `${counts.working} working`];
   if (board.sys?.mem) parts.push(`mem ${board.sys.mem.usedPct}%`);
   $("#sysLine").textContent = parts.join(" · ");
   document.title = (counts.you ? `(${counts.you}) ` : "") + (cur ? cur.title : "Ag");
+}
+
+// ---------- drag and drop (Things 3): drop a chat on an area or the Inbox to file it there, on Pinned to pin it;
+// drag an area above or below another to reorder. Touch has the ⋯ menu's "Move to area" instead. ----------
+const moving = new Map(); // tab → workspace, shown at once while `ag file` runs
+async function fileTo(c, ws, undoable = true) {
+  if (!c || !ws || c.workspace === ws) return;
+  const from = c.workspace;
+  moving.set(c.tab, ws); c.workspace = ws; renderSide(); if (route.kind === "project") renderListRows();
+  try {
+    await api("/api/file", { tab: c.tab, workspace: ws });
+    toast(`Moved to ${wsLabel(ws)}`, undoable ? { label: "Undo", run: () => fileTo(byTab.get(c.tab) || c, from, false) } : null, undoable ? 5000 : 2400);
+  } catch (e) { c.workspace = from; toast(`Move failed: ${e.message}`); }
+  finally { moving.delete(c.tab); renderSide(); if (route.kind === "project") renderListRows(); }
+}
+function clearDrop() { for (const el of $$(".drop, .drop-before, .drop-after")) el.classList.remove("drop", "drop-before", "drop-after"); }
+document.addEventListener("dragstart", (e) => {
+  const t = e.target.closest?.("[data-drag-tab], [data-drag-area]");
+  if (!t) return;
+  dragging = t.dataset.dragTab ? { tab: t.dataset.dragTab } : { area: t.dataset.dragArea };
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", t.title || t.textContent.trim());
+  closePop();
+  requestAnimationFrame(() => { t.classList.add("dragged"); document.body.classList.add("dragging"); });
+});
+document.addEventListener("dragover", (e) => {
+  if (!dragging) return;
+  clearDrop();
+  if (dragging.tab) {
+    const c = byTab.get(dragging.tab);
+    const pin = e.target.closest?.("[data-drop-pin]");
+    const ws = e.target.closest?.("[data-drop-ws]");
+    if (pin && c && !c.pinned) { e.preventDefault(); pin.classList.add("drop"); }
+    else if (ws && ws.dataset.dropWs && c && (ws.dataset.dropWs !== c.workspace || c.pinned)) { e.preventDefault(); ws.classList.add("drop"); }
+    return;
+  }
+  const a = e.target.closest?.(".area");
+  if (!a || a.dataset.area === dragging.area) return;
+  e.preventDefault();
+  const r = a.getBoundingClientRect();
+  a.classList.add(e.clientY < r.top + Math.min(r.height, 36) / 2 ? "drop-before" : "drop-after");
+});
+document.addEventListener("drop", (e) => {
+  if (!dragging) return;
+  e.preventDefault();
+  const d = dragging, tgt = $(".drop, .drop-before, .drop-after");
+  const before = tgt?.classList.contains("drop-before");
+  clearDrop();
+  if (!tgt) return;
+  if (d.tab) {
+    const c = byTab.get(d.tab);
+    if (!c) return;
+    if (tgt.matches("[data-drop-pin]")) { api("/api/card", { tab: c.tab, pinned: true }).then(() => toast("Pinned")).catch((err) => toast(err.message)); return; }
+    const ws = tgt.dataset.dropWs;
+    if (c.pinned) api("/api/card", { tab: c.tab, pinned: false }).catch(() => {});
+    if (ws !== c.workspace) fileTo(c, ws); else if (c.pinned) toast("Unpinned");
+    return;
+  }
+  const ids = areas().map((w) => w.id).filter((id) => id !== d.area);
+  const i = ids.indexOf(tgt.dataset.area);
+  ids.splice(before ? i : i + 1, 0, d.area);
+  board.areas = ids;
+  dragging = null; renderSide();
+  api("/api/areas", { order: ids }).catch((err) => toast(`Couldn't save the order: ${err.message}`));
+});
+document.addEventListener("dragend", () => {
+  clearDrop(); dragging = null;
+  document.body.classList.remove("dragging"); $(".dragged")?.classList.remove("dragged");
+  if (sideDirty) { sideDirty = false; renderSide(); }
+});
+async function newArea() {
+  const label = prompt("New area name")?.trim();
+  if (!label) return;
+  try {
+    const r = await api("/api/workspace", { label });
+    toast(`Created ${label}`);
+    if (r.id) go(`/chat/p/${r.id}`);
+  } catch (e) { toast(`Couldn't create it: ${e.message}`); }
 }
 
 // ---------- routing ----------
@@ -697,7 +825,7 @@ function parse() {
   const tab = p.match(/^\/chat\/t\/(.+)$/)?.[1];
   if (tab) return { kind: "card", tab: decodeURIComponent(tab) };
   const ws = p.match(/^\/chat\/p\/(.+)$/)?.[1];
-  if (ws) return { kind: "project", ws: decodeURIComponent(ws) };
+  if (ws) return { kind: "project", ws: ws === "inbox" ? inboxWs()?.id || ws : decodeURIComponent(ws) };
   const view = new URLSearchParams(location.search).get("view");
   if (["you", "working", "waiting"].includes(view)) return { kind: "list", view };
   return { kind: "new" };
@@ -758,8 +886,8 @@ function renderMain() {
   if (route.kind === "list" || route.kind === "project") {
     const isP = route.kind === "project";
     const title = isP ? wsLabel(route.ws) : { you: "Needs you", working: "Working", waiting: "Waiting for" }[route.view];
-    const icon = isP ? ICON.folder : { you: ICON.inbox, working: ICON.bolt, waiting: ICON.clock }[route.view];
-    view.innerHTML = `<div class="page"><div class="page-in"><h2>${icon}${esc(title)}</h2>
+    const icon = isP ? (route.ws === inboxWs()?.id ? ICON.tray : ICON.area) : { you: ICON.star, working: ICON.bolt, waiting: ICON.clock }[route.view];
+    view.innerHTML = `<div class="page"${isP ? ` data-drop-ws="${esc(route.ws)}"` : ""}><div class="page-in"><h2>${icon}${esc(title)}</h2>
       ${isP ? composerHtml(`New chat in ${title}`) : ""}
       ${isP ? '<div class="tabs"><span>Chats</span></div>' : ""}<div id="rows"></div></div></div>`;
     if (isP) wireComposer();
@@ -800,19 +928,19 @@ function renderListRows() {
   const html = list.map((c) => {
     const sub = route.kind === "list" && route.view === "waiting" ? (c.waiting[0]?.title || c.waiting[0]?.detail || "") : snippet(c);
     const ind = working(c) ? '<span class="spin"></span>' : c.status === "blocked" ? '<span class="dot blocked"></span>' : c.needsYou ? '<span class="dot unread"></span>' : "";
-    return `<a class="crow" href="${urlOf(c)}" data-go="${urlOf(c)}"><div class="txt"><div class="t">${esc(c.title)}</div><div class="s">${route.kind === "list" ? `${esc(wsLabel(c.workspace))} · ` : ""}${esc(sub)}</div></div>${ind}<span class="d">${ago(lastAt(c))}</span></a>`;
-  }).join("") || `<div class="empty-list" style="padding:24px 12px">${route.kind === "project" ? "No open chats in this project." : "Nothing here right now."}</div>`;
+    return `<a class="crow" href="${urlOf(c)}" data-go="${urlOf(c)}" draggable="true" data-drag-tab="${esc(c.tab)}"><div class="txt"><div class="t">${esc(c.title)}</div><div class="s">${route.kind === "list" ? `${esc(wsLabel(c.workspace))} · ` : ""}${esc(sub)}</div></div>${ind}<span class="d">${ago(lastAt(c))}</span></a>`;
+  }).join("") || `<div class="empty-list" style="padding:24px 12px">${route.kind === "project" ? "No open chats in this area. Drag one here from the sidebar." : "Nothing here right now."}</div>`;
   if (el.innerHTML !== html) el.innerHTML = html;
 }
 function pickerPop() {
   const c = current();
   const i = route.kind === "sid" ? route.info : null;
-  if (!c && !i) return `<div class="hdr">Ag</div><div class="note">New chats start in your Inbox with the default model and get filed into a project automatically after your first reply.${route.kind === "project" ? ` This one will go straight into <b>${esc(wsLabel(route.ws))}</b>.` : ""}</div>`;
+  if (!c && !i) return `<div class="hdr">Ag</div><div class="note">New chats start in your Inbox with the default model and get filed into an area automatically after your first reply.${route.kind === "project" ? ` This one will go straight into <b>${esc(wsLabel(route.ws))}</b>.` : ""}</div>`;
   const s = c ? c.stats : i.stats || {};
   const rows = [
     ["Model", c ? c.model : i.model],
     ["Thinking", c?.thinkingLevel],
-    ["Project", c ? wsLabel(c.workspace) : i.workspaceLabel],
+    ["Area", c ? wsLabel(c.workspace) : i.workspaceLabel],
     ["Folder", (c ? c.cwd : i.cwd || "").replace(/^\/home\/nathan|^\/Users\/[^/]+/, "~")],
     ["Context", s.ctx ? `${Math.round(s.ctx / 1000)}k tokens` : ""],
     ["Cost", s.cost ? `$${s.cost.toFixed(2)}` : ""],
@@ -846,7 +974,7 @@ function chatMenu(c, full) {
     full && c.sid ? mi("share", "link", "Copy link") : "",
     mi("rename", "pencil", "Rename"),
     mi("pin", "pin", c.pinned ? "Unpin" : "Pin"),
-    mi("move", "folderPlus", "Move to project"),
+    mi("move", "folderPlus", "Move to area"),
     mi("waiting", "hourglass", c.waiting?.length ? "Not waiting" : "Mark waiting for"),
     mi("unread", "unread", "Mark as unread"),
     full ? "<hr>" + (c.sid ? `<a class="mi" href="/${c.sid}" data-t="chat-act-board">${ICON.board}<span class="lbl">Open in AG Dash</span></a>` : "") + mi("tmux", "term", "Open in tmux") : "",
@@ -860,7 +988,7 @@ async function act(name, el) {
   const c = menuCard || current();
   if (name === "move") {
     const r = el.getBoundingClientRect();
-    showPop({ getBoundingClientRect: () => r }, `<div class="hdr">Move to project</div>` + board.workspaces.filter((w) => w.id !== c.workspace).map((w) => `<button class="mi" data-move="${w.id}">${ICON.folder}<span class="lbl">${esc(w.label)}</span></button>`).join(""));
+    showPop({ getBoundingClientRect: () => r }, `<div class="hdr">Move to area</div>` + [inboxWs(), ...areas()].filter((w) => w && w.id !== c.workspace).map((w) => `<button class="mi" data-move="${w.id}">${w === inboxWs() ? ICON.tray : ICON.area}<span class="lbl">${esc(w.label)}</span></button>`).join(""));
     pop.style.left = `${Math.min(parseFloat(pop.style.left) + 24, innerWidth - pop.offsetWidth - 8)}px`;
     return;
   }
@@ -1382,6 +1510,10 @@ document.addEventListener("click", (e) => {
     more.closest(".item").classList.add("menu-open");
     return;
   }
+  const at = t.closest("[data-area-toggle]");
+  if (at) { e.preventDefault(); e.stopPropagation(); const id = at.dataset.areaToggle; if (areaOpen[id]) delete areaOpen[id]; else areaOpen[id] = "open"; saveAreaOpen(); renderSide(); return; }
+  const am = t.closest("[data-area-more]");
+  if (am) { const id = am.dataset.areaMore; areaOpen[id] = areaOpen[id] === "all" ? "open" : "all"; saveAreaOpen(); renderSide(); return; }
   const a = t.closest("a.item");
   if (a && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); go(a.getAttribute("href")); return; }
   const g = t.closest("[data-go]");
@@ -1393,7 +1525,7 @@ document.addEventListener("click", (e) => {
     if (k === "new") go("/chat");
     if (k === "search") openSearch();
     if (k === "closeModal") closeModals();
-    if (k === "projectsAll") { projectsAll = !projectsAll; localStorage.setItem("agchat.projectsAll", projectsAll ? "1" : "0"); renderSide(); }
+    if (k === "newArea") newArea();
     if (k === "profile") { if (pop) closePop(); else profileMenu(d); }
     if (k === "picker") { if (pop) closePop(); else showPop(d, pickerPop()); }
     if (k === "dots") { if (pop) closePop(); else { menuCard = null; const c = current(); if (c) showPop(d, chatMenu(c, true), { align: "right" }); } }

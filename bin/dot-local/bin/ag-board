@@ -100,7 +100,7 @@ const KEYS = new Set(["esc", "enter", "up", "down", "left", "right", "tab", "bac
 
 type CardState = { goneAt?: number /* tab missing since; forgotten after GONE_KEEP_MS */; waiting?: boolean /* marked by hand */; wakeAskedAt?: number; wakeAsks?: number; pinned?: boolean; hot?: boolean; red?: boolean /* older names of pinned */; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
 type List = { id: string; name: string };
-type State = { cards: Record<string, CardState>; lists: List[] };
+type State = { cards: Record<string, CardState>; lists: List[]; areas?: string[] }; // areas: Ag Chat's sidebar order of workspace ids
 type Msg = { role: "user" | "assistant"; text: string; ts: number };
 type Tool = { id?: string; name: string; detail: string; sum?: string; hosts?: string[]; ts: number; end?: number; error?: boolean };
 type Activity = { kind: "thinking" | "tool" | "idle" | "error"; since: number; tool?: string; detail?: string; sum?: string; hosts?: string[]; error?: string };
@@ -703,7 +703,7 @@ async function routinesJson() {
 
 type Sys = { mem?: Mem; cua: Cua };
 
-let board: { cards: Card[]; lists: List[]; workspaces: { id: string; label: string }[]; page: number; sys?: Sys } = { cards: [], lists: state.lists, workspaces: [], page: 0 };
+let board: { cards: Card[]; lists: List[]; areas?: string[]; workspaces: { id: string; label: string }[]; page: number; sys?: Sys } = { cards: [], lists: state.lists, workspaces: [], page: 0 };
 let boardJson = "";
 const cardKey = new Map<string, string>(); // tab id → board state key (pi session id, else tab id)
 // SSE senders, one per open page. The client Mac reaches ag through a Tailscale relay (~4 Mbps), so each stream is
@@ -873,7 +873,7 @@ async function poll() {
 	try {
 		page = statSync(realpathSync(PAGE)).mtimeMs;
 	} catch {}
-	board = { cards, lists: state.lists, workspaces: snap.workspaces.map((w: any) => ({ id: w.workspace_id, label: w.label })), page, sys: { mem: readMem(), cua } };
+	board = { cards, lists: state.lists, areas: state.areas ?? [], workspaces: snap.workspaces.map((w: any) => ({ id: w.workspace_id, label: w.label })), page, sys: { mem: readMem(), cua } };
 	expireMeta(cards, now);
 	const json = JSON.stringify(board);
 	if (json !== boardJson) {
@@ -1338,6 +1338,24 @@ async function handle(req: Request): Promise<Response> {
 				dirty = true;
 				await after();
 				return ok();
+			}
+			case "/api/areas": {
+				// Ag Chat's sidebar: the order of areas (workspace ids), dragged by hand.
+				if (!Array.isArray(body.order)) return bad("order required");
+				state.areas = body.order.map(String).slice(0, 200);
+				dirty = true;
+				await after();
+				return ok();
+			}
+			case "/api/workspace": {
+				// Ag Chat's "New area": an empty workspace (one shell tab).
+				const label = String(body.label ?? "").trim().slice(0, 40);
+				if (!label) return bad("label required");
+				if (board.workspaces.some((w) => w.label.toLowerCase() === label.toLowerCase())) return bad("an area with that name exists", 409);
+				const r = await mux("workspace", "create", "--cwd", HOME, "--label", label, "--no-focus");
+				if (r.code !== 0) return fail(r, "workspace create");
+				await after();
+				return Response.json({ ok: true, id: JSON.parse(r.out).result?.workspace?.workspace_id });
 			}
 			case "/api/prompt": {
 				const text = String(body.text ?? "").trim();

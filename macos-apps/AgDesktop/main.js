@@ -76,15 +76,25 @@ app.on("second-instance", show);
 // The page's notifications, shown natively (see preload.js). Kept referenced until closed so they aren't
 // garbage-collected (which would drop their click). A tag replaces the earlier notification with the same tag.
 const notes = new Map(); // page id → { n, tag }
+// Each notification and what macOS did with it goes to ~/Library/Logs/Ag Desktop/notifications.log (kept small).
+const logFile = () => path.join(app.getPath("logs"), "notifications.log");
+function noteLog(...parts) {
+  try {
+    fs.mkdirSync(path.dirname(logFile()), { recursive: true });
+    if (fs.existsSync(logFile()) && fs.statSync(logFile()).size > 256 * 1024) fs.renameSync(logFile(), `${logFile()}.1`);
+    fs.appendFileSync(logFile(), `${new Date().toISOString()} ${parts.join(" ")}\n`);
+  } catch {}
+}
 ipcMain.on("ag-desktop:notify", (e, { id, title, body, tag, silent }) => {
-  const send = (type) => { if (!e.sender.isDestroyed()) e.sender.send("ag-desktop:notify-event", { id, type }); };
+  const send = (type) => { noteLog(type, JSON.stringify(title)); if (!e.sender.isDestroyed()) e.sender.send("ag-desktop:notify-event", { id, type }); };
+  noteLog("request", JSON.stringify(title), `focused=${!!win?.isFocused()}`);
   if (tag) for (const [k, v] of notes) if (v.tag === tag) { v.n.close(); notes.delete(k); }
   const n = new Notification({ title, body, silent });
   notes.set(id, { n, tag });
   n.on("show", () => send("show"));
   n.on("click", () => { show(); send("click"); notes.delete(id); });
   n.on("close", () => { send("close"); notes.delete(id); });
-  n.on("failed", () => { send("error"); notes.delete(id); });
+  n.on("failed", (_e, err) => { noteLog("failed", err); send("error"); notes.delete(id); });
   n.show();
 });
 ipcMain.on("ag-desktop:notify-close", (_e, id) => { notes.get(id)?.n.close(); notes.delete(id); });

@@ -7,11 +7,12 @@ const fs = require("fs");
 const path = require("path");
 
 const INBOX = "http://ag:7373/prompt";
-const WIDTH = 680;
+const WIDTH = 820;
 
 let entry = null;
 let ready = null; // resolves once entry.html has loaded
 let current = {}; // this capture: shot, app, window, annotated, watcher, returnTo
+let centerY = 0; // vertical center of the box on its display; it stays centered as it grows
 let getMain = () => null;
 
 function create() {
@@ -32,10 +33,11 @@ const thumb = (file) => {
   return img.isEmpty() ? null : img.resize({ height: 160 }).toDataURL();
 };
 
-// Centered horizontally, a fifth of the way down the display under the mouse (like Spotlight).
+// Centered on the display under the mouse; resizing keeps it centered vertically.
 function place(height) {
   const area = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
-  entry.setBounds({ x: Math.round(area.x + (area.width - WIDTH) / 2), y: Math.round(area.y + area.height * 0.2), width: WIDTH, height });
+  centerY = area.y + area.height / 2;
+  entry.setBounds({ x: Math.round(area.x + (area.width - WIDTH) / 2), y: Math.round(centerY - height / 2), width: WIDTH, height });
 }
 
 async function open(url) {
@@ -117,7 +119,11 @@ function setup(mainWindow) {
   ipcMain.on("entry:send", (_e, msg) => send(msg));
   ipcMain.on("entry:cancel", close);
   ipcMain.on("entry:annotate", annotate);
-  ipcMain.on("entry:resize", (_e, h) => { if (entry && h > 0) entry.setBounds({ ...entry.getBounds(), height: Math.round(h) }); });
+  ipcMain.on("entry:resize", (_e, h) => {
+    if (!entry || h <= 0) return;
+    const b = entry.getBounds();
+    entry.setBounds({ ...b, y: centerY ? Math.round(centerY - h / 2) : b.y, height: Math.round(h) });
+  });
   app.whenReady().then(create); // prebuilt and hidden, so it opens instantly
 }
 

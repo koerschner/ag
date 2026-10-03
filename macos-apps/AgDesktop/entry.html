@@ -9,23 +9,23 @@
   @media (prefers-color-scheme: dark) { :root { --bg: rgba(30, 30, 32, .74); --text: #f5f5f7; --muted: #98989d; --line: rgba(255, 255, 255, .1); --chip: rgba(255, 255, 255, .07); --key: rgba(255, 255, 255, .09); } }
   * { box-sizing: border-box; }
   html, body { margin: 0; background: transparent; overflow: hidden; }
-  body { font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; color: var(--text); -webkit-user-select: none; }
-  .card { margin: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 10px; }
-  .row { display: flex; gap: 12px; align-items: flex-start; }
-  .logo { width: 22px; height: 22px; margin-top: 2px; flex: none; border-radius: 6px; background: linear-gradient(135deg, #2b2b2e, #000); color: #fff; font: 700 11px/22px -apple-system; text-align: center; letter-spacing: -.3px; }
-  textarea { flex: 1; border: 0; outline: 0; resize: none; background: transparent; color: inherit; font: inherit; font-size: 17px; line-height: 1.4; padding: 0; min-height: 24px; max-height: 260px; -webkit-user-select: text; }
+  body { font: 16px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; color: var(--text); -webkit-user-select: none; }
+  .card { margin: 0; background: var(--bg); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px 12px; display: flex; flex-direction: column; gap: 12px; }
+  .row { display: flex; gap: 14px; align-items: flex-start; }
+  .logo { width: 28px; height: 28px; margin-top: 1px; flex: none; border-radius: 7px; background: linear-gradient(135deg, #2b2b2e, #000); color: #fff; font: 700 13px/28px -apple-system; text-align: center; letter-spacing: -.3px; }
+  textarea { flex: 1; border: 0; outline: 0; resize: none; background: transparent; color: inherit; font: inherit; font-size: 21px; line-height: 1.4; padding: 0; min-height: 30px; max-height: 340px; -webkit-user-select: text; }
   textarea::placeholder { color: var(--muted); }
-  .shot { display: none; align-items: center; gap: 10px; padding: 6px; padding-right: 10px; background: var(--chip); border-radius: 10px; align-self: flex-start; margin-left: 34px; }
+  .shot { display: none; align-items: center; gap: 10px; padding: 6px; padding-right: 10px; background: var(--chip); border-radius: 10px; align-self: flex-start; margin-left: 42px; }
   .shot.on { display: flex; }
-  .shot img { height: 54px; border-radius: 6px; cursor: pointer; border: 1px solid var(--line); }
+  .shot img { height: 64px; border-radius: 6px; cursor: pointer; border: 1px solid var(--line); }
   .shot img:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
   .shot .label { font-size: 12px; color: var(--muted); line-height: 1.35; }
   .shot .label b { color: var(--text); font-weight: 600; display: block; }
   .shot button { border: 0; background: transparent; color: var(--muted); font-size: 15px; cursor: pointer; padding: 2px 4px; border-radius: 6px; }
   .shot button:hover { background: var(--key); color: var(--text); }
-  .foot { display: flex; align-items: center; gap: 14px; border-top: 1px solid var(--line); padding-top: 8px; font-size: 11.5px; color: var(--muted); }
+  .foot { display: flex; align-items: center; gap: 14px; border-top: 1px solid var(--line); padding-top: 8px; font-size: 12.5px; color: var(--muted); }
   .foot .sp { flex: 1; }
-  kbd { font: 500 11px -apple-system; background: var(--key); border-radius: 4px; padding: 1px 5px; margin-right: 4px; color: var(--text); }
+  kbd { font: 500 12px -apple-system; background: var(--key); border-radius: 4px; padding: 1px 5px; margin-right: 4px; color: var(--text); }
   .status { color: var(--muted); }
 </style>
 </head>
@@ -56,7 +56,7 @@ let hasShot = false;
 // Size the window to the content (the textarea grows with what you type).
 function fit() {
   text.style.height = "auto";
-  text.style.height = Math.min(text.scrollHeight, 260) + "px";
+  text.style.height = Math.min(text.scrollHeight, 340) + "px";
   agEntry.resize(Math.ceil($("card").getBoundingClientRect().height));
 }
 text.addEventListener("input", fit);

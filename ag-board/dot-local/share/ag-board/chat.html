@@ -30,6 +30,7 @@
   Ag Chat (/chat): a ChatGPT-desktop-style view over the same sessions and APIs as AG Dash (the board at / is
   unchanged). Installable on its own (chat-manifest.json: "Ag Chat", scope /chat, window-controls-overlay).
   Sidebar: New chat, Search (⌘K), Needs you / Working / Waiting, Projects (= workspaces; drag chats onto them, drag them to reorder), Pinned, Chats.
+  Right-click a chat (sidebar or a list) for the same menu as its ⋯ button, at the pointer; ⇧ right-click keeps the browser's menu.
   Chat: the session transcript as a thread (thinking + tool calls folded into a "Worked for …" activity timeline: kind icons, "Explored …" groups, terminal blocks, edit diffs; open while live), live activity,
   dialog keys when blocked, composer (Enter sends; steers while working; ■ stops; mic → text; voice → send).
   APIs: /events (board over SSE), /api/transcript, /api/prompt, /api/interrupt, /api/keys, /api/new (route=new,
@@ -1939,6 +1940,19 @@ let lpHeld = false; // the finger that fired a long-press is still down: its lif
 addEventListener("touchend", () => { cancelLp(); if (lpHeld) { lpHeld = false; eatClickUntil = Date.now() + 300; } });
 addEventListener("touchcancel", cancelLp);
 addEventListener("contextmenu", (e) => { if (isMobile() && e.target.closest?.(".side, .crow, .thread")) e.preventDefault(); });
+// Desktop: right-click a chat opens its ⋯ menu at the pointer (one menu, two ways in, like ChatGPT and Gmail).
+// ⇧ right-click falls through to the browser's own menu (open in new tab, copy link address…).
+addEventListener("contextmenu", (e) => {
+  if (isMobile()) return;
+  const el = !e.shiftKey && e.target.closest?.("#sideScroll .item, #rows .crow[data-drag-tab]");
+  const c = el && byTab.get(el.dataset.tab || el.dataset.dragTab);
+  if (!c) { if (pop) closePop(); return; }
+  e.preventDefault();
+  const at = { left: e.clientX, right: e.clientX, top: e.clientY - 6, bottom: e.clientY - 6 };
+  menuCard = c;
+  showPop({ getBoundingClientRect: () => at }, chatMenu(c, false));
+  if (el.matches(".item")) { openMenuTab = c.tab; el.classList.add("menu-open"); }
+});
 document.addEventListener("click", (e) => { if (Date.now() < eatClickUntil) { e.preventDefault(); e.stopPropagation(); } }, true);
 function fireLp(el) {
   lp = null; el.classList.remove("lp");

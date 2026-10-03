@@ -1,5 +1,7 @@
 # ag
 
+> **Setting up your own Ag?** Follow [docs/onboarding.md](docs/onboarding.md). Fastest: hand it to the ChatGPT desktop app with computer use turned on, and step in only for payments and 2FA.
+
 "always going" or "automatic gun", depending on how edgy you're feeling
 
 Ag is an agent system: dozens of long-lived coding-agent sessions (Pi) running on an always-on Linux
@@ -10,7 +12,7 @@ command, **`ag`**.
 This repo is the whole system as code: the `ag` CLI and its services, the session layer, the global agent
 instructions, the skills, and the infrastructure to build the machines. Any machine can be rebuilt from it.
 
-- New here? Read **[How Ag works](#how-ag-works)**, then **[Set up a machine](#set-up-a-machine)**.
+- New here? Read **[How Ag works](#how-ag-works)**, then **[docs/onboarding.md](docs/onboarding.md)** to build your own.
 - Every command: **[The `ag` CLI](#the-ag-cli)** (or `ag help`, and `ag <verb> --help`).
 - Internals of one component (AG Dash, the inbox, the tickler, …): **[docs/reference.md](docs/reference.md)**.
 
@@ -49,7 +51,7 @@ Nathan at his Mac?), hibernation of idle sessions, a shared MCP gateway, and an 
 ## Set up a machine
 
 You need macOS or Ubuntu 24.04, [Tailscale](https://tailscale.com) signed in to the tailnet, and access to
-this repo (it's private; ask Nathan).
+this repo (public: `https://github.com/koerschner/ag`).
 
 ```sh
 git clone git@github.com:koerschner/ag.git ~/ag
@@ -224,6 +226,7 @@ iMessage on ag-mac. Expect to touch those when Ag runs for someone else.
 
 | Doc | What |
 |---|---|
+| [docs/onboarding.md](docs/onboarding.md) | build your own Ag from nothing: accounts, tailnet, VPS, ag-mac |
 | [docs/reference.md](docs/reference.md) | every component in depth: AG Dash, inbox, tickler, presence, MCP gateway, secrets, permissions, the client bridge, … |
 | [docs/ag.md](docs/ag.md) | design and roadmap: the engine, ag-mac, workers, persistence |
 | [docs/ag-cli.md](docs/ag-cli.md) | why the CLI looks the way it does (audit of what agents did by hand) |

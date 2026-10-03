@@ -22,6 +22,16 @@ function currentWorkspaceLabel(): string | undefined {
 	}
 }
 
+// Whether this session is pinned on AG Dash (e.g. Nathan captured it with Cmd+Enter): its deferred items come back pinned too.
+function currentSessionPinned(): boolean {
+	if (process.env.AG_MUX !== "1") return false;
+	try {
+		return JSON.parse(execFileSync(`${homedir()}/.local/bin/ag`, ["me", "--json"], { encoding: "utf8", timeout: 5000 })).pinned === true;
+	} catch {
+		return false;
+	}
+}
+
 function now(): string {
 	const d = new Date();
 	const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -62,6 +72,7 @@ export default function (pi: ExtensionAPI) {
 			mode: Type.Optional(StringEnum(["fork", "fresh"] as const, { description: "schedule: fork this conversation (default) or start a fresh pi" })),
 			waitingFor: Type.Optional(Type.String({ description: "schedule with `at`: GTD waiting-for; the person we're waiting on (enables the check/follow-up/backoff prompt)" })),
 			attempt: Type.Optional(Type.Number({ description: "waitingFor: which check-in this is (1 = first; increment on each requeue)" })),
+			pin: Type.Optional(Type.Boolean({ description: "schedule: pin the session it comes back in on AG Dash. Automatic when this session is pinned (e.g. captured with Cmd+Enter)" })),
 			needsNathan: Type.Optional(Type.Boolean({ description: "schedule: true when the wake-up waits on Nathan himself (a login, click, approval, answer). Keeps the card in AG Dash's Needs you instead of Waiting for" })),
 			id: Type.Optional(Type.String({ description: "cancel: item id" })),
 		}),
@@ -77,6 +88,7 @@ export default function (pi: ExtensionAPI) {
 				if (p.waitingFor) trigger.push("--waiting-for", p.waitingFor, "--attempt", String(p.attempt ?? 1));
 				if (p.expires) trigger.push("--expires", p.expires);
 				if (p.needsNathan) trigger.push("--needs-nathan");
+				if (p.pin ?? currentSessionPinned()) trigger.push("--pin");
 				args = ["add", ...trigger, "--task", p.task, "--cwd", ctx.cwd, "--mode", p.mode ?? "fork"];
 				const session = ctx.sessionManager.getSessionFile();
 				const workspace = p.workspace ?? currentWorkspaceLabel();

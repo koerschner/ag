@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // tickler: a GTD tickler for Ag's sessions. Deferred tasks come back at their time as a new pi tab.
 //
-//   tickler add --at <ISO time> --task <text> [--title t] [--session f] [--cwd d] [--workspace label] [--mode fork|fresh]
+//   tickler add --at <ISO time> --task <text> [--title t] [--session f] [--cwd d] [--workspace label] [--mode fork|fresh] [--pin]
 //   tickler add --when online --task <text> ...   # fire the next time Nathan comes online at the client (`presence`)
 //   tickler add --when check --check '<sh cmd>' --task <text> [--expires ISO] ...  # fire once the check exits 0
 //   tickler add --when event --task <text> [--expires ISO] ...                     # fire only via `tickler trigger`
@@ -28,6 +28,8 @@
 // replied (and any --check fires it early, e.g. a DNS change landing). Replied → do the next step. Not yet → a polite
 // follow-up and a requeue with --attempt N+1 on the backoff in waitingPrompt(); a timeline they gave wins over the backoff.
 // Like wake-ups, they resume the deferring session in place when it's open and ready.
+// --pin (set by the pi tool when the deferring session is pinned, e.g. captured with Cmd+Enter) pins the session the
+// item comes back in on AG Dash, whether a new tab or the resumed original.
 
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -64,6 +66,7 @@ type Item = {
 	waiting_for?: string; // GTD "waiting for": the person we're waiting on
 	attempt?: number; // waiting-for: which check-in this is (1 = first)
 	needs_nathan?: boolean; // the wake-up waits on Nathan himself (a login, a click, an answer): AG Dash keeps it in Needs you
+	pin?: boolean; // pin the session it comes back in (the deferring session was pinned)
 	session?: string;
 	cwd: string;
 	workspace?: string;
@@ -129,6 +132,7 @@ function add(f: Record<string, string>) {
 		waiting_for: f["waiting-for"],
 		attempt: f["waiting-for"] ? Math.max(1, Number(f.attempt) || 1) : undefined,
 		needs_nathan: f["needs-nathan"] === "true" || undefined,
+		pin: f.pin === "true" || undefined,
 		expires: expires?.toISOString(),
 		session,
 		cwd: f.cwd ?? HOME,
@@ -147,7 +151,7 @@ function add(f: Record<string, string>) {
 		: wake
 			? ` Resumes this session in place if it's still open and ready, else a forked tab. Webhook: curl -X POST http://ag:7373/tickler/${item.id} (or \`tickler trigger ${item.id}\`).`
 			: "";
-	console.log(`Scheduled ${item.id} "${item.title}" for ${whenText(item)}${late}, in workspace ${item.workspace ?? FALLBACK_WORKSPACE}, mode ${item.mode}.${p}`);
+	console.log(`Scheduled ${item.id} "${item.title}" for ${whenText(item)}${late}, in workspace ${item.workspace ?? FALLBACK_WORKSPACE}, mode ${item.mode}${item.pin ? ", pinned when it comes back" : ""}.${p}`);
 }
 
 function list(all: boolean) {
@@ -264,6 +268,20 @@ function originPane(i: Item): string | null {
 	}
 }
 
+// Pin the session an item came back in on AG Dash (best effort; the card can take a moment to appear).
+function pinTab(i: Item, pane: string) {
+	if (!i.pin) return;
+	for (let tries = 0; tries < 10; tries++) {
+		try {
+			execFileSync(`${HOME}/.local/bin/ag`, ["pin", "on", pane], { timeout: 15_000, stdio: "ignore" });
+			return log(i.id, "pinned", { pane });
+		} catch {
+			Bun.sleepSync(2000);
+		}
+	}
+	log(i.id, "pin_failed", { pane });
+}
+
 function fireOne(i: Item) {
 	const origin = resumes(i) ? originPane(i) : null;
 	if (origin) {
@@ -272,6 +290,7 @@ function fireOne(i: Item) {
 		try {
 			mux("notification", "show", `🔔 ${i.title}`.slice(0, 40), "--body", "Wake-up fired: resumed its session", "--sound", "request");
 		} catch {}
+		pinTab(i, origin);
 		return log(i.id, "fired", { pane: origin, resumed: true });
 	}
 	const ws = workspaceFor(i.workspace);
@@ -299,6 +318,7 @@ function fireOne(i: Item) {
 	}
 	injected("tickler", prompt(i), { id: i.id, when: i.when });
 	mux("agent", "prompt", agent, prompt(i));
+	pinTab(i, pane);
 	try {
 		const why = i.when === "online" ? "Welcome back: queued for when you're online" : isWake(i) ? "Wake-up fired (its session was closed or busy)" : "Tickler fired";
 		mux("notification", "show", label, "--body", `${why}, in ${i.workspace ?? FALLBACK_WORKSPACE}`, "--sound", "request");

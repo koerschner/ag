@@ -154,6 +154,9 @@ kbd { font: 12px var(--sans); color: var(--faint); }
 .pop .chip { font-size: 13px; padding: 4px 10px; border-radius: 99px; background: var(--hover); color: var(--muted); }
 .pop .chip:hover { background: var(--hover2); color: var(--text); }
 .pop .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.day h3 { font-size: 15px; font-weight: 600; margin: 22px 12px 4px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.day:first-child h3 { margin-top: 4px; }
+.day .crow { border-bottom: 0; }
 .filter { width: 100%; font: inherit; font-size: 14px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; margin: 4px 0 12px; outline: none; }
 .filter:focus { border-color: var(--blue); }
 .pill.sm { height: 30px; padding: 0 12px; font-size: 13px; flex: none; }
@@ -444,6 +447,7 @@ details.steps > summary .n { font-size: 13px; opacity: .8; }
       <a class="row" href="/chat/p/inbox" data-go="/chat/p/inbox" data-nav="inbox" id="inboxRow"><i data-icon="tray"></i><span class="lbl">Inbox</span><span class="badge" id="nInbox"></span></a>
       <a class="row" href="/chat?view=you" data-go="/chat?view=you" data-nav="you"><i data-icon="star"></i><span class="lbl">Needs you</span><span class="badge" id="nYou"></span></a>
       <a class="row" href="/chat?view=working" data-go="/chat?view=working" data-nav="working"><i data-icon="bolt"></i><span class="lbl">Working</span><span class="badge" id="nWorking"></span></a>
+      <a class="row" href="/chat?view=upcoming" data-go="/chat?view=upcoming" data-nav="upcoming"><i data-icon="calendar"></i><span class="lbl">Upcoming</span></a>
       <a class="row" href="/chat?view=waiting" data-go="/chat?view=waiting" data-nav="waiting"><i data-icon="clock"></i><span class="lbl">Waiting for</span><span class="badge" id="nWaiting"></span></a>
     </nav>
     <div class="side-scroll" id="sideScroll"></div>
@@ -537,6 +541,7 @@ const ICON = {
   monitor: S('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>'),
   area: S('<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z"/><path d="m4 7.5 8 4.5 8-4.5M12 12v9"/>'),
   bell: S('<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/>'),
+  calendar: S('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>'),
   star: S('<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9Z"/>'),
   tray: S('<path d="M3 13h5l1.5 3h5l1.5-3h5"/><path d="M3 13l2.5-8h13L21 13v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1Z"/>'),
   hourglass: S('<path d="M6 3h12M6 21h12M7 3c0 5 10 5 10 9s-10 4-10 9M17 3c0 5-10 5-10 9s10 4 10 9"/>'),
@@ -867,7 +872,7 @@ function parse() {
   const ws = p.match(/^\/chat\/p\/(.+)$/)?.[1];
   if (ws) return { kind: "project", ws: ws === "inbox" ? inboxWs()?.id || ws : decodeURIComponent(ws) };
   const view = new URLSearchParams(location.search).get("view");
-  if (["you", "working", "waiting", "archived"].includes(view)) return { kind: "list", view };
+  if (["you", "working", "waiting", "archived", "upcoming"].includes(view)) return { kind: "list", view };
   return { kind: "new" };
 }
 function go(url, replace) {
@@ -925,12 +930,13 @@ function renderMain() {
   }
   if (route.kind === "list" || route.kind === "project") {
     const isP = route.kind === "project";
-    const title = isP ? wsLabel(route.ws) : { you: "Needs you", working: "Working", waiting: "Waiting for", archived: "Archived chats" }[route.view];
-    const icon = isP ? (route.ws === inboxWs()?.id ? ICON.tray : ICON.area) : { you: ICON.star, working: ICON.bolt, waiting: ICON.clock, archived: ICON.archive }[route.view];
+    const title = isP ? wsLabel(route.ws) : { you: "Needs you", working: "Working", waiting: "Waiting for", archived: "Archived chats", upcoming: "Upcoming" }[route.view];
+    const icon = isP ? (route.ws === inboxWs()?.id ? ICON.tray : ICON.area) : { you: ICON.star, working: ICON.bolt, waiting: ICON.clock, archived: ICON.archive, upcoming: ICON.calendar }[route.view];
     view.innerHTML = `<div class="page"${isP ? ` data-drop-ws="${esc(route.ws)}"` : ""}><div class="page-in"><h2>${icon}${esc(title)}</h2>
       ${isP ? composerHtml(`New chat in ${title}`) : ""}
       ${isP ? '<div class="tabs"><span>Chats</span></div>' : ""}<div id="rows"></div></div></div>`;
     if (isP) wireComposer();
+    if (route.view === "upcoming") loadUpcoming();
     if (route.view === "archived") { $("#rows").insertAdjacentHTML("beforebegin", '<input class="filter" id="archFilter" placeholder="Search archived chats" autocomplete="off" aria-label="Search archived chats">'); $("#archFilter").addEventListener("input", renderListRows); loadArchived(); }
     renderListRows();
     return;
@@ -976,9 +982,40 @@ function archivedRows() {
   return list.map((a) => `<a class="crow" href="/chat/${a.sid}" data-go="/chat/${a.sid}"><div class="txt"><div class="t">${esc(a.title)}</div></div><button class="pill sm" data-restore="${a.sid}" data-t="chat-restore">Restore</button><span class="d">${ago(a.last * 1000)}</span></a>`).join("")
     || `<div class="empty-list" style="padding:24px 12px">${q ? "No archived chats match." : "No chats archived in the last two weeks."}</div>`;
 }
+// Upcoming (Things 3): the tickler's scheduled wake-ups by day, then the ones waiting on a condition.
+let upcomingItems = null;
+async function loadUpcoming() {
+  upcomingItems = null; renderListRows();
+  try { const r = await fetch("/api/upcoming"); upcomingItems = r.ok ? await r.json() : []; } catch { upcomingItems = []; }
+  renderListRows();
+}
+function dayLabel(d) {
+  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const n = Math.round((day(d) - day(new Date())) / 86400000);
+  if (n <= 0) return "Today";
+  if (n === 1) return "Tomorrow";
+  if (n < 7) return d.toLocaleDateString(undefined, { weekday: "long" });
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+function upcomingRows() {
+  if (!upcomingItems) return '<div class="empty-list" style="padding:24px 12px">Loading…</div>';
+  const groups = new Map();
+  for (const u of upcomingItems) {
+    const k = u.due ? dayLabel(new Date(u.due)) : u.when === "online" ? "When you're back at your Mac" : "When something happens";
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(u);
+  }
+  return [...groups].map(([k, list]) => `<div class="day"><h3>${esc(k)}</h3>${list.map((u) => {
+    const time = u.due ? new Date(u.due).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : u.expires ? `until ${new Date(u.expires).toLocaleDateString(undefined, { month: "short", day: "numeric" })}` : "";
+    const sub = [u.workspace, u.waitingFor && `waiting for ${u.waitingFor}`, !u.due && u.check && "on a check"].filter(Boolean).join(" · ");
+    const href = u.sid ? `/chat/${u.sid}` : "";
+    return `<${href ? `a href="${href}" data-go="${href}"` : "div"} class="crow"><div class="txt"><div class="t">${esc(u.title)}</div><div class="s">${esc(sub)}</div></div><span class="d">${esc(time)}</span></${href ? "a" : "div"}>`;
+  }).join("")}</div>`).join("") || '<div class="empty-list" style="padding:24px 12px">Nothing scheduled.</div>';
+}
 function renderListRows() {
   const el = $("#rows");
   if (!el) return;
+  if (route.view === "upcoming") { const html = upcomingRows(); if (el.innerHTML !== html) el.innerHTML = html; return; }
   if (route.view === "archived") { const html = archivedRows(); if (el.innerHTML !== html) el.innerHTML = html; return; }
   const fn = route.kind === "project" ? (c) => c.workspace === route.ws : { you: needsYou, working, waiting: (c) => c.waiting?.length }[route.view];
   const list = board.cards.filter(fn).sort((a, b) => lastAt(b) - lastAt(a));

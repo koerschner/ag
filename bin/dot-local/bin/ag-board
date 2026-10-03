@@ -1159,6 +1159,7 @@ async function handle(req: Request): Promise<Response> {
 						})),
 				);
 			if (p === "/api/routines") return Response.json(await routinesJson());
+			if (p === "/api/upcoming") return Response.json(upcoming());
 			if (p === "/api/archived") {
 				// Ag Chat's Archived chats: recently closed sessions (`ag find --closed`).
 				const days = Math.min(90, Number(url.searchParams.get("days")) || 14);
@@ -1468,6 +1469,22 @@ async function handle(req: Request): Promise<Response> {
 			}
 		}
 		return bad("not found", 404);
+}
+
+// Ag Chat's Upcoming (Things 3): the tickler's pending items (~/.local/state/tickler/<id>.json), soonest first.
+// sid: the deferring session, so the page can open it.
+function upcoming() {
+	const dir = `${HOME}/.local/state/tickler`;
+	const out: any[] = [];
+	for (const f of existsSync(dir) ? readdirSync(dir) : []) {
+		if (!f.endsWith(".json")) continue;
+		try {
+			const t = JSON.parse(readFileSync(`${dir}/${f}`, "utf8"));
+			if (t.status !== "waiting") continue;
+			out.push({ id: t.id, title: t.title, workspace: t.workspace, due: t.due ?? null, when: t.when ?? null, waitingFor: t.waiting_for ?? null, check: !!t.check, expires: t.expires ?? null, sid: String(t.session ?? "").match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/)?.[1] ?? null });
+		} catch {}
+	}
+	return out.sort((a, b) => (a.due ?? "9") < (b.due ?? "9") ? -1 : 1);
 }
 
 // pi's enabled models (settings.json enabledModels: "provider/model-id"), for Ag Chat's model picker.

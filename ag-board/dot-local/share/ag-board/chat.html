@@ -767,28 +767,22 @@ function connect() {
   es.onerror = () => { es.close(); setTimeout(connect, 2000); };
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden && es?.readyState !== 1) connect(); });
-// Like ChatGPT desktop: a system notification when a reply you asked for here finishes while you're elsewhere
-// (another app, or another chat). Clicking it opens the chat. Toggle in the profile menu.
+// A system notification whenever a pinned chat becomes ready (its agent stops working: done, idle or blocked),
+// unless you're already looking at that chat. Clicking it opens the chat. Toggle in the profile menu.
+// Chrome only shows the permission prompt for a user gesture, so the first click/keypress asks if undecided.
 const notifyOn = () => localStorage.getItem("agchat.notify") !== "0" && "Notification" in window;
-const watched = new Map(); // tab → when you sent
+const askNotify = () => { if (notifyOn() && Notification.permission === "default") Notification.requestPermission(); };
+for (const ev of ["pointerdown", "keydown"]) addEventListener(ev, askNotify, { once: true, capture: true });
 const wasWorking = new Set();
-function watchReply(tab) {
-  if (!notifyOn()) return;
-  watched.set(tab, Date.now());
-  if (Notification.permission === "default") Notification.requestPermission();
-}
 function notifyReplies(cards) {
   for (const c of cards) {
     if (c.status === "working") { wasWorking.add(c.tab); continue; }
-    const was = wasWorking.delete(c.tab);
-    if (!was || !watched.has(c.tab)) continue;
-    watched.delete(c.tab);
+    if (!wasWorking.delete(c.tab) || !c.pinned) continue;
     if (!notifyOn() || Notification.permission !== "granted") continue;
     if (!document.hidden && document.hasFocus() && current()?.tab === c.tab) continue;
-    const n = new Notification(c.title || "Ag", { body: c.status === "blocked" ? "Needs your answer" : snippet(c) || "Reply ready", tag: c.tab, icon: "/static/icon-192.png" });
+    const n = new Notification(c.title || "Ag", { body: c.status === "blocked" ? "Needs your answer" : snippet(c) || "Ready", tag: c.tab, icon: "/static/icon-192.png" });
     n.onclick = () => { window.focus(); go(urlOf(c)); n.close(); };
   }
-  for (const [tab, at] of watched) if (Date.now() - at > 6 * 3600e3) watched.delete(tab);
 }
 function apply(b, delta) {
   if (delta) b.cards = b.cards.map((c) => (c.same ? byTab.get(c.tab) : c)).filter(Boolean);
@@ -1206,7 +1200,7 @@ function profileMenu(anchor) {
     <a class="mi" href="/routines" data-t="chat-prof-routines">${ICON.repeat}<span class="lbl">Routines</span></a>
     <a class="mi" href="/chat?view=archived" data-go="/chat?view=archived" data-t="chat-prof-archived">${ICON.archive}<span class="lbl">Archived chats</span></a>
     ${mi("keys", "keyboard", "Keyboard shortcuts")}
-    ${"Notification" in window ? `<button class="mi" data-do="notify" data-t="chat-prof-notify" aria-pressed="${notifyOn()}">${ICON.bell}<span class="lbl">Notify when replies finish</span>${notifyOn() ? ICON.check : ""}</button>` : ""}
+    ${"Notification" in window ? `<button class="mi" data-do="notify" data-t="chat-prof-notify" aria-pressed="${notifyOn()}">${ICON.bell}<span class="lbl">Notify when pinned chats are ready</span>${notifyOn() ? ICON.check : ""}</button>` : ""}
     <hr><div class="hdr">Theme</div>${themeItems()}
     <hr><div class="note">${board.cards.length} chats · ${board.cards.filter(working).length} working${s.mem ? ` · memory ${s.mem.usedPct}%` : ""}${esc(cua)}</div>`, { above: true });
 }
@@ -1239,7 +1233,9 @@ async function loadTranscript(ref, first) {
     const c = current();
     if (c) transcriptSig = sigOf(c);
     const users = transcript.filter((x) => x.role === "user").slice(-5).map((x) => x.text.trim());
-    pending = pending.filter((p) => !users.includes(p.text.trim()) && Date.now() - p.ts < 120_000);
+    // A reply sent while the agent works is queued as steering and only reaches the transcript after the
+    // current step, which can take minutes: keep its bubble until it lands there (cap 30 min).
+    pending = pending.filter((p) => !users.includes(p.text.trim()) && Date.now() - p.ts < 30 * 60e3);
     const stick = first || nearBottom();
     renderThread(true);
     if (stick) scrollBottom();
@@ -1585,7 +1581,6 @@ async function send(opts = {}) {
   scrollBottom(true);
   try {
     await api("/api/prompt", { tab: c.tab, text, interrupt: !!opts.interrupt });
-    watchReply(c.tab);
   } catch (e) {
     pending = pending.filter((p) => p.text !== text); renderPending();
     restoreComposer(saved);
@@ -1607,7 +1602,6 @@ async function startChat(text, audio, saved) {
     if (j.tab) {
       if (byTab.has(j.tab)) return go(urlOf(byTab.get(j.tab)));
       startingTab = j.tab;
-      watchReply(j.tab);
       setTimeout(() => { if (startingTab === j.tab) { startingTab = null; toast("Chat started in your Inbox"); go("/chat"); } }, 30000);
     } else { toast("Sent to your Inbox"); go("/chat"); }
   } catch (e) {

@@ -340,7 +340,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
 <body>
 <header>
   <h1 aria-label="AG-Dash"><svg class="brand" viewBox="-3 0 204 64" aria-hidden="true"><g transform="skewX(-6) translate(4 0)" fill="#3ecf8e"><path d="M5.9 4.5l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4ZM29.5 5.9l4.5 4.5V26.1l-4.5 4.5l-4.5 -4.5V10.4ZM29.5 33.4l4.5 4.5V64H25V37.9ZM4.5 33.4l4.5 4.5V64H0V37.9ZM4.5 5.9l4.5 4.5V26.1l-4.5 4.5l-4.5 -4.5V10.4ZM5.9 32l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4ZM47.9 4.5l4.5 -4.5H65.6l4.5 4.5l-4.5 4.5H52.4ZM71.5 5.9l4.5 4.5V14.4l-4.5 4.5l-4.5 -4.5V10.4ZM71.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM47.9 59.5l4.5 -4.5H65.6l4.5 4.5l-4.5 4.5H52.4ZM46.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM46.5 5.9l4.5 4.5V26.1l-4.5 4.5l-4.5 -4.5V10.4ZM55 32l4.5 -4.5H65.6l4.5 4.5l-4.5 4.5H59.5Z"/><g transform="translate(84 25.6) scale(0.6)"><path d="M1.4 32l4.5 -4.5H16.6l4.5 4.5l-4.5 4.5H5.9Z"/></g><g transform="translate(102 25.6) scale(0.6)"><path d="M29.5 5.9l4.5 4.5V26.1l-4.5 4.5l-4.5 -4.5V10.4ZM29.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM5.9 59.5l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4ZM4.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM5.9 32l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4Z"/></g><g transform="translate(127.2 25.6) scale(0.6)"><path d="M5.9 4.5l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4ZM29.5 5.9l4.5 4.5V26.1l-4.5 4.5l-4.5 -4.5V10.4ZM29.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM5.9 59.5l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4ZM4.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM5.9 32l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4Z"/></g><g transform="translate(152.4 25.6) scale(0.6)"><path d="M5.9 4.5l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4ZM29.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM5.9 59.5l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4ZM4.5 5.9l4.5 4.5V26.1l-4.5 4.5l-4.5 -4.5V10.4ZM5.9 32l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4Z"/></g><g transform="translate(177.6 25.6) scale(0.6)"><path d="M29.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM4.5 33.4l4.5 4.5V53.6l-4.5 4.5l-4.5 -4.5V37.9ZM4.5 5.9l4.5 4.5V26.1l-4.5 4.5l-4.5 -4.5V10.4ZM5.9 32l4.5 -4.5H23.6l4.5 4.5l-4.5 4.5H10.4Z"/></g></g></svg></h1>
-  <button class="btn" id="newbtn" title="New item (n) · dictate one (d)">+ New item</button>
+  <button class="btn" id="newbtn" title="New item (c)">+ New item</button>
   <div class="counts" id="counts"></div>
   <div class="seg" id="views">
     <button data-v="state">State</button><button data-v="lists">Lists</button><button data-v="ws">Workspaces</button><button data-v="routines" title="Routines: recurring jobs Ag runs on its own">Routines</button>
@@ -353,7 +353,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
 </header>
 <div id="cuapanel" hidden></div>
 <nav id="coltabs" aria-label="Columns"></nav>
-<div class="hint" id="hint">Shift+click (or long-press) → pin: on top, siren ring and a desktop alert while it isn't working, texts you when it has something new. ▾ details · ■ interrupt · click for transcript, live screen and reply · keyboard: j/k to move, n new item, d dictate, / search, ? for all shortcuts.</div>
+<div class="hint" id="hint">Shift+click (or long-press) → pin: on top, siren ring and a desktop alert while it isn't working, texts you when it has something new. ▾ details · ■ interrupt · click for transcript, live screen and reply · keyboard: j/k to move, c new item, / search, ? for all shortcuts.</div>
 <main id="board"></main>
 <main id="routines" hidden></main>
 
@@ -419,19 +419,15 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
     <tr><td><span class="kbd">←</span> <span class="kbd">→</span></td><td>previous / next column</td></tr>
     <tr><td><span class="kbd">o</span> <span class="kbd">Enter</span></td><td>open the card (transcript, live screen, reply)</td></tr>
     <tr><td><span class="kbd">Space</span></td><td>expand / collapse details</td></tr>
-    <tr><td><span class="kbd">p</span> <span class="kbd">s</span></td><td>pin / unpin (Gmail's star)</td></tr>
-    <tr><td><span class="kbd">r</span></td><td>in an open session: write a reply (it opens unfocused, like a Gmail thread); <span class="kbd">j</span>/<span class="kbd">k</span> next / previous, <span class="kbd">e</span> archive and open the next, <span class="kbd">u</span> back to the board</td></tr>
+    <tr><td><span class="kbd">s</span></td><td>pin / unpin (Gmail's star)</td></tr>
+    <tr><td><span class="kbd">r</span></td><td>in an open session: write a reply (the box starts unfocused, like a Gmail thread); <span class="kbd">j</span>/<span class="kbd">k</span> next / previous, <span class="kbd">e</span> archive and open the next, <span class="kbd">u</span> back to the board</td></tr>
     <tr><td><span class="kbd">z</span></td><td>undo the last archive</td></tr>
-    <tr><td><span class="kbd">x</span></td><td>interrupt (press twice)</td></tr>
-    <tr><td><span class="kbd">g</span></td><td>open in tmux</td></tr>
-    <tr><td><span class="kbd">u</span></td><td>mark unread</td></tr>
-    <tr><td><span class="kbd">w</span></td><td>mark waiting (the agent is asked to schedule its tickler wake-up) / unmark</td></tr>
+    <tr><td><span class="kbd">⇧</span><span class="kbd">U</span></td><td>mark unread</td></tr>
     <tr><td><span class="kbd">e</span></td><td>archive (closes the tab; Undo for a few seconds)</td></tr>
-    <tr><td><span class="kbd">n</span> <span class="kbd">c</span></td><td>new item. Also: ask “where's the one about …” and it shows the cards; housekeeping (“pin the roblox ones”) goes to a brief session in Meta</td></tr>
-    <tr><td><span class="kbd">d</span></td><td>new item by dictation (click Dictate or <span class="kbd">⌘↩</span> to send)</td></tr>
+    <tr><td><span class="kbd">c</span></td><td>new item. Also: ask “where's the one about …” and it shows the cards; housekeeping (“pin the roblox ones”) goes to a brief session in Meta</td></tr>
     <tr><td><span class="kbd">1</span> <span class="kbd">2</span> <span class="kbd">3</span> <span class="kbd">4</span></td><td>State / Lists / Workspaces / Routines view</td></tr>
     <tr><td><span class="kbd">/</span></td><td>search</td></tr>
-    <tr><td><span class="kbd">⌘</span>+<span class="kbd">K</span></td><td>new item / find a session (same as <span class="kbd">n</span>, works while typing)</td></tr>
+    <tr><td><span class="kbd">⌘</span>+<span class="kbd">K</span></td><td>new item / find a session (same as <span class="kbd">c</span>, works while typing)</td></tr>
     <tr><td><span class="kbd">Esc</span></td><td>close panel</td></tr>
     <tr><td><span class="kbd">Alt</span>+<span class="kbd">V</span></td><td>dictate in the open editor (stop sends it)</td></tr>
     <tr><td><span class="kbd">⌘↩</span></td><td>send</td></tr>
@@ -1135,7 +1131,6 @@ function moveSel(dy, dx) {
   const tc = target.querySelectorAll(".card");
   select(tc[Math.min(row, tc.length - 1)].dataset.tab);
 }
-let lastX = 0;
 document.addEventListener("keydown", (e) => {
   if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") { e.preventDefault(); $("#ndlg").open ? $("#ndlg").close() : openNew(); return; }
   if (e.altKey && (e.key === "v" || e.key === "√" || e.code === "KeyV")) { e.preventDefault(); const id = $("#ndlg").open ? "ned" : openTab ? "rted" : null; if (id) toggleVoice(id); return; }
@@ -1143,10 +1138,10 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") { if ($("#ndlg").open || $("#help").open) return; if (openTab && typing()) document.activeElement.blur(); else if (openTab || openSid) closeDrawer(); else { $("#q").blur(); select(null); } return; }
   if (typing() || e.metaKey || e.ctrlKey || e.altKey || $("dialog[open]")) return;
   const k = e.key;
-  // Anywhere outside a text field, even with a session open: / search, n new item, d new item by dictation.
+  // Gmail keys, anywhere outside a text field (even with a session open): / search, c new item, ? help, z undo.
   const global = {
     "/": () => { if (openTab || openSid) closeDrawer(); $("#q").focus(); $("#q").select(); },
-    n: () => openNew(), c: () => openNew(), d: () => openNew(true), "?": () => openHelp(),
+    c: () => openNew(), "?": () => openHelp(),
     z: () => { const u = [...document.querySelectorAll("#undos .undo button")].pop(); u?.click(); },
   };
   if (global[k]) { e.preventDefault(); global[k](); return; }
@@ -1156,7 +1151,7 @@ document.addEventListener("keydown", (e) => {
     const thread = {
       r: () => rted.focus(), j: () => step(1), k: () => step(-1), u: () => closeDrawer(),
       e: () => { const t = openTab; archive(t); if (sel && sel !== t) openDrawer(sel); },
-      s: () => togglePin(openTab), p: () => togglePin(openTab),
+      s: () => togglePin(openTab),
     };
     if (thread[k]) { e.preventDefault(); select(openTab, false); thread[k](); }
     return;
@@ -1166,10 +1161,9 @@ document.addEventListener("keydown", (e) => {
     j: () => moveSel(1, 0), ArrowDown: () => moveSel(1, 0), k: () => moveSel(-1, 0), ArrowUp: () => moveSel(-1, 0),
     ArrowLeft: () => moveSel(0, -1), ArrowRight: () => moveSel(0, 1),
     o: () => sel && openDrawer(sel), Enter: () => sel && openDrawer(sel), " ": () => sel && toggleOpen(sel),
-    p: () => sel && togglePin(sel), f: () => sel && togglePin(sel), s: () => sel && togglePin(sel), g: () => sel && api("/api/focus", { tab: sel }).then((ok) => ok && toast("Focused in tmux")),
-    u: () => sel && api("/api/card", { tab: sel, seen: false }), e: () => sel && archive(sel), w: () => sel && toggleWait(sel),
+    s: () => sel && togglePin(sel),
+    U: () => sel && api("/api/card", { tab: sel, seen: false }), e: () => sel && archive(sel),
     1: () => setView("state"), 2: () => setView("lists"), 3: () => setView("ws"), 4: () => setView("routines"),
-    x: () => { if (!sel) return; if (Date.now() - lastX < 1500) { lastX = 0; stop(sel); } else { lastX = Date.now(); toast("Press x again to interrupt"); } },
   };
   if (map[k]) { e.preventDefault(); map[k](); }
 });

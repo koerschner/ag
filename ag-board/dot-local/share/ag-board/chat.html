@@ -322,6 +322,17 @@ details.steps > summary .n { font-size: 13px; opacity: .85; white-space: nowrap;
 }
 .light .composer { background: #fff; box-shadow: 0 0 0 1px var(--line) inset, 0 4px 4px rgba(0,0,0,.04), 0 0 1px rgba(0,0,0,.6) inset; }
 .composer.drag { box-shadow: 0 0 0 2px var(--blue) inset; }
+/* Gmail-style reply: a thread opens with a one-line Reply bar; click it or press R to open the composer. */
+.reply-bar { display: none; max-width: 48rem; margin: 0 auto; align-items: center; gap: 8px; }
+.composer-wrap.collapsed .composer { display: none; }
+.composer-wrap.collapsed .reply-bar { display: flex; }
+.reply-bar .open { flex: 1; display: flex; align-items: center; gap: 10px; text-align: left; padding: 12px 18px; border-radius: 28px;
+  background: var(--panel); box-shadow: 0 0 0 1px var(--line) inset; color: var(--faint); font: inherit; font-size: 16px; cursor: text; }
+.light .reply-bar .open { background: #fff; }
+.reply-bar .open:hover { color: var(--text); }
+.reply-bar .open .grow { flex: 1; }
+.reply-bar .open svg { width: 18px; height: 18px; flex: none; }
+.reply-bar .open kbd { font-size: 12px; color: var(--text); background: var(--hover2); padding: 2px 7px; border-radius: 6px; }
 .composer textarea {
   width: 100%; resize: none; border: 0; outline: none; background: none; color: var(--text);
   font: inherit; font-size: 16px; line-height: 24px; max-height: 40vh; min-height: 24px; padding: 4px 8px 0;
@@ -569,7 +580,6 @@ details.steps > summary .n { font-size: 13px; opacity: .85; white-space: nowrap;
     <tr><td>Next / previous chat</td><td><kbd>⌥</kbd><kbd>↓</kbd> <kbd>⌥</kbd><kbd>↑</kbd></td></tr>
     <tr><td>Focus the message box</td><td><kbd>⇧</kbd><kbd>Esc</kbd></td></tr>
     <tr><td>Send · new line</td><td><kbd>Enter</kbd> · <kbd>⇧</kbd><kbd>Enter</kbd></td></tr>
-    <tr><td>Stop the agent</td><td><kbd>Esc</kbd></td></tr>
     <tr><td>Interrupt and send</td><td><kbd>⌥</kbd><kbd>⌘</kbd><kbd>Enter</kbd></td></tr>
     <tr><td>Copy last response</td><td><kbd>⇧</kbd><kbd>⌘</kbd><kbd>C</kbd></td></tr>
     <tr><td>Dictate</td><td><kbd>⌥</kbd><kbd>V</kbd></td></tr>
@@ -582,13 +592,12 @@ details.steps > summary .n { font-size: 13px; opacity: .85; white-space: nowrap;
     <tr><td>Next / previous chat</td><td><kbd>J</kbd> <kbd>K</kbd></td></tr>
     <tr><td>Archive and open the next chat</td><td><kbd>E</kbd></td></tr>
     <tr><td>Undo</td><td><kbd>Z</kbd></td></tr>
-    <tr><td>New chat</td><td><kbd>C</kbd> or <kbd>N</kbd></td></tr>
+    <tr><td>New chat</td><td><kbd>C</kbd></td></tr>
     <tr><td>Back to Needs you</td><td><kbd>U</kbd></td></tr>
     <tr><td>Mark unread</td><td><kbd>⇧</kbd><kbd>U</kbd></td></tr>
     <tr><td>Pin / unpin (star)</td><td><kbd>S</kbd></td></tr>
     <tr><td>Move to a project</td><td><kbd>V</kbd></td></tr>
     <tr><td>More actions</td><td><kbd>.</kbd></td></tr>
-    <tr><td>Dictate</td><td><kbd>D</kbd></td></tr>
     <tr><td>Search</td><td><kbd>/</kbd></td></tr>
     <tr><td>Show shortcuts</td><td><kbd>?</kbd></td></tr>
   </table></div>
@@ -1067,7 +1076,7 @@ function renderMain() {
   const c = current();
   view.innerHTML = `<div class="scroll" id="scroll"><div class="thread"><div id="thread"></div><div id="pending"></div><div id="live"></div></div></div>
     <button class="jump" id="jump" aria-label="Scroll to bottom">${ICON.down}</button>
-    <div class="dialog" id="dialog" hidden></div>${composerHtml("Ask anything")}`;
+    <div class="dialog" id="dialog" hidden></div>${composerHtml("Ask anything", { collapsed: !isMobile() && !drafts[draftKey()] })}`;
   $("#scroll").addEventListener("scroll", onScroll, { passive: true });
   $("#jump").addEventListener("click", () => scrollBottom(true));
   wireComposer();
@@ -1500,9 +1509,11 @@ function renderDialog(c) {
 }
 
 // ---------- composer ----------
-function composerHtml(placeholder) {
-  const note = route.kind === "new" ? "New chats open in your Inbox." : route.kind === "project" ? "" : "";
-  return `<div class="composer-wrap"><div class="composer" id="composer">
+function composerHtml(placeholder, { collapsed = false } = {}) {
+  const note = route.kind === "new" ? "New chats open in your Inbox." : "";
+  const bar = `<div class="reply-bar"><button class="open" id="replyOpen" data-t="chat-reply-open">${ICON.chat}<span class="grow">Reply</span><kbd>R</kbd></button>
+    <button class="rb" id="replyStop" title="Stop" aria-label="Stop" hidden>${ICON.stop}</button></div>`;
+  return `<div class="composer-wrap${collapsed ? " collapsed" : ""}" id="composerWrap">${bar}<div class="composer" id="composer">
     <div class="attachments" id="atts" hidden></div>
     <textarea id="input" rows="1" placeholder="${esc(placeholder)}" aria-label="Message" enterkeyhint="send"></textarea>
     <div class="row2" id="crow">
@@ -1535,8 +1546,9 @@ function wireComposer() {
   i.addEventListener("input", () => { grow(); saveDraftSoon(); });
   i.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (!isMobile() || e.metaKey || e.ctrlKey)) { e.preventDefault(); send({ interrupt: e.altKey && (e.metaKey || e.ctrlKey) }); }
-    // Esc stops a working agent (empty box); otherwise it leaves the box, so Gmail keys (j/k, e, r…) work again.
-    if (e.key === "Escape" && !e.shiftKey) { e.preventDefault(); if (working(current()) && !i.value) stop(); else i.blur(); }
+    // Esc only leaves the box (Gmail keys work again); it never stops the agent, since r then Esc is a normal
+    // way out. Stopping is the Stop button.
+    if (e.key === "Escape" && !e.shiftKey) { e.preventDefault(); i.blur(); collapseIfEmpty(); }
   });
   i.addEventListener("paste", (e) => { const fs = [...(e.clipboardData?.files || [])]; if (fs.length) { e.preventDefault(); upload(fs); } });
   const comp = $("#composer");
@@ -1544,6 +1556,12 @@ function wireComposer() {
   comp.addEventListener("dragleave", () => comp.classList.remove("drag"));
   comp.addEventListener("drop", (e) => { e.preventDefault(); comp.classList.remove("drag"); upload([...e.dataTransfer.files]); });
   $("#attach").addEventListener("click", () => $("#fileInput").click());
+  const wrap = $("#composerWrap");
+  $("#replyOpen").addEventListener("click", openComposer);
+  $("#replyStop").addEventListener("click", () => stop());
+  wrap.addEventListener("dragover", () => { if (wrap.classList.contains("collapsed")) openComposer(); });
+  // Leaving an empty reply (Esc, or clicking elsewhere) folds it back into the Reply bar, like discarding in Gmail.
+  wrap.addEventListener("focusout", (e) => { if (!wrap.contains(e.relatedTarget)) setTimeout(collapseIfEmpty, 0); });
   $("#send").addEventListener("click", () => { const m = sendMode(); if (m === "stop") stop(); else if (m === "voice") startRec("send"); else send(); });
   $("#mic").addEventListener("click", () => startRec("box"));
   if (!navigator.mediaDevices?.getUserMedia && isSecureContext) $("#mic").hidden = true;
@@ -1551,6 +1569,17 @@ function wireComposer() {
   // Like Gmail: a thread opens with the reply box unfocused (r to write); only a new chat starts in the box.
   if (!isMobile() && route.kind === "new") i.focus();
   renderAtts();
+}
+function openComposer() {
+  $("#composerWrap")?.classList.remove("collapsed");
+  const i = $("#input");
+  if (i) { i.focus(); i.dispatchEvent(new Event("input")); }
+}
+function collapseIfEmpty() {
+  const wrap = $("#composerWrap"), i = $("#input");
+  if (!wrap || !i || isMobile() || route.kind !== "card" || rec || i.value.trim() || attachments.length || wrap.contains(document.activeElement)) return;
+  wrap.classList.add("collapsed");
+  onScroll();
 }
 function sendMode() {
   const has = $("#input")?.value.trim() || attachments.length;
@@ -1565,8 +1594,10 @@ function renderComposerState() {
   const icon = { send: ICON.up, stop: ICON.stop, voice: ICON.wave }[m];
   if (b.dataset.mode !== m) { b.innerHTML = icon; b.dataset.mode = m; }
   const c = current();
-  const label = m === "stop" ? "Stop (Esc)" : m === "voice" ? "Talk: dictate and send" : working(c) ? "Steer (Enter) · ⌥⌘Enter interrupts and sends" : "Send (Enter)";
+  const label = m === "stop" ? "Stop" : m === "voice" ? "Talk: dictate and send" : working(c) ? "Steer (Enter) · ⌥⌘Enter interrupts and sends" : "Send (Enter)";
   b.title = label; b.setAttribute("aria-label", label);
+  const rs = $("#replyStop");
+  if (rs) rs.hidden = !working(c);
   const hint = $("#hint");
   if (hint) hint.textContent = c && working(c) && $("#input").value.trim() ? "Queued until the current step finishes" : "";
 }
@@ -1656,6 +1687,7 @@ async function stop() {
 let rec = null;
 async function startRec(mode) {
   if (rec) return;
+  if (mode === "box") openComposer();
   if (!isSecureContext) {
     toast("Voice needs the https page; switching…");
     const j = await (await fetch("/api/config")).json().catch(() => ({}));
@@ -2054,7 +2086,7 @@ document.addEventListener("click", (e) => {
   const cu = t.closest("[data-copy-user]");
   if (cu) { const u2 = turnOf(cu.dataset.copyUser)?.user; if (u2) navigator.clipboard.writeText(u2.text).then(() => copied(cu)); return; }
   const ed = t.closest("[data-edit]");
-  if (ed) { const u2 = turnOf(ed.dataset.edit)?.user; const i = $("#input"); if (u2 && i) { i.value = u2.text; i.dispatchEvent(new Event("input")); i.focus(); } return; }
+  if (ed) { const u2 = turnOf(ed.dataset.edit)?.user; const i = $("#input"); if (u2 && i) { i.value = u2.text; openComposer(); } return; }
   const sp = t.closest("[data-speak]");
   if (sp) { const ans = turnOf(sp.dataset.speak)?.items.filter((x) => x.role === "assistant").at(-1); if (ans) speak(ans.text, sp); return; }
   const cc = t.closest("[data-copy-code]");
@@ -2069,13 +2101,13 @@ function stepChat(d) {
   const next = items[Math.max(0, Math.min(items.length - 1, idx + d))];
   if (next) go(next.getAttribute("href"));
 }
-// Gmail's single-key shortcuts (outside text fields). Same letters as AG Dash where they overlap (/, n, d, e, j/k, ?).
+// Gmail's single-key shortcuts (outside text fields). Same letters in AG Dash.
 // Returns true when the key was handled.
 function gmailKey(e) {
   const c = current(), input = $("#input");
   const keys = {
-    r: () => input?.focus(),
-    c: () => go("/chat"), n: () => go("/chat"),
+    r: () => input && openComposer(),
+    c: () => go("/chat"),
     j: () => stepChat(1), k: () => stepChat(-1),
     e: () => c && archive(c, { advance: true }),
     u: () => go("/chat?view=you"),
@@ -2084,7 +2116,6 @@ function gmailKey(e) {
     v: () => c && ((menuCard = c), act("move", $("#picker"))),
     ".": () => c && $("#dotsBtn").click(),
     z: () => $("#toast.show button")?.click(),
-    d: () => input && (rec ? endRec(false) : startRec("box")),
     "/": () => openSearch(),
     "?": () => { closePop(); $("#keysBack").classList.toggle("open"); },
   };

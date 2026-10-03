@@ -100,7 +100,7 @@ const KEYS = new Set(["esc", "enter", "up", "down", "left", "right", "tab", "bac
 
 type CardState = { goneAt?: number /* tab missing since; forgotten after GONE_KEEP_MS */; waiting?: boolean /* marked by hand */; wakeAskedAt?: number; wakeAsks?: number; pinned?: boolean; hot?: boolean; red?: boolean /* older names of pinned */; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
 type List = { id: string; name: string };
-type State = { cards: Record<string, CardState>; lists: List[]; areas?: string[] }; // areas: Ag Chat's sidebar order of workspace ids
+type State = { cards: Record<string, CardState>; lists: List[]; projectOrder?: string[] }; // Ag Chat's sidebar order of projects (workspace ids)
 type Msg = { role: "user" | "assistant"; text: string; ts: number };
 type Tool = { id?: string; name: string; detail: string; sum?: string; hosts?: string[]; ts: number; end?: number; error?: boolean };
 type Activity = { kind: "thinking" | "tool" | "idle" | "error"; since: number; tool?: string; detail?: string; sum?: string; hosts?: string[]; error?: string };
@@ -703,7 +703,7 @@ async function routinesJson() {
 
 type Sys = { mem?: Mem; cua: Cua };
 
-let board: { cards: Card[]; lists: List[]; areas?: string[]; workspaces: { id: string; label: string }[]; page: number; sys?: Sys } = { cards: [], lists: state.lists, workspaces: [], page: 0 };
+let board: { cards: Card[]; lists: List[]; projectOrder?: string[]; workspaces: { id: string; label: string }[]; page: number; sys?: Sys } = { cards: [], lists: state.lists, workspaces: [], page: 0 };
 let boardJson = "";
 const cardKey = new Map<string, string>(); // tab id → board state key (pi session id, else tab id)
 // SSE senders, one per open page. The client Mac reaches ag through a Tailscale relay (~4 Mbps), so each stream is
@@ -873,7 +873,7 @@ async function poll() {
 	try {
 		page = statSync(realpathSync(PAGE)).mtimeMs;
 	} catch {}
-	board = { cards, lists: state.lists, areas: state.areas ?? [], workspaces: snap.workspaces.map((w: any) => ({ id: w.workspace_id, label: w.label })), page, sys: { mem: readMem(), cua } };
+	board = { cards, lists: state.lists, projectOrder: state.projectOrder ?? [], workspaces: snap.workspaces.map((w: any) => ({ id: w.workspace_id, label: w.label })), page, sys: { mem: readMem(), cua } };
 	expireMeta(cards, now);
 	const json = JSON.stringify(board);
 	if (json !== boardJson) {
@@ -1159,7 +1159,6 @@ async function handle(req: Request): Promise<Response> {
 						})),
 				);
 			if (p === "/api/routines") return Response.json(await routinesJson());
-			if (p === "/api/upcoming") return Response.json(upcoming());
 			if (p === "/api/archived") {
 				// Ag Chat's Archived chats: recently closed sessions (`ag find --closed`).
 				const days = Math.min(90, Number(url.searchParams.get("days")) || 14);
@@ -1347,22 +1346,22 @@ async function handle(req: Request): Promise<Response> {
 				await after();
 				return ok();
 			}
-			case "/api/areas": {
-				// Ag Chat's sidebar: the order of areas (workspace ids), dragged by hand.
+			case "/api/project-order": {
+				// Ag Chat's sidebar: the order of projects (workspace ids), dragged by hand.
 				if (!Array.isArray(body.order)) return bad("order required");
-				state.areas = body.order.map(String).slice(0, 200);
+				state.projectOrder = body.order.map(String).slice(0, 200);
 				dirty = true;
 				await after();
 				return ok();
 			}
 			case "/api/workspace": {
-				// Ag Chat's "New area" (an empty workspace with one shell tab), or renaming one ({id, label}).
+				// Ag Chat's "New project" (an empty workspace with one shell tab), or renaming one ({id, label}).
 				const label = String(body.label ?? "").trim().slice(0, 40);
 				const id = String(body.id ?? "");
 				if (!label) return bad("label required");
-				if (board.workspaces.some((w) => w.id !== id && w.label.toLowerCase() === label.toLowerCase())) return bad("an area with that name exists", 409);
+				if (board.workspaces.some((w) => w.id !== id && w.label.toLowerCase() === label.toLowerCase())) return bad("a project with that name exists", 409);
 				if (id) {
-					if (!board.workspaces.some((w) => w.id === id)) return bad("no such area", 404);
+					if (!board.workspaces.some((w) => w.id === id)) return bad("no such project", 404);
 					const r = await mux("workspace", "rename", id, label);
 					if (r.code !== 0) return fail(r, "workspace rename");
 					await after();
@@ -1469,22 +1468,6 @@ async function handle(req: Request): Promise<Response> {
 			}
 		}
 		return bad("not found", 404);
-}
-
-// Ag Chat's Upcoming (Things 3): the tickler's pending items (~/.local/state/tickler/<id>.json), soonest first.
-// sid: the deferring session, so the page can open it.
-function upcoming() {
-	const dir = `${HOME}/.local/state/tickler`;
-	const out: any[] = [];
-	for (const f of existsSync(dir) ? readdirSync(dir) : []) {
-		if (!f.endsWith(".json")) continue;
-		try {
-			const t = JSON.parse(readFileSync(`${dir}/${f}`, "utf8"));
-			if (t.status !== "waiting") continue;
-			out.push({ id: t.id, title: t.title, workspace: t.workspace, due: t.due ?? null, when: t.when ?? null, waitingFor: t.waiting_for ?? null, check: !!t.check, expires: t.expires ?? null, sid: String(t.session ?? "").match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/)?.[1] ?? null });
-		} catch {}
-	}
-	return out.sort((a, b) => (a.due ?? "9") < (b.due ?? "9") ? -1 : 1);
 }
 
 // pi's enabled models (settings.json enabledModels: "provider/model-id"), for Ag Chat's model picker.

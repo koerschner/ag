@@ -9,13 +9,18 @@ await page.emulateMedia({ colorScheme: process.env.SCHEME || "dark" });
 const cdp = await ctx.newCDPSession(page);
 const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y }] });
 async function drag(x0, y0, x1, y1, steps = 8, ms = 16) { await touch("touchStart", x0, y0); for (let i = 1; i <= steps; i++) { await touch("touchMove", x0 + (x1 - x0) * i / steps, y0 + (y1 - y0) * i / steps); await page.waitForTimeout(ms); } await touch("touchEnd"); await page.waitForTimeout(450); }
-async function press(sel, ms = 650) { await page.locator(sel).first().scrollIntoViewIfNeeded(); await page.waitForTimeout(150); const b = await page.locator(sel).first().boundingBox(); const x = b.x + Math.min(40, b.width / 2), y = b.y + b.height / 2; await touch("touchStart", x, y); await page.waitForTimeout(ms); await touch("touchEnd"); await page.waitForTimeout(400); }
+async function press(sel, ms = 650) {
+  const loc = page.locator(sel).first(); await loc.scrollIntoViewIfNeeded(); await page.waitForTimeout(150);
+  const b = await loc.boundingBox(), vh = page.viewportSize().height;
+  const top = Math.max(b.y, 120), bot = Math.min(b.y + b.height, vh - 160); // the part on screen, clear of the header and composer
+  await touch("touchStart", b.x + Math.min(40, b.width / 2), (top + bot) / 2); await page.waitForTimeout(ms); await touch("touchEnd"); await page.waitForTimeout(700);
+}
 const open = () => page.evaluate(() => !document.querySelector("#app").classList.contains("collapsed"));
 const R = _R;
-await page.waitForTimeout(1500);
-await shot("home");
+await page.waitForSelector("#sideScroll .proj", { state: "attached" }); await page.waitForTimeout(500);
+await shot("home"); await page.waitForTimeout(300);
 await drag(30, 400, 300, 410); R("swipe right opens sidebar", await open());
-await shot("sidebar");
+await shot("sidebar"); await page.waitForTimeout(300);
 await drag(300, 400, 40, 405); R("swipe left closes", !(await open()));
 await drag(200, 400, 230, 600); R("vertical drag doesn't open", !(await open()));
 await page.locator(".top [data-do=toggle]").tap(); await page.waitForTimeout(400); R("☰ opens", await open());
@@ -28,9 +33,9 @@ R("sheet still open after lift", await page.locator(".pop.sheet").count() === 1)
 const sb = await page.locator(".pop.sheet").boundingBox();
 await drag(200, sb.y + 20, 200, sb.y + 220); R("swipe down closes sheet", await page.locator(".pop.sheet").count() === 0);
 R("still in sidebar (long-press didn't navigate)", (await open()) && new URL(page.url()).pathname === "/chat");
-await press("#sideScroll .area-h"); R("long-press area → sheet", await page.locator(".pop.sheet [data-area-act]").count() === 3);
-await page.locator(".sheet-back").tap({ position: { x: 200, y: 100 } }); await page.waitForTimeout(200); R("backdrop closes sheet", await page.locator(".pop").count() === 0);
-await page.locator("#sideScroll [data-sec=chats] .item").first().tap(); await page.waitForTimeout(2500);
+await press("#sideScroll .proj"); R("long-press project → sheet", await page.locator(".pop.sheet [data-proj-act]").count() === 2);
+await page.locator(".sheet-back").tap({ position: { x: 200, y: 100 } }); await page.waitForTimeout(200); R("backdrop closes sheet", await page.locator(".pop").count() === 0 || console.log("  still open:", await page.evaluate(() => [document.querySelector(".pop")?.innerText, document.elementFromPoint(200, 100)?.className])));
+await page.locator("#sideScroll [data-sec=chats] .item:not(:has(.spin))").first().tap(); await page.waitForTimeout(2500);
 R("tap chat opens it", /\/chat\/./.test(page.url()) && !(await open()));
 await shot("chat");
 await page.locator("#picker").tap(); await page.waitForTimeout(300); R("picker is a sheet", await page.locator(".pop.sheet").count() === 1); await shot("picker");

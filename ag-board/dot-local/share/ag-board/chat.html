@@ -30,7 +30,7 @@
   Ag Chat (/chat): a ChatGPT-desktop-style view over the same sessions and APIs as AG Dash (the board at / is
   unchanged). Installable on its own (chat-manifest.json: "Ag Chat", scope /chat, window-controls-overlay).
   Sidebar: New chat, Search (⌘K), Needs you / Working / Waiting, Projects (= workspaces; drag chats onto them, drag them to reorder), Pinned, Chats.
-  Chat: the session transcript as a thread (thinking + tool calls folded into "Thought for …" steps), live activity,
+  Chat: the session transcript as a thread (thinking + tool calls folded into a "Worked for …" activity timeline: kind icons, "Explored …" groups, terminal blocks, edit diffs; open while live), live activity,
   dialog keys when blocked, composer (Enter sends; steers while working; ■ stops; mic → text; voice → send).
   APIs: /events (board over SSE), /api/transcript, /api/prompt, /api/interrupt, /api/keys, /api/new (route=new,
   workspace=<id> files it there), /api/transcribe, /api/dictate, /api/upload, /api/card, /api/rename, /api/file,
@@ -1350,7 +1350,7 @@ function stepRows(steps, key, open, live) {
       const tools = x.group.filter((y) => y.role === "tool");
       const running = live && tools.some((y) => !y.result), bad = tools.some((y) => y.result?.error);
       return `<div class="srow">${stepIcon("explore", running ? { role: "tool" } : bad ? { result: { error: 1 } } : null, live)}<div class="body">
-        <details class="step grp" data-k="${k}" ${open.has(k) ? "open" : ""}><summary><span class="what">${running ? "Exploring" : "Explored"} ${esc(exploreCounts(x.group))}</span></summary>
+        <details class="step grp" data-k="${k}" ${open.has(k) ? "open" : ""}><summary><span class="what">${running ? "Exploring" : "Explored"} ${esc(exploreCounts(x.group))}</span>${bad ? `<span class="tag bad">${tools.filter((y) => y.result?.error).length} failed</span>` : ""}</summary>
         <div class="sub">${x.group.map((y, gi) => y.role === "tool" ? toolStep(y, `${k}.${gi}`, open, live) : thinkHtml(y, `${k}.${gi}`, open)).join("")}</div></details></div></div>`;
     }
     const kind = stepKind(x);

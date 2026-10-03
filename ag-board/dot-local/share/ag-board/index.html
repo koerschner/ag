@@ -419,7 +419,6 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
     <tr><td><span class="kbd">←</span> <span class="kbd">→</span></td><td>previous / next column</td></tr>
     <tr><td><span class="kbd">o</span> <span class="kbd">Enter</span></td><td>open the card (transcript, live screen, reply)</td></tr>
     <tr><td><span class="kbd">Space</span></td><td>expand / collapse details</td></tr>
-    <tr><td><span class="kbd">s</span></td><td>pin / unpin (Gmail's star)</td></tr>
     <tr><td><span class="kbd">r</span></td><td>in an open session: write a reply (the box starts unfocused, like a Gmail thread); <span class="kbd">j</span>/<span class="kbd">k</span> next / previous, <span class="kbd">e</span> archive and open the next, <span class="kbd">u</span> back to the board</td></tr>
     <tr><td><span class="kbd">z</span></td><td>undo the last archive (also <span class="kbd">⌘</span><span class="kbd">Z</span>)</td></tr>
     <tr><td><span class="kbd">⇧</span><span class="kbd">U</span></td><td>mark unread</td></tr>
@@ -1154,7 +1153,6 @@ document.addEventListener("keydown", (e) => {
     const thread = {
       r: () => rted.focus(), j: () => step(1), k: () => step(-1), u: () => closeDrawer(),
       e: () => { const t = openTab; archive(t); if (sel && sel !== t) openDrawer(sel); },
-      s: () => togglePin(openTab),
     };
     if (thread[k]) { e.preventDefault(); select(openTab, false); thread[k](); }
     return;
@@ -1164,7 +1162,6 @@ document.addEventListener("keydown", (e) => {
     j: () => moveSel(1, 0), ArrowDown: () => moveSel(1, 0), k: () => moveSel(-1, 0), ArrowUp: () => moveSel(-1, 0),
     ArrowLeft: () => moveSel(0, -1), ArrowRight: () => moveSel(0, 1),
     o: () => sel && openDrawer(sel), Enter: () => sel && openDrawer(sel), " ": () => sel && toggleOpen(sel),
-    s: () => sel && togglePin(sel),
     U: () => sel && api("/api/card", { tab: sel, seen: false }), e: () => sel && archive(sel),
     1: () => setView("state"), 2: () => setView("lists"), 3: () => setView("ws"), 4: () => setView("routines"),
   };

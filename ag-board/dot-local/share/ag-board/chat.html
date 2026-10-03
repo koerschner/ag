@@ -1543,7 +1543,14 @@ function wireComposer() {
   const i = $("#input");
   if (!i) return;
   i.value = drafts[draftKey()] || "";
-  const grow = () => { i.style.height = "auto"; i.style.height = Math.min(i.scrollHeight, innerHeight * 0.4) + "px"; renderComposerState(); onScroll(); };
+  // Measuring with height:auto briefly shrinks the box, which grows #scroll and clamps its scrollTop; keep the
+  // transcript's distance from the bottom so it doesn't jump a line on every keystroke.
+  const grow = () => {
+    const sc = $("#scroll"), fromBottom = sc && sc.scrollHeight - sc.scrollTop - sc.clientHeight;
+    i.style.height = "auto"; i.style.height = Math.min(i.scrollHeight, innerHeight * 0.4) + "px";
+    if (sc) sc.scrollTop = sc.scrollHeight - sc.clientHeight - fromBottom;
+    renderComposerState(); onScroll();
+  };
   i.addEventListener("input", () => { grow(); saveDraftSoon(); });
   i.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (!isMobile() || e.metaKey || e.ctrlKey)) { e.preventDefault(); send({ interrupt: e.altKey && (e.metaKey || e.ctrlKey) }); }

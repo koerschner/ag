@@ -1,7 +1,7 @@
 // Ag Desktop: a thin Electron shell around Ag Chat (http://ag:7376/chat), served live by ag-board, so edits to
 // chat.html only need a reload (Cmd+R). The shell exists for what a PWA can't do: a system-wide shortcut.
 // Ctrl+Cmd+A shows and focuses the window, or hides it when it's already in front.
-const { app, BrowserWindow, globalShortcut, shell, session, screen } = require("electron");
+const { app, BrowserWindow, globalShortcut, ipcMain, Notification, shell, session, screen } = require("electron");
 const fs = require("fs");
 const path = require("path");
 
@@ -46,7 +46,7 @@ function createWindow() {
     titleBarOverlay: true,
     trafficLightPosition: { x: 14, y: 14 },
     show: false,
-    webPreferences: { spellcheck: true },
+    webPreferences: { spellcheck: true, preload: path.join(__dirname, "preload.js"), contextIsolation: false },
   });
   win.once("ready-to-show", () => win.show());
   const load = () => win.loadURL(START).catch(() => {});
@@ -73,6 +73,21 @@ function createWindow() {
 }
 
 app.on("second-instance", show);
+// The page's notifications, shown natively (see preload.js). Kept referenced until closed so they aren't
+// garbage-collected (which would drop their click). A tag replaces the earlier notification with the same tag.
+const notes = new Map(); // page id → { n, tag }
+ipcMain.on("ag-desktop:notify", (e, { id, title, body, tag, silent }) => {
+  const send = (type) => { if (!e.sender.isDestroyed()) e.sender.send("ag-desktop:notify-event", { id, type }); };
+  if (tag) for (const [k, v] of notes) if (v.tag === tag) { v.n.close(); notes.delete(k); }
+  const n = new Notification({ title, body, silent });
+  notes.set(id, { n, tag });
+  n.on("show", () => send("show"));
+  n.on("click", () => { show(); send("click"); notes.delete(id); });
+  n.on("close", () => { send("close"); notes.delete(id); });
+  n.on("failed", () => { send("error"); notes.delete(id); });
+  n.show();
+});
+ipcMain.on("ag-desktop:notify-close", (_e, id) => { notes.get(id)?.n.close(); notes.delete(id); });
 app.on("activate", show);
 app.on("before-quit", () => { quitting = true; });
 app.on("will-quit", () => globalShortcut.unregisterAll());

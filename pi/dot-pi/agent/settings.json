@@ -14,7 +14,27 @@
   "enabledModels": [
     "truefoundry/anthropic-primary/claude-opus-5-5",
     "truefoundry-openai/gpt-6-astra",
-    "truefoundry-chat/xai-group/grok-latest"
+    "truefoundry-chat/xai-group/grok-latest",
+    "truefoundry-chat/xai-group/grok-4.5",
+    "truefoundry-chat/xai-group/grok-4.3",
+    "truefoundry-chat/xai-group/grok-4.3-latest",
+    "truefoundry-chat/xai-group/grok-build-0.1",
+    "truefoundry-chat/fireworks-group/deepseek-v4-pro-0813",
+    "truefoundry-chat/fireworks-group/kimi-k3",
+    "truefoundry-chat/fireworks-group/glm-5p3",
+    "truefoundry-chat/fireworks-group/minimax-m3",
+    "truefoundry-chat/fireworks-group/qwen3p8-max",
+    "truefoundry-chat/bedrock-oss-group/deepseek-r1",
+    "truefoundry-chat/bedrock-oss-group/deepseek-v3.2",
+    "truefoundry-chat/bedrock-oss-group/qwen3-coder-next",
+    "truefoundry-chat/bedrock-oss-group/kimi-k2.5",
+    "truefoundry-chat/bedrock-oss-group/glm-5",
+    "truefoundry-chat/bedrock-oss-group/llama4-maverick",
+    "truefoundry-chat/bedrock-oss-group/mistral-large-3",
+    "truefoundry-chat/bedrock-oss-group/gemma-3-27b",
+    "truefoundry-chat/bedrock-oss-group/devstral-2",
+    "truefoundry-chat/gemini-group/gemini-3.7-flash",
+    "truefoundry-chat/perplexity-group/sonar-pro"
   ],
   "theme": "dark"
 }

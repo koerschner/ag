@@ -1087,7 +1087,7 @@ function archive(tab) {
   if (openTab === tab) closeDrawer();
   const el = document.createElement("div");
   el.className = "undo"; el.dataset.tab = tab;
-  el.innerHTML = `<span>Archived “${esc(c.title)}”</span><button type="button">Undo</button><i style="animation-duration:${ARCHIVE_MS}ms"></i>`;
+  el.innerHTML = `<span>Archived “${esc(c.title)}”${c.status === "working" ? " (keeps running; back if it needs you)" : ""}</span><button type="button">Undo</button><i style="animation-duration:${ARCHIVE_MS}ms"></i>`;
   el.querySelector("button").onclick = () => unarchive(tab);
   $("#undos").appendChild(el);
   archiving.set(tab, { el, timer: setTimeout(() => commitArchive(tab), ARCHIVE_MS) });

@@ -771,7 +771,7 @@ function archive(c, { advance = false } = {}) {
   board.cards = board.cards.filter((x) => x.tab !== c.tab);
   renderSide();
   if (route.kind === "list" || route.kind === "project") renderListRows();
-  toast("Chat archived", { label: "Undo", run: () => {
+  toast(c.status === "working" ? "Archived. It keeps running and comes back if it needs you" : "Chat archived", { label: "Undo", run: () => {
     clearTimeout(archiving.get(c.tab)); archiving.delete(c.tab);
     const live = byTab.get(c.tab);
     if (live && !board.cards.includes(live)) board.cards.push(live);
@@ -1101,7 +1101,7 @@ function archivedRows() {
   if (!archived) return '<div class="empty-list" style="padding:24px 12px">Loading…</div>';
   const q = ($("#archFilter")?.value || "").trim().toLowerCase();
   const list = archived.filter((a) => !q || a.title.toLowerCase().includes(q));
-  return list.map((a) => `<a class="crow" href="/chat/${a.sid}" data-go="/chat/${a.sid}"><div class="txt"><div class="t">${esc(a.title)}</div></div><button class="pill sm" data-restore="${a.sid}" data-t="chat-restore">Restore</button><span class="d">${ago(a.last * 1000)}</span></a>`).join("")
+  return list.map((a) => `<a class="crow" href="/chat/${a.sid}" data-go="/chat/${a.sid}"><div class="txt"><div class="t">${esc(a.title)}</div></div><button class="pill sm" data-restore="${a.sid}" data-t="chat-restore">Restore</button><span class="d">${a.running ? (a.status === "working" ? "Running" : "Finishing") : ago(a.last * 1000)}</span></a>`).join("")
     || `<div class="empty-list" style="padding:24px 12px">${q ? "No archived chats match." : "No chats archived in the last two weeks."}</div>`;
 }
 function renderListRows() {

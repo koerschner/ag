@@ -495,7 +495,21 @@ const fillIcons = (root = document) => { for (const el of $$("[data-icon]", root
 fillIcons();
 
 // ---------- markdown ----------
-if (window.DOMPurify) DOMPurify.addHook("afterSanitizeAttributes", (n) => { if (n.tagName === "A" && n.getAttribute("href")) { n.setAttribute("target", "_blank"); n.setAttribute("rel", "noopener"); } });
+// AG Dash session links (http://ag:7376/<sid>, the phone https link, /chat/<sid>) open in-app as /chat/<sid>.
+function chatHref(href) {
+  let u;
+  try { u = new URL(href, location.href); } catch { return null; }
+  const h = u.hostname;
+  if (h !== location.hostname && h !== "ag" && !h.startsWith("ag.")) return null;
+  const sid = u.pathname.replace(/\/$/, "").match(/^(?:\/chat)?\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/)?.[1];
+  return sid ? `/chat/${sid}` : null;
+}
+if (window.DOMPurify) DOMPurify.addHook("afterSanitizeAttributes", (n) => {
+  if (n.tagName !== "A" || !n.getAttribute("href")) return;
+  const inApp = chatHref(n.getAttribute("href"));
+  if (inApp) { n.setAttribute("href", inApp); n.setAttribute("data-go", inApp); n.removeAttribute("target"); return; }
+  n.setAttribute("target", "_blank"); n.setAttribute("rel", "noopener");
+});
 function md(s) {
   let text = String(s ?? "");
   const done = /(^|\n)\s*DONE\s*$/.test(text);

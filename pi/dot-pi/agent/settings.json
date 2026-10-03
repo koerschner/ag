@@ -13,7 +13,8 @@
   ],
   "enabledModels": [
     "truefoundry/anthropic-primary/claude-opus-5-5",
-    "truefoundry-openai/gpt-6-astra"
+    "truefoundry-openai/gpt-6-astra",
+    "truefoundry-chat/xai-group/grok-latest"
   ],
   "theme": "dark"
 }

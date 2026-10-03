@@ -1384,6 +1384,7 @@ async function handle(req: Request): Promise<Response> {
 				for (const cmd of [model && `/model ${model}`, level && `/thinking ${level}`].filter(Boolean) as string[]) {
 					const r = await mux("agent", "prompt", card.pane, cmd);
 					if (r.code !== 0) return fail(r, "switch");
+					if (cmd.startsWith("/model") && !(await finishModelSelector(card.pane, model))) return bad("pi didn't switch; is that model available in this session?", 409);
 				}
 				await after();
 				return ok();
@@ -1468,6 +1469,24 @@ async function handle(req: Request): Promise<Response> {
 			}
 		}
 		return bad("not found", 404);
+}
+
+// A session started before a model joined enabledModels still has the old scope, so pi's `/model <id>` opens its
+// selector (pre-filtered, "scoped" tab) instead of switching. Finish it: Tab to "all" if needed, Enter on the exact
+// row, or Escape so the pane is never left stuck in the selector (later prompts would be typed into its search).
+async function finishModelSelector(pane: string, model: string) {
+	const [provider, ...rest] = model.split("/");
+	const row = new RegExp(`→\\s+${rest.join("/").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} \\[${provider}\\]`);
+	const screen = async () => (await mux("pane", "read", pane, "--lines", "40")).out;
+	let open = false;
+	for (let i = 0; i < 5 && !open; i++) { await Bun.sleep(300); open = (await screen()).includes("Enter to select"); }
+	if (!open) return true; // in scope: pi switched directly
+	for (const k of ["", "tab"]) {
+		if (k) { await keys(pane, k); await Bun.sleep(500); }
+		if (row.test(await screen())) { await keys(pane, "enter"); return true; }
+	}
+	await keys(pane, "esc");
+	return false;
 }
 
 // pi's enabled models (settings.json enabledModels: "provider/model-id"), for Ag Chat's model picker.

@@ -242,24 +242,52 @@ body.dragging .item:hover .arch, body.dragging .item:hover .more { display: none
 .media img, .media video { max-height: 240px; max-width: 100%; border-radius: 14px; cursor: zoom-in; background: var(--panel); }
 .err { color: var(--red); font-size: 14px; margin: 10px 0; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--red) 8%, transparent); }
 
-/* thought / steps */
+/* thought / steps: a ChatGPT/Codex-style activity timeline. Collapsed to one line ("Worked for 36s · Explored 6
+   files, ran 3 commands"); open, each step is a row on a rail with a kind icon. Reads and searches fold into
+   "Explored …" groups, commands show as a terminal block, edits as a +/− diff. Open while live, folds when done. */
 details.steps { margin: 4px 0 12px; color: var(--faint); font-size: 15px; }
-details.steps > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; padding: 2px 0; user-select: none; }
+details.steps > summary { list-style: none; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; padding: 2px 0; user-select: none; max-width: 100%; }
 details.steps > summary::-webkit-details-marker { display: none; }
 details.steps > summary:hover { color: var(--text); }
-details.steps > summary .chev { width: 16px; height: 16px; transition: transform .15s; }
+details.steps > summary .t { flex: none; }
+details.steps > summary .chev { width: 16px; height: 16px; transition: transform .15s; flex: none; }
 details.steps[open] > summary .chev { transform: rotate(90deg); }
-details.steps > summary .n { font-size: 13px; opacity: .8; }
-.step-list { margin: 8px 0 4px; padding: 0 0 0 16px; border-left: 2px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
-.step { font-size: 14px; }
-.step > summary { cursor: pointer; list-style: none; display: flex; gap: 8px; align-items: baseline; }
+details.steps > summary .n { font-size: 13px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.step-list { margin: 8px 0 4px; display: flex; flex-direction: column; }
+.srow { position: relative; display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: 10px; padding-bottom: 8px; font-size: 14px; }
+.srow::before { content: ""; position: absolute; left: 9.5px; top: 23px; bottom: 3px; width: 1px; background: color-mix(in srgb, var(--faint) 35%, transparent); }
+.srow:last-child::before { display: none; }
+.srow .ic { width: 20px; height: 20px; display: grid; place-items: center; color: var(--faint); }
+.srow .ic svg { width: 15px; height: 15px; }
+.srow .ic.bad { color: var(--red); }
+.srow .ic .spin { width: 11px; height: 11px; }
+.srow > .body { min-width: 0; padding-top: 1px; }
+.step > summary { cursor: pointer; list-style: none; display: flex; gap: 8px; align-items: baseline; min-width: 0; }
 .step > summary::-webkit-details-marker { display: none; }
-.step > summary:hover { color: var(--text); }
+.step > summary:hover, .step[open] > summary { color: var(--text); }
 .step .host { font-size: 11px; padding: 0 6px; border-radius: 6px; background: var(--panel); color: var(--muted); flex: none; }
-.step .bad { color: var(--red); }
 .step .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.step pre { font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 6px 0; max-height: 320px; overflow: auto; color: var(--muted); }
-.step.think { white-space: pre-wrap; line-height: 1.6; }
+.step .tag { font-size: 12px; flex: none; }
+.step .tag.bad { color: var(--red); }
+.step .tag .add { color: var(--green); } .step .tag .del { color: var(--red); }
+.step pre, .term { font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 6px 0; max-height: 320px; overflow: auto; color: var(--muted); }
+.term { padding: 0; }
+.term .cmd { padding: 8px 10px; color: var(--text); border-bottom: 1px solid var(--line); white-space: pre-wrap; }
+.term .cmd::before { content: "$ "; color: var(--faint); }
+.term .out { padding: 8px 10px; white-space: pre-wrap; }
+.term .out.bad { color: var(--red); }
+.diff { font: 12px/1.5 var(--mono); background: var(--code); border: 1px solid var(--line); border-radius: 10px; margin: 6px 0; max-height: 360px; overflow: auto; }
+.diff .f { padding: 6px 10px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.diff .l { padding: 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff .l.add { background: color-mix(in srgb, var(--green) 9%, transparent); color: var(--text); }
+.diff .l.del { background: color-mix(in srgb, var(--red) 9%, transparent); color: var(--muted); }
+.diff .gap { height: 6px; border-bottom: 1px dashed var(--line); margin-bottom: 6px; }
+.grp > .sub { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.grp .sub .step > summary { color: var(--faint); }
+.grp .sub .step > summary:hover { color: var(--text); }
+.think { color: var(--muted); line-height: 1.6; font-size: 14px; cursor: pointer; }
+.think.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.think p { margin: 0 0 6px; } .think p:last-child { margin: 0; }
 .step.note { color: var(--muted); }
 .step.note.md { line-height: 1.6; }
 
@@ -593,6 +621,12 @@ const ICON = {
   keyboard: S('<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>'),
   repeat: S('<path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>'),
   x: S('<path d="M6 6l12 12M18 6 6 18"/>'),
+  globe: S('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>'),
+  plug: S('<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0Z"/><path d="M12 17v4"/>'),
+  bulb: S('<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3Z"/>'),
+  agent: S('<circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0 1 12 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3 6"/>'),
+  cursor: S('<path d="M5 3l14 7-6 2-2 6Z"/>'),
+  alert: S('<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 16.5v.5"/>'),
   file: S('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5"/>'),
   sparkle: S('<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/>'),
   down: S('<path d="M12 5v14M5 12l7 7 7-7"/>'),
@@ -1075,8 +1109,11 @@ function pickerPop() {
   return `${sw}<div class="hdr">This chat</div><div class="kv">${rows.map(([k, v]) => `<span>${k}</span><span title="${esc(v)}">${esc(v)}</span>`).join("")}</div>`;
 }
 
+// pi's enabledModels. Refetched on every picker open, so a page loaded before ag-board restarted (or with a
+// failed first fetch) still gets the switcher instead of a read-only "This chat" card.
 let models = [];
-fetch("/api/config").then((r) => r.json()).then((j) => { models = j.models || []; }).catch(() => {});
+const loadModels = () => fetch("/api/config").then((r) => r.json()).then((j) => { models = j.models || []; }).catch(() => {});
+loadModels();
 async function switchModel(body) {
   const c = current();
   if (!c) return;
@@ -1221,30 +1258,134 @@ function nearBottom() { const s = $("#scroll"); return !s || s.scrollHeight - s.
 function scrollBottom(smooth) { const s = $("#scroll"); if (s) s.scrollTo({ top: s.scrollHeight, behavior: smooth ? "smooth" : "auto" }); }
 function onScroll() { loadOlder(); if (txStale && nearBottom() && current()) refreshIfChanged(current()); const j = $("#jump"); if (!j) return; j.classList.toggle("show", !nearBottom()); const comp = $(".composer-wrap"); if (comp) j.style.bottom = `${comp.offsetHeight + 16}px`; }
 
-function stepHtml(x) {
-  if (x.role === "thinking") return `<div class="step think">${esc(x.text)}</div>`;
-  if (x.role === "note") return `<div class="step note md">${md(x.text)}</div>`;
+// ---------- steps (the "Worked for …" activity timeline) ----------
+const EXPLORE_RE = /^(Read|View|Show|Print|Search|Find|Locate|List|Count|Inspect|Check|Git (log|status|diff|show|blame)|GET|Fetch|Tail|Head)\b/;
+const parseArgs = (x) => { try { return JSON.parse(x.args); } catch { return null; } };
+const segs = (x) => String(x.sum || "").split(" · ").map((t) => t.replace(/\s\+\d+$/, ""));
+function stepKind(x) {
+  if (x.role === "thinking") return "think";
+  if (x.role === "note") return "note";
+  const n = String(x.name || "");
+  if (n === "read" || n === "grep" || n === "find" || n === "ls") return "explore";
+  if (n === "edit" || n === "write") return "edit";
+  if (n === "bash") return x.sum && segs(x).every((t) => EXPLORE_RE.test(t)) ? "explore" : "run";
+  if (/search|fetch|web|browser/i.test(n)) return "web";
+  if (n === "subagent" || n === "ag_cua") return "agent";
+  if (n.startsWith("mcp_")) return "mcp";
+  return "tool";
+}
+const KIND_ICON = { think: "bulb", note: "chat", explore: "search", edit: "pencil", run: "term", web: "globe", agent: "agent", mcp: "plug", tool: "bolt" };
+const plural = (n, one, many = one + "s") => `${n} ${n === 1 ? one : many}`;
+// "6 files, 2 searches": what a run of reads/searches looked at, from the per-command summaries.
+function exploreCounts(list, brief) {
+  let files = 0, searches = 0, lists = 0, other = 0;
+  for (const x of list) {
+    if (x.role !== "tool") continue;
+    if (x.name === "read") { files++; continue; }
+    for (const t of segs(x)) {
+      if (/^(Read|View|Show|Print|Tail|Head|Inspect)\b/.test(t)) files += Math.max(1, (t.match(/, /g) || []).length + 1);
+      else if (/^(Search|Find|Locate)\b/.test(t)) searches++;
+      else if (/^List\b/.test(t)) lists++;
+      else other++;
+    }
+  }
+  if (brief) return [files && plural(files, "file"), searches && plural(searches, "search", "searches")].filter(Boolean).join(", ") || plural(lists + other, "check");
+  return [files && plural(files, "file"), searches && plural(searches, "search", "searches"), lists && plural(lists, "list"), other && plural(other, "check")].filter(Boolean).join(", ");
+}
+// Line-level +/− for edit/write args; capped so a huge write doesn't swamp the page.
+function diffOf(x) {
+  const a = parseArgs(x);
+  if (!a) return null;
+  const lines = (t) => String(t ?? "").replace(/\n$/, "").split("\n");
+  const hunks = x.name === "write" ? [{ del: [], add: lines(a.content) }]
+    : (a.edits || (a.oldText != null ? [a] : [])).map((e) => ({ del: lines(e.oldText), add: lines(e.newText) }));
+  if (!hunks.length) return null;
+  const add = hunks.reduce((n, h) => n + h.add.length, 0), del = hunks.reduce((n, h) => n + h.del.length, 0);
+  let shown = 0;
+  const body = hunks.map((h) => [...h.del.map((l) => ["del", "−", l]), ...h.add.map((l) => ["add", "+", l])]
+    .filter(() => shown++ < 400).map(([c, m, l]) => `<div class="l ${c}">${m} ${esc(l)}</div>`).join("")).join(`<div class="gap"></div>`);
+  return { add, del, html: `<div class="diff"><div class="f">${esc(String(a.path || x.detail || "").replace(/^\/home\/[^/]+|^\/Users\/[^/]+/, "~"))}</div>${body}${shown > 400 ? `<div class="f">… ${add + del - 400} more lines</div>` : ""}</div>` };
+}
+function toolBody(x, kind) {
+  const res = x.result, out = res ? `${mediaHtml(res.media)}` : "";
+  if (kind === "edit") { const d = diffOf(x); if (d) return d.html + (res?.error ? `<pre>${esc(res.text)}</pre>` : ""); }
+  if (x.name === "bash") {
+    const cmd = parseArgs(x)?.command || x.detail || "";
+    return `<div class="term"><div class="cmd">${esc(cmd)}</div>${res ? `<div class="out ${res.error ? "bad" : ""}">${esc(res.text || "(no output)")}</div>` : ""}</div>${out}`;
+  }
+  return `<pre>${esc(x.args || x.detail || "")}</pre>${res ? `<pre>${esc(res.text || "(no output)")}</pre>` : ""}${out}`;
+}
+const DEFAULT_HOST = "ag-engine";
+function toolStep(x, key, open, live) {
+  const kind = stepKind(x);
   const label = x.sum || `${x.name}${x.detail ? `: ${x.detail}` : ""}`;
   const host = (x.hosts || [])[0];
-  const res = x.result;
-  return `<details class="step"><summary>${host ? `<span class="host">${esc(host)}</span>` : ""}<span class="what ${res?.error ? "bad" : ""}" title="${esc(x.detail || "")}">${esc(label)}</span></summary>
-    <pre>${esc(x.args || x.detail || "")}</pre>${res ? `<pre>${esc(res.text || "(no output)")}</pre>${mediaHtml(res.media)}` : ""}</details>`;
+  const d = kind === "edit" ? diffOf(x) : null;
+  const tag = x.result?.error ? `<span class="tag bad">failed</span>`
+    : d ? `<span class="tag"><span class="add">+${d.add}</span> <span class="del">−${d.del}</span></span>` : "";
+  return `<details class="step" data-k="${key}" ${open.has(key) ? "open" : ""}><summary>${host && host !== DEFAULT_HOST ? `<span class="host">${esc(host)}</span>` : ""}<span class="what" title="${esc(x.detail || "")}">${esc(label)}</span>${tag}</summary>${toolBody(x, kind)}</details>`;
 }
-function stepsSummary(steps, startTs, endTs) {
-  const tools = steps.filter((s) => s.role === "tool").length;
+function stepIcon(kind, x, live) {
+  if (live && x?.role === "tool" && !x.result) return `<span class="ic"><span class="spin"></span></span>`;
+  if (x?.result?.error) return `<span class="ic bad">${ICON.alert}</span>`;
+  return `<span class="ic">${ICON[KIND_ICON[kind]]}</span>`;
+}
+// Fold runs of exploration (reads, searches, listings, plus the thinking between them) into one "Explored …" row.
+function groupSteps(steps) {
+  const out = [];
+  for (let i = 0; i < steps.length;) {
+    if (stepKind(steps[i]) !== "explore") { out.push(steps[i++]); continue; }
+    let j = i, last = i;
+    while (j < steps.length && ["explore", "think"].includes(stepKind(steps[j]))) { if (stepKind(steps[j]) === "explore") last = j; j++; }
+    const run = steps.slice(i, last + 1);
+    if (run.filter((x) => x.role === "tool").length >= 2) out.push({ group: run }); else out.push(...run);
+    i = last + 1;
+  }
+  return out;
+}
+function stepRows(steps, key, open, live) {
+  return groupSteps(steps).map((x, i) => {
+    const k = `${key}.${i}`;
+    if (x.group) {
+      const tools = x.group.filter((y) => y.role === "tool");
+      const running = live && tools.some((y) => !y.result), bad = tools.some((y) => y.result?.error);
+      return `<div class="srow">${stepIcon("explore", running ? { role: "tool" } : bad ? { result: { error: 1 } } : null, live)}<div class="body">
+        <details class="step grp" data-k="${k}" ${open.has(k) ? "open" : ""}><summary><span class="what">${running ? "Exploring" : "Explored"} ${esc(exploreCounts(x.group))}</span></summary>
+        <div class="sub">${x.group.map((y, gi) => y.role === "tool" ? toolStep(y, `${k}.${gi}`, open, live) : thinkHtml(y, `${k}.${gi}`, open)).join("")}</div></details></div></div>`;
+    }
+    const kind = stepKind(x);
+    const body = kind === "think" ? thinkHtml(x, k, open) : kind === "note" ? `<div class="step note md">${md(x.text)}</div>` : toolStep(x, k, open, live);
+    return `<div class="srow">${stepIcon(kind, x, live)}<div class="body">${body}</div></div>`;
+  }).join("");
+}
+// Thinking reads as a muted two-line preview; click to read it all.
+function thinkHtml(x, key, open) { return `<div class="think md ${open.has(key) ? "" : "clamp"}" data-k="${key}" data-think>${md(x.text)}</div>`; }
+function stepsSummary(steps, startTs, endTs, live) {
+  const tools = steps.filter((s) => s.role === "tool");
   const thought = steps.some((s) => s.role === "thinking");
+  const by = (k) => tools.filter((x) => stepKind(x) === k);
+  const edited = new Set(by("edit").map((x) => parseArgs(x)?.path || x.detail)).size;
+  const explored = by("explore").length ? exploreCounts(by("explore"), true) : "";
+  const failed = tools.filter((x) => x.result?.error).length;
+  const parts = [explored && `explored ${explored}`, by("run").length && `ran ${plural(by("run").length, "command")}`, edited && `edited ${plural(edited, "file")}`,
+    by("web").length && plural(by("web").length, "web lookup"), by("agent").length && plural(by("agent").length, "agent run"),
+    (by("mcp").length + by("tool").length) && plural(by("mcp").length + by("tool").length, "tool call")].filter(Boolean);
+  let detail = parts.map((t) => t[0].toUpperCase() + t.slice(1)).join(" · ");
+  if (failed) detail += `${detail ? " · " : ""}${failed} failed`;
   const span = startTs && endTs ? endTs - startTs : 0;
-  const head = thought && !tools ? "Thought" : "Worked";
-  const t = span > 1500 ? `${head} for ${dur(span)}` : thought && !tools ? "Thought for a moment" : "Worked";
-  return `${esc(t)}${tools ? ` <span class="n">· ${tools} step${tools === 1 ? "" : "s"}</span>` : ""}`;
+  const head = live ? `<span class="t shimmer" data-since="${startTs || ""}">Working${startTs ? ` for ${dur(Date.now() - startTs)}` : "…"}</span>`
+    : `<span class="t">${esc(span > 1500 ? `${thought && !tools.length ? "Thought" : "Worked"} for ${dur(span)}` : thought && !tools.length ? "Thought for a moment" : "Worked")}</span>`;
+  return `${head}${detail ? `<span class="n">· ${esc(detail)}</span>` : ""}`;
 }
+// Steps open themselves while the turn runs and fold away when it ends, unless you opened or closed them by hand.
+const stepsToggled = new Map();
 
 // Turns: a user message, then everything until the next one. The last assistant text of a finished turn is the
 // answer; earlier text, thinking and tool calls fold into a "Thought/Worked for …" disclosure.
 function renderThread() {
   const el = $("#thread");
   if (!el) return;
-  const openSet = new Set($$("details[open]", el).map((d) => d.dataset.k));
+  const openSet = new Set([...$$("details[open]", el), ...$$(".think:not(.clamp)", el)].map((d) => d.dataset.k));
   const turns = [];
   let cur = null;
   for (const x of transcript) {
@@ -1264,7 +1405,9 @@ function renderThread() {
     const flush = (endTs) => {
       if (!steps.length) return;
       const key = `${turns.length - ti}.${k++}`; // counted from the end: stable when older turns load above
-      html += `<details class="steps" data-k="${key}" ${openSet.has(key) ? "open" : ""}><summary>${stepsSummary(steps, startTs || steps[0].ts, endTs || steps.at(-1).ts)}${ICON.chev}</summary><div class="step-list">${steps.map(stepHtml).join("")}</div></details>`;
+      const live = ti === liveTurn && !endTs;
+      const open = stepsToggled.has(`${txRef}|${key}`) ? stepsToggled.get(`${txRef}|${key}`) : live;
+      html += `<details class="steps" data-k="${key}" ${open ? "open" : ""}><summary>${stepsSummary(steps, startTs || steps[0].ts, endTs || steps.at(-1).ts, live)}${ICON.chev}</summary><div class="step-list">${stepRows(steps, key, openSet, live)}</div></details>`;
       steps = [];
     };
     t.items.forEach((x, i) => {
@@ -1301,6 +1444,7 @@ function renderLive(c) {
     html = `<div class="live"><span class="orb"></span><span class="shimmer">${esc(what)}</span>${secs > 180 ? `<span class="slow">${dur(secs * 1000)}</span>` : ""}</div>`;
   } else if (a.kind === "error" && a.error) html = `<div class="err">${esc(a.error)}</div>`;
   if (el.innerHTML !== html) el.innerHTML = html;
+  for (const t of $$("[data-since]")) if (t.dataset.since) t.textContent = `Working for ${dur(Date.now() - Number(t.dataset.since))}`;
   if (stick) scrollBottom();
 }
 let screenT;
@@ -1787,6 +1931,10 @@ function sheetSwipe(el) {
 // ---------- global wiring ----------
 document.addEventListener("click", (e) => {
   const t = e.target;
+  const sum = t.closest("details.steps > summary");
+  if (sum) stepsToggled.set(`${txRef}|${sum.parentElement.dataset.k}`, !sum.parentElement.open);
+  const thk = t.closest("[data-think]");
+  if (thk && !t.closest("a") && !getSelection().toString()) thk.classList.toggle("clamp");
   if (pop && !t.closest(".pop") && !t.closest("[data-do=dots],[data-do=picker],[data-do=profile],[data-item-menu],[data-proj-menu]")) closePop();
   const rs = t.closest("[data-restore]");
   if (rs) {
@@ -1843,7 +1991,7 @@ document.addEventListener("click", (e) => {
     if (k === "projectsAll") { projectsAll = !projectsAll; localStorage.setItem("agchat.projectsAll", projectsAll ? "1" : "0"); renderSide(); }
     if (k === "notify") { const on = !notifyOn(); localStorage.setItem("agchat.notify", on ? "1" : "0"); if (on && Notification.permission === "default") Notification.requestPermission(); closePop(); toast(on ? "Notifications on" : "Notifications off"); }
     if (k === "profile") { if (pop) closePop(); else profileMenu(d); }
-    if (k === "picker") { if (pop) closePop(); else showPop(d, pickerPop()); }
+    if (k === "picker") { if (pop) closePop(); else { const had = JSON.stringify(models); showPop(d, pickerPop()); loadModels().then(() => { if (pop && JSON.stringify(models) !== had) showPop(d, pickerPop()); }); } }
     if (k === "dots") { if (pop) closePop(); else { menuCard = null; const c = current(); if (c) showPop(d, chatMenu(c, true), { align: "right" }); } }
     if (k === "share") { const sid = current()?.sid || route.sid; if (sid) navigator.clipboard.writeText(`${location.origin}/chat/${sid}`).then(() => toast("Link copied")); }
     return;

@@ -584,7 +584,7 @@ details.steps > summary .n { font-size: 13px; opacity: .85; white-space: nowrap;
     <tr><td>Focus the message box</td><td><kbd>⇧</kbd><kbd>Esc</kbd></td></tr>
     <tr><td>Send · new line</td><td><kbd>Enter</kbd> · <kbd>⇧</kbd><kbd>Enter</kbd></td></tr>
     <tr><td>Send and pin the chat</td><td><kbd>⌘</kbd><kbd>Enter</kbd></td></tr>
-    <tr><td>Interrupt, send and pin</td><td><kbd>⌥</kbd><kbd>⌘</kbd><kbd>Enter</kbd></td></tr>
+    <tr><td>Interrupt and send</td><td><kbd>⌥</kbd><kbd>⌘</kbd><kbd>Enter</kbd></td></tr>
     <tr><td>Copy last response</td><td><kbd>⇧</kbd><kbd>⌘</kbd><kbd>C</kbd></td></tr>
     <tr><td>Dictate</td><td><kbd>⌥</kbd><kbd>V</kbd></td></tr>
     <tr><td>Move chat to a project</td><td><kbd>⇧</kbd><kbd>⌘</kbd><kbd>M</kbd></td></tr>
@@ -1556,8 +1556,8 @@ function wireComposer() {
   };
   i.addEventListener("input", () => { grow(); saveDraftSoon(); });
   i.addEventListener("keydown", (e) => {
-    // ⌘Enter sends and pins the chat (⌥⌘Enter also interrupts first). On the phone ⌘Enter is just send.
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (!isMobile() || e.metaKey || e.ctrlKey)) { e.preventDefault(); const cmd = e.metaKey || e.ctrlKey; send({ interrupt: e.altKey && cmd, pin: cmd && !isMobile() }); }
+    // ⌘Enter sends and pins the chat.
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing && (!isMobile() || e.metaKey || e.ctrlKey)) { e.preventDefault(); const cmd = e.metaKey || e.ctrlKey; send({ interrupt: e.altKey && cmd, pin: cmd && !e.altKey && !isMobile() }); }
     // Esc only leaves the box (Gmail keys work again); it never stops the agent, since r then Esc is a normal
     // way out. Stopping is the Stop button.
     if (e.key === "Escape" && !e.shiftKey) { e.preventDefault(); i.blur(); collapseIfEmpty(); }
@@ -1651,7 +1651,7 @@ async function send(opts = {}) {
   const text = message();
   if (!text) return;
   const saved = { v: $("#input").value, a: [...attachments] };
-  if (route.kind === "new" || route.kind === "project") return startChat(text, null, saved, opts);
+  if (route.kind === "new" || route.kind === "project") return startChat(text, null, saved);
   const c = current();
   if (!c) return;
   clearComposer();
@@ -1660,20 +1660,14 @@ async function send(opts = {}) {
   scrollBottom(true);
   try {
     await api("/api/prompt", { tab: c.tab, text, interrupt: !!opts.interrupt });
-    if (opts.pin) pinTab(c.tab);
+    if (opts.pin && !c.pinned) api("/api/card", { tab: c.tab, pinned: true }).catch(() => {});
   } catch (e) {
     pending = pending.filter((p) => p.text !== text); renderPending();
     restoreComposer(saved);
     toast(`Couldn't send: ${e.message}`);
   }
 }
-// Pin after ⌘Enter. A brand-new chat's card shows up a few seconds after /api/new answers, so retry until it does.
-async function pinTab(tab, tries = 30) {
-  if (byTab.get(tab)?.pinned) return;
-  try { await api("/api/card", { tab, pinned: true }); toast("Sent and pinned"); }
-  catch { if (tries > 1) setTimeout(() => pinTab(tab, tries - 1), 1000); }
-}
-async function startChat(text, audio, saved, opts = {}) {
+async function startChat(text, audio, saved) {
   const fd = new FormData();
   if (text) fd.append("text", text);
   if (audio) fd.append("audio", audio, "dictation.webm");
@@ -1686,7 +1680,6 @@ async function startChat(text, audio, saved, opts = {}) {
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || r.status);
     if (j.tab) {
-      if (opts.pin) pinTab(j.tab);
       if (byTab.has(j.tab)) return go(urlOf(byTab.get(j.tab)));
       startingTab = j.tab;
       setTimeout(() => { if (startingTab === j.tab) { startingTab = null; toast("Chat started in your Inbox"); go("/chat"); } }, 30000);

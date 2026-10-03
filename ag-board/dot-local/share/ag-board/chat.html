@@ -1645,6 +1645,8 @@ function clearComposer() {
   i.value = ""; attachments = []; renderAtts();
   delete drafts[draftKey()]; localStorage.setItem("agchat.drafts", JSON.stringify(drafts));
   i.dispatchEvent(new Event("input"));
+  // Sending leaves the box (back to normal mode; r to write again).
+  i.blur();
 }
 function restoreComposer(saved) {
   const i = $("#input");

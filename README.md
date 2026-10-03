@@ -39,7 +39,7 @@ Everything is joined by one Tailscale tailnet, and every service is addressed by
 
 - **`ag`** in a terminal attaches to the host's sessions (like `tmux attach`, with the host's keybindings).
 - **The ag inbox** (`http://ag:7373`) starts a new session from anywhere: `ag spawn "…"` from a shell,
-  Cmd+Shift+Space on the Mac, the Action Button on the phone, the share sheet. A capture that continues an
+  both Command keys on the Mac (with Shift: plus a screenshot), the Action Button on the phone, the share sheet. A capture that continues an
   open session is delivered into that session instead.
 - **AG Dash** (`http://ag:7376`) is a Kanban board over every session: what needs you, what's working,
   what's waiting, with transcripts, a live terminal view and a prompt box. It works as an iPhone web app.

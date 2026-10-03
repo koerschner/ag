@@ -1,9 +1,11 @@
 // Ag Desktop: a thin Electron shell around Ag Chat (http://ag:7376/chat), served live by ag-board, so edits to
 // chat.html only need a reload (Cmd+R). The shell exists for what a PWA can't do: a system-wide shortcut.
-// Ctrl+Cmd+A shows and focuses the window, or hides it when it's already in front.
+// Ctrl+Cmd+A shows and focuses the window, or hides it when it's already in front. agdesktop://entry opens the
+// quick entry box (entry.js; Hammerspoon sends it when both Command keys are pressed together).
 const { app, BrowserWindow, globalShortcut, ipcMain, Notification, shell, session, screen } = require("electron");
 const fs = require("fs");
 const path = require("path");
+const entry = require("./entry");
 
 const ORIGIN = "http://ag:7376";
 const START = `${ORIGIN}/chat`;
@@ -14,6 +16,7 @@ if (!app.requestSingleInstanceLock()) app.quit();
 
 let win = null;
 let quitting = false;
+let launchedForEntry = false; // started by agdesktop://entry: keep the main window hidden until asked for
 const boundsFile = () => path.join(app.getPath("userData"), "bounds.json");
 function savedBounds() {
   try {
@@ -48,7 +51,7 @@ function createWindow() {
     show: false,
     webPreferences: { spellcheck: true, preload: path.join(__dirname, "preload.js"), contextIsolation: false },
   });
-  win.once("ready-to-show", () => win.show());
+  win.once("ready-to-show", () => { if (!launchedForEntry) win.show(); });
   const load = () => win.loadURL(START).catch(() => {});
   // ag-board unreachable (asleep, offline, restarting): retry until it's back.
   win.webContents.on("did-fail-load", (_e, code, _desc, url, isMain) => {
@@ -72,6 +75,13 @@ function createWindow() {
   load();
 }
 
+// agdesktop:// links (may arrive before the app is ready, when they launch it).
+app.on("open-url", (e, url) => {
+  e.preventDefault();
+  if (url.startsWith("agdesktop://entry")) { if (!app.isReady()) launchedForEntry = true; app.whenReady().then(() => entry.open(url)); }
+  else app.whenReady().then(show);
+});
+entry.setup(() => win);
 app.on("second-instance", show);
 // The page's notifications, shown natively (see preload.js). Kept referenced until closed so they aren't
 // garbage-collected (which would drop their click). A tag replaces the earlier notification with the same tag.
@@ -150,6 +160,7 @@ app.whenReady().then(() => {
   session.defaultSession.setPermissionRequestHandler((wc, _perm, cb, details) => cb(ok(wc, details?.requestingUrl)));
   session.defaultSession.setPermissionCheckHandler((wc, _perm, origin) => ok(wc, origin));
   app.setLoginItemSettings({ openAtLogin: true });
+  app.setAsDefaultProtocolClient("agdesktop");
   if (!globalShortcut.register(HOTKEY, toggle)) console.error(`Ag Desktop: ${HOTKEY} is taken by another app`);
   createWindow();
   pollPinned();

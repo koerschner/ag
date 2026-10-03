@@ -5,7 +5,7 @@
 // the Mac quick capture (Hammerspoon), the iPhone Action Button, file-inbox's "New session".
 // Pipeline, one function per step, one JSON log line per step (~/.local/state/ag-inbox/log.jsonl):
 //   receive → open (new Inbox tab named instantly by quickName, pi starting) in parallel with
-//   route (cheap multimodal model names the tab and picks a playbook) + screenshot gate (Jev)
+//   route (cheap multimodal model names the tab and picks a playbook)
 //   + follow-on match (Jev: is this new context for an open session?)
 //   → follow (sure: prompt that session, toast, close the speculative tab) or send (rename the tab to
 //     the router's label, send; when the
@@ -19,11 +19,11 @@
 //   audio       voice recording (multipart; iPhone Action Button). Saved to ~/inbox/capture and transcribed
 //               with Whisper (TrueFoundry); the transcript becomes the prompt (any `text` is appended)
 //               The phone's queue sends `text` itself as a file (.txt prompt or .m4a recording); both work.
-//   screenshot  image file (multipart) grabbed at capture time. Saved to ~/inbox/capture; Jev decides
-//               whether the prompt needs it
-//   app, window frontmost app and window title when captured (context for Jev and the agent)
+//   screenshot  image file (multipart) grabbed at capture time. Saved to ~/inbox/capture and always attached
+//               (the sender decides: on the Mac, holding Shift with the capture shortcut adds one)
+//   app, window frontmost app and window title when captured (context for the agent)
 //   source      "iphone" = the screenshot is the phone's screen (Action Button); default is the Mac
-//   attach      "always" = skip Jev and attach (e.g. Nathan annotated it)
+//   pin         "1" = pin the session it lands in (Cmd+Enter in Ag Desktop's quick entry)
 //   file        shared files (repeatable; iPhone share sheet). Always attached, saved to ~/inbox/share
 //   url, shared shared link / shared text. With files or a link, `text` may be empty.
 //   dry         "1" = route and gate only; responds with the label, playbook and prompt, opens nothing
@@ -70,7 +70,6 @@ const STT_MODELS = ["whisper-1", "openai-esw/whisper-1"]; // second is the fallb
 // Vocabulary hint so Whisper spells Nathan's usual names right.
 const STT_HINT = "tmux, ag, pi, Arcade, arcade.school, Jev, TrueFoundry, Linear, Honeycomb, Hammerspoon, dotfiles, Roblox, TSA.";
 const JEV_URL = "https://tfy.promptlens.trilogy.com/proxy-api/jev-account/jev-endpoint/v1/systemone";
-const ATTACH_THRESHOLD = 0.5; // P(prompt needs the screen); tested on ~10 typical captures
 // Follow-on routing: deliver into an existing session when Jev is sure the capture continues it,
 // hint at it in a new Inbox session when it's plausible. Tested on ~8 captures: clear follow-ups score 0.97-1.0,
 // a vague "any update on that thing?" 0.6 (→ hint), unrelated asks pick "none".
@@ -195,37 +194,7 @@ async function voiceText(id: string, text: string, audio: string | null): Promis
 	}
 }
 
-type Shot = { path: string; app: string; window: string; always: boolean; iphone: boolean };
-
-// Step 2b: does the prompt need the screenshot? Jev answers from the text and window context
-// (it can't see images). "why is this failing?" → yes; "renew my passport next month" → no.
-async function needsScreen(text: string, shot: Shot): Promise<number> {
-	const res = await fetch(JEV_URL, {
-		method: "POST",
-		headers: { authorization: `Bearer ${tfyToken()}`, "content-type": "application/json" },
-		body: JSON.stringify({
-			model: "jev-latest",
-			state: shot.iphone
-				? { prompt: text.slice(0, 8000), device: "iPhone" }
-				: { prompt: text.slice(0, 8000), frontmost_app: shot.app, window_title: shot.window },
-			questions: {
-				screen: {
-					type: "noul",
-					instructions: shot.iphone
-						? "Nathan pressed his iPhone's Action Button, which grabbed a screenshot of whatever was on his phone screen, then typed `prompt` into a quick-capture box that starts a new AI agent session. Would the agent need that screenshot of his phone screen to understand or do what `prompt` asks?"
-						: "Nathan typed `prompt` into a quick-capture box that starts a new AI coding-agent session. When he pressed the capture key, `frontmost_app` was focused with the window `window_title`. Would the agent need a screenshot of his screen to understand or do what `prompt` asks?",
-					criteria: {
-						true: "The prompt points at something on screen (this, that, here, this page, this error, this message) or can't be done well without seeing it.",
-						false: "The prompt is self-contained and makes sense without seeing the screen.",
-					},
-				},
-			},
-		}),
-		signal: AbortSignal.timeout(10_000),
-	});
-	if (!res.ok) throw new Error(`jev ${res.status}: ${await res.text()}`);
-	return (await res.json()).answers.screen.noul;
-}
+type Shot = { path: string; app: string; window: string; iphone: boolean };
 
 type Session = { tab: string; pane: string; title: string; first: string; latest: string; file: string };
 type Thread = { action: "follow" | "hint" | "new"; ongoing: number; p: number; session: Session | null };
@@ -379,22 +348,6 @@ function send(id: string, o: Opened, text: string, label: string): Launched {
 }
 type Launched = { action: "new" | "follow"; label: string; tab: string; pane: string; agent?: string };
 
-async function attachDecision(id: string, text: string, shot: Shot | null): Promise<string> {
-	if (!shot) return text;
-	if (shot.always) {
-		log(id, "screenshot", { attach: true, reason: "always" });
-		return withShot(text, shot);
-	}
-	// On a Jev failure, attach: an unneeded screenshot costs less than a missing one.
-	const p = await needsScreen(text, shot).catch(() => needsScreen(text, shot)).catch((e) => {
-		log(id, "jev_failed", { error: String(e) });
-		return 1;
-	});
-	const attach = p >= ATTACH_THRESHOLD;
-	log(id, "screenshot", { attach, p, path: shot.path });
-	return attach ? withShot(text, shot) : text;
-}
-
 type Share = { files: string[]; url: string; shared: string };
 
 // What was shared from the iPhone share sheet, as text for the agent.
@@ -419,7 +372,7 @@ async function prepare(id: string, typed: string, shot: Shot | null, share: Shar
 			log(id, "route_failed", { error: String(e) });
 			return { label: "Inbox Task", playbook: null };
 		}),
-		attachDecision(id, routeText, shot),
+		shot ? withShot(routeText, shot) : routeText,
 		// On a Jev failure, open a new session as before.
 		fresh ? Promise.resolve<Thread>({ action: "new", ongoing: 0, p: 0, session: null }) : matchThread(routeText).catch(() => matchThread(routeText)).catch((e): Thread => {
 			log(id, "thread_failed", { error: String(e) });
@@ -440,7 +393,18 @@ async function prepare(id: string, typed: string, shot: Shot | null, share: Shar
 }
 
 // Throws when the prompt couldn't be delivered anywhere (logged, and toasted for fire-and-forget callers).
-async function handle(id: string, text: string, shot: Shot | null, share: Share | null, audio: string | null, fresh: boolean): Promise<Launched> {
+// Pin the session a capture landed in (Cmd+Enter in Ag Desktop's quick entry). Best effort.
+function pinSession(id: string, r: Launched): Launched {
+	try { execFileSync(`${HOME}/.local/bin/ag`, ["pin", "on", r.tab], { timeout: 15_000, stdio: "ignore" }); log(id, "pinned", { tab: r.tab }); }
+	catch (e) { log(id, "pin_failed", { tab: r.tab, error: String(e) }); }
+	return r;
+}
+
+async function handle(id: string, text: string, shot: Shot | null, share: Share | null, audio: string | null, fresh: boolean, pin = false): Promise<Launched> {
+	return pin ? pinSession(id, await launch(id, text, shot, share, audio, fresh)) : launch(id, text, shot, share, audio, fresh);
+}
+
+async function launch(id: string, text: string, shot: Shot | null, share: Share | null, audio: string | null, fresh: boolean): Promise<Launched> {
 	// Start the tab and pi now; failures surface (or are dropped, on a follow-on) after routing.
 	const quick = quickName(text || share?.shared || "") || (audio ? "Voice Note" : share ? "Shared Item" : "Inbox Task");
 	const opening = open(id, quick);
@@ -549,7 +513,7 @@ for (const hostname of [host, "127.0.0.1"]) Bun.serve({
 			const ext = file.type === "image/jpeg" ? "jpg" : "png";
 			const path = `${CAPTURE_DIR}/${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}-${id}.${ext}`;
 			writeFileSync(path, Buffer.from(await file.arrayBuffer()));
-			shot = { path, app: field("app"), window: field("window"), always: field("attach") === "always", iphone: field("source") === "iphone" };
+			shot = { path, app: field("app"), window: field("window"), iphone: field("source") === "iphone" };
 		}
 		let audio: string | null = null;
 		if (hasVoice) {
@@ -565,7 +529,8 @@ for (const hostname of [host, "127.0.0.1"]) Bun.serve({
 		const ip = server.requestIP(req)?.address?.replace(/^::ffff:/, "");
 		const from = { ip, device: field("source") || (clientId ? "iphone" : undefined), app: field("app") || undefined, window: field("window") || undefined, ua: req.headers.get("user-agent")?.slice(0, 80) };
 		const fresh = url.searchParams.get("new") === "1" || field("new") === "1";
-		log(id, "received", { chars: text.length, text, clientId, screenshot: shot?.path, audio, share, from, fresh: fresh || undefined });
+		const pin = field("pin") === "1";
+		log(id, "received", { chars: text.length, text, clientId, screenshot: shot?.path, audio, share, from, fresh: fresh || undefined, pin: pin || undefined });
 		// dry=1: route and gate only, return what would be sent, open nothing (for testing).
 		if (field("dry") === "1") {
 			const { session: _, ...dry } = await prepare(id, text, shot, share, audio, fresh);
@@ -575,11 +540,11 @@ for (const hostname of [host, "127.0.0.1"]) Bun.serve({
 		// back on a blank page, and a failure is toasted. Raw-body callers (curl, agents, scripts) wait for
 		// the session to start: 200 + JSON {action, label, tab, pane}, or 502 + the error.
 		if (type.includes("form")) {
-			handle(id, text, shot, share, audio, fresh).catch(() => {});
+			handle(id, text, shot, share, audio, fresh, pin).catch(() => {});
 			return new Response(null, { status: 303, headers: { location: "/" } });
 		}
 		try {
-			return Response.json({ id, ...(await handle(id, text, shot, share, audio, fresh)) });
+			return Response.json({ id, ...(await handle(id, text, shot, share, audio, fresh, pin)) });
 		} catch (e) {
 			return new Response(`ag-inbox: ${e instanceof Error ? e.message : e}\n`, { status: 502, headers: { "content-type": "text/plain" } });
 		}

@@ -11,7 +11,7 @@ else
 	activity_log = require("activity_log")
 end
 
--- ag inbox quick capture (Cmd+Shift+Space): prompt + screenshot → new pi session on ag.
+-- ag inbox quick entry (both Command keys; + Shift = with a screenshot), drawn by Ag Desktop.
 ag_inbox = require("ag_inbox")
 
 -- ─── Sessions: forward Ghostty tab/split shortcuts into Ag's tmux ──────────

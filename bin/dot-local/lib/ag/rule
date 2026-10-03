@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+"""ag rule — Nathan's personal UX shortcuts on top of Ag: plain-language rules backed by code.
+
+A rule is ~/ag/rules/<name>.md (front matter + the rule in words, the spec) plus the code it names
+(~/ag/rules/<name>.ts). Front matter: description, on (prompt: runs on every prompt before the agent sees it,
+via the Pi extension ag-rules.ts), code, enabled. To add one, write both files (the .md in Nathan's words,
+the .ts implementing exactly that; contract in rules/types.ts), commit and push; Pi sessions pick it up when
+they start. Docs: docs/reference.md → "ag rules".
+
+    ag rule list           every rule: name, trigger, on/off, description
+    ag rule show <name>    the rule in words, and its code file
+"""
+import os, re, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+DIR = os.path.join(os.environ.get("AG_DIR", os.path.expanduser("~/ag")), "rules")
+
+
+def load(name):
+    text = open(os.path.join(DIR, name + ".md"), encoding="utf-8").read()
+    m = re.match(r"---\n(.*?)\n---\n?(.*)", text, re.S)
+    meta = dict(re.findall(r"^(\w+):\s*(.*)$", m.group(1), re.M)) if m else {}
+    return meta, (m.group(2) if m else text).strip()
+
+
+def main(argv):
+    o, pos = flags(argv, {})
+    if o.get("--help") or not pos:
+        return usage(__doc__)
+    names = sorted(f[:-3] for f in os.listdir(DIR) if f.endswith(".md") and f != "README.md")
+    if pos[0] == "list":
+        for n in names:
+            meta, _ = load(n)
+            state = "off" if meta.get("enabled") == "false" else "on"
+            print(f"{n:24} {meta.get('on', '?'):8} {state:4} {meta.get('description', '')}")
+    elif pos[0] == "show" and len(pos) == 2:
+        if pos[1] not in names:
+            raise AgError(f"no rule {pos[1]!r} (have: {', '.join(names)})")
+        meta, body = load(pos[1])
+        print(f"{pos[1]}: {meta.get('description', '')}\non: {meta.get('on')}  enabled: {meta.get('enabled', 'true')}"
+              f"  code: {os.path.join(DIR, meta.get('code', '?'))}\n\n{body}")
+    else:
+        return usage(__doc__)
+
+
+run_main(main)

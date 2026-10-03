@@ -421,7 +421,7 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
     <tr><td><span class="kbd">Space</span></td><td>expand / collapse details</td></tr>
     <tr><td><span class="kbd">s</span></td><td>pin / unpin (Gmail's star)</td></tr>
     <tr><td><span class="kbd">r</span></td><td>in an open session: write a reply (the box starts unfocused, like a Gmail thread); <span class="kbd">j</span>/<span class="kbd">k</span> next / previous, <span class="kbd">e</span> archive and open the next, <span class="kbd">u</span> back to the board</td></tr>
-    <tr><td><span class="kbd">z</span></td><td>undo the last archive</td></tr>
+    <tr><td><span class="kbd">z</span></td><td>undo the last archive (also <span class="kbd">⌘</span><span class="kbd">Z</span>)</td></tr>
     <tr><td><span class="kbd">⇧</span><span class="kbd">U</span></td><td>mark unread</td></tr>
     <tr><td><span class="kbd">e</span></td><td>archive (closes the tab; Undo for a few seconds)</td></tr>
     <tr><td><span class="kbd">c</span></td><td>new item. Also: ask “where's the one about …” and it shows the cards; housekeeping (“pin the roblox ones”) goes to a brief session in Meta</td></tr>
@@ -1136,13 +1136,16 @@ document.addEventListener("keydown", (e) => {
   if (e.altKey && (e.key === "v" || e.key === "√" || e.code === "KeyV")) { e.preventDefault(); const id = $("#ndlg").open ? "ned" : openTab ? "rted" : null; if (id) toggleVoice(id); return; }
   if (e.key === "Escape" && $("#lb").classList.contains("open")) { $("#lb").classList.remove("open"); $("#lb").innerHTML = ""; return; }
   if (e.key === "Escape") { if ($("#ndlg").open || $("#help").open) return; if (openTab && typing()) document.activeElement.blur(); else if (openTab || openSid) closeDrawer(); else { $("#q").blur(); select(null); } return; }
+  // ⌘Z undoes the last archive while its Undo toast is up; in a field with text it stays the field's own undo.
+  const undo = [...document.querySelectorAll("#undos .undo button")].pop();
+  if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "z" && undo && !(typing() && (document.activeElement.value ?? document.activeElement.textContent))) { e.preventDefault(); undo.click(); return; }
   if (typing() || e.metaKey || e.ctrlKey || e.altKey || $("dialog[open]")) return;
   const k = e.key;
   // Gmail keys, anywhere outside a text field (even with a session open): / search, c new item, ? help, z undo.
   const global = {
     "/": () => { if (openTab || openSid) closeDrawer(); $("#q").focus(); $("#q").select(); },
     c: () => openNew(), "?": () => openHelp(),
-    z: () => { const u = [...document.querySelectorAll("#undos .undo button")].pop(); u?.click(); },
+    z: () => undo?.click(),
   };
   if (global[k]) { e.preventDefault(); global[k](); return; }
   // In an open session, Gmail's thread keys: r reply, j/k next/previous card, e archive and open the next, u back.

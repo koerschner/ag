@@ -285,7 +285,8 @@ details.steps > summary .n { font-size: 13px; opacity: .85; white-space: nowrap;
 .grp > .sub { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
 .grp .sub .step > summary { color: var(--faint); }
 .grp .sub .step > summary:hover { color: var(--text); }
-.think { color: var(--muted); line-height: 1.6; font-size: 14px; cursor: pointer; }
+.think { color: var(--muted); line-height: 1.6; font-size: 14px; }
+.think.more { cursor: pointer; }
 .think.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .think p { margin: 0 0 6px; } .think p:last-child { margin: 0; }
 .step.note { color: var(--muted); }
@@ -1365,6 +1366,12 @@ function stepRows(steps, key, open, live) {
   }).join("");
 }
 // Thinking reads as a muted two-line preview; click to read it all.
+// Only thoughts that are actually cut off get the click-to-expand pointer.
+function markThinkMore(root = document) {
+  for (const t of $$(".think", root)) t.classList.toggle("more", !t.classList.contains("clamp") || t.scrollHeight > t.clientHeight + 1);
+}
+addEventListener("resize", () => markThinkMore());
+document.addEventListener("toggle", (e) => { if (e.target.open) markThinkMore(e.target); }, true); // closed steps measure 0 until opened
 function thinkHtml(x, key, open) { return `<div class="think md ${open.has(key) ? "" : "clamp"}" data-k="${key}" data-think>${md(x.text)}</div>`; }
 function stepsSummary(steps, startTs, endTs, live) {
   const tools = steps.filter((s) => s.role === "tool");
@@ -1432,6 +1439,7 @@ function renderThread() {
   if (!transcript.length) html = route.kind === "sid" && route.info ? "" : `<div class="live"><span class="orb"></span><span class="shimmer">Loading…</span></div>`;
   el.innerHTML = html;
   el._turns = turns;
+  markThinkMore(el);
   renderPending();
 }
 function renderPending() {
@@ -1937,7 +1945,7 @@ document.addEventListener("click", (e) => {
   const t = e.target;
   const sum = t.closest("details.steps > summary");
   if (sum) stepsToggled.set(`${txRef}|${sum.parentElement.dataset.k}`, !sum.parentElement.open);
-  const thk = t.closest("[data-think]");
+  const thk = t.closest("[data-think].more");
   if (thk && !t.closest("a") && !getSelection().toString()) thk.classList.toggle("clamp");
   if (pop && !t.closest(".pop") && !t.closest("[data-do=dots],[data-do=picker],[data-do=profile],[data-item-menu],[data-proj-menu]")) closePop();
   const rs = t.closest("[data-restore]");

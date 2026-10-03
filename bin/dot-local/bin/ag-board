@@ -1348,10 +1348,18 @@ async function handle(req: Request): Promise<Response> {
 				return ok();
 			}
 			case "/api/workspace": {
-				// Ag Chat's "New area": an empty workspace (one shell tab).
+				// Ag Chat's "New area" (an empty workspace with one shell tab), or renaming one ({id, label}).
 				const label = String(body.label ?? "").trim().slice(0, 40);
+				const id = String(body.id ?? "");
 				if (!label) return bad("label required");
-				if (board.workspaces.some((w) => w.label.toLowerCase() === label.toLowerCase())) return bad("an area with that name exists", 409);
+				if (board.workspaces.some((w) => w.id !== id && w.label.toLowerCase() === label.toLowerCase())) return bad("an area with that name exists", 409);
+				if (id) {
+					if (!board.workspaces.some((w) => w.id === id)) return bad("no such area", 404);
+					const r = await mux("workspace", "rename", id, label);
+					if (r.code !== 0) return fail(r, "workspace rename");
+					await after();
+					return ok();
+				}
 				const r = await mux("workspace", "create", "--cwd", HOME, "--label", label, "--no-focus");
 				if (r.code !== 0) return fail(r, "workspace create");
 				await after();

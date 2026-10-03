@@ -147,7 +147,12 @@ kbd { font: 12px var(--sans); color: var(--faint); }
 .area.closed .area-b { display: none; }
 .area-b .item { padding-left: 38px; }
 .area-b .see-more.sub { padding-left: 38px; font-size: 13px; }
+.area-h .am svg { width: 16px; height: 16px; }
 @media (hover: hover) { .area-h .tw { display: none; } .area-h:hover .tw { display: grid; } .area-h:hover .n { display: none; } }
+@media (hover: none) { .area-h .am { display: none; } }
+input.rename { flex: 1; min-width: 0; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--blue); border-radius: 6px; padding: 2px 6px; margin-left: -7px; outline: none; }
+.row.editing { background: var(--hover); }
+.row.editing .ind, .row.editing .arch, .row.editing .more, .row.editing .tw, .row.editing .n { display: none !important; }
 /* Drag and drop */
 .dragged { opacity: .4; }
 body.dragging .item:hover .arch, body.dragging .item:hover .more { display: none; }
@@ -706,12 +711,12 @@ function areaHtml(w, cards, cur, curWs) {
   const ind = mine.some(working) ? '<span class="spin" title="Working"></span>' : "";
   const more = mine.length > AREA_CAP ? `<button class="row see-more sub" data-area-more="${w.id}"><span class="lbl">${st === "all" ? "Show less" : `${mine.length - AREA_CAP} more`}</span></button>` : "";
   return `<div class="area ${st ? "" : "closed"}" data-area="${w.id}" data-drop-ws="${w.id}">
-    <a class="row area-h" href="/chat/p/${w.id}" data-go="/chat/p/${w.id}" draggable="true" data-drag-area="${w.id}" ${curWs === w.id ? 'aria-current="page"' : ""}>${ICON.area}<span class="lbl">${esc(w.label)}</span><span class="ind">${ind}<span class="n">${mine.length || ""}</span></span><button class="tw" data-area-toggle="${w.id}" aria-label="${st ? "Collapse" : "Expand"} ${esc(w.label)}">${ICON.chevdown}</button></a>
+    <a class="row area-h" href="/chat/p/${w.id}" data-go="/chat/p/${w.id}" draggable="true" data-drag-area="${w.id}" ${curWs === w.id ? 'aria-current="page"' : ""}>${ICON.area}<span class="lbl">${esc(w.label)}</span><span class="ind">${ind}<span class="n">${mine.length || ""}</span></span><button class="tw am" data-area-menu="${w.id}" aria-label="Area options">${ICON.dots}</button><button class="tw" data-area-toggle="${w.id}" aria-label="${st ? "Collapse" : "Expand"} ${esc(w.label)}">${ICON.chevdown}</button></a>
     <div class="area-b">${shown.map((c) => itemHtml(c, cur)).join("")}${more}</div></div>`;
 }
-let dragging = null, sideDirty = false;
+let dragging = null, editing = false, sideDirty = false;
 function renderSide() {
-  if (dragging) { sideDirty = true; return; } // re-rendering would drop the element being dragged
+  if (dragging || editing) { sideDirty = true; return; } // re-rendering would drop the element being dragged or edited
   const cur = current();
   const cards = [...board.cards].sort((a, b) => lastAt(b) - lastAt(a));
   const counts = { you: cards.filter(needsYou).length, working: cards.filter(working).length, waiting: cards.filter((c) => c.waiting?.length).length };
@@ -1424,10 +1429,35 @@ async function resume() {
   try { await api("/api/resume", { sid: route.sid }); }
   catch (e) { toast(`Couldn't resume: ${e.message}`); if (b) { b.disabled = false; b.textContent = "Resume"; } }
 }
-async function rename(c) {
-  const name = prompt("Rename chat", c.title);
-  if (!name?.trim() || name.trim() === c.title) return;
-  try { await api("/api/rename", { tab: c.tab, label: name.trim() }); toast("Renamed"); } catch (e) { toast(`Rename failed: ${e.message}`); }
+// Inline rename, like ChatGPT: the row's label turns into a text field (Enter or click away saves, Esc cancels).
+// Falls back to a prompt when the row isn't on screen (e.g. renaming from the header's ⋯).
+function inlineEdit(row, value, save) {
+  const lbl = row?.querySelector(".lbl");
+  if (!lbl || !row.isConnected) { const v = prompt("Rename", value)?.trim(); if (v && v !== value) save(v); return; }
+  editing = true;
+  const inp = document.createElement("input");
+  inp.className = "rename"; inp.value = value; inp.setAttribute("aria-label", "New name");
+  lbl.replaceWith(inp); row.classList.add("editing"); row.draggable = false;
+  inp.focus(); inp.select();
+  let done = false;
+  const finish = (ok) => {
+    if (done) return; done = true; editing = false;
+    const v = inp.value.trim();
+    if (ok && v && v !== value) { lbl.textContent = v; save(v); }
+    inp.replaceWith(lbl); row.classList.remove("editing");
+    renderSide();
+  };
+  inp.addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key === "Enter") { e.preventDefault(); finish(true); } if (e.key === "Escape") finish(false); });
+  inp.addEventListener("blur", () => finish(true));
+  for (const ev of ["click", "mousedown", "dragstart"]) inp.addEventListener(ev, (e) => { e.stopPropagation(); if (ev !== "mousedown") e.preventDefault(); });
+}
+function rename(c) {
+  inlineEdit($(`#sideScroll .item[data-tab="${CSS.escape(c.tab)}"]`), c.title, (label) =>
+    api("/api/rename", { tab: c.tab, label }).then(() => toast("Renamed")).catch((e) => toast(`Rename failed: ${e.message}`)));
+}
+function renameArea(id) {
+  inlineEdit($(`#sideScroll .area[data-area="${CSS.escape(id)}"] > .area-h`), wsLabel(id), (label) =>
+    api("/api/workspace", { id, label }).then(() => toast("Renamed")).catch((e) => toast(`Rename failed: ${e.message}`)));
 }
 function lastAnswer() { const t = $("#thread")?._turns?.at(-1); return t?.items.filter((x) => x.role === "assistant").at(-1)?.text; }
 const copied = (btn) => { const old = btn.innerHTML; btn.innerHTML = ICON.check; setTimeout(() => (btn.innerHTML = old), 1500); };
@@ -1495,7 +1525,7 @@ $("#sq").addEventListener("keydown", (e) => {
 // ---------- global wiring ----------
 document.addEventListener("click", (e) => {
   const t = e.target;
-  if (pop && !t.closest(".pop") && !t.closest("[data-do=dots],[data-do=picker],[data-do=profile],[data-item-menu]")) closePop();
+  if (pop && !t.closest(".pop") && !t.closest("[data-do=dots],[data-do=picker],[data-do=profile],[data-item-menu],[data-area-menu]")) closePop();
   const ar = t.closest("[data-archive]");
   if (ar) { e.preventDefault(); e.stopPropagation(); closePop(); const c = byTab.get(ar.dataset.archive); if (c) archive(c); return; }
   const more = t.closest("[data-item-menu]");
@@ -1512,6 +1542,26 @@ document.addEventListener("click", (e) => {
   }
   const at = t.closest("[data-area-toggle]");
   if (at) { e.preventDefault(); e.stopPropagation(); const id = at.dataset.areaToggle; if (areaOpen[id]) delete areaOpen[id]; else areaOpen[id] = "open"; saveAreaOpen(); renderSide(); return; }
+  const amn = t.closest("[data-area-menu]");
+  if (amn) {
+    e.preventDefault(); e.stopPropagation();
+    const id = amn.dataset.areaMenu;
+    if (pop && pop.dataset.area === id) { closePop(); return; }
+    showPop(amn, `<button class="mi" data-area-act="new" data-t="chat-area-new">${ICON.compose}<span class="lbl">New chat in ${esc(wsLabel(id))}</span></button>
+      <button class="mi" data-area-act="rename" data-t="chat-area-rename">${ICON.pencil}<span class="lbl">Rename area</span></button>
+      <button class="mi" data-area-act="toggle" data-t="chat-area-toggle">${ICON.chevdown}<span class="lbl">${areaOpen[id] ? "Collapse" : "Expand"}</span></button>`);
+    pop.dataset.area = id;
+    return;
+  }
+  const aa = t.closest(".pop [data-area-act]");
+  if (aa) {
+    const id = pop.dataset.area, k = aa.dataset.areaAct;
+    closePop();
+    if (k === "new") go(`/chat/p/${id}`);
+    if (k === "rename") renameArea(id);
+    if (k === "toggle") { if (areaOpen[id]) delete areaOpen[id]; else areaOpen[id] = "open"; saveAreaOpen(); renderSide(); }
+    return;
+  }
   const am = t.closest("[data-area-more]");
   if (am) { const id = am.dataset.areaMore; areaOpen[id] = areaOpen[id] === "all" ? "open" : "all"; saveAreaOpen(); renderSide(); return; }
   const a = t.closest("a.item");

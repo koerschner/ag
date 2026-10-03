@@ -1705,5 +1705,55 @@
   "hosts": [
    "ag-engine"
   ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "pi-hibernate sweep --all -n 2>&1"
+  },
+  "sum": "List pi sessions to hibernate (ignoring idle time)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "pi-hibernate sweep -n"
+  },
+  "sum": "List pi sessions to hibernate",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "pi-hibernate status"
+  },
+  "sum": "List hibernated pi panes",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/arcade.school && timeout 300 bun scripts/db preview create --stage pr-1777 </dev/null 2>&1 | tail -1"
+  },
+  "sum": "Create preview DB pr-1777",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/arcade.school && bun db query arcade --stage production \"select scope, count(*) from consent_deliveries\""
+  },
+  "sum": "Query production arcade DB: consent_deliveries",
+  "hosts": [
+   "ag-engine"
+  ]
  }
 ]

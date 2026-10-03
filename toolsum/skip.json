@@ -1,7 +1,26 @@
 [
- { "shape": "$C", "reason": "Opaque variable holding a binary path; the raw command says more than any summary could." },
- { "shape": "\"$DCE\"", "reason": "DiscordChatExporter binary held in a variable; one-off exploration, raw command is clearer." },
- { "shape": "$R", "reason": "Opaque variable (an ad-hoc conflict-resolution helper); no deterministic meaning." },
- { "shape": "| j", "reason": "Ad-hoc JSON-extraction helper defined outside the command; the raw expression is clearer." },
- { "shape": "do", "reason": "Loop bodies running commands held in opaque variables ($T, $L, $S, $STOW); the raw command is clearer." }
+ {
+  "shape": "$C",
+  "reason": "Opaque variable holding a binary path; the raw command says more than any summary could."
+ },
+ {
+  "shape": "\"$DCE\"",
+  "reason": "DiscordChatExporter binary held in a variable; one-off exploration, raw command is clearer."
+ },
+ {
+  "shape": "$R",
+  "reason": "Opaque variable (an ad-hoc conflict-resolution helper); no deterministic meaning."
+ },
+ {
+  "shape": "| j",
+  "reason": "Ad-hoc JSON-extraction helper defined outside the command; the raw expression is clearer."
+ },
+ {
+  "shape": "do",
+  "reason": "Loop bodies running commands held in opaque variables ($T, $L, $S, $STOW); the raw command is clearer."
+ },
+ {
+  "shape": "$T",
+  "reason": "Opaque variable holding a binary path (ad-hoc test helper); the raw command is clearer."
+ }
 ]

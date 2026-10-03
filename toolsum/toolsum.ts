@@ -428,11 +428,14 @@ const RULES: Rule[] = [
 			if (a[0] === "--check") return `Syntax-check ${shortPath(a[1] ?? "")}`;
 			return p[0] ? `Run ${shortPath(p[0])}` : undefined;
 		}
-		if (tool === "bun" && p[0] === "scripts/db" && (a.includes("--help") || a.includes("-h"))) return "Read scripts/db help";
-		if (tool === "bun" && p[0] === "scripts/db") {
+		if (tool === "bun" && /^(?:scripts\/)?db$/.test(p[0] ?? "") && (a.includes("--help") || a.includes("-h"))) return "Read scripts/db help";
+		if (tool === "bun" && /^(?:scripts\/)?db$/.test(p[0] ?? "")) {
 			const stage = flagVal(a, "--stage") ?? "local";
-			const db = positional(a, ["--stage"]).find((x, i, arr) => i > 1 && arr[i - 1] === "query") ?? positional(a, ["--stage"])[2];
-			const sql = positional(a, ["--stage"]).slice(3).join(" ");
+			const q = positional(a, ["--stage"]);
+			if (q[1] === "preview" && q[2]) return `${cap(q[2])} preview DB ${stage}`;
+			if (q[1] !== "query") return q[1] ? `Run scripts/db ${q[1]} (${stage})` : undefined;
+			const db = q[2];
+			const sql = q.slice(3).join(" ");
 			const table = sql.match(/\b(?:from|into|update|join)\s+([a-z_][\w.]*)/i)?.[1];
 			return `Query ${stage} ${db ?? ""} DB${table ? `: ${table}` : ""}`.replace(/\s+/g, " ");
 		}
@@ -611,7 +614,7 @@ const RULES: Rule[] = [
 		if (p[0] === "account" && p[1] === "list") return `List 1Password accounts (${tool})`;
 		if (p[0] === "item" && p[1] === "share") return `Share secret ${clip(p[2] ?? "", 40)}${flagVal(a, "--emails") ? ` with ${clip(flagVal(a, "--emails")!, 40)}` : ""}`;
 	} },
-	{ id: "ag-tools", cmd: /^(?:(?:\.\/)?(?:[\w.-]+\/)*bin\/(?=toolsum$))?(ag-text|show|shot|presence|tickler|ag-access|ag-host|ag-inbox|nessie-daemon|ag-login-password|machine-role|record-flow|screen-record|ag-dash-stats|toolsum|cua-queue|routine)$/, fn: (a, raw) => {
+	{ id: "ag-tools", cmd: /^(?:(?:\.\/)?(?:[\w.-]+\/)*bin\/(?=toolsum$))?(ag-text|show|shot|presence|tickler|ag-access|ag-host|ag-inbox|nessie-daemon|ag-login-password|machine-role|record-flow|screen-record|ag-dash-stats|toolsum|cua-queue|routine|pi-hibernate)$/, fn: (a, raw) => {
 		const tool = raw.split(/\s/)[0].replace(/^.*\//, "");
 		const p = positional(a);
 		switch (tool) {
@@ -625,6 +628,13 @@ const RULES: Rule[] = [
 			case "machine-role": return "Check machine role";
 			case "record-flow": case "screen-record": return "Record a screen flow";
 			case "cua-queue": return "Check the computer-use queue";
+			case "pi-hibernate": {
+				const all = a.includes("--all") ? " (ignoring idle time)" : "";
+				if (p[0] === "sweep") return a.includes("-n") ? `List pi sessions to hibernate${all}` : `Hibernate idle pi sessions${all}`;
+				if (p[0] === "pane") return `Hibernate pane ${p[1] ?? ""}`.trim();
+				if (p[0] === "status") return "List hibernated pi panes";
+				return undefined;
+			}
 			case "toolsum": {
 				const sub = positional(a, ["--days", "--n", "--top", "--host"])[0];
 				const days = flagVal(a, "--days");

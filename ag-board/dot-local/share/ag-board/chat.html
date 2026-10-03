@@ -615,7 +615,11 @@ details.steps > summary .n { font-size: 13px; opacity: .85; white-space: nowrap;
 "use strict";
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
-const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+// No emoji anywhere in the app: tickler/wake-up icons become plain text glyphs, every other emoji is dropped.
+const EMOJI_RE = /(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F|[\u{1F000}-\u{1FAFF}])(?:\u200D(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F?|[\u{1F000}-\u{1FAFF}]))*[\u{1F3FB}-\u{1F3FF}]?\uFE0F?( ?)/gu;
+const EMOJI_TEXT = { "⏰": "◷", "🔔": "↺", "🟢": "●", "⏳": "⧖", "⌛": "⧖", "✅": "✓", "❌": "✗", "⚠": "!", "🔄": "↻", "💤": "z" };
+const noEmoji = (s) => String(s ?? "").replace(EMOJI_RE, (m, sp) => { const t = EMOJI_TEXT[m.trim().replace(/\uFE0F/g, "")]; return t ? t + sp : ""; });
+const esc = (s) => noEmoji(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const S = (d, extra = "") => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" ${extra}>${d}</svg>`;
 const ICON = {
   compose: S('<path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/><path d="M17.5 3.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4Z"/>'),
@@ -686,7 +690,7 @@ if (window.DOMPurify) DOMPurify.addHook("afterSanitizeAttributes", (n) => {
   n.setAttribute("target", "_blank"); n.setAttribute("rel", "noopener");
 });
 function md(s) {
-  let text = String(s ?? "");
+  let text = noEmoji(s);
   const done = /(^|\n)\s*DONE\s*$/.test(text);
   if (done) text = text.replace(/\s*DONE\s*$/, "");
   let html = window.marked && window.DOMPurify ? DOMPurify.sanitize(marked.parse(text, { gfm: true, breaks: true }), { ADD_ATTR: ["target"] }) : esc(text).replace(/\n/g, "<br>");
@@ -818,7 +822,7 @@ function notifyReplies(cards) {
     if (!wasWorking.delete(c.tab) || !c.pinned) continue;
     if (window.agDesktop?.pinnedAlerts || !notifyOn() || Notification.permission !== "granted") continue;
     if (!document.hidden && document.hasFocus() && current()?.tab === c.tab) continue;
-    const n = new Notification(c.title || "Ag", { body: c.status === "blocked" ? "Needs your answer" : snippet(c) || "Ready", tag: c.tab, icon: "/static/icon-192.png" });
+    const n = new Notification(noEmoji(c.title) || "Ag", { body: c.status === "blocked" ? "Needs your answer" : snippet(c) || "Ready", tag: c.tab, icon: "/static/icon-192.png" });
     n.onclick = () => { window.focus(); go(urlOf(c)); n.close(); };
   }
 }
@@ -897,7 +901,7 @@ function renderSide() {
   const parts = [`${cards.length} chats`, `${counts.working} working`];
   if (board.sys?.mem) parts.push(`mem ${board.sys.mem.usedPct}%`);
   $("#sysLine").textContent = parts.join(" · ");
-  document.title = (counts.you ? `(${counts.you}) ` : "") + (cur ? cur.title : "Ag");
+  document.title = (counts.you ? `(${counts.you}) ` : "") + (cur ? noEmoji(cur.title) : "Ag");
 }
 
 // ---------- drag and drop: drop a chat on a project (or its page) to move it there, on Pinned to pin it, on Chats to
@@ -1772,7 +1776,7 @@ async function finishRec(blob) {
   const c = current();
   if (!c) return;
   clearComposer();
-  const ph = { text: (typed ? `${typed}\n\n` : "") + "🎙 Voice message (transcribing…)", ts: Date.now() };
+  const ph = { text: (typed ? `${typed}\n\n` : "") + "Voice message (transcribing…)", ts: Date.now() };
   pending.push(ph); renderPending(); scrollBottom(true);
   const fd = new FormData();
   fd.append("tab", c.tab); fd.append("text", typed); fd.append("audio", blob, "dictation.webm");

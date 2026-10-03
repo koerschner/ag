@@ -499,7 +499,11 @@ async function api(path, body) {
 }
 
 // ---------- helpers ----------
-const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+// No emoji anywhere in the app: tickler/wake-up icons become plain text glyphs, every other emoji is dropped.
+const EMOJI_RE = /(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F|[\u{1F000}-\u{1FAFF}])(?:\u200D(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F?|[\u{1F000}-\u{1FAFF}]))*[\u{1F3FB}-\u{1F3FF}]?\uFE0F?( ?)/gu;
+const EMOJI_TEXT = { "⏰": "◷", "🔔": "↺", "🟢": "●", "⏳": "⧖", "⌛": "⧖", "✅": "✓", "❌": "✗", "⚠": "!", "🔄": "↻", "💤": "z" };
+const noEmoji = (s) => String(s ?? "").replace(EMOJI_RE, (m, sp) => { const t = EMOJI_TEXT[m.trim().replace(/\uFE0F/g, "")]; return t ? t + sp : ""; });
+const esc = (s) => noEmoji(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 function ago(t) {
   if (!t) return "";
   const s = Math.max(0, (Date.now() - t) / 1000);
@@ -522,7 +526,7 @@ function beep() {
 // Single newlines stay line breaks, as in the terminal. Falls back to escaped text if the libraries failed to load.
 function md(s) {
   if (!window.marked || !window.DOMPurify) return esc(s);
-  return DOMPurify.sanitize(marked.parse(String(s ?? ""), { gfm: true, breaks: true }), { ADD_ATTR: ["target"] });
+  return DOMPurify.sanitize(marked.parse(noEmoji(s), { gfm: true, breaks: true }), { ADD_ATTR: ["target"] });
 }
 // Links open in a new tab so the board stays put.
 if (window.DOMPurify) DOMPurify.addHook("afterSanitizeAttributes", (n) => { if (n.tagName === "A" && n.getAttribute("href")) { n.setAttribute("target", "_blank"); n.setAttribute("rel", "noopener"); } });
@@ -869,7 +873,7 @@ async function loadScreen() {
   if (tab !== openTab) return; // switched sessions while it loaded
   const el = $("#screen");
   const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-  el.textContent = text.replace(/\n+$/, "");
+  el.textContent = noEmoji(text).replace(/\n+$/, "");
   if (atBottom) el.scrollTop = el.scrollHeight;
 }
 function setTab(t) {
@@ -885,7 +889,7 @@ function renderDrawer() {
   const c = card(openTab);
   if (!c) { closeDrawer(); return; }
   const working = c.status === "working";
-  $("#dt").textContent = c.title;
+  $("#dt").textContent = noEmoji(c.title);
   $("#dm").innerHTML = `${esc(c.workspaceLabel)} · ${esc(c.status)} ${since(c.statusSince)} · ${esc(c.tab)}`;
   $("#dstats").innerHTML = statsHtml(c);
   $("#dact").innerHTML = activity(c);
@@ -925,7 +929,7 @@ function openSession(info) {
   openTab = null; openSid = info.sid; lastTxKey = ""; resetTranscript("sid=" + info.sid); clearInterval(screenTimer);
   const d = $("#drawer"); d.classList.add("open", "ro"); $("#scrim").classList.add("open"); d.setAttribute("aria-hidden", "false");
   setTab("tx");
-  $("#dt").textContent = info.title;
+  $("#dt").textContent = noEmoji(info.title);
   $("#dm").innerHTML = `${info.state === "hibernated" ? "hibernated" : "closed"}${info.workspaceLabel ? " · " + esc(info.workspaceLabel) : ""} · last active ${since(info.lastAt)} ago · $${(info.stats?.cost || 0).toFixed(2)} · ${esc(shortModel(info.model))}`;
   $("#dro").innerHTML = info.state === "hibernated"
     ? `<div class="note">Its pi is asleep in tmux (pi-hibernate). Opening the tab wakes it with full context.</div><button class="btn" id="dresume">Wake in tmux</button><button class="btn" id="dlink2">Link</button>`
@@ -1035,7 +1039,7 @@ $("#dt").onclick = async () => {
   const old = c ? c.title : $("#dt").textContent;
   const label = prompt("Rename this session:", old)?.trim();
   if (!label || label === old || !await api("/api/rename", c ? { tab: c.tab, label } : { sid, label })) return;
-  if (sid && openSid === sid) $("#dt").textContent = label;
+  if (sid && openSid === sid) $("#dt").textContent = noEmoji(label);
   toast("Renamed (pinned: auto-naming won't change it)");
 };
 $("#pinnedonly").onclick = () => { pinnedOnly = !pinnedOnly; localStorage.pinnedOnly = pinnedOnly ? "1" : "0"; render(); };

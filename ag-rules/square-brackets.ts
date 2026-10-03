@@ -2,7 +2,7 @@
 import type { PromptRule } from "./types.ts";
 
 // Agent-written prompts: ag spawn's footer, tickler wake-ups. Appended context blocks are cut before matching.
-const AGENT_WRITTEN = /\[ag-parent: |^\s*(?:⏰|🔔) /u;
+const AGENT_WRITTEN = /\[ag-parent: |^\s*(?:⏰|🔔|◷|↺) /u;
 const APPENDED = /\n(?:---\n)?(?:Session context \(snapshot|\[ag-parent: )/;
 // Tags tools put in prompts, not Nathan's notes.
 const TOOL_TAG = /^(?:ag-|image\b|pasted\b|merged\b|routine-)/i;

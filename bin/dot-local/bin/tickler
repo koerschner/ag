@@ -14,9 +14,9 @@
 //
 // Agents normally drive this through the `tickler` pi tool (pi extension tickler.ts), so Nathan just
 // says "do X on Friday at 9" in plain text. Items: ~/.local/state/tickler/<id>.json. Log: log.jsonl beside them.
-// Firing: opens a tab named "⏰ <title>" in the item's workspace (else "Inbox"), starts pi (forked from the
+// Firing: opens a tab named "◷ <title>" in the item's workspace (else "Inbox"), starts pi (forked from the
 // deferring session when there is one, so it has the full context) and sends the task. Never steals focus.
-// Presence items (--when online) open as "🟢 <title>" on Nathan's next arrival at the client after they were
+// Presence items (--when online) open as "● <title>" on Nathan's next arrival at the client after they were
 // queued (an arrival that started after created_at), per ~/.local/state/presence/state.json. `presence poll`
 // runs `tickler fire` the moment he arrives; the every-minute run is the backstop.
 // Wake-ups (--when check|event) are how an agent waits on something slow (a machine coming back, CI, a deploy)
@@ -211,7 +211,7 @@ function isDue(i: Item, p: Presence | null): boolean {
 function waitingPrompt(i: Item): string {
 	const n = i.attempt ?? 1;
 	const early = +new Date(i.due!) > Date.now() ? ` It fired early because \`${i.check}\` succeeded, so something probably moved.` : "";
-	return `⏳ Waiting-for ${i.id}: check-in #${n} on ${i.waiting_for} (queued ${local(i.created_at)}).${early}
+	return `⧖ Waiting-for ${i.id}: check-in #${n} on ${i.waiting_for} (queued ${local(i.created_at)}).${early}
 
 Task: ${i.task}
 
@@ -231,8 +231,8 @@ function prompt(i: Item): string {
 		const status = i.triggered ? `It was triggered${i.note ? `: ${i.note}` : "."}` : "";
 		const expired = !i.triggered && +new Date(i.expires!) <= Date.now() && !(i.when === "check" && checkPasses(i.check!));
 		const head = expired
-			? `🔔 Wake-up ${i.id} (queued ${when}, waiting for ${what}) EXPIRED at ${local(i.expires!)} without the condition coming true. Find out why and tell Nathan; requeue with the tickler tool if it's still worth waiting.`
-			: `🔔 Wake-up ${i.id} (queued ${when}): what you were waiting for is ready (waited for ${what}). ${status}`;
+			? `↺ Wake-up ${i.id} (queued ${when}, waiting for ${what}) EXPIRED at ${local(i.expires!)} without the condition coming true. Find out why and tell Nathan; requeue with the tickler tool if it's still worth waiting.`
+			: `↺ Wake-up ${i.id} (queued ${when}): what you were waiting for is ready (waited for ${what}). ${status}`;
 		return `${head}
 
 Task: ${i.task}
@@ -241,7 +241,7 @@ Continue now.`;
 	}
 	if (i.when === "online") {
 		const context = i.mode === "fork" ? " This session is a fork of the conversation where it was queued, so you have that context." : "";
-		return `🟢 Presence item ${i.id}, queued on ${when} for "the next time Nathan is online at the client". He just came online.${context}
+		return `● Presence item ${i.id}, queued on ${when} for "the next time Nathan is online at the client". He just came online.${context}
 
 Task: ${i.task}
 
@@ -249,7 +249,7 @@ Do it now; he's at his Mac, so questions and physical tests he needs to do are f
 	}
 	const late = Date.now() - +new Date(i.due!) > 15 * 60_000 ? ` It fired late (due ${local(i.due)}; the Mac was probably asleep).` : "";
 	const context = i.mode === "fork" ? " This session is a fork of the conversation where it was deferred, so you have that context." : "";
-	return `⏰ Tickler item ${i.id}, deferred on ${when} for now.${late}${context}
+	return `◷ Tickler item ${i.id}, deferred on ${when} for now.${late}${context}
 
 Task: ${i.task}
 
@@ -288,13 +288,13 @@ function fireOne(i: Item) {
 		injected("tickler", prompt(i), { id: i.id, when: i.when });
 		mux("agent", "prompt", origin, prompt(i));
 		try {
-			mux("notification", "show", `🔔 ${i.title}`.slice(0, 40), "--body", "Wake-up fired: resumed its session", "--sound", "request");
+			mux("notification", "show", `↺ ${i.title}`.slice(0, 40), "--body", "Wake-up fired: resumed its session", "--sound", "request");
 		} catch {}
 		pinTab(i, origin);
 		return log(i.id, "fired", { pane: origin, resumed: true });
 	}
 	const ws = workspaceFor(i.workspace);
-	const icon = i.waiting_for ? "⏳" : i.when === "online" ? "🟢" : isWake(i) ? "🔔" : "⏰";
+	const icon = i.waiting_for ? "⧖" : i.when === "online" ? "●" : isWake(i) ? "↺" : "◷"; // plain glyphs, no emoji (Nathan)
 	const label = `${icon} ${i.title}`.slice(0, 40);
 	const cwd = existsSync(i.cwd) ? i.cwd : HOME;
 	let pane: string;

@@ -578,7 +578,7 @@ details.steps > summary .n { font-size: 13px; opacity: .85; white-space: nowrap;
     <tr><td>Pin / unpin</td><td><kbd>⇧</kbd><kbd>⌘</kbd><kbd>P</kbd></td></tr>
     <tr><td>Show shortcuts</td><td><kbd>⌘</kbd><kbd>/</kbd></td></tr>
   <tr><td colspan="2" class="keyhdr">Gmail keys (outside the message box)</td></tr>
-    <tr><td>Write a reply</td><td><kbd>R</kbd> or <kbd>I</kbd> · <kbd>Esc</kbd> leaves the box</td></tr>
+    <tr><td>Write a reply</td><td><kbd>R</kbd> · <kbd>Esc</kbd> leaves the box</td></tr>
     <tr><td>Next / previous chat</td><td><kbd>J</kbd> <kbd>K</kbd></td></tr>
     <tr><td>Archive and open the next chat</td><td><kbd>E</kbd></td></tr>
     <tr><td>Undo</td><td><kbd>Z</kbd></td></tr>
@@ -702,7 +702,7 @@ let transcript = [];
 let transcriptSig = "";
 // Like ChatGPT: the newest TX_PAGE items first; scrolling near the top loads the next page above, in place.
 const TX_PAGE = 150;
-let loadSeq = 0, txRef = "", txLimit = TX_PAGE, txMore = false, loadingOlder = false, txStale = false;
+let refreshT, loadSeq = 0, txRef = "", txLimit = TX_PAGE, txMore = false, loadingOlder = false, txStale = false;
 let pending = [];
 const drafts = JSON.parse(localStorage.getItem("agchat.drafts") || "{}");
 const secClosed = JSON.parse(localStorage.getItem("agchat.secs") || "{}");
@@ -993,6 +993,7 @@ async function open() {
   saveDraft();
   stopSpeaking();
   const r = parse();
+  clearTimeout(refreshT);
   transcript = []; transcriptSig = ""; txRef = ""; txLimit = TX_PAGE; txStale = false; pending = []; attachments = [];
   if (isMobile()) setCollapsed(true, false);
   if (r.kind === "sidkey") {
@@ -1232,7 +1233,6 @@ function profileMenu(anchor) {
 
 // ---------- transcript ----------
 function sigOf(c) { return [c.lastUser?.ts, c.lastAssistant?.ts, c.tools?.length, c.tools?.at(-1)?.ts, c.tools?.at(-1)?.end, c.status, c.thinkingTs, c.stats?.tools].join("|"); }
-let refreshT;
 function refreshIfChanged(c) {
   const s = sigOf(c);
   if (s === transcriptSig) return;
@@ -1242,7 +1242,9 @@ function refreshIfChanged(c) {
   txStale = false;
   transcriptSig = s;
   clearTimeout(refreshT);
-  refreshT = setTimeout(() => loadTranscript(c.sid ? `sid=${c.sid}` : `tab=${encodeURIComponent(c.tab)}`), 250);
+  // Only if this chat is still the one on screen: a refresh queued just before you switched chats would
+  // otherwise load the old chat's transcript under the new one (sidebar on one chat, thread from another).
+  refreshT = setTimeout(() => { if (current()?.tab === c.tab) loadTranscript(c.sid ? `sid=${c.sid}` : `tab=${encodeURIComponent(c.tab)}`); }, 250);
 }
 async function loadTranscript(ref, first) {
   const seq = ++loadSeq;
@@ -1546,7 +1548,7 @@ function wireComposer() {
   $("#mic").addEventListener("click", () => startRec("box"));
   if (!navigator.mediaDevices?.getUserMedia && isSecureContext) $("#mic").hidden = true;
   grow();
-  // Like Gmail: a thread opens with the reply box unfocused (r or i to write); only a new chat starts in the box.
+  // Like Gmail: a thread opens with the reply box unfocused (r to write); only a new chat starts in the box.
   if (!isMobile() && route.kind === "new") i.focus();
   renderAtts();
 }
@@ -2072,7 +2074,7 @@ function stepChat(d) {
 function gmailKey(e) {
   const c = current(), input = $("#input");
   const keys = {
-    r: () => input?.focus(), i: () => input?.focus(),
+    r: () => input?.focus(),
     c: () => go("/chat"), n: () => go("/chat"),
     j: () => stepChat(1), k: () => stepChat(-1),
     e: () => c && archive(c, { advance: true }),

@@ -416,11 +416,11 @@ dialog .row{display:flex;gap:.4rem;margin:.35rem 0}
   <h3 style="margin:.2rem 0 .6rem">Keyboard</h3>
   <table>
     <tr><td><span class="kbd">j</span> <span class="kbd">k</span></td><td>next / previous card</td></tr>
-    <tr><td><span class="kbd">h</span> <span class="kbd">l</span></td><td>previous / next column</td></tr>
+    <tr><td><span class="kbd">←</span> <span class="kbd">→</span></td><td>previous / next column</td></tr>
     <tr><td><span class="kbd">o</span> <span class="kbd">Enter</span></td><td>open the card (transcript, live screen, reply)</td></tr>
     <tr><td><span class="kbd">Space</span></td><td>expand / collapse details</td></tr>
     <tr><td><span class="kbd">p</span> <span class="kbd">s</span></td><td>pin / unpin (Gmail's star)</td></tr>
-    <tr><td><span class="kbd">r</span> <span class="kbd">i</span></td><td>in an open session: write a reply (it opens unfocused, like a Gmail thread); <span class="kbd">j</span>/<span class="kbd">k</span> next / previous, <span class="kbd">e</span> archive and open the next, <span class="kbd">u</span> back to the board</td></tr>
+    <tr><td><span class="kbd">r</span></td><td>in an open session: write a reply (it opens unfocused, like a Gmail thread); <span class="kbd">j</span>/<span class="kbd">k</span> next / previous, <span class="kbd">e</span> archive and open the next, <span class="kbd">u</span> back to the board</td></tr>
     <tr><td><span class="kbd">z</span></td><td>undo the last archive</td></tr>
     <tr><td><span class="kbd">x</span></td><td>interrupt (press twice)</td></tr>
     <tr><td><span class="kbd">g</span></td><td>open in tmux</td></tr>
@@ -923,7 +923,7 @@ function openDrawer(tab) {
   if (card(tab)) api("/api/card", { tab, seen: true });
   setTab(card(tab)?.status === "blocked" ? "live" : "tx");
   renderDrawer();
-  // Like Gmail, the reply box starts unfocused: r or i to write, j/k/e/u keep working.
+  // Like Gmail, the reply box starts unfocused: r to write, j/k/e/u keep working.
 }
 // A session with no live card (hibernated pane, or closed): its transcript, read-only, with Wake / Resume.
 function openSession(info) {
@@ -1150,11 +1150,11 @@ document.addEventListener("keydown", (e) => {
     z: () => { const u = [...document.querySelectorAll("#undos .undo button")].pop(); u?.click(); },
   };
   if (global[k]) { e.preventDefault(); global[k](); return; }
-  // In an open session, Gmail's thread keys: r/i reply, j/k next/previous card, e archive and open the next, u back.
+  // In an open session, Gmail's thread keys: r reply, j/k next/previous card, e archive and open the next, u back.
   if (openTab) {
     const step = (d) => { moveSel(d, 0); if (sel && sel !== openTab) openDrawer(sel); };
     const thread = {
-      r: () => rted.focus(), i: () => rted.focus(), j: () => step(1), k: () => step(-1), u: () => closeDrawer(),
+      r: () => rted.focus(), j: () => step(1), k: () => step(-1), u: () => closeDrawer(),
       e: () => { const t = openTab; archive(t); if (sel && sel !== t) openDrawer(sel); },
       s: () => togglePin(openTab), p: () => togglePin(openTab),
     };
@@ -1164,7 +1164,7 @@ document.addEventListener("keydown", (e) => {
   if (openSid) return;
   const map = {
     j: () => moveSel(1, 0), ArrowDown: () => moveSel(1, 0), k: () => moveSel(-1, 0), ArrowUp: () => moveSel(-1, 0),
-    h: () => moveSel(0, -1), ArrowLeft: () => moveSel(0, -1), l: () => moveSel(0, 1), ArrowRight: () => moveSel(0, 1),
+    ArrowLeft: () => moveSel(0, -1), ArrowRight: () => moveSel(0, 1),
     o: () => sel && openDrawer(sel), Enter: () => sel && openDrawer(sel), " ": () => sel && toggleOpen(sel),
     p: () => sel && togglePin(sel), f: () => sel && togglePin(sel), s: () => sel && togglePin(sel), g: () => sel && api("/api/focus", { tab: sel }).then((ok) => ok && toast("Focused in tmux")),
     u: () => sel && api("/api/card", { tab: sel, seen: false }), e: () => sel && archive(sel), w: () => sel && toggleWait(sel),

@@ -583,10 +583,15 @@ LaunchAgents) are their own responsible process and inherit none of it.
 - `ag-access` shows what agents may do (Screen Recording, Accessibility, event posting,
   Input Monitoring, Full Disk Access, Automation targets, screen re-consent dates) and any
   permission prompt on screen. Exit 1 if a core grant is missing.
-- `ag-access allow` clicks Allow on pending prompts raised for an agent identity. Codex computer
-  use refuses UserNotificationCenter (where TCC prompts live) and the prompt swallows synthetic
-  mouse clicks, but an Accessibility click on its button works. While a prompt is up, mouse
+- `ag-access allow` clicks Allow on pending prompts raised for an agent identity. The prompt
+  swallows synthetic mouse clicks, but an Accessibility click on its button works. While a prompt is up, mouse
   input to other apps is blocked, so answer it first.
+- **Forbidden targets lifted.** Codex computer use has a built-in list of apps it refuses
+  (terminals such as Ghostty, password managers including 1Password and Keychain Access,
+  non-Chrome browsers, UserNotificationCenter, SecurityAgent and Touch ID prompts). By the
+  user's choice, `install` sets `defaults write -g ComputerUseAllowForbiddenTargets -bool YES`
+  on ag-mac, so `ag cua` can operate all of them. Ag's own rules still apply: never use the
+  1Password app or Keychain to reach secrets outside the op-* vaults.
 - `ag-screen-approvals` stops the monthly "X is requesting to bypass the system private window
   picker" re-consent (macOS 15+) by pushing every client's next alert in replayd's
   `ScreenCaptureApprovals.plist` to 2100, and seeds sshd-keygen-wrapper and Codex Computer Use.

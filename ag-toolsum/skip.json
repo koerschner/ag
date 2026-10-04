@@ -22,5 +22,33 @@
  {
   "shape": "$T",
   "reason": "Opaque variable holding a binary path (ad-hoc test helper); the raw command is clearer."
+ },
+ {
+  "shape": "$B",
+  "reason": "Opaque variable holding a binary path (ad-hoc CDP/browser helper); the raw command is clearer."
+ },
+ {
+  "shape": "$D",
+  "reason": "Opaque variable holding the Discord exporter/CLI path; one-off exploration, raw command is clearer."
+ },
+ {
+  "shape": "$c",
+  "reason": "Opaque variable holding a per-machine command prefix in a loop; no deterministic meaning."
+ },
+ {
+  "shape": "$v",
+  "reason": "Opaque variable choosing between op-* wrappers in a loop; the raw command is clearer."
+ },
+ {
+  "shape": "$HS",
+  "reason": "Opaque variable holding the Hammerspoon CLI path; the raw command is clearer."
+ },
+ {
+  "shape": "dotchk",
+  "reason": "Ad-hoc shell function defined in an earlier call; its body is unknown to the summarizer."
+ },
+ {
+  "shape": "print(urllib.parse.quote(sys.argv[1]))\"",
+  "reason": "Fragment of a python -c snippet nested in $( ) quoting; no clearer summary than the raw command."
  }
 ]

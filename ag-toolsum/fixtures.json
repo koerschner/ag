@@ -1745,5 +1745,625 @@
   "hosts": [
    "ag-engine"
   ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "mac status 2>&1"
+  },
+  "sum": "Check ag-mac status",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "mac run sh -c 'sqlite3 ~/Library/Messages/chat.db' > ab.json"
+  },
+  "sum": "Query ~/Library/Messages/chat.db",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "mac run sh -c 'echo $PATH'"
+  },
+  "sum": "Print $PATH",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "mac cua \"$(cat /tmp/espn-task.txt)\" > /tmp/espn-cua.log 2>&1"
+  },
+  "sum": "Run computer-use task from /tmp/espn-task.txt",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "tickler list 2>/dev/null"
+  },
+  "sum": "List ag-tickler items",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "~/.local/bin/tickler add --at 2026-09-28T14:00:00-05:00 --waiting-for \"Test Person\" --title \"wf test\" --task \"hi\""
+  },
+  "sum": "Schedule \"wf test\" at 2026-09-28 14:00",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "~/.local/bin/tickler fire"
+  },
+  "sum": "Fire due ag-tickler items",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-tickler cancel abc123"
+  },
+  "sum": "Cancel ag-tickler item abc123",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "show docs/ag-cli.md 2>&1"
+  },
+  "sum": "Show docs/ag-cli.md on the user's screen",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "timeout 600 client-cua 'Open the Discord desktop app. Go to the server named \"Arcade\" and open #dev.'"
+  },
+  "sum": "Open the Discord desktop app",
+  "hosts": [
+   "ag-client"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "presence 2>&1"
+  },
+  "sum": "Check if the user is at their Mac",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr workspace list"
+  },
+  "sum": "List workspaces",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr workspace get $(herdr pane get $HERDR_PANE_ID | jq -r .result.pane.workspace_id)"
+  },
+  "sum": "Inspect workspace",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-mux workspace create --cwd /home/nathan --label \"ZZ Test Area\" --no-focus"
+  },
+  "sum": "Create workspace \"ZZ Test Area\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ts-api GET tailnet/-/devices"
+  },
+  "sum": "Tailscale API GET tailnet/-/devices",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "git -c credential.helper= pull --ff-only 2>&1"
+  },
+  "sum": "Pull",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "git -c core.hooksPath=/dev/null stash -q"
+  },
+  "sum": "Stash",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "bin/dot-local/bin/toolsum sample --days 3 --n 60 2>&1"
+  },
+  "sum": "Sample ag-toolsum summaries (3 days)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag search \"ag chat keyboard shortcuts\" 2>&1"
+  },
+  "sum": "Search sessions for \"ag chat keyboard shortcuts\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "curl -sI $(session-link)"
+  },
+  "sum": "HEAD $(session-link)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ssh-keygen -F ag-engine"
+  },
+  "sum": "Look up the known host key of ag-engine",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ssh-keygen -R ag-engine.example.ts.net >/dev/null 2>&1"
+  },
+  "sum": "Forget the known host key of ag-engine",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ssh-keygen -lf ~/.ssh/x.pub"
+  },
+  "sum": "Show fingerprint of ~/.ssh/x.pub",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "session-link"
+  },
+  "sum": "Get session link",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "pi-hibernate sweep -n 2>&1"
+  },
+  "sum": "List pi sessions to hibernate",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "agrec start 2>&1"
+  },
+  "sum": "Start recording ag-mac's screen",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cua-queue json"
+  },
+  "sum": "Check the screen queue",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "shot 1 2>&1"
+  },
+  "sum": "Pull the user's screenshots",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "~/.local/bin/moshi-hook doctor 2>&1"
+  },
+  "sum": "Diagnose moshi-hook",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "moshi-hook-install"
+  },
+  "sum": "Install moshi-hook",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "discord whoami"
+  },
+  "sum": "Check the Discord bot identity",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag discord search \"deGrasse\" 2>&1"
+  },
+  "sum": "Search Discord for \"deGrasse\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "lua -e \"assert(loadfile('x.lua'))\""
+  },
+  "sum": "Run Lua snippet",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "herdr-shortcuts-check 2>&1"
+  },
+  "sum": "Check keyboard shortcuts",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-mux daemon > /tmp/agd.log 2>&1"
+  },
+  "sum": "Run the ag-mux daemon",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "mcp-gateway status 2>&1"
+  },
+  "sum": "Check the MCP gateway status",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "case $x in a) ls /tmp;; *) git status;; esac"
+  },
+  "sum": "List /tmp \u00b7 Git status",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "tmux -L ag split-window -t %384 -d \"cd ~/a && bun run check\""
+  },
+  "sum": "Split tmux pane %384",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "~/.local/bin/ag-rules keys ag-dash-app"
+  },
+  "sum": "Read the ag-dash-app keymap from ag-rules",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag rule list"
+  },
+  "sum": "List ag-rules",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "tofu init -backend=false -input=false >/dev/null"
+  },
+  "sum": "Run tofu init",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "HCLOUD_TOKEN=\"$t\" hcloud server-type list -o noheader >/dev/null 2>&1"
+  },
+  "sum": "Run hcloud server-type list",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "scripts/build-app.sh --stage pr-1777 2>&1"
+  },
+  "sum": "Run build-app.sh",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "mdfind \"kMDItemCFBundleIdentifier == dev.x\" 2>/dev/null"
+  },
+  "sum": "Spotlight search \"kMDItemCFBundleIdentifier == dev.x\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "git log \\\n  --oneline -3"
+  },
+  "sum": "Git log",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "(nohup git push > /tmp/push.log 2>&1; echo \"EXIT $?\" >> /tmp/push.log) > /dev/null 2>&1"
+  },
+  "sum": "Push",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "echo pw | sudo -S -p \"\" ls /root"
+  },
+  "sum": "List /root",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "bin/dot-local/bin/ag doctor"
+  },
+  "sum": "Check what Ag still lacks on this machine",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "screen-record status"
+  },
+  "sum": "Check the screen recording",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "systemctl --user --failed --no-legend"
+  },
+  "sum": "List failed units",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "git hash-object -w /tmp/chat.head"
+  },
+  "sum": "Store /tmp/chat.head as a git blob",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "gh variable list 2>/dev/null"
+  },
+  "sum": "List GitHub Actions variables",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "shred -u /tmp/a.txt"
+  },
+  "sum": "Shred /tmp/a.txt",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "jq -r .id <<<\"$t\""
+  },
+  "sum": "Parse JSON",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "~/Applications/Ag\\ Desktop.app/Contents/MacOS/Ag\\ Desktop --remote-debugging-port=9333 >/tmp/agd.log 2>&1"
+  },
+  "sum": "Launch Ag Desktop",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "shortcuts list 2>&1"
+  },
+  "sum": "List Shortcuts",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "setopt nullglob; ls ~/x"
+  },
+  "sum": "List ~/x",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "echo a | paste -sd, | pbcopy"
+  },
+  "sum": "Copy to clipboard",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ffprobe -v error -select_streams v -show_entries stream=width,height -of csv=p=0 chatanim.mp4"
+  },
+  "sum": "Inspect media chatanim.mp4",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "gh repo list koerschner --limit 50 --json name"
+  },
+  "sum": "List GitHub repos of koerschner",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "tickler",
+  "args": {
+   "action": "list"
+  },
+  "sum": "List ag-tickler items",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "chatgpt_cua",
+  "args": {
+   "task": "On this Mac, the Nessie app is open and already signed in. Complete its onboarding and connect only these agents."
+  },
+  "sum": "Nessie: Complete its onboarding and connect only these agents",
+  "hosts": [
+   "ag-mac"
+  ]
  }
 ]

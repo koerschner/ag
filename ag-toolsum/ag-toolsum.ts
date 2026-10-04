@@ -49,7 +49,9 @@ function stripHeredocs(cmd: string, bodies: Record<string, string> = {}): string
 	const lines = cmd.split("\n");
 	const out: string[] = [];
 	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i];
+		let line = lines[i];
+		// backslash-newline continues the command on the next line
+		while (/(?:^|[^\\])(?:\\\\)*\\$/.test(line) && i + 1 < lines.length) line = `${line.slice(0, -1)} ${lines[++i].trimStart()}`;
 		out.push(line);
 		const tags = [...line.matchAll(/<<-?\s*(['"]?)([A-Za-z_][\w]*)\1/g)].map((m) => m[2]);
 		for (const tag of tags) {
@@ -177,7 +179,7 @@ const flagVal = (args: string[], ...names: string[]) => {
 
 const APPS = ["Telegram", "Discord", "Slack", "Gmail", "Google Calendar", "Google Meet", "Google Docs", "Google Sheets", "Google Drive", "Messages", "Mail", "Finder", "System Settings", "iPhone Mirroring", "1Password", "Roblox", "Minecraft", "Microsoft Teams", "Teams", "Spotify", "Xcode", "Notes", "Calendar", "Photos", "Zoom", "Read.ai", "Nessie", "Twitter", "DoorDash", "Squarespace", "Hetzner", "ChatGPT", "Codex", "Terminal", "Ghostty", "TestFlight", "App Store", "Preview", "TextEdit", "CleanShot", "Hammerspoon", "Linear", "GitHub", "Notion", "Figma", "YouTube", "LinkedIn", "Amazon", "Jump Desktop", "Tailscale", "Safari", "Google Chrome", "Chrome"];
 const BROWSERS = new Set(["Google Chrome", "Chrome", "Safari"]);
-const VERBS = "open|launch|click|tap|press|type|enter|search|find|go|navigate|visit|read|check|look|verify|confirm|create|make|send|reply|post|write|draft|compose|sign|log|take|capture|close|quit|download|install|update|upload|copy|select|choose|scroll|accept|allow|approve|deny|dismiss|cancel|delete|remove|add|set|change|enable|disable|turn|toggle|list|get|fetch|export|save|share|invite|join|start|stop|play|pause|bring|switch|drag|fill|submit|pay|order|buy|book|schedule|rsvp|answer|call|grant|edit|qa|test|use|try|describe|screenshot|report|tell|reload|refresh|unblock|block|mute|pin|archive|rename|move|upgrade|clear|record|collect|gather|research|review|inspect|compare|extract|note|locate|place|publish|connect|pair|link|authorize|configure|paste|drop|mark|reset|restart|relaunch|wait|watch|unsubscribe|forward|attach";
+const VERBS = "open|launch|click|tap|press|type|enter|search|find|go|navigate|visit|read|check|look|verify|confirm|create|make|send|reply|post|write|draft|compose|sign|log|take|capture|close|quit|download|install|update|upload|copy|select|choose|scroll|accept|allow|approve|deny|dismiss|cancel|delete|remove|add|set|change|enable|disable|turn|toggle|list|get|fetch|export|save|share|invite|join|start|stop|play|pause|bring|switch|drag|fill|submit|pay|order|buy|book|schedule|rsvp|answer|call|grant|edit|qa|test|use|try|describe|screenshot|report|tell|reload|refresh|unblock|block|mute|pin|archive|rename|move|upgrade|clear|record|collect|gather|research|review|inspect|compare|extract|note|locate|place|publish|connect|pair|link|authorize|configure|paste|drop|mark|reset|restart|relaunch|wait|watch|unsubscribe|forward|attach|complete|finish";
 const VERB_RE = new RegExp(`^(?:${VERBS})\\b(?!-)`, "i");
 const WEAK_RE = /^(?:report|tell|describe|use|try)\b/i;
 
@@ -270,10 +272,16 @@ function cuaTask(t: string, ctx: Ctx): { task?: string; file?: string } {
 	return { task: t };
 }
 
+/** "Schedule "<title>" when …" for an ag-tickler item (the pi tool or `ag-tickler add`). */
+function tickSchedule(title: string, when?: string, at?: string): string {
+	const w = when === "online" ? "when the user is online" : when === "check" ? "when its check passes" : when === "event" ? "on an event" : at ? `at ${String(at).replace(/:00(?=[+-Z])/, "").replace("T", " ").replace(/[+-]\d\d:\d\d$|Z$/, "")}` : "";
+	return `Schedule "${clip(title.replace(/\s+/g, " "), 40)}"${w ? ` ${w}` : ""}`;
+}
+
 // ---------- shell segment rules ----------
 
-const FILTERS = new Set(["grep", "rg", "egrep", "head", "tail", "jq", "sed", "awk", "sort", "uniq", "wc", "cut", "tr", "cat", "column", "less", "tee", "fold", "nl", "fmt", "base64", "xxd", "od", "python3", "node"]);
-const NOISE = /^(?:echo|printf|sleep|date|true|false|:|set|export|umask|source|\.|wait|clear|unset|cd|pushd|popd|local|shopt|trap|exit|return|break|continue|read|done|fi|esac|else|\[\[?|\]|test|time|then|do)$/;
+const FILTERS = new Set(["grep", "rg", "egrep", "head", "tail", "jq", "sed", "awk", "sort", "uniq", "wc", "cut", "tr", "cat", "column", "less", "tee", "fold", "nl", "fmt", "base64", "xxd", "od", "python3", "node", "paste"]);
+const NOISE = /^(?:echo|printf|sleep|date|true|false|:|set|export|umask|source|\.|wait|clear|unset|cd|pushd|popd|local|shopt|trap|exit|return|break|continue|read|done|fi|esac|else|\[\[?|\]|test|time|then|do|print|pwd|setopt|unsetopt|declare|typeset|emulate)$/;
 
 type Rule = { id: string; cmd: RegExp; fn: (args: string[], raw: string, ctx: Ctx, seg: string) => string | SegOut | undefined };
 
@@ -329,6 +337,7 @@ const gitSub: Record<string, (a: string[]) => string | undefined> = {
 	notes: () => "Git notes",
 	gc: () => "Git gc",
 	"symbolic-ref": () => "Resolve git ref",
+	"hash-object": (a) => `${a.includes("-w") ? "Store" : "Hash"} ${paths(positional(a, ["-t"]))} as a git blob`,
 	"check-ignore": (a) => `Check if ${paths(positional(a))} is git-ignored`,
 };
 
@@ -350,7 +359,7 @@ const ghPr: Record<string, (n: string, a: string[]) => string> = {
 };
 
 function nested(inner: string, host: string, _ctx: Ctx): SegOut {
-	const r = summarizeShell(inner, { host });
+	const r = summarizeShell(inner, { host }, true);
 	if (!r.sum) { _ctx.miss = r.miss; return null; }
 	return { sum: r.sum, host, rule: "nested", parts: r.parts?.map((p) => ({ sum: p.sum, host: p.host ?? host })) };
 }
@@ -404,14 +413,36 @@ const RULES: Rule[] = [
 	{ id: "macos-log", cmd: /^log$/, fn: (a) => (a[0] === "show" || a[0] === "stream" ? `Read macOS logs${a.join(" ").match(/process == \\?"([^"\\]+)/)?.[1] ? ` of ${a.join(" ").match(/process == \\?"([^"\\]+)/)![1]}` : ""}` : undefined) },
 	{ id: "dig", cmd: /^(dig|nslookup|host|ping|traceroute|nc|whois)$/, fn: (a, raw) => `${raw.startsWith("ping") ? "Ping" : raw.startsWith("nc") ? "Probe" : "Look up"} ${positional(a, ["-p", "-c", "-W", "-w", "-t"]).filter((x) => !/^(\+\w+|MX|TXT|A|AAAA|CNAME|NS)$/.test(x))[0] ?? ""}`.trim() },
 	{ id: "keychain", cmd: /^security$/, fn: (a) => { const s = flagVal(a, "-s", "-l"); const sub = a[0] ?? ""; const v = /^add|^set/.test(sub) ? "Store" : /^delete/.test(sub) ? "Delete" : /^find/.test(sub) ? "Read" : "Inspect"; return `${v} Keychain item${s ? ` "${clip(s, 40)}"` : ""}`; } },
-	{ id: "hw", cmd: /^(ioreg|system_profiler|pmset|caffeinate|diskutil|sysctl|networksetup|scutil|csrutil|spctl|tccutil|codesign)$/, fn: (_a, raw) => `macOS ${raw.split(/\s/)[0]}` },
+	{ id: "hw", cmd: /^(ioreg|system_profiler|pmset|caffeinate|diskutil|sysctl|networksetup|scutil|csrutil|spctl|tccutil|codesign|xcode-select|dscacheutil)$/, fn: (_a, raw) => `macOS ${raw.split(/\s/)[0]}` },
 	{ id: "swift", cmd: /^(swift|swiftc|xcodebuild|xcrun|make|cmake|go|cargo)$/, fn: (a, raw) => `${raw.split(/\s/)[0]} ${positional(a, ["-scheme", "-project", "-destination", "-configuration", "-o"])[0] ?? ""}`.trim() },
 	{ id: "format", cmd: /^(?:\.?\/?node_modules\/\.bin\/)?(oxfmt|prettier|biome|eslint|oxlint|tsc|svelte-check)$/, fn: (a, raw) => `Run ${raw.split(/\s/)[0].replace(/^.*\//, "")}${positional(a)[0] ? ` on ${paths(positional(a), 1)}` : ""}` },
 	{ id: "ag-ts-api", cmd: /^ag-ts-api$/, fn: (a) => `Tailscale API ${a[0] ?? ""} ${a[1] ?? ""}`.trim() },
+	{ id: "ssh-keygen", cmd: /^ssh-keygen$/, fn: (a) => {
+		const h = flagVal(a, "-F", "-R");
+		if (h) return `${a.includes("-R") ? "Forget" : "Look up"} the known host key of ${normHost(h)}`;
+		const fi = a.findIndex((x) => /^-\w*f$/.test(x)); // -f FILE or -lf FILE
+		const file = fi >= 0 ? a[fi + 1] : undefined;
+		if (a.some((x) => /^-\w*l/.test(x)) && file) return `Show fingerprint of ${shortPath(file)}`;
+		if (a.includes("-t") && file) return `Generate SSH key ${shortPath(file)}`;
+	} },
+	{ id: "ag-discord", cmd: /^ag-discord$/, fn: (a, _raw, ctx) => summarizeShell(["ag", "discord", ...a.map((x) => (/[\s'"$`\\;&|<>()]/.test(x) ? `'${x.replace(/'/g, "'\\''")}'` : x))].join(" "), ctx).sum },
+	{ id: "ag-rules", cmd: /^ag-rules$/, fn: (a) => {
+		const [sub, x] = positional(a);
+		if (!sub || sub === "list") return "List ag-rules";
+		if (sub === "show") return x ? `Show ag-rule ${x}` : undefined;
+		if (sub === "keys") return x ? `Read the ${x} keymap from ag-rules` : undefined;
+		if (sub === "eject") return x ? `Eject ag-rule ${x} to edit it` : undefined;
+	} },
+	{ id: "ag-moshi-hook-install", cmd: /^ag-moshi-hook-install$/, fn: () => "Install moshi-hook" },
+	{ id: "ag-shortcuts-check", cmd: /^ag-shortcuts-check$/, fn: () => "Check keyboard shortcuts" },
+	{ id: "mdfind", cmd: /^mdfind$/, fn: (a) => { const q = positional(a, ["-onlyin", "-name", "-attr"]).join(" ") || flagVal(a, "-name"); return q ? `Spotlight search "${clip(q, 45)}"` : undefined; } },
+	{ id: "lua", cmd: /^lua$/, fn: (a) => (a[0] === "-e" ? "Run Lua snippet" : positional(a)[0] ? `Run ${shortPath(positional(a)[0])}` : undefined) },
+	{ id: "iac", cmd: /^(tofu|terraform|hcloud)$/, fn: (a, raw) => { const tool = raw.split(/\s/)[0]; const p = positional(a, ["-o", "--output", "-var", "-var-file", "-target", "--type", "--image", "--location", "--name"]).filter((x) => /^[a-z][\w-]*$/.test(x)); return p[0] ? `Run ${tool} ${p.slice(0, tool === "hcloud" ? 2 : 1).join(" ")}` : undefined; } },
 	{ id: "clipboard", cmd: /^(pbcopy|pbpaste)$/, fn: (_a, raw) => (raw.startsWith("pbcopy") ? "Copy to clipboard" : "Read clipboard") },
 	{ id: "seq", cmd: /^(seq|yes|jot|shuf|sort|uniq|tr|cut|base64|xxd|od|column|nl|tee|fold|expr|bc|true|mktemp|who|w|stty|tput|basename|dirname)$/, fn: () => "noise" as const },
-	{ id: "jq", cmd: /^jq$/, fn: (a) => { const p = positional(a, ["--arg", "--argjson", "--slurpfile", "--rawfile"]); return p[1] ? `Query JSON in ${paths(p.slice(1))}` : undefined; } },
-	{ id: "stat-file", cmd: /^(stat|file|du|df|realpath|readlink|md5|shasum|sha256sum)$/, fn: (a, raw) => `${raw.split(/\s/)[0] === "du" || raw.startsWith("df") ? "Disk usage of" : "Inspect"} ${paths(positional(a)) || "disk"}` },
+	{ id: "jq", cmd: /^jq$/, fn: (a, _r, _c, seg) => { const p = positional(a, ["--arg", "--argjson", "--slurpfile", "--rawfile"]); if (!p[1] && /<<</.test(seg)) return "Parse JSON"; return p[1] ? `Query JSON in ${paths(p.slice(1))}` : undefined; } },
+	{ id: "shortcuts", cmd: /^shortcuts$/, fn: (a) => { const [sub, x] = positional(a, ["-i", "--input-path", "-o", "--output-path"]); return sub === "list" ? "List Shortcuts" : sub === "run" && x ? `Run Shortcut "${clip(x, 40)}"` : sub === "view" && x ? `Open Shortcut "${clip(x, 40)}"` : undefined; } },
+	{ id: "stat-file", cmd: /^(stat|file|du|df|realpath|readlink|md5|md5sum|shasum|sha256sum)$/, fn: (a, raw) => `${raw.split(/\s/)[0] === "du" || raw.startsWith("df") ? "Disk usage of" : "Inspect"} ${paths(positional(a)) || "disk"}` },
 	{ id: "python", cmd: /^(python3?|uv)$/, fn: (a, raw, _ctx, seg) => {
 		if (raw.startsWith("uv")) { const [sub, ...r] = positional(a); if (sub === "run") return `Run ${shortPath(r[0] ?? "script")} (uv)`; if (sub === "add") return `Add Python package ${r.join(" ")}`; return `uv ${sub ?? ""}`.trim(); }
 		if (a[0] === "-" || /<</.test(seg)) return "Run Python script";
@@ -450,7 +481,7 @@ const RULES: Rule[] = [
 		return `Run ${shortPath(sub)}`;
 	} },
 	{ id: "git", cmd: /^git$/, fn: (a) => {
-		const i = a.findIndex((x) => !x.startsWith("-") && a[a.indexOf(x) - 1] !== "-C");
+		const i = a.findIndex((x, k) => !x.startsWith("-") && a[k - 1] !== "-C" && a[k - 1] !== "-c");
 		const sub = a[i];
 		const f = gitSub[sub];
 		const s = f?.(a.slice(i + 1));
@@ -465,9 +496,10 @@ const RULES: Rule[] = [
 		if (group === "run") return sub === "list" ? "List CI runs" : sub === "rerun" ? "Re-run CI" : sub === "cancel" ? "Cancel CI run" : `Check CI run${n ? ` ${n}` : ""}`;
 		if (group === "api") return `GitHub API ${clip(sub ?? "", 50)}`;
 		if (group === "issue") return `${cap(sub ?? "")} issue ${num}`.trim();
-		if (group === "repo") return `${cap(sub ?? "")} repo`;
+		if (group === "repo") return sub === "list" ? `List GitHub repos${n ? ` of ${n}` : ""}` : `${cap(sub ?? "")} repo`;
 		if (group === "auth") return "GitHub auth";
 		if (group === "workflow") return sub === "run" && n ? `Trigger workflow ${clip(n, 40)}` : sub === "list" ? "List workflows" : sub === "view" && n ? `View workflow ${clip(n, 40)}` : `Workflow ${sub ?? ""}`.trim();
+		if ((group === "variable" || group === "secret") && sub) return `${sub === "list" ? "List" : sub === "set" ? "Set" : sub === "delete" ? "Delete" : "Read"} GitHub Actions ${group}${sub === "list" ? "s" : n ? ` ${n}` : ""}`;
 		if (group === "release") return `${cap(sub ?? "")} release`;
 		if (group === "search") return `Search GitHub ${sub ?? ""}`.trim();
 		if (a.includes("--version")) return "Check gh version";
@@ -475,7 +507,7 @@ const RULES: Rule[] = [
 	{ id: "curl", cmd: /^(curl|wget|http|xh)$/, fn: (a) => {
 		const url = positional(a, ["-H", "-d", "--data", "--data-binary", "--data-raw", "-X", "-o", "-u", "-m", "--max-time", "-w", "-A", "-b", "-c", "-e", "-F", "--connect-timeout", "--retry", "-T", "--json"]).find((x) => /^(https?:\/\/|[\w.-]+:\d+|\/|localhost|127\.|\d+\.\d+|\$\{?\w+\}?\/\w)/.test(x) || /\.\w{2,}\//.test(x));
 		// a URL held in variables ("$u", $B/$p, $(ag-session-link)) is shown as written
-		const vurl = url ?? positional(a, ["-H", "-d", "--data", "--data-binary", "--data-raw", "-X", "-o", "-u", "-m", "--max-time", "-w", "-A", "-b", "-c", "-e", "-F", "--connect-timeout", "--retry", "-T", "--json", "-D"]).find((x) => /^(?:\$\{?\w+\}?|\$\(ag-session-link\))(?:[\w./$-]|\$\{?\w+\}?)*$/.test(x));
+		const vurl = url ?? positional(a, ["-H", "-d", "--data", "--data-binary", "--data-raw", "-X", "-o", "-u", "-m", "--max-time", "-w", "-A", "-b", "-c", "-e", "-F", "--connect-timeout", "--retry", "-T", "--json", "-D"]).find((x) => /^(?:\$\{?\w+\}?|\$\((?:ag-)?session-link\))(?:[\w./$-]|\$\{?\w+\}?)*$/.test(x));
 		if (!vurl) return;
 		const head = a.some((x) => /^-[a-zA-Z]*I[a-zA-Z]*$/.test(x) || x === "--head");
 		const method = flagVal(a, "-X", "--request") ?? (a.some((x) => /^(-d|--data|--data-binary|--data-raw|-F|--json|-T)$/.test(x)) ? "POST" : head ? "HEAD" : "GET");
@@ -503,8 +535,9 @@ const RULES: Rule[] = [
 	} },
 	{ id: "ag-mac", cmd: /^ag-mac$/, fn: (a, _raw, ctx) => {
 		const [sub, ...r] = a;
-		if (sub === "run") return nested(r.join(" ").replace(/^--\s*/, ""), "ag-mac", ctx);
-		if (sub === "cua") { const t = positional(r, ["--why", "--caller"]).join(" "); if (r[0] === "--status" || !t) return { sum: "Check the computer-use queue", host: "ag-mac", rule: "mac-cua" }; const s = cuaSummary(t); return s ? { sum: s, host: "ag-mac", rule: "mac-cua" } : null; }
+		const q1 = (x: string) => (/[\s'"$`\\;&|<>()*?]/.test(x) ? `'${x.replace(/'/g, "'\\''")}'` : x);
+		if (sub === "run") return nested((r[0] === "--" ? r.slice(1) : r).map((x, i, all) => (all.length === 1 ? x : q1(x))).join(" "), "ag-mac", ctx);
+		if (sub === "cua") { const t = positional(r, ["--why", "--caller"]).join(" "); if (r[0] === "--status" || !t) return { sum: "Check the computer-use queue", host: "ag-mac", rule: "mac-cua" }; const { task, file } = cuaTask(t, ctx); if (file) return { sum: `Run computer-use task from ${shortPath(file)}`, host: "ag-mac", rule: "mac-cua" }; const s = task ? cuaSummary(task) : undefined; return s ? { sum: s, host: "ag-mac", rule: "mac-cua" } : null; }
 		if (sub === "push") return { sum: `Copy ${paths(r.slice(0, -1).length ? r.slice(0, -1) : r, 1)} to ag-mac`, host: "ag-mac", rule: "mac-push" };
 		if (sub === "pull") return { sum: `Copy ${paths(r.slice(0, 1), 1)} from ag-mac`, host: "ag-mac", rule: "mac-pull" };
 		if (sub === "show") return { sum: `Show ${shortPath(r[0] ?? "")} on the user's screen`, host: "ag-mac", rule: "mac-show" };
@@ -523,7 +556,8 @@ const RULES: Rule[] = [
 		// herdr is ag-mux's predecessor with the same CLI; old traces still use it
 		const tool = raw.split(/\s/)[0];
 		const p = positional(a, ["--label", "--cwd", "--direction", "--source", "--lines", "--timeout", "--regex", "--body", "--sound", "--tab", "--pane", "--source-pane", "--target-pane"]);
-		const [g, sub, tgt] = p;
+		const [g, sub, t0] = p;
+		const tgt = t0?.startsWith("$(") ? undefined : t0; // a $(…) target says nothing on its own
 		const label = flagVal(a, "--label");
 		const map: Record<string, string | undefined> = {
 			"pane read": `Read pane ${tgt ?? ""}`, "pane list": "List panes", "pane split": "Split pane", "pane run": `Run command in pane ${tgt ?? ""}`,
@@ -535,12 +569,15 @@ const RULES: Rule[] = [
 			"api snapshot": "Read session snapshot", "notification show": "Show a notification", "layout export": "Export layout",
 			"pane rename": `Rename pane ${tgt ?? ""}`, "pane focus": `Focus pane ${tgt ?? ""}`, "pane layout": `Inspect layout of pane ${flagVal(a, "--pane") ?? tgt ?? ""}`,
 			"api schema": `Read the ${tool} API schema`, "server reload-config": `Reload ${tool} config`, "server stop": `Stop the ${tool} server`,
+			"workspace list": "List workspaces", "workspace create": `Create workspace${label ? ` "${label}"` : ""}`, "workspace close": `Close workspace ${tgt ?? ""}`,
+			"workspace get": `Inspect workspace ${tgt ?? ""}`, "workspace focus": `Focus workspace ${tgt ?? ""}`, "workspace rename": `Rename workspace ${tgt ?? ""}`,
 			"config check": `Check ${tool} config`, "machine list": `List ${tool} machines`, "worktree create": "Create worktree", "worktree list": "List worktrees",
 		};
 		if (g === "status" && !sub) return `Check ${tool} status`;
+		if (g === "daemon" && !sub) return `Run the ${tool} daemon`;
 		if (!g && a.includes("--default-config")) return `Print ${tool}'s default config`;
 		if (!a.length) return `Read ${tool} usage`;
-		if (g && !sub && /^(pane|tab|agent|layout|api|server|config|plugin|worktree|machine|notification)$/.test(g)) return `Read ${tool} ${g} usage`;
+		if (g && !sub && /^(pane|tab|agent|layout|api|server|config|plugin|worktree|machine|notification|workspace)$/.test(g)) return `Read ${tool} ${g} usage`;
 		if (g === "config" && sub === "default") return `Print ${tool}'s default config`;
 		if (g === "config" && sub === "show-keys") return `List ${tool} key bindings`;
 		if (g === "agent" && sub === "explain") return `Explain agent detection in ${tgt ?? "pane"}`;
@@ -577,13 +614,13 @@ const RULES: Rule[] = [
 	{ id: "cliclick", cmd: /^cliclick$/, fn: (a) => { const c = a.find((x) => /^(c|dc|rc|m):/.test(x)); const kp = a.filter((x) => /^k[pdu]:/.test(x)); if (!c && kp.length && kp.length === positional(a).filter((x) => !/^w:/.test(x)).length) return `Press ${kp.map((x) => x.slice(3)).join(", ")}`; return c ? `${c.startsWith("m") ? "Move mouse" : c.startsWith("dc") ? "Double-click" : c.startsWith("rc") ? "Right-click" : "Click"} at ${c.split(":")[1]}` : "Mouse/keyboard input"; } },
 	{ id: "kill", cmd: /^(pkill|killall|kill)$/, fn: (a, raw) => { const p = positional(a, ["-s", "-signal"]); if (!p.length) return "Stop processes"; return raw.startsWith("kill ") ? `Stop process ${p.join(" ")}` : `Stop ${p.map((x) => clip(x, 30)).join(", ")}`; } },
 	{ id: "pgrep", cmd: /^(pgrep|pidof)$/, fn: (a) => `Find process "${clip(positional(a).join(" "), 30)}"` },
-	{ id: "ps", cmd: /^(ps|top|htop|uptime|free|vm_stat)$/, fn: () => "Check processes/load" },
+	{ id: "ps", cmd: /^(ps|top|htop|uptime|free|vm_stat|memory_pressure|pstree)$/, fn: () => "Check processes/load" },
 	{ id: "lsof", cmd: /^(lsof|ss|netstat)$/, fn: () => "List open ports/files" },
-	{ id: "fs", cmd: /^(mkdir|rm|rmdir|cp|mv|ln|chmod|chown|touch|trash|install)$/, fn: (a, raw) => {
+	{ id: "fs", cmd: /^(mkdir|rm|rmdir|cp|mv|ln|chmod|chown|touch|trash|install|shred)$/, fn: (a, raw) => {
 		const tool = raw.split(/\s/)[0];
 		const p = positional(a, ["-m", "-o", "-g"]);
 		if (!p.length) return;
-		const verb: Record<string, string> = { mkdir: "Make folder", rm: "Delete", rmdir: "Delete", touch: "Create", trash: "Trash", chmod: "Set permissions on", chown: "Set owner of" };
+		const verb: Record<string, string> = { mkdir: "Make folder", rm: "Delete", rmdir: "Delete", touch: "Create", trash: "Trash", shred: "Shred", chmod: "Set permissions on", chown: "Set owner of" };
 		if (verb[tool]) return `${verb[tool]} ${paths(tool === "chmod" || tool === "chown" ? p.slice(1) : p)}`;
 		if (tool === "ln") return `Link ${shortPath(p[1] ?? p[0])} → ${shortPath(p[0])}`;
 		return `${tool === "mv" ? "Move" : "Copy"} ${paths(p.slice(0, -1), 1)} → ${shortPath(p[p.length - 1])}`;
@@ -594,6 +631,7 @@ const RULES: Rule[] = [
 		const unit = (s?: string) => (s ?? "").replace(/^gui\/\S+?\//, "").replace(/^(?:com\.ag\.|ag\.)/, "").replace(/\.(service|timer|plist)$/, "").replace(/^.*\//, "");
 		if (tool === "journalctl") return `Read logs${flagVal(a, "-u", "--unit") ? ` of ${unit(flagVal(a, "-u", "--unit"))}` : ""}`;
 		const [sub, ...rest] = p;
+		if (!sub && a.includes("--failed")) return "List failed units";
 		const verbs: Record<string, string> = { start: "Start", stop: "Stop", restart: "Restart", "try-restart": "Restart", reload: "Reload", status: "Check", enable: "Enable", disable: "Disable", "is-active": "Check", show: "Inspect", cat: "Show unit", kickstart: "Restart", bootstrap: "Load", bootout: "Unload", load: "Load", unload: "Unload", print: "Inspect", list: "List services", "list-timers": "List timers", "list-units": "List units", "daemon-reload": "Reload systemd", "reset-failed": "Reset failed units", submit: "Run as job", remove: "Remove job" };
 		const v = verbs[sub];
 		if (!v) return;
@@ -624,10 +662,19 @@ const RULES: Rule[] = [
 			case "ag-host": return "Find the session host";
 			case "nessie-daemon": return `Nessie ${p[0] ?? ""}`.trim();
 			case "ag-machine-role": return "Check machine role";
-			case "ag-record-flow": case "ag-screen-record": return "Record a screen flow";
+			case "ag-screen-record": return p[0] === "status" ? "Check the screen recording" : p[0] === "stop" ? "Stop the screen recording" : p[0] === "start" ? `Start recording the screen${flagVal(a, "-w") ? ` (${flagVal(a, "-w")})` : ""}` : undefined;
+			case "ag-record-flow": return "Record a screen flow";
 			case "ag-cua-queue": case "ag-screen-queue": return p[0] === "exec" ? "Run a command on the screen queue" : "Check the screen queue";
 			case "ag-screen": return p[0] === "exec" ? "Run a command on the screen queue" : p[0] === "cua" ? "Computer use (screen queue)" : "Check the screen queue";
 			case "ag-type-secret": return "Type a secret into the focused field";
+			case "ag-tickler": {
+				if (p[0] === "list") return `List ag-tickler items${a.includes("--all") ? " (all)" : ""}`;
+				if (p[0] === "fire") return "Fire due ag-tickler items";
+				if (p[0] === "cancel") return `Cancel ag-tickler item ${p[1] ?? ""}`.trim();
+				if (p[0] === "trigger") return `Trigger ag-tickler item ${p[1] ?? ""}`.trim();
+				if (p[0] === "add") { const title = flagVal(a, "--title") ?? flagVal(a, "--task"); return title ? tickSchedule(title, flagVal(a, "--when"), flagVal(a, "--at")) : undefined; }
+				return undefined;
+			}
 			case "ag-pi-hibernate": {
 				const all = a.includes("--all") ? " (ignoring idle time)" : "";
 				if (p[0] === "sweep") return a.includes("-n") ? `List pi sessions to hibernate${all}` : `Hibernate idle pi sessions${all}`;
@@ -660,7 +707,7 @@ const RULES: Rule[] = [
 	} },
 	{ id: "media", cmd: /^(ffmpeg|ffprobe|sips|magick|convert|pdftoppm|pdftotext)$/, fn: (a, raw) => {
 		const tool = raw.split(/\s/)[0];
-		if (tool === "ffprobe") return `Inspect media ${shortPath(positional(a)[0] ?? "")}`.trim();
+		if (tool === "ffprobe") return `Inspect media ${shortPath(positional(a, ["-v", "-loglevel", "-select_streams", "-show_entries", "-of", "-print_format", "-sexagesimal", "-i"])[0] ?? flagVal(a, "-i") ?? "")}`.trim();
 		const out = positional(a, ["-i", "-r", "-t", "-ss", "-vf", "-c:v", "-c:a", "-crf", "-preset", "-f", "-s", "-b:v", "-filter_complex", "-map", "-pix_fmt", "--out", "-o", "-Z", "-z", "-loglevel", "-framerate", "-to", "-frames:v", "-q:v", "-an", "-y"]).pop();
 		return `Convert media${out ? ` → ${shortPath(out)}` : ""}`;
 	} },
@@ -688,8 +735,8 @@ const RULES: Rule[] = [
 		const t = flagVal(a, "-t");
 		const sub: Record<string, string> = { ls: "List tmux sessions", "list-sessions": "List tmux sessions", "list-windows": "List tmux windows", "list-panes": "List tmux panes", "list-clients": "List tmux clients",
 			"capture-pane": `Read tmux pane${t ? ` ${t}` : ""}`, "send-keys": `Send keys to tmux pane${t ? ` ${t}` : ""}`, "kill-session": `Close tmux session${t ? ` ${t}` : ""}`, "kill-window": `Close tmux window${t ? ` ${t}` : ""}`,
-			"kill-pane": `Close tmux pane${t ? ` ${t}` : ""}`, "new-window": "Open tmux window", "new-session": "Start tmux session", "has-session": `Check tmux session${t ? ` ${t}` : ""}`,
-			"show-options": "Read tmux options", "display-message": "Query tmux", display: "Query tmux", "source-file": "Reload tmux config", "set-option": "Set tmux option", show: "Read tmux options", "list-keys": "List tmux key bindings",
+			"kill-pane": `Close tmux pane${t ? ` ${t}` : ""}`, "new-window": "Open tmux window", "split-window": `Split tmux pane${t ? ` ${t}` : ""}`, "new-session": "Start tmux session", "has-session": `Check tmux session${t ? ` ${t}` : ""}`,
+			"show-options": "Read tmux options", "display-message": "Query tmux", display: "Query tmux", "source-file": "Reload tmux config", "set-option": "Set tmux option", set: "Set tmux option", show: "Read tmux options", "list-keys": "List tmux key bindings",
 			"show-environment": "Read tmux environment", "kill-server": `Stop tmux server${flagVal(a, "-L") ? ` ${flagVal(a, "-L")}` : ""}`, "rename-window": `Rename tmux window${t ? ` ${t}` : ""}` };
 		return p[0] ? sub[p[0]] : undefined;
 	} },
@@ -710,7 +757,7 @@ const RULES: Rule[] = [
 		if (sub === "status") return "Check the screen recording";
 		if (sub === "export") return `Export screen recording${r.length ? ` → ${shortPath(r[r.length - 1])}` : ""}`;
 	} },
-	{ id: "ag-cli", cmd: /^(?:~\/\.local\/bin\/)?ag$/, fn: (a, _raw, ctx) => {
+	{ id: "ag-cli", cmd: /^(?:~\/\.local\/bin\/|(?:\.\/)?(?:[\w.-]+\/)*bin\/)?ag$/, fn: (a, _raw, ctx) => {
 		// the ag CLI (docs/ag-cli.md, bin/dot-local/lib/ag/<verb>)
 		const p = positional(a, ["--lines", "-n", "--last", "--days", "--limit", "--cwd", "--label", "-f", "--file", "--to", "--into", "--note", "--after", "--only"]);
 		const [v, ...r] = p;
@@ -724,6 +771,7 @@ const RULES: Rule[] = [
 			case "help": return "List ag verbs";
 			case "me": return r[0] ? `Get my ${r[0]}` : "Find this session (tab, pane, link)";
 			case "ls": { const f = ["--pinned", "--waiting", "--needs-you", "--working"].filter(has).map((x) => x.slice(2)); return `List ${f.length ? f.join("/") + " " : ""}sessions${r.length ? ` in ${r.join(" ")}` : ""}`; }
+			case "search": return r.length ? `Search sessions for ${q(r.join(" "), 40)}` : undefined;
 			case "find": return `Find sessions matching ${q(r.join(" "), 40)}`;
 			case "read": return `Read ${has("--user") ? "prompts of " : has("--assistant") ? "answers of " : "transcript of "}${s(r.join(" "))}`;
 			case "peek": return `Peek at ${s(r.join(" "))}'s screen`;
@@ -754,6 +802,7 @@ const RULES: Rule[] = [
 				if (sub === "get") return x ? `Read ${ch(x)}` : undefined;
 				if (sub === "post") return flagVal(a, "--reply-to") ? "Reply on Discord" : x ? `Post to ${ch(x)}` : undefined;
 				if (sub === "whoami") return "Check the Discord bot identity";
+				if (sub === "search") return x ? `Search Discord for "${clip(x, 40)}"` : undefined;
 				if (sub === "channels") return "List Discord channels and threads";
 				if (sub === "delete") return x ? `Delete ${ch(x)}` : undefined;
 				if (sub === "dce") return "Run DiscordChatExporter (Discord export)";
@@ -806,16 +855,21 @@ const RULES: Rule[] = [
 		const file = positional(rest).find((x) => /^[\w./~-]+\.\w{1,5}$/.test(x) && !/^-/.test(x));
 		return `Run ${prog}${file ? ` on ${shortPath(file)}` : ""} (${tool})`;
 	} },
+	{ id: "app-binary", cmd: /\.app\/Contents\/MacOS\/[^/]+$/, fn: (_a, raw) => `Launch ${raw.match(/([^/]+)\.app\/Contents\/MacOS\//)![1]}` },
 	{ id: "moshi-hook", cmd: /^moshi-hook$/, fn: (a) => {
 		const p = positional(a, ["--target"]);
 		if (p[0] === "service" && p[1]) return `${cap(p[1])} the moshi-hook service`;
 		if (p[0] === "install") return `Install moshi-hook${flagVal(a, "--target") ? ` for ${flagVal(a, "--target")}` : ""}`;
 		if (p[0] === "uninstall") return "Uninstall moshi-hook";
 		if (p[0] === "status") return "Check moshi-hook status";
+		if (p[0] === "doctor") return "Diagnose moshi-hook";
+		if (p[0] === "version") return "Check moshi-hook version";
+		if (p[0] === "probe") return "Probe moshi-hook";
 	} },
 	{ id: "ag-script", cmd: /^(?:~|\$HOME)?\/?(?:\.local\/bin\/)?(ag-mcp-gateway|ag-dash|ag-mux-smoke\.sh|ag-nav|herdr-nav|ag-tickler|agd)$/, fn: (a, raw) => {
 		const tool = raw.split(/\s/)[0].replace(/^.*\//, "");
 		const sub = positional(a)[0];
+		if (tool === "ag-mcp-gateway" && sub === "status") return "Check the MCP gateway status";
 		if (/^(?:ag|herdr)-nav$/.test(tool)) {
 			const m: Record<string, string> = { status: "Print pane focus history", reopen: "Reopen the last closed pane", back: "Focus the previous pane", forward: "Focus the next pane", daemon: `Run the ${tool} daemon` };
 			if (sub && m[sub]) return `${m[sub]} (${tool})`;
@@ -827,13 +881,15 @@ const RULES: Rule[] = [
 function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 	let s = seg.trim();
 	// grouping and control words
-	s = s.replace(/^(?:time|then|do|else|!)\s+/, "").trim();
+	s = s.replace(/^(?:time|then|do|else|!)\s+/, "").replace(/^[\w*.|"'-]+\)\s+/, "").trim(); // case arms: `pat) cmd`
 	if (!s || s.startsWith("#")) return "noise";
 	let g = s;
-	for (let k = 0; k < 3; k++) g = g.replace(/([)}])\s*\d*>>?&?\s*[^\s)}]+$/, "$1");
+	g = g.replace(/([)}])(?:\s*\d*>>?&?\s*[^\s)}]+)+$/, "$1");
 	const group = g.match(/^\(([\s\S]*)\)$/) ?? g.match(/^\{\s([\s\S]*?);?\s*\}$/);
 	if (group) return summarizeOne(group[1], ctx);
 	if (/^(?:for|while|until|select)\s/.test(s) || /^(?:if|elif)\s/.test(s) || /^case\s/.test(s)) {
+		const arm = s.match(/^case\s.*?\sin\s+[^\s()]+\)\s+(\S[\s\S]*)$/); // case $x in a) cmd
+		if (arm) return summarizeSegment(arm[1], ctx);
 		const cond = s.replace(/^(?:if|elif|while|until)\s+/, "");
 		if (/^(?:for|select|case)\s/.test(s) || /^\[/.test(cond)) return "noise";
 		return summarizeSegment(cond, ctx);
@@ -858,14 +914,17 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 		if (!w.length) return "noise";
 		if (/^[A-Za-z_]\w*=/.test(w[0])) { w = w.slice(1); continue; }
 		if (/^(?:timeout|gtimeout)$/.test(w[0])) { w = w.slice(1); while (w[0]?.startsWith("-")) w = w.slice(w[0] === "-s" || w[0] === "-k" ? 2 : 1); w = w.slice(1); continue; }
-		if (/^(?:nohup|sudo|exec|time|caffeinate|nice|stdbuf|env|unbuffer|setsid)$/.test(w[0]) && w.length > 1) { w = w.slice(1); while (w[0]?.startsWith("-")) w = w.slice(1); continue; }
+		if (/^(?:nohup|sudo|exec|time|caffeinate|nice|stdbuf|env|unbuffer|setsid)$/.test(w[0]) && w.length > 1) { const sudo = w[0] === "sudo"; w = w.slice(1); while (w[0]?.startsWith("-")) w = w.slice(sudo && /^-[pugCh]$/.test(w[0]) ? 2 : 1); continue; }
 		if (w[0] === "command" && w[1] && w[1] !== "-v") { w = w.slice(1); continue; }
 		break;
 	}
 	const [cmd0, ...args] = w;
 	const fn = ctx.fns?.[cmd0];
 	if (fn) return summarizeOne(fn.replace(/"?\$\{?(\d|@|\*)\}?"?/g, (_m, k) => { const v = k === "@" || k === "*" ? args.join(" ") : args[Number(k) - 1] ?? ""; return `'${v.replace(/'/g, "")}'`; }), ctx);
-	const cmd = cmd0.replace(/^(?:~|\/home\/\w+|\/Users\/\w+)\/\.local\/bin\//, "").replace(/^\/(?:usr\/(?:local\/)?|opt\/homebrew\/)?s?bin\//, "");
+	const cmd = cmd0.replace(/^(?:~|\/home\/\w+|\/Users\/\w+)\/\.local\/bin\//, "").replace(/^\/(?:usr\/(?:local\/)?|opt\/homebrew\/)?s?bin\//, "")
+		// Ag's tools before they took the ag- prefix (mac, tickler, show, …), still in older traces
+		.replace(/^(?:(?:\.\/)?(?:[\w.-]+\/)*bin\/)?(mac|tickler|show|shot|presence|client-cua|chatgpt-cua|cua-queue|ts-api|session-link|pi-hibernate|toolsum|machine-role|mcp-gateway|rules|discord|shortcuts-check|moshi-hook-install|screen-record)$/, "ag-$1")
+		.replace(/^agrec$/, "ag-rec").replace(/^ag-rule$/, "ag-rules").replace(/^herdr-shortcuts-check$/, "ag-shortcuts-check");
 	if (/^(?:echo|printf)$/.test(cmd)) {
 		// echo "x: $(cmd)" runs cmd; summarise the substitutions when they are all understood
 		const subs = substitutions(s).map((x) => summarizeOne(x, { ...ctx, miss: undefined }));
@@ -886,7 +945,11 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 	}
 	if (cmd === "bash" || cmd === "sh" || cmd === "zsh") {
 		const c = args.indexOf("-c") >= 0 ? args[args.indexOf("-c") + 1] : args.find((x) => x === "-lc" || x === "-c") ? args[args.indexOf(args.find((x) => x === "-lc")!) + 1] : undefined;
-		if (c) return summarizeOne(c, ctx);
+		if (c) {
+			const o = summarizeOne(c, ctx);
+			const q = o === "noise" ? quietSum(splitShell(c)) : undefined; // sh -c 'echo $PATH'
+			return q ? { sum: q, rule: "quiet" } : o;
+		}
 		const f = positional(args)[0];
 		return f ? { sum: `Run ${shortPath(f)}`, rule: "script" } : null;
 	}
@@ -899,7 +962,7 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 		if (typeof out === "string") return { sum: out, rule: r.id };
 		return out;
 	}
-	if (/^(?:\.{0,2}\/|~\/|\$HOME\/)\S*$/.test(cmd) && !cmd.includes("$(")) return { sum: `Run ${cmd.split("/").pop()}`, rule: "script" };
+	if ((/^(?:\.{0,2}\/|~\/|\$HOME\/)\S*$/.test(cmd) || /^[\w.-]+(?:\/[\w.-]+)+\.(?:sh|py|ts|js|mjs|rb)$/.test(cmd)) && !cmd.includes("$(")) return { sum: `Run ${cmd.split("/").pop()}`, rule: "script" };
 	return null;
 }
 
@@ -1049,14 +1112,12 @@ export function summarize(name: string, args: any, ctx: Ctx = { host: "ag-engine
 				const host = args.target === "client" || args.target === "phone" ? "ag-client" : "ag-mac";
 				return { sum: s, hosts: [host], rule: s ? "cua" : undefined };
 			}
+			case "tickler": // the tool's pre-rename name
 			case "ag-tickler": {
 				const a = args.action;
 				if (a === "list") return { sum: "List ag-tickler items", hosts: [ctx.host], rule: "ag-tickler" };
 				if (a === "cancel") return { sum: `Cancel ag-tickler item ${args.id ?? ""}`.trim(), hosts: [ctx.host], rule: "ag-tickler" };
-				if (a === "schedule") {
-					const when = args.when === "online" ? "when the user is online" : args.when === "check" ? "when its check passes" : args.when === "event" ? "on an event" : args.at ? `at ${String(args.at).replace(/:00(?=[+-Z])/, "").replace("T", " ").replace(/[+-]\d\d:\d\d$|Z$/, "")}` : "";
-					return { sum: `Schedule "${clip(String(args.title ?? args.task ?? "").replace(/\s+/g, " "), 40)}"${when ? ` ${when}` : ""}`, hosts: [ctx.host], rule: "ag-tickler" };
-				}
+				if (a === "schedule") return { sum: tickSchedule(String(args.title ?? args.task ?? ""), args.when, args.at), hosts: [ctx.host], rule: "ag-tickler" };
 				return local;
 			}
 			case "todo":

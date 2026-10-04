@@ -2,7 +2,7 @@
 // ag-dash: the app over every agent session (ag-mux on tmux), chat-style: http://ag:7376/chat (Tailscale only).
 //
 // ag-mux stays the runtime; this is a view on it plus a little metadata ag-mux doesn't keep.
-//   - Polls `ag-mux api snapshot` (~15 ms) every POLL_MS; each tab hosting an agent is a card.
+//   - Polls `ag-mux api snapshot` (~15 ms) on every change (and every POLL_MS); each tab hosting an agent is a card.
 //   - Reads each card's Pi session file incrementally (only appended bytes) for the latest ask/answer,
 //     live activity (thinking / running a tool since when), recent tools, thinking, cost and context size.
 //   - Keeps its own state in ~/.local/state/ag-dash/state.json: pinned flag, list, seenAt, status timing, lists.
@@ -51,13 +51,20 @@
 // (`ssh ag-mac ag-cua-queue json` every 5 s, in the background).
 // Restarts (deploys happen many times a day) must not show: SIGTERM drains in-flight requests before exiting
 // (unit KillMode=mixed), /api/state, /events and actions wait for the first poll instead of serving an empty board,
-// and POST /api/prompt {id} delivers a retried reply once. The page rides out the gap on its own (chat.html: saved
-// board and transcripts, outbox, reconnecting event stream).
-// Page: ~/.local/share/ag-dash/chat.html (stowed from the ag repo, ag-dash/), re-read on every request.
+// and POST /api/prompt {id} delivers a retried reply once. The page rides out the gap on its own (saved board and
+// transcripts, outbox, reconnecting event stream).
+// Coherence: the board carries rev (bumped on every change) and boot; every action answers with the rev that
+// includes it, so the page shows its change at once and holds it until a board that new arrives (ag-dash/web,
+// state/board.ts). Transcript items carry stable keys (k) and an ETag, so refreshes redraw only what changed.
+// Changes arrive as they happen: agd's events, Pi appending to a session file and the ag-tickler's items kick a
+// poll within ~50 ms (watchChanges); POLL_MS is the fallback.
+// Page: the React app in <ag>/ag-dash/web (built into its dist/, committed; served from this checkout).
+// AG_DASH_PORT / AG_DASH_STATE_DIR / AG_DASH_PASSIVE=1 run a second, passive instance for testing a branch.
 // Run by the com.ag.ag-dash LaunchAgent (only on ag-mac). Log: /tmp/ag-dash.log.
 
 import { execFileSync } from "node:child_process";
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { createConnection } from "node:net";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname } from "node:path";
 import { originTag, parseOrigins, stripOrigins } from "../../../pi/dot-pi/agent/extensions/ag-origin.ts";
@@ -66,7 +73,11 @@ import { constants as zc, createGzip } from "node:zlib";
 import { sessionHost, summarize } from "../../../ag-toolsum/ag-toolsum.ts";
 import * as agRules from "../../../ag-rules/engine.ts"; // hooks `answer` (judgeDone) and `new-item` (newIntent)
 
-const PORT = 7376;
+const PORT = Number(process.env.AG_DASH_PORT) || 7376;
+// AG_DASH_PASSIVE=1: a second instance for testing (e.g. a branch's page on another port with its own AG_DASH_STATE_DIR):
+// it shows and controls the same sessions but never acts on its own (no fast-lane pings, wake-up asks, Jev verdicts,
+// closing archived chats, or tailscale serve), so it can't double what the real ag-dash does.
+const PASSIVE = process.env.AG_DASH_PASSIVE === "1";
 // Ag's machine-independent address: the Tailscale Service svc:ag (ag-svc), wherever sessions are hosted.
 const AG_FQDN = process.env.AG_FQDN ?? (() => {
 	try {
@@ -81,14 +92,24 @@ const POLL_MS = 1500;
 const HOME = homedir();
 const AG_MUX = `${HOME}/.local/bin/ag-mux`;
 const AG_TEXT = `${HOME}/.local/bin/ag-text`;
-const STATE_DIR = `${HOME}/.local/state/ag-dash`;
+const STATE_DIR = process.env.AG_DASH_STATE_DIR || `${HOME}/.local/state/ag-dash`;
 const STATE_FILE = `${STATE_DIR}/state.json`;
 const GONE_KEEP_MS = 7 * 24 * 3600_000;
 const CLICKS_FILE = `${STATE_DIR}/clicks.jsonl`;
-const PAGE = `${HOME}/.local/share/ag-dash/chat.html`; // the app, at /chat (ChatGPT-desktop style); the page routes itself
-// Static assets sit next to the page in the ag checkout (the page itself is a symlink into it).
-const STATIC_DIR = dirname(realpathSync(PAGE));
-const STATIC = new Set(["telemetry.js", "keys.js", "marked.umd.js", "purify.min.js", "manifest.json", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"]);
+// The ag checkout this runs from (this file is <ag>/bin/dot-local/bin/ag-dash, stowed to ~/.local/bin).
+const AG_DIR = (() => { try { return dirname(dirname(dirname(dirname(realpathSync(import.meta.path))))); } catch { return `${HOME}/ag`; } })();
+// The app (React; source in <ag>/ag-dash/web, built and committed to its dist/): /chat… serves its index.html (it
+// routes itself), /assets/… its hashed bundles. Static files (icons, manifest) sit in ag-dash/dot-local/share/ag-dash.
+const APP_DIR = `${AG_DIR}/ag-dash/web/dist`;
+const STATIC_DIR = `${AG_DIR}/ag-dash/dot-local/share/ag-dash`;
+const appVersion = () => {
+	try {
+		return statSync(`${APP_DIR}/index.html`).mtimeMs;
+	} catch {
+		return 0;
+	}
+};
+const STATIC = new Set(["telemetry.js", "keys.js", "manifest.json", "icon.svg", "icon-180.png", "icon-192.png", "icon-512.png"]); // keys.js: the Mac app's quick entry box
 const UPLOAD_DIR = `${HOME}/inbox/clipboard`;
 const INBOX_URL = process.env.AG_INBOX_URL || "http://ag:7373/prompt?new=1"; // the ag-inbox: new items land in Inbox
 // The AI gateway (TrueFoundry): $AG_AI_GATEWAY, else its line in the private ~/ag-personal/env.
@@ -481,7 +502,9 @@ async function resumeSession(sid: string): Promise<string> {
 // Transcript for the drawer: prompts, answers, thinking, tool calls with a short result, and media
 // (images embedded in the session, plus image/video files mentioned by path). The newest `limit` items; `more`
 // says older ones exist, and the clients ask for a bigger limit as you scroll up (like ChatGPT's history).
-function transcript(file: string, ref: string, limit = 150) {
+// `from` (a line in the session file: an item key's first part) instead of a count: everything from that line on, so a
+// page scrolled up to read keeps exactly the items it has, plus whatever is new.
+function transcript(file: string, ref: string, limit = 150, from?: number) {
 	const lines = sessionLines(file);
 	const out: any[] = [];
 	const embedded = (line: number, n: number): Media[] => Array.from({ length: n }, (_, k) => ({ src: `/api/embedded?${ref}&line=${line}&idx=${k}`, kind: "image" as const, name: `image ${k + 1}` }));
@@ -491,7 +514,7 @@ function transcript(file: string, ref: string, limit = 150) {
 		cwd = JSON.parse(lines[0]).cwd;
 	} catch {}
 	let i = lines.length - 1;
-	for (; i >= 0 && out.length < limit; i--) {
+	for (; i >= 0 && (from !== undefined ? i >= from : out.length < limit); i--) {
 		const l = lines[i];
 		if (!l.includes('"type":"message"')) continue;
 		if (l.includes('"role":"toolResult"')) {
@@ -515,14 +538,18 @@ function transcript(file: string, ref: string, limit = 150) {
 			// Origin tags (ag-origin.ts) leave the text; the client shows them as chips. Media paths are read from the raw text.
 			const raw = textOf(m.content).trim();
 			const { text, origins } = parseOrigins(raw);
-			out.push({ role: "user", ts, text: clip(text), media: [...embedded(i, imagesOf(m.content).length), ...mediaIn(raw)], ...(origins.length ? { origins: origins.map(({ note, ...o }) => o) } : {}) });
+			out.push({ k: `${i}`, role: "user", ts, text: clip(text), media: [...embedded(i, imagesOf(m.content).length), ...mediaIn(raw)], ...(origins.length ? { origins: origins.map(({ note, ...o }) => o) } : {}) });
 		} else if (m.role === "assistant") {
 			const c: any[] = Array.isArray(m.content) ? m.content : [];
-			if (m.stopReason === "error" || m.stopReason === "aborted") out.push({ role: "error", ts, text: m.errorMessage || m.stopReason });
-			for (const x of [...c].reverse()) {
-				if (x.type === "toolCall") out.push({ role: "tool", ts, ...toolInfo(x.name, x.arguments, cwd), args: clip(JSON.stringify(x.arguments, null, 1), 3000), result: results.get(x.id) });
-				else if (x.type === "text" && x.text?.trim()) out.push({ role: "assistant", ts, text: clip(x.text.trim()), media: mediaIn(x.text) });
-				else if (x.type === "thinking" && x.thinking?.trim()) out.push({ role: "thinking", ts, text: clip(x.thinking.trim(), 4000) });
+			// k: a stable key per item (line in the session file, part within it), so the page can keep what it has
+			// already drawn and redraw only what changed (a tool call's result arriving).
+			if (m.stopReason === "error" || m.stopReason === "aborted") out.push({ k: `${i}.e`, role: "error", ts, text: m.errorMessage || m.stopReason });
+			for (let j = c.length - 1; j >= 0; j--) {
+				const x = c[j];
+				const k = `${i}.${j}`;
+				if (x.type === "toolCall") out.push({ k, role: "tool", ts, ...toolInfo(x.name, x.arguments, cwd), args: clip(JSON.stringify(x.arguments, null, 1), 3000), result: results.get(x.id) });
+				else if (x.type === "text" && x.text?.trim()) out.push({ k, role: "assistant", ts, text: clip(x.text.trim()), media: mediaIn(x.text) });
+				else if (x.type === "thinking" && x.thinking?.trim()) out.push({ k, role: "thinking", ts, text: clip(x.thinking.trim(), 4000) });
 			}
 		}
 	}
@@ -533,7 +560,14 @@ function transcript(file: string, ref: string, limit = 150) {
 // ---------- waiting for (ag-tickler) ----------
 const TICKLER_DIR = `${HOME}/.local/state/ag-tickler`;
 type Waiting = { id?: string; title: string; kind: "check" | "event" | "online" | "at" | "person" | "manual"; detail: string; since?: number; due?: number };
+// Re-read only when the ag-tickler's directory changed (watchChanges marks it), not on every poll.
+let ticklerCache: Map<string, Waiting[]> | null = null;
+let watchingTickler = false;
 function ticklerWaits(): Map<string, Waiting[]> {
+	if (!ticklerCache || !watchingTickler) ticklerCache = readTicklerWaits();
+	return ticklerCache;
+}
+function readTicklerWaits(): Map<string, Waiting[]> {
 	const out = new Map<string, Waiting[]>();
 	let files: string[] = [];
 	try {
@@ -654,7 +688,6 @@ async function cuaLoop() {
 // to say what its last run did. POST /api/routines/run {id} starts an engine routine now; GET /api/routines/log?id=.
 type Routine = { id: string; machine: string; name: string; description: string; schedule: string; last?: number; next?: number; running: boolean; result?: string; exit?: number; duration?: number; outcome?: { at?: string; ok?: boolean; summary?: string; session?: string } };
 const ROUTINE_STATE = `${HOME}/.local/state/routines`;
-const AG_DIR = (() => { try { return dirname(dirname(dirname(dirname(realpathSync(import.meta.path))))); } catch { return `${HOME}/ag`; } })();
 const human = (sec: number) => (sec % 86400 === 0 ? `${sec / 86400}d` : sec % 3600 === 0 ? `${sec / 3600}h` : sec % 60 === 0 ? `${sec / 60} min` : `${sec}s`);
 const usec = (s: string) => { const m = s.match(/^(\d+(?:\.\d+)?)(us|ms|s|min|h|d)?$/); if (!m) return 0; return Number(m[1]) * ({ us: 1e-6, ms: 1e-3, s: 1, min: 60, h: 3600, d: 86400 } as any)[m[2] ?? "s"]; };
 function outcomeOf(name: string) {
@@ -737,7 +770,7 @@ async function routinesJson() {
 
 type Sys = { mem?: Mem; cua: Cua };
 
-let board: { cards: Card[]; lists: List[]; page: number; sys?: Sys } = { cards: [], lists: state.lists, page: 0 };
+let board: { cards: Card[]; lists: List[]; page: number; sys?: Sys; rev: number; boot: string } = { cards: [], lists: state.lists, page: 0, rev: 0, boot: "" };
 let boardJson = "";
 // Until the first poll has built the board, /api/state and /events wait for it (up to 10 s) instead of handing a
 // just-restarted page an empty board (which reads as "every chat is gone").
@@ -779,9 +812,12 @@ const gzipped = (req: Request, body: string | Uint8Array, headers: Record<string
 		? new Response(Bun.gzipSync(typeof body === "string" ? Buffer.from(body) : body, { level: 5 }), { status, headers: { ...headers, "content-encoding": "gzip", vary: "accept-encoding" } })
 		: new Response(body, { status, headers });
 const jsonRes = (req: Request, v: unknown) => gzipped(req, typeof v === "string" ? v : JSON.stringify(v), { "content-type": "application/json", "cache-control": "no-store" });
-const pageRes = (req: Request, page = PAGE) => gzipped(req, readFileSync(page), { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+// The page carries its version (AG_PAGE: the board's `page` it was served as), so an open copy knows when it's old.
+const pageRes = (req: Request, page = `${APP_DIR}/index.html`) =>
+	gzipped(req, readFileSync(page, "utf8").replace("</head>", `<script>window.AG_PAGE=${appVersion()}</script></head>`), { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
 
 function fastLane(card: Card, prefix = "Pinned") {
+	if (PASSIVE) return;
 	const snippet = (card.status === "blocked" ? "is blocked and needs you" : "is ready") + (card.lastAssistant ? `: ${oneLine(card.lastAssistant.text, 160)}` : "");
 	void run([AG_TEXT, `${prefix}: ${card.title} ${snippet}\n${card.sid ? `http://ag:${PORT}/${card.sid}` : `${HTTPS_URL}/#${card.tab}`}`]);
 	void mux("notification", "show", `${prefix}: ${card.title}`, "--body", snippet.slice(0, 120), "--sound", "request");
@@ -852,7 +888,7 @@ function gist(text: string) {
 	return (paras.findLast((x) => /\?\s*$/.test(x)) ?? paras[text.length >= 3000 && paras.length > 1 ? 1 : 0] ?? "").replace(/[*`]/g, "");
 }
 
-async function poll() {
+async function pollOnce() {
 	const r = await mux("api", "snapshot");
 	if (r.code !== 0) return;
 	const snap = JSON.parse(r.out).result.snapshot;
@@ -905,7 +941,7 @@ async function poll() {
 			if (tick.length || newWork) {
 				delete cs.waiting, delete cs.wakeAskedAt, delete cs.wakeAsks;
 				dirty = true;
-			} else if (ready && a.agent_status !== "blocked" && (cs.wakeAsks ?? 0) < WAKE_MAX && now - (cs.wakeAskedAt ?? 0) > WAKE_EVERY_MS) {
+			} else if (!PASSIVE && ready && a.agent_status !== "blocked" && (cs.wakeAsks ?? 0) < WAKE_MAX && now - (cs.wakeAskedAt ?? 0) > WAKE_EVERY_MS) {
 				cs.wakeAskedAt = now;
 				cs.wakeAsks = (cs.wakeAsks ?? 0) + 1;
 				dirty = true;
@@ -919,7 +955,7 @@ async function poll() {
 		// Only chats archived while working need the verdict (close, or bounce back).
 		const judgeIt = !!cs.archived;
 		const judged = judgeIt && a.agent_status !== "blocked" && cs.judged?.ts === ats;
-		if (judgeIt && ready && ats && a.agent_status !== "blocked" && !judged && !judging.has(key) && judging.size < JUDGE_MAX) {
+		if (!PASSIVE && judgeIt && ready && ats && a.agent_status !== "blocked" && !judged && !judging.has(key) && judging.size < JUDGE_MAX) {
 			judging.add(key);
 			void judgeDone(key, ats, s?.lastUser?.text ?? s?.first ?? "", s?.lastAssistant?.text ?? "");
 		}
@@ -959,7 +995,7 @@ async function poll() {
 		};
 		if (cs.archived) {
 			card.archived = cs.archived;
-			if (ready && !isWaiting && now - cs.statusSince >= SETTLE_MS && (judged || a.agent_status === "blocked") && !settling.has(key)) {
+			if (!PASSIVE && ready && !isWaiting && now - cs.statusSince >= SETTLE_MS && (judged || a.agent_status === "blocked") && !settling.has(key)) {
 				settling.add(key);
 				void settleArchived(key, card);
 			}
@@ -982,30 +1018,104 @@ async function poll() {
 		else if (now - cs.goneAt > GONE_KEEP_MS) (delete state.cards[id], (dirty = true));
 	}
 	save();
-	// page: the served chat.html's mtime, so open tabs (desktop and the phone PWA) reload themselves onto a new
-	// version instead of rendering with stale code until someone refreshes by hand.
-	let page = 0;
-	try {
-		page = statSync(realpathSync(PAGE)).mtimeMs;
-	} catch {}
+	// page: the served app's version (its index.html's mtime), so open tabs (desktop and the phone PWA) reload
+	// themselves onto a new version instead of rendering with stale code until someone refreshes by hand.
+	const page = appVersion();
 	hiddenCards = cards.filter((c) => c.archived);
-	board = { cards: cards.filter((c) => !c.archived), lists: state.lists, page, sys: { mem: readMem(), cua } };
-	const json = JSON.stringify(board);
-	if (json !== boardJson) {
-		boardJson = json;
+	const next = { cards: cards.filter((c) => !c.archived), lists: state.lists, page, sys: { mem: readMem(), cua } };
+	const json = JSON.stringify(next);
+	if (json !== lastContent) {
+		lastContent = json;
+		// rev: this board's revision, bumped on every change. Every action answers with the rev that includes it, so
+		// the page can hold its optimistic view until a board at least that new arrives (no flicker back). boot tells
+		// revs from different runs apart.
+		board = { ...next, rev: ++rev, boot: BOOT };
+		boardJson = JSON.stringify(board);
 		broadcast();
 	}
 }
+let lastContent = "";
+let rev = 0;
+const BOOT = crypto.randomUUID().slice(0, 8);
 
+// Polls run one at a time; asking while one runs queues exactly one more (callers waiting on it see a board that
+// includes their change).
+let running: Promise<void> | null = null;
+let queued: Promise<void> | null = null;
+function poll(): Promise<void> {
+	if (queued) return queued;
+	if (!running) {
+		running = pollOnce()
+			.catch((e) => console.error(new Date().toISOString(), "poll failed", e))
+			.finally(() => {
+				running = null;
+			});
+		return running;
+	}
+	queued = running.then(() => {
+		queued = null;
+		return poll();
+	});
+	return queued;
+}
+// The board follows changes as they happen: agd's events (an agent starting or stopping, tabs opening, closing,
+// renamed), Pi appending to a session file, and the ag-tickler's items each kick a poll within ~50 ms. POLL_MS is
+// only the fallback for anything none of them report (memory, the screen queue).
+// Kicks are coalesced: at most one poll per MIN_GAP_MS however busy the sessions are.
+const MIN_GAP_MS = 200;
+let wake: (() => void) | null = null;
+let kickT: Timer | null = null;
+let polledAt = 0;
+let kicked = false; // a change arrived while a poll ran: poll again right after
+const kick = () => {
+	if (!kickT)
+		kickT = setTimeout(() => {
+			kickT = null;
+			if (wake) wake();
+			else kicked = true;
+		}, Math.max(50, MIN_GAP_MS - (Date.now() - polledAt)));
+};
 async function loop() {
 	for (;;) {
-		try {
-			await poll();
-		} catch (e) {
-			console.error(new Date().toISOString(), "poll failed", e);
-		}
-		await Bun.sleep(POLL_MS);
+		polledAt = Date.now();
+		kicked = false;
+		await poll();
+		if (kicked) continue;
+		await new Promise<void>((r) => {
+			wake = r;
+			setTimeout(r, POLL_MS);
+		});
+		wake = null;
 	}
+}
+function watchChanges() {
+	// Bun's recursive watch doesn't follow folders made after it starts (a session in a new working directory gets a
+	// new one), so a new folder restarts it.
+	let sessionsWatch: ReturnType<typeof watch> | undefined;
+	const watchSessions = () => {
+		try {
+			sessionsWatch?.close();
+			sessionsWatch = watch(SESSIONS_DIR, { recursive: true }, (_ev, f) => {
+				kick();
+				if (f && !String(f).includes("/") && !String(f).endsWith(".jsonl")) setTimeout(watchSessions, 100);
+			});
+		} catch {}
+	};
+	watchSessions();
+	try {
+		watch(TICKLER_DIR, () => ((ticklerCache = null), kick()));
+		watchingTickler = true;
+	} catch {}
+	const sock = process.env.AG_MUX_SOCKET ?? `${HOME}/.local/state/ag-mux/agd.sock`;
+	const types = ["pane_agent_detected", "pane_agent_status_changed", "pane_closed", "pane_created", "pane_focused", "pane_moved", "tab_closed", "tab_created", "tab_focused", "tab_renamed"];
+	const connect = () => {
+		const s = createConnection(sock);
+		s.on("connect", () => s.write(`${JSON.stringify({ id: "ag-dash:events", method: "events.subscribe", params: { subscriptions: types.map((type) => ({ type })) } })}\n`));
+		s.on("data", kick);
+		s.on("error", () => {});
+		s.on("close", () => setTimeout(connect, 2000));
+	};
+	connect();
 }
 
 const markSeen = (tab: string) => {
@@ -1134,7 +1244,7 @@ async function tailscaleIp() {
 	}
 }
 const host = await tailscaleIp();
-const ok = () => Response.json({ ok: true });
+const ok = () => Response.json({ ok: true, rev: board.rev, boot: BOOT });
 
 // Clicks per control (optionally only the last `days` days), most used first, split by view.
 function clickStats(days: number) {
@@ -1191,12 +1301,31 @@ else {
 </script>`;
 	return new Response(html, { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 }
+// Save, then poll so the board (and its rev, which every action answers with) includes the change.
 const after = async () => {
 	save();
 	await poll();
+	return board.rev;
 };
 
 const gz = new Map<string, { mtime: number; body: Uint8Array }>();
+// The app's bundles: content-hashed names, so cached for good (sw.js: never, so a new one is picked up at once).
+const ASSET_TYPES: Record<string, string> = { js: "text/javascript", css: "text/css", map: "application/json", svg: "image/svg+xml", png: "image/png", woff2: "font/woff2" };
+function appAsset(name: string, req: Request, dir = `${APP_DIR}/assets`) {
+	const path = `${dir}/${name}`;
+	let st;
+	try {
+		st = statSync(path);
+	} catch {
+		return bad("not found", 404);
+	}
+	const type = ASSET_TYPES[name.split(".").pop()!] ?? "application/octet-stream";
+	const headers: Record<string, string> = { "content-type": type, "cache-control": name === "sw.js" ? "no-cache" : "public, max-age=31536000, immutable" };
+	if (!(req.headers.get("accept-encoding") ?? "").includes("gzip") || type.startsWith("image/png")) return new Response(Bun.file(path), { headers });
+	let hit = gz.get(path);
+	if (!hit || hit.mtime !== st.mtimeMs) gz.set(path, (hit = { mtime: st.mtimeMs, body: Bun.gzipSync(readFileSync(path)) }));
+	return new Response(hit.body, { headers: { ...headers, "content-encoding": "gzip", vary: "accept-encoding" } });
+}
 function staticFile(name: string, req: Request) {
 	const path = `${STATIC_DIR}/${name}`;
 	const st = statSync(path);
@@ -1217,6 +1346,9 @@ async function handle(req: Request): Promise<Response> {
 			if (p === "/") return Response.redirect(`${url.origin}/chat`, 302);
 			// Chat view: /chat, /chat/<session id>, /chat/t/<tab> (the page routes itself).
 			if (/^\/chat(?:\/(?:[0-9a-f-]{36}|[tp]\/[^/]+))?\/?$/.test(p)) return pageRes(req);
+			const asset = p.match(/^\/assets\/([\w.-]+)$/)?.[1];
+			if (asset) return appAsset(asset, req);
+			if (p === "/sw.js") return appAsset("sw.js", req, APP_DIR);
 			const sf = p.match(/^\/static\/([\w.-]+)$/)?.[1];
 			if (sf && STATIC.has(sf)) return staticFile(sf, req);
 			if (p === "/api/file") {
@@ -1285,9 +1417,15 @@ async function handle(req: Request): Promise<Response> {
 				// No file yet (or gone): an empty transcript, never an error the drawer would hang on.
 				if (!file || !existsSync(file)) return Response.json([]);
 				const limit = Math.min(Math.max(Number(url.searchParams.get("limit")) || 150, 1), 100_000);
-				const t = transcript(file, sid ? `sid=${sid}` : `tab=${encodeURIComponent(url.searchParams.get("tab")!)}`, limit);
-				const res = jsonRes(req, t.items);
+				const from = url.searchParams.has("from") ? Math.max(0, Number.parseInt(url.searchParams.get("from")!) || 0) : undefined;
+				const t = transcript(file, sid ? `sid=${sid}` : `tab=${encodeURIComponent(url.searchParams.get("tab")!)}`, limit, from);
+				// ETag: an unchanged transcript (most refreshes) answers 304 with no body.
+				const body = JSON.stringify(t.items);
+				const etag = `"${Bun.hash(body).toString(36)}-${t.more ? 1 : 0}"`;
+				if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers: { etag, "x-more": t.more ? "1" : "0" } });
+				const res = jsonRes(req, body);
 				res.headers.set("x-more", t.more ? "1" : "0");
+				res.headers.set("etag", etag);
 				return res;
 			}
 			const sp = p.match(/^\/api\/session\/([0-9a-f-]{36})$/)?.[1];
@@ -1583,7 +1721,7 @@ async function handle(req: Request): Promise<Response> {
 					cs.archived = Date.now();
 					dirty = true;
 					await after();
-					return Response.json({ ok: true, running: true });
+					return Response.json({ ok: true, running: true, rev: board.rev, boot: BOOT });
 				}
 				const r = await closeCard(card);
 				if (r.code !== 0) return fail(r, "close");
@@ -1660,6 +1798,7 @@ process.on("SIGTERM", async () => {
 });
 // HTTPS on the tailnet (idempotent; persists in tailscaled). Voice needs it: browsers only allow the mic on https.
 const HTTPS_URL = (() => {
+	if (PASSIVE) return `http://ag:${PORT}`;
 	try {
 		execFileSync("/usr/local/bin/tailscale", ["serve", "--bg", `--https=${HTTPS_PORT}`, `http://127.0.0.1:${PORT}`], { stdio: "ignore", timeout: 15_000 });
 		// Links use the Tailscale Service svc:ag (ag-svc), never this machine's own name.
@@ -1672,3 +1811,4 @@ const HTTPS_URL = (() => {
 console.log(`ag-dash listening on http://${host}:${PORT}, http://127.0.0.1:${PORT}, ${HTTPS_URL}`);
 void loop();
 void cuaLoop();
+watchChanges();

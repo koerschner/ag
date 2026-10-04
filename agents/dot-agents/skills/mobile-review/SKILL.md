@@ -25,24 +25,22 @@ Setup once per machine: `scripts/setup.sh` (Playwright + browsers into `~/.local
 
 ## ag-dash
 
-Page: `ag-dash/dot-local/share/ag-dash/index.html` in the ag repo (`~/ag`) (served by `bin/dot-local/bin/ag-dash`,
-re-read on every request, so a saved edit is live at once). The user uses it as a home-screen app on their
-iPhone via `https://ag.<tailnet>.ts.net:7377` (the board redirects there for the mic).
+Page: the React app in `ag-dash/web` in the ag repo (`~/ag`) (built into its committed `dist/` and served by
+`bin/dot-local/bin/ag-dash`; see `ag-dash/web/README.md`). The user uses it as a home-screen app on their iPhone via
+`https://ag.<tailnet>.ts.net:7377`.
 
 ```sh
 S=~/.agents/skills/mobile-review/scripts
-node $S/agdash.mjs                              # the live page: ~140 checks, PASS/FAIL/WARN, exit 1 on failure
-PAGE=/path/to/edited/index.html node $S/agdash.mjs   # test an edit before it goes live
+node $S/agdash-chat.mjs                        # the live page on a simulated iPhone (writes stubbed); exit 1 on FAIL
+URL=http://127.0.0.1:7386 node $S/agdash-chat.mjs   # a branch's build on a passive test instance (README there)
 ```
 
-Screenshots land in `/tmp/mobile-review/agdash/` (plus `landscape/`); look at them, don't just trust the
-table. It covers: header (views, Pinned only, filter), column tabs and swipe (incl. the strip not snapping back),
-card ▾ details and every details button, long-press → pin, Archive + Undo, the drawer opened/closed repeatedly,
-every drawer action, Transcript/Live tabs, key buttons, tool-call disclosure, reply with the keyboard up,
-Send, 📎 attach, 🎙 voice (no mic → must not hang), Mark unread, rename prompt, New session dialog, deep links
-(live and closed/read-only session), media viewer, target sizes, landscape, page errors.
+Screenshots land in `/tmp/mobile-review/agdash-chat/`; look at them, don't just trust the output. It covers the
+sidebar swipe (open, close, vertical drags ignored), ☰ and the scrim, search, long-press menus on chats, list rows
+and messages (Select text), sheets (swipe down, backdrop taps that don't fall through), the picker sheet, the
+composer above the keyboard, target sizes and page errors.
 
-**When you change the board's mobile UI, add checks for the new controls to `agdash.mjs` in the same change,
+**When you change ag-dash's mobile UI, add checks for the new controls to `agdash-chat.mjs` in the same change,
 and the suite must pass before you commit.**
 
 Then confirm in real Safari:

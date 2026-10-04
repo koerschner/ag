@@ -17,7 +17,7 @@ async function press(sel, ms = 650) {
 }
 const open = () => page.evaluate(() => !document.querySelector("#app").classList.contains("collapsed"));
 const R = _R;
-await page.waitForSelector("#sideScroll .proj", { state: "attached" }); await page.waitForTimeout(500);
+await page.waitForSelector("#sideScroll .item", { state: "attached" }); await page.waitForTimeout(500);
 await shot("home"); await page.waitForTimeout(300);
 await drag(30, 400, 300, 410); R("swipe right opens sidebar", await open());
 await shot("sidebar"); await page.waitForTimeout(300);
@@ -26,14 +26,14 @@ await drag(200, 400, 230, 600); R("vertical drag doesn't open", !(await open()))
 await page.locator(".top [data-do=toggle]").tap(); await page.waitForTimeout(400); R("☰ opens", await open());
 await page.locator(".scrim").tap({ position: { x: 370, y: 300 } }); await page.waitForTimeout(400); R("scrim closes", !(await open()));
 await page.locator(".top [data-do=toggle]").tap(); await page.waitForTimeout(400);
-await page.locator(".side .msearch").tap(); await page.waitForTimeout(300); R("search opens", await page.locator("#searchBack.open").count() === 1); await shot("search");
-await page.locator("#searchBack [data-do=closeModal]").tap(); await page.waitForTimeout(200);
+await page.locator(".side .msearch").tap(); await page.waitForTimeout(300); R("search opens", await page.locator(".back.open .modal").count() === 1); await shot("search");
+await page.locator(".back.open [data-do=closeModal]").tap(); await page.waitForTimeout(200);
 await press("#sideScroll [data-sec=chats] .item"); R("long-press chat → sheet", await page.locator(".pop.sheet").count() === 1); await shot("chat-sheet");
 R("sheet still open after lift", await page.locator(".pop.sheet").count() === 1);
 const sb = await page.locator(".pop.sheet").boundingBox();
 await drag(200, sb.y + 20, 200, sb.y + 220); R("swipe down closes sheet", await page.locator(".pop.sheet").count() === 0);
 R("still in sidebar (long-press didn't navigate)", (await open()) && new URL(page.url()).pathname === "/chat");
-await press("#sideScroll .proj"); R("long-press project → sheet", await page.locator(".pop.sheet [data-proj-act]").count() === 2);
+await press("#sideScroll [data-sec=chats] .item"); R("long-press chat again → sheet", await page.locator(".pop.sheet").count() === 1);
 await page.locator(".sheet-back").tap({ position: { x: 200, y: 100 } }); await page.waitForTimeout(200); R("backdrop closes sheet", await page.locator(".pop").count() === 0 || console.log("  still open:", await page.evaluate(() => [document.querySelector(".pop")?.innerText, document.elementFromPoint(200, 100)?.className])));
 await page.locator("#sideScroll [data-sec=chats] .item:not(:has(.spin))").first().tap(); await page.waitForTimeout(2500);
 R("tap chat opens it", /\/chat\/./.test(page.url()) && !(await open()));

@@ -1,5 +1,5 @@
 // phone.mjs: a simulated iPhone for adversarial mobile review (Playwright, touch + mobile viewport).
-// Library used by the suites next to it (agdash.mjs) and by ad-hoc scripts:
+// Library used by the suite next to it (agdash-chat.mjs, ag-dash on a phone) and by ad-hoc scripts:
 //   import { launchPhone, alive, tapCheck, sweep } from "~/.agents/skills/mobile-review/scripts/phone.mjs";
 // Playwright is installed once into ~/.local/share/mobile-review by setup.sh (the scripts load it from there).
 import { createRequire } from "node:module";
@@ -49,6 +49,11 @@ export async function launchPhone(o = {}) {
       let html = pageFile ? readFileSync(pageFile, "utf8") : await res.text();
       html = html.replace(/env\(safe-area-inset-(top|bottom|left|right)\)/g, (_, s) => safeArea[s] + "px");
       return route.fulfill({ response: res, body: html, headers: { ...res.headers(), "content-type": "text/html; charset=utf-8" } });
+    }
+    if (r.resourceType() === "stylesheet") {
+      const res = await route.fetch();
+      const css = (await res.text()).replace(/env\(safe-area-inset-(top|bottom|left|right)\)/g, (_, s) => safeArea[s] + "px");
+      return route.fulfill({ response: res, body: css });
     }
     return route.continue();
   });

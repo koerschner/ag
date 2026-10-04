@@ -1,0 +1,2 @@
+# Only dot-local/ stows into ~; web/ is the page's source (built into web/dist, served from the checkout).
+^/web

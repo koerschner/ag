@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<script src="/static/telemetry.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>Ag</title>
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="ag-dash">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#171717" id="themeColor">
+<script>
+// Theme: System (follows macOS) / Light / Dark, chosen in the profile menu (localStorage agchat.theme). Resolved to a
+// class on <html> before first paint so there's no flash.
+(function () {
+  var mq = matchMedia("(prefers-color-scheme: light)");
+  window.applyTheme = function () {
+    var pref = "system";
+    try { pref = localStorage.getItem("agchat.theme") || "system"; } catch (e) {}
+    var light = pref === "light" || (pref === "system" && mq.matches);
+    document.documentElement.classList.toggle("light", light);
+    var m = document.getElementById("themeColor");
+    if (m) m.setAttribute("content", light ? "#f9f9f9" : "#171717");
+  };
+  mq.addEventListener("change", function () { window.applyTheme(); });
+  window.applyTheme();
+})();
+</script>
+  <script type="module" crossorigin src="/assets/index-DgPAimZo.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-DYRqsUpM.css">
+</head>
+<body>
+<div id="root"></div>
+</body>
+</html>

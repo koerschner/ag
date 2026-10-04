@@ -1,4 +1,4 @@
-// The ag-dash Mac app: ag-dash (http://ag:7376/chat, served live, so chat.html edits only need Cmd+R) in its own
+// The ag-dash Mac app: ag-dash (http://ag:7376/chat, served live: the page moves onto a new build by itself) in its own
 // window, plus what a web page can't do: system-wide keys and quick entry. Loaded live from the ag checkout by the
 // app shell (../shell/main.js), so edits here need only a relaunch (install.sh does it). The keys are the user's
 // keys ag-rules for app ag-dash-app (hotkeys.js): by default Ctrl+Cmd+A shows/hides the window, both Command keys

@@ -17,7 +17,7 @@ Use [DiscordChatExporter](https://github.com/Tyrrrz/DiscordChatExporter) (DCE), 
 - Confirm the server, relevant channels, date range, and desired output. Prefer relevant internal channels over exporting an entire server. Do not include DMs or unrelated servers without an explicit request.
 - Raw exports may contain student identities and private discussion. Keep them outside repositories, use `umask 077`, and publish only the necessary redacted synthesis.
 
-Known server: **Arcade** — `$ARCADE_GUILD_ID` (the ID is in the user's private personal instructions, `~/AGENTS.md`). This is a convenience, not permission to export every channel. List channels to confirm names and access.
+Known server: **FreeTime** (formerly Arcade) — `$ARCADE_GUILD_ID` (the ID is in the user's private personal instructions, `~/AGENTS.md`). This is a convenience, not permission to export every channel. List channels to confirm names and access.
 
 ## 2. Install / verify
 

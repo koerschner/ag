@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ag discord: read and post on the Arcade Discord server as the ag bot (no computer use).
+"""ag discord: read and post on the team Discord server (FreeTime, formerly Arcade) as the ag bot (no computer use).
 
   ag discord whoami                         the bot identity and whether it can see the server
   ag discord channels                       text channels and active threads (id, name, parent)

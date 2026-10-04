@@ -76,7 +76,7 @@ export function installGlobal() {
 		if (useUi.getState().starting?.id === o.id) useUi.setState({ starting: null });
 		saveDraftText("new", o.text, true);
 	});
-	setBusy(() => composer.recording());
+	setBusy(() => composer.pending());
 	// The Mac app (macos-apps/ag-dash) navigates the page with go().
 	(window as any).go = (url: string) => go(url);
 

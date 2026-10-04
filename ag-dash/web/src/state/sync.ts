@@ -88,7 +88,7 @@ setInterval(() => {
 	if (!document.hidden && Date.now() - lastInput < 4000) return;
 	const ui = useUi.getState();
 	const typing = document.activeElement?.matches?.("textarea, input") && (document.activeElement as HTMLTextAreaElement).value;
-	if (document.hidden || (!typing && !ui.pop && !ui.modal && !busy())) location.reload();
+	if (!busy() && (document.hidden || (!typing && !ui.pop && !ui.modal))) location.reload();
 }, 1000);
 
 // ---------- config (models, user name) ----------

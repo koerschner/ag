@@ -20,6 +20,7 @@ export const composer = {
 	dictate: () => {},
 	setText: (_t: string) => {},
 	recording: () => false,
+	pending: () => false, // something a reload would lose (a recording, attachments)
 	cancelRec: () => {},
 	exists: () => false,
 };
@@ -177,11 +178,14 @@ export function Composer({ card, draftKey, placeholder = "Ask anything", onNew, 
 		dictate: () => (rec ? endRec(false) : startRec("box")),
 		setText: (t: string) => (setText(t), open()),
 		recording: () => !!rec,
+		pending: () => !!rec || atts.length > 0,
 		cancelRec: () => endRec(true),
 		exists: () => true,
 		});
 	});
-	useEffect(() => () => void (composer.exists = () => false), []);
+	// A layout effect, so a box going away resets this before the next chat's box registers itself (passive effect
+	// cleanups run after the new box's layout effects).
+	useLayoutEffect(() => () => void Object.assign(composer, { exists: () => false, pending: () => false, recording: () => false }), []);
 
 	const has = !!(text.trim() || atts.length);
 	const mode = has ? "send" : working ? "stop" : "voice";

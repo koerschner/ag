@@ -107,6 +107,10 @@ await step("j/k move between chats", async () => {
 	await p.waitForFunction((u) => location.href !== u, url, { timeout: 1000 });
 	await p.keyboard.press("k");
 	await p.waitForURL(url, { timeout: 1000 });
+	// The box of the chat you moved to answers r (the one you left doesn't hold on to it).
+	await p.keyboard.press("r");
+	await p.waitForFunction(() => document.activeElement?.id === "input", null, { timeout: 500 });
+	await p.keyboard.press("Escape");
 });
 await step("rows hold still under the pointer", async () => {
 	const order = () => p.evaluate(() => [...document.querySelectorAll(".side .item")].map((a) => a.dataset.tab).join());

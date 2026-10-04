@@ -199,7 +199,8 @@ function ChatView({ card: c }: { card: Card }) {
 	// Opening it, or looking at it when a new answer arrives (the page in front and focused), means you've seen it.
 	const opened = useRef(false);
 	useEffect(() => {
-		const f = () => c.needsYou && (!opened.current || (!document.hidden && document.hasFocus())) && void markSeen(c);
+		// Never while the page is hidden (a background tab, the Mac app's closed window reloading onto a new build).
+		const f = () => c.needsYou && !document.hidden && (!opened.current || document.hasFocus()) && void markSeen(c);
 		f();
 		opened.current = true;
 		addEventListener("focus", f);

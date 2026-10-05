@@ -691,7 +691,7 @@
   "args": {
    "command": "cd ~/Library/Logs/Roblox && for f in $(ls -t *Player*last.log | head -8); do echo \"$f $(wc -l <$f) join=$(grep -ac 'Joining game' $f) hang=$(grep -ac HangDetected $f)\"; done"
   },
-  "sum": "Count lines in $f \u00b7 Search \"Joining game\" in $f \u00b7 Search \"HangDetected\" in $f",
+  "sum": "List *Player*last.log \u00b7 Count lines in $f \u00b7 Search \"Joining game\" in $f +1",
   "hosts": [
    "ag-engine"
   ]
@@ -2364,6 +2364,126 @@
   "sum": "Nessie: Complete its onboarding and connect only these agents",
   "hosts": [
    "ag-mac"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/x && A=\"Claude ($PI_MODEL), assisting Nathan:\"; reply(){ body=\"$A\n> $2\"; gh api graphql -f query='mutation($t:ID!,$b:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$t,body:$b}){comment{id}} resolveReviewThread(input:{threadId:$t}){thread{isResolved}}}' -f t=\"$1\" -f b=\"$body\" --jq .x; }\nF=\"Fixed in abc123\"\nreply PRRT_a \"$F: it's done\"; reply PRRT_b \"Same\""
+  },
+  "sum": "Reply to and resolve PR review thread",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "gh api graphql -f query='query{repository(owner:\"o\",name:\"r\"){pullRequest(number:812){reviewThreads(first:50){nodes{id isResolved}}}}}'"
+  },
+  "sum": "Read review threads on PR #812",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "gh api graphql -f query=\"mutation{resolveReviewThread(input:{threadId:\\\"PRRT_x\\\"}){thread{isResolved}}}\""
+  },
+  "sum": "Resolve PR review thread",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd /tmp/p28; cut -c1-700 render.py"
+  },
+  "sum": "Read columns of render.py",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "tr '\\0' ' ' < /proc/430455/cmdline; echo"
+  },
+  "sum": "Read /proc/430455/cmdline",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "echo '{\"last_until\": \"2026-10-05T13:46:34.299Z\", \"seen\": []}' > ~/.local/state/routines/tessa-student-games/cursor.json"
+  },
+  "sum": "Write ~/\u2026/tessa-student-games/cursor.json",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/arcade.school && date; TZ=America/Chicago date +'%F %T %a'"
+  },
+  "sum": "Show the time \u00b7 Show the time in Chicago",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "date -u +%FT%TZ; date -u -d '+30 min' +%FT%T+00:00"
+  },
+  "sum": "Show the time",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/tsa-homepage && for f in $(git grep -l -E \"device-helper/catalog|HELPER_CATALOG\" origin/main -- apps/server/src | grep -v test); do echo $f; done | head -40"
+  },
+  "sum": "Search repo for \"device-helper/catalog|HELPER_CATALOG\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/web && timeout 120 node_modules/.bin/vite build 2>&1 | tail -20"
+  },
+  "sum": "Run vite build",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "chmod +x /tmp/wu/q.sh; Q=/tmp/wu/q.sh\n$Q \"\nselect count(*) from play_sessions\n\" | head"
+  },
+  "sum": "Set permissions on /tmp/wu/q.sh \u00b7 Run q.sh",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "uv run --with pillow python -c \"from PIL import Image; Image.open('a.png')\""
+  },
+  "sum": "Run Python snippet (uv)",
+  "hosts": [
+   "ag-engine"
   ]
  }
 ]

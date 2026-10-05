@@ -12,7 +12,7 @@
 // change must keep `ag-toolsum check` (fixtures.json) passing. Add a fixture for each new rule.
 
 export type Summary = { sum?: string; hosts: string[]; rule?: string; miss?: string; parts?: { sum: string; host?: string }[] };
-type Ctx = { host: string; fns?: Record<string, string>; miss?: string /* innermost piece that failed */; heredocs?: Record<string, string> };
+type Ctx = { host: string; fns?: Record<string, string>; vars?: Record<string, string> /* plain VAR=value seen earlier */; miss?: string /* innermost piece that failed */; heredocs?: Record<string, string> };
 type SegOut = { sum: string; host?: string; rule: string; parts?: { sum: string; host?: string }[] } | "noise" | null;
 
 const HOME_RE = /^(?:\/home\/[^/\s'"]+|\/Users\/[^/\s'"]+|\$HOME|~)(?=\/|$)/;
@@ -48,11 +48,15 @@ export function normHost(h: string): string {
 function stripHeredocs(cmd: string, bodies: Record<string, string> = {}): string {
 	const lines = cmd.split("\n");
 	const out: string[] = [];
+	let q: string | null = null; // a quote left open at the end of a line: its newline is part of the string
 	for (let i = 0; i < lines.length; i++) {
 		let line = lines[i];
 		// backslash-newline continues the command on the next line
 		while (/(?:^|[^\\])(?:\\\\)*\\$/.test(line) && i + 1 < lines.length) line = `${line.slice(0, -1)} ${lines[++i].trimStart()}`;
-		out.push(line);
+		const inQuote = q !== null;
+		q = quoteAfter(line, q);
+		if (inQuote) out[out.length - 1] += `\n${line}`;
+		else out.push(line);
 		const tags = [...line.matchAll(/<<-?\s*(['"]?)([A-Za-z_][\w]*)\1/g)].map((m) => m[2]);
 		for (const tag of tags) {
 			const body: string[] = [];
@@ -62,6 +66,20 @@ function stripHeredocs(cmd: string, bodies: Record<string, string> = {}): string
 		}
 	}
 	return out.join(" ;\n");
+}
+
+/** The quote still open after scanning `line`, starting inside quote `q` (null = none). */
+function quoteAfter(line: string, q: string | null): string | null {
+	for (let i = 0; i < line.length; i++) {
+		const c = line[i];
+		if (q) {
+			if (c === "\\" && q === '"') i++;
+			else if (c === q) q = null;
+		} else if (c === "\\") i++;
+		else if (c === "#" && (i === 0 || /\s/.test(line[i - 1]))) break;
+		else if (c === "'" || c === '"') q = c;
+	}
+	return q;
 }
 
 /** Split at top-level ; && || | & and newlines, respecting quotes, $( ), ` `, and ( ) { } groups. */
@@ -165,6 +183,7 @@ function positional(args: string[], withVal: string[] = []): string[] {
 	}
 	return out;
 }
+const shq = (x: string) => (/[\s'"$`\\;&|<>()]/.test(x) || x === "" ? `'${x.replace(/'/g, "'\\''")}'` : x);
 const paths = (ps: string[], n = 2) => (ps.length ? ps.slice(0, n).map(shortPath).join(", ") + (ps.length > n ? ` +${ps.length - n}` : "") : "");
 const flagVal = (args: string[], ...names: string[]) => {
 	for (let i = 0; i < args.length; i++) {
@@ -341,6 +360,22 @@ const gitSub: Record<string, (a: string[]) => string | undefined> = {
 	"check-ignore": (a) => `Check if ${paths(positional(a))} is git-ignored`,
 };
 
+/** gh api graphql: name the review-thread operations agents run most; anything else stays generic. */
+function ghGraphql(a: string[]): string {
+	const q = a.find((x) => /^query=/.test(x))?.slice(6) ?? "";
+	const pr = q.match(/pullRequest\(\s*number:\s*(\d+)/)?.[1] ?? a.map((x) => x.match(/^(?:pr|number|n)=(\d+)$/)?.[1]).find(Boolean);
+	const on = pr ? ` on PR #${pr}` : "";
+	if (/^\s*mutation\b/.test(q)) {
+		const reply = /\baddPullRequestReviewThreadReply\b/.test(q);
+		const resolve = /\bresolveReviewThread\b/.test(q);
+		if (reply || resolve) return `${reply && resolve ? "Reply to and resolve" : reply ? "Reply to" : "Resolve"} PR review thread`;
+		const op = q.match(/\{\s*(\w+)/)?.[1];
+		return op ? `Run GitHub mutation ${op}` : "GitHub API graphql";
+	}
+	if (/\breviewThreads\b/.test(q)) return `Read review threads${on}`;
+	return "GitHub API graphql";
+}
+
 const ghPr: Record<string, (n: string, a: string[]) => string> = {
 	create: () => "Open PR",
 	view: (n, a) => (a.includes("--comments") ? `Read comments on PR ${n}` : `View PR ${n}`),
@@ -416,6 +451,7 @@ const RULES: Rule[] = [
 	{ id: "hw", cmd: /^(ioreg|system_profiler|pmset|caffeinate|diskutil|sysctl|networksetup|scutil|csrutil|spctl|tccutil|codesign|xcode-select|dscacheutil)$/, fn: (_a, raw) => `macOS ${raw.split(/\s/)[0]}` },
 	{ id: "swift", cmd: /^(swift|swiftc|xcodebuild|xcrun|make|cmake|go|cargo)$/, fn: (a, raw) => `${raw.split(/\s/)[0]} ${positional(a, ["-scheme", "-project", "-destination", "-configuration", "-o"])[0] ?? ""}`.trim() },
 	{ id: "format", cmd: /^(?:\.?\/?node_modules\/\.bin\/)?(oxfmt|prettier|biome|eslint|oxlint|tsc|svelte-check)$/, fn: (a, raw) => `Run ${raw.split(/\s/)[0].replace(/^.*\//, "")}${positional(a)[0] ? ` on ${paths(positional(a), 1)}` : ""}` },
+	{ id: "node-bin", cmd: /^(?:\.\/)?node_modules\/\.bin\/[\w.-]+$/, fn: (a, raw) => { const sub = a[0] && /^[a-z][\w:-]*$/.test(a[0]) ? ` ${a[0]}` : ""; return `Run ${raw.split(/\s/)[0].replace(/^.*\//, "")}${sub}`; } },
 	{ id: "ag-ts-api", cmd: /^ag-ts-api$/, fn: (a) => `Tailscale API ${a[0] ?? ""} ${a[1] ?? ""}`.trim() },
 	{ id: "ssh-keygen", cmd: /^ssh-keygen$/, fn: (a) => {
 		const h = flagVal(a, "-F", "-R");
@@ -439,12 +475,27 @@ const RULES: Rule[] = [
 	{ id: "lua", cmd: /^lua$/, fn: (a) => (a[0] === "-e" ? "Run Lua snippet" : positional(a)[0] ? `Run ${shortPath(positional(a)[0])}` : undefined) },
 	{ id: "iac", cmd: /^(tofu|terraform|hcloud)$/, fn: (a, raw) => { const tool = raw.split(/\s/)[0]; const p = positional(a, ["-o", "--output", "-var", "-var-file", "-target", "--type", "--image", "--location", "--name"]).filter((x) => /^[a-z][\w-]*$/.test(x)); return p[0] ? `Run ${tool} ${p.slice(0, tool === "hcloud" ? 2 : 1).join(" ")}` : undefined; } },
 	{ id: "clipboard", cmd: /^(pbcopy|pbpaste)$/, fn: (_a, raw) => (raw.startsWith("pbcopy") ? "Copy to clipboard" : "Read clipboard") },
-	{ id: "seq", cmd: /^(seq|yes|jot|shuf|sort|uniq|tr|cut|base64|xxd|od|column|nl|tee|fold|expr|bc|true|mktemp|who|w|stty|tput|basename|dirname)$/, fn: () => "noise" as const },
+	{ id: "seq", cmd: /^(seq|yes|jot|shuf|sort|uniq|base64|xxd|od|column|nl|tee|fold|expr|bc|true|mktemp|who|w|stty|tput|basename|dirname)$/, fn: () => "noise" as const },
+	{ id: "cut-tr", cmd: /^(cut|tr)$/, fn: (a, raw, _c, seg) => {
+		// a filter on its own, unless it reads a file: cut … FILE, or tr … < FILE
+		const files = raw.startsWith("cut") ? positional(a, ["-d", "-f", "-c", "-b"]) : [];
+		const input = seg.match(/(?:^|\s)<\s*([^\s<>|;&()]+)/)?.[1];
+		if (input && !/^\/dev\//.test(input)) files.push(input);
+		return files.length ? `Read ${raw.startsWith("cut") ? "columns of " : ""}${paths(files)}` : "noise";
+	} },
 	{ id: "jq", cmd: /^jq$/, fn: (a, _r, _c, seg) => { const p = positional(a, ["--arg", "--argjson", "--slurpfile", "--rawfile"]); if (!p[1] && /<<</.test(seg)) return "Parse JSON"; return p[1] ? `Query JSON in ${paths(p.slice(1))}` : undefined; } },
 	{ id: "shortcuts", cmd: /^shortcuts$/, fn: (a) => { const [sub, x] = positional(a, ["-i", "--input-path", "-o", "--output-path"]); return sub === "list" ? "List Shortcuts" : sub === "run" && x ? `Run Shortcut "${clip(x, 40)}"` : sub === "view" && x ? `Open Shortcut "${clip(x, 40)}"` : undefined; } },
 	{ id: "stat-file", cmd: /^(stat|file|du|df|realpath|readlink|md5|md5sum|shasum|sha256sum)$/, fn: (a, raw) => `${raw.split(/\s/)[0] === "du" || raw.startsWith("df") ? "Disk usage of" : "Inspect"} ${paths(positional(a)) || "disk"}` },
 	{ id: "python", cmd: /^(python3?|uv)$/, fn: (a, raw, _ctx, seg) => {
-		if (raw.startsWith("uv")) { const [sub, ...r] = positional(a); if (sub === "run") return `Run ${shortPath(r[0] ?? "script")} (uv)`; if (sub === "add") return `Add Python package ${r.join(" ")}`; return `uv ${sub ?? ""}`.trim(); }
+		if (raw.startsWith("uv")) {
+			const [sub, ...r] = positional(a, ["--with", "--with-requirements", "--python", "-p", "--project", "--directory", "--env-file", "--group", "--extra", "--package", "--from"]);
+			if (sub === "run" && /^python3?$/.test(r[0] ?? "")) {
+				// uv run [--with pkg] python …: summarise the python part
+				const i = a.indexOf(r[0]);
+				const py = RULES.find((x) => x.id === "python")!.fn(a.slice(i + 1), a.slice(i).join(" "), _ctx, seg);
+				return typeof py === "string" ? `${py} (uv)` : undefined;
+			}
+			if (sub === "run") return `Run ${shortPath(r[0] ?? "script")} (uv)`; if (sub === "add") return `Add Python package ${r.join(" ")}`; return `uv ${sub ?? ""}`.trim(); }
 		if (a[0] === "-" || /<</.test(seg)) return "Run Python script";
 		if (a[0] === "-c") return "Run Python snippet";
 		if (a[0] === "-m") return `Run python -m ${a[1] ?? ""}`.trim();
@@ -494,6 +545,7 @@ const RULES: Rule[] = [
 		const num = n && /^\d+$/.test(n) ? `#${n}` : "";
 		if (group === "pr" && ghPr[sub]) return ghPr[sub](num, a).replace(/\s+$/, "");
 		if (group === "run") return sub === "list" ? "List CI runs" : sub === "rerun" ? "Re-run CI" : sub === "cancel" ? "Cancel CI run" : `Check CI run${n ? ` ${n}` : ""}`;
+		if (group === "api" && sub === "graphql") return ghGraphql(a);
 		if (group === "api") return `GitHub API ${clip(sub ?? "", 50)}`;
 		if (group === "issue") return `${cap(sub ?? "")} issue ${num}`.trim();
 		if (group === "repo") return sub === "list" ? `List GitHub repos${n ? ` of ${n}` : ""}` : `${cap(sub ?? "")} repo`;
@@ -891,6 +943,12 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 		const arm = s.match(/^case\s.*?\sin\s+[^\s()]+\)\s+(\S[\s\S]*)$/); // case $x in a) cmd
 		if (arm) return summarizeSegment(arm[1], ctx);
 		const cond = s.replace(/^(?:if|elif|while|until)\s+/, "");
+		if (/^for\s/.test(s)) {
+			// for x in $(cmd): the list's commands, when every one is understood (otherwise the header stays noise)
+			const subs = substitutions(s).map((x) => summarizeOne(x, { ...ctx, miss: undefined }));
+			const real = subs.filter((x): x is Exclude<SegOut, "noise" | null> => !!x && x !== "noise");
+			if (real.length && !subs.includes(null)) return { sum: real.map((x) => x.sum).join(" · "), rule: "for-list", parts: real.flatMap((x) => x.parts ?? [{ sum: x.sum, host: x.host }]) };
+		}
 		if (/^(?:for|select|case)\s/.test(s) || /^\[/.test(cond)) return "noise";
 		return summarizeSegment(cond, ctx);
 	}
@@ -905,6 +963,7 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 	if (ws.length === 1 && /^[A-Za-z_]\w*(?:\[[^\]]*\])?\+?=/.test(ws[0])) {
 		const val = ws[0].replace(/^[^=]*=/, "");
 		if (val.startsWith("$((")) return "noise";
+		if (val && !/[$`]/.test(val)) (ctx.vars ??= {})[ws[0].replace(/[+=].*$/s, "")] = val;
 		const sub = val.match(/^\$\(([\s\S]*)\)$/);
 		return sub ? summarizeOne(sub[1], ctx) : "noise";
 	}
@@ -919,13 +978,23 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 		break;
 	}
 	const [cmd0, ...args] = w;
+	// $Q args, where an earlier Q=/path/to/tool in the same command named it
+	const v = cmd0.match(/^\$\{?([A-Za-z_]\w*)\}?$/)?.[1];
+	if (v && ctx.vars?.[v] !== undefined) return summarizeSegment([ctx.vars[v], ...args.map(shq)].join(" "), ctx);
 	const fn = ctx.fns?.[cmd0];
-	if (fn) return summarizeOne(fn.replace(/"?\$\{?(\d|@|\*)\}?"?/g, (_m, k) => { const v = k === "@" || k === "*" ? args.join(" ") : args[Number(k) - 1] ?? ""; return `'${v.replace(/'/g, "")}'`; }), ctx);
+	if (fn) {
+		// "$1" → 'value'; a bare $1 (maybe inside a longer string) → the value without quote characters
+		const val = (k: string) => (k === "@" || k === "*" ? args.join(" ") : args[Number(k) - 1] ?? "");
+		return summarizeOne(fn.replace(/"\$\{?(\d|@|\*)\}?"|\$\{?(\d|@|\*)\}?/g, (_m, k, b) => (k ? `'${val(k).replace(/'/g, "")}'` : val(b).replace(/["'`$\\]/g, ""))), ctx);
+	}
 	const cmd = cmd0.replace(/^(?:~|\/home\/\w+|\/Users\/\w+)\/\.local\/bin\//, "").replace(/^\/(?:usr\/(?:local\/)?|opt\/homebrew\/)?s?bin\//, "")
 		// Ag's tools before they took the ag- prefix (mac, tickler, show, …), still in older traces
 		.replace(/^(?:(?:\.\/)?(?:[\w.-]+\/)*bin\/)?(mac|tickler|show|shot|presence|client-cua|chatgpt-cua|cua-queue|ts-api|session-link|pi-hibernate|toolsum|machine-role|mcp-gateway|rules|discord|shortcuts-check|moshi-hook-install|screen-record)$/, "ag-$1")
 		.replace(/^agrec$/, "ag-rec").replace(/^ag-rule$/, "ag-rules").replace(/^herdr-shortcuts-check$/, "ag-shortcuts-check");
 	if (/^(?:echo|printf)$/.test(cmd)) {
+		// echo '…' > FILE writes a file; appends (often an exit status to a log) stay noise
+		const out = s.match(/[^>&\d]>\s*([^\s&|;<>()]+)\s*$/)?.[1];
+		if (out && !/^\/dev\/|\.log$/.test(out) && !substitutions(s).length) return { sum: `Write ${shortPath(out)}`, rule: "echo-write" };
 		// echo "x: $(cmd)" runs cmd; summarise the substitutions when they are all understood
 		const subs = substitutions(s).map((x) => summarizeOne(x, { ...ctx, miss: undefined }));
 		const real = subs.filter((x): x is Exclude<SegOut, "noise" | null> => !!x && x !== "noise");
@@ -981,7 +1050,7 @@ function quietSum(segs: { seg: string }[]): string | undefined {
 		const s = seg.trim();
 		const vars = s.match(/^echo((?:\s+"?\$\{?[A-Za-z_]\w*\}?"?)+)$/);
 		if (vars) { if (!printed.length) out.push("PRINT"); printed.push(...vars[1].replace(/["{}]/g, "").trim().split(/\s+/)); continue; }
-		const d = s.match(/^(?:TZ=(\S+)\s+)?date(?:\s+(?:-u|'\+[^']*'|"\+[^"]*"|\+\S+))?$/);
+		const d = s.match(/^(?:TZ=(\S+)\s+)?date(?:\s+(?:-[uR]|-I\w*|-v[+-]?\w+|-d\s*(?:'[^']*'|"[^"]*"|\S+)|\+?(?:'[^']*'|"[^"]*")|\+[^\s'"]*(?:'[^']*'|"[^"]*")?))*$/);
 		if (d) { out.push(`Show the time${d[1] ? ` in ${d[1].replace(/^.*\//, "").replace(/_/g, " ")}` : ""}`); continue; }
 		if (/^(?:cd|pushd|popd)(?:\s|$)/.test(s)) continue;
 		return;

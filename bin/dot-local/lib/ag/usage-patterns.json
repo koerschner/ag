@@ -5,7 +5,7 @@
   {"id": "board-state", "verb": "ls", "re": ":7376/api/state", "what": "read ag-dash state with curl + jq"},
   {"id": "find-session-grep", "verb": "find", "re": "grep -l\\w* [^|\\n]*(\\.pi/agent/sessions|\\.jsonl)", "what": "grep -l over session files to find a session"},
   {"id": "transcript-jq", "verb": "read", "re": "(\\.pi/agent/sessions|\\.jsonl|api/transcript)[\\s\\S]*(message\\.role|\\.role ?==)|(message\\.role|\\.role ?==)[\\s\\S]*(\\.pi/agent/sessions|\\.jsonl)", "what": "pull user/assistant text out of a transcript"},
-  {"id": "pane-read", "verb": "peek", "re": "ag-mux (pane|agent) read", "what": "read another session's screen"},
+  {"id": "pane-read", "verb": "peek", "re": "ag-mux (pane|agent) read|tmux -L ag capture-pane", "what": "read another session's screen"},
   {"id": "inbox-curl", "verb": "spawn", "re": ":7373/prompt", "what": "spin out via curl to the ag-inbox"},
   {"id": "report-back", "verb": "report", "re": "Report from split-out", "what": "hand-built report back to the originating session"},
   {"id": "agent-prompt", "verb": "send", "re": "ag-mux agent prompt", "what": "prompt another session via agent prompt"},
@@ -16,9 +16,10 @@
   {"id": "tab-create-start", "verb": "spawn", "re": "ag-mux agent start", "what": "tab create + agent start by hand"},
   {"id": "manual-sync", "verb": "sync", "re": "ssh (-\\S+ )*(ag-mac|ag-client|ag-engine)[^\\n]*git (pull|-C)", "what": "pull/restow ag or dotfiles on each machine by hand"},
   {"id": "agents-build", "verb": "sync", "re": "agents\\.md/build", "what": "rebuild AGENTS.md by hand"},
-  {"id": "service-ctl", "verb": "status/logs/restart", "re": "systemctl --user (status|restart|start|stop)|launchctl (kickstart|list|print|bootout|bootstrap)", "what": "check or restart an Ag service by hand"},
-  {"id": "service-logs", "verb": "logs", "re": "journalctl --user|\\.local/state/[^ ]*\\.log", "what": "read an Ag service log by hand"},
-  {"id": "routine-state", "verb": "routine", "re": "state/routines/|systemctl --user list-timers", "what": "inspect routines by hand"},
+  {"id": "service-ctl", "verb": "status/logs/restart", "re": "systemctl --user (status|restart|start|stop) (ag-|pi-)|launchctl (kickstart|list|print)[^|;\\n]*\\bag[.-]", "what": "check or restart an Ag service by hand"},
+  {"id": "service-logs", "verb": "logs", "re": "journalctl --user[^|;\\n]*-u (ag-|pi-)|\\.local/state/ag-[\\w-]+(/[^ ]*)?\\.log", "what": "read an Ag service log by hand"},
+  {"id": "routine-state", "verb": "routine", "re": "state/routines/[\\w-]+\\.json\\b|systemctl --user list-timers", "what": "inspect routine status/timers by hand (not a routine using its own state dir)"},
   {"id": "agent-status", "verb": "ls", "re": "ag-mux (agent|pane) get", "what": "check another session's agent status with agent/pane get + jq"},
-  {"id": "mux-snapshot", "verb": "ls", "re": "ag-mux (api snapshot|tab list)", "what": "dump the whole mux state (snapshot / tab list) + jq"}
+  {"id": "mux-snapshot", "verb": "ls", "re": "ag-mux (api snapshot|tab list)", "what": "dump the whole mux state (snapshot / tab list) + jq"},
+  {"id": "dev-tab", "verb": "(none yet)", "re": "ag-mux tab create", "what": "open a labeled dev-process tab (server, watcher) by hand"}
 ]

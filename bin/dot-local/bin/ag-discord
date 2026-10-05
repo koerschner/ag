@@ -219,6 +219,23 @@ def cmd_get(a):
     show(api("GET", f"/channels/{m.group(2)}/messages/{m.group(3)}"), m.group(2))
 
 
+def discord_quote(text):
+    """Quote everything after the attribution line with one Discord `>>> ` block quote.
+
+    Discord renders a bare `>` (the Markdown blank quote line) as a literal `>` and splits the
+    quote into pieces, so per-line `> ` quoting looks broken there. `>>> ` quotes the rest of the
+    message, blank lines and code blocks included. Per-line `> ` prefixes are stripped first.
+    """
+    first, _, body = text.partition("\n")
+    body = body.strip("\n")
+    if not body or body.startswith(">>>"):
+        return text
+    lines = body.split("\n")
+    if all(l.startswith(">") for l in lines if l.strip()):
+        lines = [re.sub(r"^> ?", "", l) for l in lines]
+    return f"{first}\n>>> " + "\n".join(lines).strip("\n")
+
+
 def cmd_post(a):
     text = a.text if a.text is not None else sys.stdin.read()
     text = text.strip("\n")
@@ -227,6 +244,8 @@ def cmd_post(a):
     if not a.no_attribution and not ATTRIBUTION.match(text.splitlines()[0] if text else ""):
         die(f"first line must be the attribution line, e.g. 'Claude (model), assisting {USER}:' "
             f"(see the AI attribution rule; --no-attribution only if {USER} said so)", 2)
+    if not a.no_attribution:
+        text = discord_quote(text)
     if len(text) > 2000:
         die(f"message is {len(text)} chars; Discord's limit is 2000. Split it or shorten it.", 2)
     ch, reply = None, a.reply_to

@@ -27,7 +27,7 @@ ag discord post <thread id> --file shot.png < msg.md
 ag discord delete <message link>              # remove one of the bot's own posts
 ```
 
-- **Posts come from the bot, not the user**, so the attribution line carries the "who": open with `<Assistant> (<model>), assisting <user>:` and quote the body (`> ` on every line). `ag discord post` refuses text without it (`--no-attribution` only when the user explicitly asks). Use `--dry-run` to check the payload. Limit 2000 characters per message.
+- **Posts come from the bot, not the user**, so the attribution line carries the "who": open with `<Assistant> (<model>), assisting <user>:` and quote the body. Discord shows a bare `>` line literally, so `ag discord post` rewrites the body into one `>>> ` block quote (everything after it, blank lines and code blocks included); per-line `> ` input is converted for you. `ag discord post` refuses text without it (`--no-attribution` only when the user explicitly asks). Use `--dry-run` to check the payload. Limit 2000 characters per message.
 - To answer "where X asked about Y": `ag discord read`/`ag discord threads` to find the message, then `ag discord post --reply-to <its link>`.
 - Mentions: write `<@USER_ID>` (ids from `ag discord read --json`); @everyone/@here and role pings are always suppressed.
 - Bulk history or search over a date range: the `discord-export` skill (`ag discord dce …`).

@@ -1,11 +1,11 @@
 // The sidebar: New chat, Search, the four views with their counts, then Pinned and Chats (drag a chat onto Pinned
-// to pin it, back onto Chats to unpin it). The chat list is virtualized (only the rows on screen exist) and its
+// to pin it, back onto Chats to unpin it; or Shift+click a chat to toggle its pin). The chat list is virtualized (only the rows on screen exist) and its
 // order holds still under the pointer (state/order.ts).
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { isWaiting, isWorking, needsYou, refOf, urlOf } from "../lib/format";
 import type { Card } from "../lib/types";
-import { archive, rename, setPinned } from "../state/actions";
+import { archive, rename, setPinned, togglePin } from "../state/actions";
 import { useBoard, view } from "../state/board";
 import { hold, useSections } from "../state/order";
 import { warm } from "../state/tx";
@@ -238,9 +238,10 @@ function ChatRow({ card: c, selected, onDragStart, onDragEnd }: { card: Card; se
 			aria-current={selected ? "page" : undefined}
 			title={c.title}
 			onClick={(e) => {
-				if (renaming || e.metaKey || e.ctrlKey || e.shiftKey) return;
+				if (renaming || e.metaKey || e.ctrlKey) return;
 				e.preventDefault();
-				go(urlOf(c));
+				if (e.shiftKey) void togglePin(c);
+				else go(urlOf(c));
 			}}
 			onPointerEnter={() => warm(refOf(c), 3000)}
 			onContextMenu={(e) => {

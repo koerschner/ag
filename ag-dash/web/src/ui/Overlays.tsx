@@ -12,6 +12,7 @@ import { hold } from "../state/order";
 import { go, isMobile, newChat, setTheme, toast, useUi, type Pop } from "../state/ui";
 import { Icon } from "./Icon";
 import { composer } from "./Composer";
+import { copyText } from "../lib/clipboard";
 
 export function Overlays() {
 	return (
@@ -327,7 +328,7 @@ function MessageMenu() {
 	const text = box?.innerText ?? "";
 	return (
 		<>
-			<MI icon="copy" label="Copy" msg="copy" onClick={() => (close(), void navigator.clipboard.writeText(text).then(() => toast("Copied")))} />
+			<MI icon="copy" label="Copy" msg="copy" onClick={() => (close(), void copyText(text).then(() => toast("Copied")))} />
 			<MI
 				icon="cursor"
 				label="Select text"

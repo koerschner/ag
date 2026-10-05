@@ -4,6 +4,7 @@ import { urlOf } from "../lib/format";
 import type { Card } from "../lib/types";
 import { ackOp, addOp, cardByTab, dropOp, useBoard, view, type Patch } from "./board";
 import { go, toast, useUi } from "./ui";
+import { copyText } from "../lib/clipboard";
 
 export async function api<T = any>(path: string, body: unknown): Promise<T> {
 	const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -132,7 +133,7 @@ export async function openInTmux(c: Card) {
 export const sendKey = (c: Card, key: string) => api("/api/keys", { tab: c.tab, keys: [key] }).catch((e) => toast(e.message));
 export async function copyLink(sid?: string) {
 	if (!sid) return;
-	await navigator.clipboard.writeText(`${location.origin}/chat/${sid}`);
+	await copyText(`${location.origin}/chat/${sid}`);
 	toast("Link copied");
 }
 

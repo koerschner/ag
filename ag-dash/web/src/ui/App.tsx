@@ -11,6 +11,7 @@ import { composer } from "./Composer";
 import { Main, started } from "./Main";
 import { messageTarget, Overlays } from "./Overlays";
 import { Sidebar } from "./Sidebar";
+import { copyText } from "../lib/clipboard";
 
 export function App() {
 	const collapsed = useUi((s) => s.collapsed);
@@ -92,7 +93,7 @@ export function installGlobal() {
 		const cc = t.closest?.("[data-copy-code]");
 		if (cc) {
 			const code = cc.closest("pre")?.querySelector("code")?.innerText ?? "";
-			void navigator.clipboard.writeText(code).then(() => {
+			void copyText(code).then(() => {
 				const old = cc.innerHTML;
 				cc.textContent = "Copied";
 				setTimeout(() => (cc.innerHTML = old), 1500);

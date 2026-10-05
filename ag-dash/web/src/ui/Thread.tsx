@@ -7,6 +7,7 @@ import { md } from "../lib/markdown";
 import { buildTurns, diffOf, exploreCounts, groupSteps, KIND_ICON, parseArgs, stepKind, stepsDetail, type Block, type Row, type ToolItem, type Turn } from "../lib/turns";
 import type { Media, Origin, TxItem } from "../lib/types";
 import { Icon } from "./Icon";
+import { copyText } from "../lib/clipboard";
 
 // Turns are rebuilt on every refresh; a turn whose items are the same objects as before is reused as is, so React
 // skips it entirely.
@@ -124,7 +125,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
 			aria-label={label}
 			data-t="chat-copy"
 			onClick={() =>
-				navigator.clipboard.writeText(text).then(() => {
+				copyText(text).then(() => {
 					setDone(true);
 					setTimeout(() => setDone(false), 1500);
 				})

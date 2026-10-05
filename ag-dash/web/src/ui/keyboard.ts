@@ -9,6 +9,7 @@ import { displayedOrder } from "../state/order";
 import { useTx } from "../state/tx";
 import { anchorOf, go, newChat, openPop, setCollapsed, toast, useUi } from "../state/ui";
 import { composer } from "./Composer";
+import { copyText } from "../lib/clipboard";
 
 const inField = (e: KeyboardEvent) => (e.target as Element | null)?.closest?.("textarea,input,select,[contenteditable]");
 const ui = () => useUi.getState();
@@ -42,7 +43,7 @@ const actions: Record<string, keys.Action> = {
 	copyLast: () => {
 		const a = lastAnswer();
 		if (!a) return false;
-		void navigator.clipboard.writeText(a).then(() => toast("Copied last response"));
+		void copyText(a).then(() => toast("Copied last response"));
 	},
 	togglePin: () => {
 		const c = currentCard();

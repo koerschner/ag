@@ -3,7 +3,8 @@
 
     ag close [session] [--after N] [--pane]
 Closing your own tab runs detached after N seconds (default 2), so this call returns first. In a tab with
-several panes it closes only the session's pane unless the tab has just that one.
+several panes it closes only the session's pane unless the tab has just that one, or you passed the tab id.
+Works on any tab or pane, agent or not (a dev server or watcher tab you opened).
 """
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -25,7 +26,8 @@ def main(argv):
     except AgError:
         pass
     mine = me is not None and me.tab == s.tab
-    pane_only = o.get("--pane") or s.pane_count > 1
+    # A tab id closes the whole tab; a session or pane id in a shared tab closes just that pane.
+    pane_only = o.get("--pane") or (s.pane_count > 1 and s.by != "tab")
     cmd = [AG_MUX, "pane" if pane_only else "tab", "close", s.pane if pane_only else s.tab]
     after = float(o["--after"]) if o.get("--after") else (2 if mine else 0)
     what = f"{'pane ' + s.pane + ' of ' if pane_only else ''}{s.title} ({s.tab})"

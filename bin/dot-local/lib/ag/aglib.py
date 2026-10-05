@@ -289,7 +289,7 @@ class Index:
             tab=p["tab_id"], pane=p["pane_id"],
             title=re.sub(r"\s*●+\s*$", "", t.get("label") or (card or {}).get("title") or p["tab_id"]),
             state="hibernated" if p.get("sleeping_session") else "open", card=card, pane_count=t.get("pane_count", 1),
-            agent_status=p.get("agent_status"),
+            agent_status=p.get("agent_status"), by=None,
         )
 
     def all_open(self):
@@ -326,7 +326,7 @@ def closed_session(sid, f):
     m = file_meta(f)
     return Session(sid=sid, file=f, tab=None, pane=None,
                    title=m["name"] or clip(m["first"] or "(no prompt)", 70), state="closed", card=None, pane_count=0,
-                   agent_status=None, mtime=m["mtime"])
+                   agent_status=None, mtime=m["mtime"], by=None)
 
 
 def self_session(ix=None):
@@ -352,22 +352,26 @@ def resolve(ref=None, ix=None, allow_closed=True):
     if ref in (None, "", "me", "self", "."):
         return self_session(ix)
     ref = ref.strip()
-    m = re.search(r"/t/(w[\w]+:t[\w]+)", ref)
+    m = re.search(r"/t/((?:w\w+:)?t\w+)", ref)
     if m:
         ref = m.group(1)
-    if re.fullmatch(r"[tp][0-9A-Z]+", ref):  # bare tab/pane suffix: tCY → w1:tCY
+    # Tab/pane ids: ag-mux's keys are opaque (t10F, p10G) or the older prefixed form (w1:tCY); an older
+    # bare suffix (tCY) still finds w1:tCY.
+    if ref not in ix.tabs and ref not in ix.panes and re.fullmatch(r"[tp][0-9A-Z]+", ref):
         pool = ix.tabs if ref[0] == "t" else ix.panes
         hits = [k for k in pool if k.endswith(":" + ref)]
         if len(hits) == 1:
             ref = hits[0]
-    if re.fullmatch(r"w\w+:t\w+", ref):
-        if ref not in ix.tabs:
-            raise AgError(f"no open tab {ref}")
-        return ix.session_for_pane(ix._primary(ref))
-    if re.fullmatch(r"w\w+:p\w+", ref):
-        if ref not in ix.panes:
-            raise AgError(f"no open pane {ref}")
-        return ix.session_for_pane(ix.panes[ref])
+    if ref in ix.tabs:
+        s = ix.session_for_pane(ix._primary(ref))
+        s.by = "tab"
+        return s
+    if ref in ix.panes:
+        s = ix.session_for_pane(ix.panes[ref])
+        s.by = "pane"
+        return s
+    if re.fullmatch(r"w\w+:[tp]\w+", ref):
+        raise AgError(f"no open {'tab' if ref.split(':')[1][0] == 't' else 'pane'} {ref}")
     s = sid_of(ref)
     if s:
         if s in ix.by_sid:

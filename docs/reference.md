@@ -146,7 +146,7 @@ wakes one session once). Modeled on [Claude Code routines](https://code.claude.c
 self-contained prompt (or an `ag` command) plus triggers, where each run is a fresh, unattended session.
 
 - **Define** one per file in `routines/<name>.md`: front matter `description`, `schedule` (`hourly`,
-  `daily HH:MM`, `weekdays HH:MM`, `weekly Mon[,Thu] HH:MM`, `every 30min`, or `calendar <OnCalendar>`; Central
+  `daily HH:MM`, `weekdays HH:MM`, `weekly Mon[,Thu] HH:MM`, `every 30min`, or `calendar <OnCalendar>[; <OnCalendar>…]` (several expressions, one timer); Central
   time), `kind` (`prompt`, default, or `command` with `command:`), `cwd`, `model`, `timeout`, `enabled`; the body
   is the prompt. `ag routine new <name> --schedule … < prompt.md` scaffolds one. Commit it.
 - **Schedule:** `ag routine apply` writes `<name>.timer`/`.service` into `~/.config/systemd/user` on the session

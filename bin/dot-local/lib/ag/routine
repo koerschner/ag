@@ -8,7 +8,7 @@ routine in ~/ag/routines/<name>.md:
     ---
     description: one line, shown on ag-dash → Routines
     schedule: weekly Mon 09:07          # hourly | daily HH:MM | weekdays HH:MM | weekly Mon[,Thu] HH:MM
-                                        # | every 30min | calendar <systemd OnCalendar>; times are Central
+                                        # | every 30min | calendar <OnCalendar>[; <OnCalendar>…]; times are Central
     kind: prompt                        # prompt (default) | command
     command: ag sync                    # kind: command only
     cwd: ~/ag                           # default ~
@@ -125,7 +125,7 @@ def timer_spec(schedule: str) -> list[str]:
             die(f"bad weekday in schedule '{s}'")
         return [f"OnCalendar={','.join(days)} *-*-* {int(m.group(2)):02d}:{m.group(3)}:00 {TZ}"]
     if low.startswith("calendar "):
-        return [f"OnCalendar={s[9:].strip()}"]
+        return [f"OnCalendar={e.strip()}" for e in s[9:].split(";") if e.strip()]
     die(f"can't read schedule '{s}' (hourly | daily HH:MM | weekdays HH:MM | weekly Mon HH:MM | every 30min | calendar <expr>)")
 
 

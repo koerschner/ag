@@ -126,6 +126,27 @@ export function splitShell(cmd: string): { seg: string; pipeAfter: boolean }[] {
 }
 
 /** Shell words of one simple command, quotes removed (no expansion); $( ) and ( ) groups stay one word. */
+/** End (exclusive) of the `$( … )` starting at `i`, honouring quotes and nested substitutions inside it; -1 if unterminated. */
+function substEnd(s: string, i: number): number {
+	let depth = 0;
+	for (let j = i + 1; j < s.length; j++) {
+		const c = s[j];
+		if (c === "\\") { j++; continue; }
+		if (c === "'") { j = s.indexOf("'", j + 1); if (j < 0) return -1; continue; }
+		if (c === '"') {
+			for (j++; j < s.length && s[j] !== '"'; j++) {
+				if (s[j] === "\\") j++;
+				else if (s[j] === "$" && s[j + 1] === "(") { const e = substEnd(s, j); if (e < 0) return -1; j = e - 1; }
+			}
+			if (j >= s.length) return -1;
+			continue;
+		}
+		if (c === "(") depth++;
+		else if (c === ")" && --depth === 0) return j + 1;
+	}
+	return -1;
+}
+
 export function words(seg: string): string[] {
 	const out: string[] = [];
 	let cur = "";
@@ -135,6 +156,9 @@ export function words(seg: string): string[] {
 	for (let i = 0; i < seg.length; i++) {
 		const c = seg[i];
 		if (q) {
+			// "$(cmd "with quotes")": the substitution has its own quoting
+			const e = q === '"' && c === "$" && seg[i + 1] === "(" ? substEnd(seg, i) : -1;
+			if (e > 0) { cur += seg.slice(i, e); i = e - 1; continue; }
 			if (c === q) { q = null; if (depth) cur += c; }
 			else if (c === "\\" && q === '"' && i + 1 < seg.length) {
 				const n = seg[++i];
@@ -304,6 +328,13 @@ const NOISE = /^(?:echo|printf|sleep|date|true|false|:|set|export|umask|source|\
 
 type Rule = { id: string; cmd: RegExp; fn: (args: string[], raw: string, ctx: Ctx, seg: string) => string | SegOut | undefined };
 
+/** File arguments of git diff/log: everything after `--`, else positionals that look like files (not revs). */
+const gitPaths = (a: string[]) => {
+	const k = a.indexOf("--");
+	if (k >= 0) return a.slice(k + 1);
+	return positional(a, ["-n", "--since", "--until", "--author", "--grep", "--format", "--pretty", "-U"]).filter((x) => /\.\w{1,6}$/.test(x) && !x.includes("..") && !/^[\w-]+\/[\w-]+$/.test(x));
+};
+
 const gitSub: Record<string, (a: string[]) => string | undefined> = {
 	status: () => "Git status",
 	fetch: () => "Fetch from origin",
@@ -311,8 +342,8 @@ const gitSub: Record<string, (a: string[]) => string | undefined> = {
 	push: (a) => (a.includes("--delete") ? `Delete remote branch ${positional(a).pop() ?? ""}`.trim() : "Push"),
 	add: () => "Stage changes",
 	commit: (a) => { const m = flagVal(a, "-m", "--message"); return m ? `Commit "${clip(m.split("\n")[0], 50)}"` : "Commit"; },
-	log: () => "Git log",
-	diff: (a) => (a.includes("--stat") || a.includes("--shortstat") ? "Diff stats" : "Diff"),
+	log: (a) => { const f = gitPaths(a); return f.length ? `Git log of ${paths(f)}` : "Git log"; },
+	diff: (a) => { const f = gitPaths(a); const st = a.includes("--stat") || a.includes("--shortstat"); return `${st ? "Diff stats" : "Diff"}${f.length ? `${st ? " of" : ""} ${paths(f)}` : ""}`; },
 	show: (a) => {
 		const p = positional(a, ["--format", "--pretty"])[0];
 		if (!p) return "Show last commit";
@@ -907,6 +938,29 @@ const RULES: Rule[] = [
 		const file = positional(rest).find((x) => /^[\w./~-]+\.\w{1,5}$/.test(x) && !/^-/.test(x));
 		return `Run ${prog}${file ? ` on ${shortPath(file)}` : ""} (${tool})`;
 	} },
+	{ id: "mise", cmd: /^mise$/, fn: (a, _raw, ctx) => {
+		const sub = a[0];
+		const r = positional(a.slice(1), ["-C", "--cd", "-j", "--jobs", "-E", "--env"]);
+		if (sub === "exec" || sub === "x") {
+			// mise exec [tool@ver…] -- cmd: summarise cmd
+			const k = a.indexOf("--");
+			if (k < 0 || !a[k + 1]) return;
+			const o = summarizeSegment(a.slice(k + 1).map(shq).join(" "), ctx);
+			if (!o || o === "noise") return o ?? undefined;
+			const tools = positional(a.slice(1, k));
+			return { ...o, sum: `${o.sum} (mise${tools.length ? ` ${tools.join(" ")}` : ""})`, rule: `mise+${o.rule}`, parts: undefined };
+		}
+		if (sub === "use" || sub === "u") return r.length ? `Pin ${r.join(" ")} with mise${a.includes("-g") || a.includes("--global") ? " (global)" : ""}` : undefined;
+		if (sub === "install" || sub === "i") return `Install ${r.length ? r.join(" ") : "pinned tools"} (mise)`;
+		if (sub === "ls" || sub === "list") return `List ${r.length ? `${r.join(" ")} ` : ""}mise tools${a.includes("--current") ? " (current)" : ""}`;
+		if (sub === "current") return "List current mise tools";
+		if (sub === "which") return r[0] ? `Find ${r[0]} (mise)` : undefined;
+		if (sub === "trust") return `Trust mise config${r[0] ? ` ${shortPath(r[0])}` : ""}`;
+		if (sub === "run" || sub === "r") return r[0] ? `Run mise task ${r[0]}` : "List mise tasks";
+		if (sub === "doctor") return "Diagnose mise";
+		if (sub === "upgrade") return `Upgrade ${r.length ? r.join(" ") : "tools"} (mise)`;
+		if (sub === "config") return "List mise config";
+	} },
 	{ id: "app-binary", cmd: /\.app\/Contents\/MacOS\/[^/]+$/, fn: (_a, raw) => `Launch ${raw.match(/([^/]+)\.app\/Contents\/MacOS\//)![1]}` },
 	{ id: "moshi-hook", cmd: /^moshi-hook$/, fn: (a) => {
 		const p = positional(a, ["--target"]);
@@ -969,13 +1023,21 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 	}
 	let w = dropRedirs(words(s));
 	// prefixes: env assignments, timeout, nohup, sudo, command, exec, time, caffeinate
+	const envSubs: string[] = []; // VAR="$(cmd)" prefixes run cmd first
 	for (;;) {
 		if (!w.length) return "noise";
-		if (/^[A-Za-z_]\w*=/.test(w[0])) { w = w.slice(1); continue; }
+		if (/^[A-Za-z_]\w*=/.test(w[0])) { envSubs.push(...substitutions(w[0])); w = w.slice(1); continue; }
 		if (/^(?:timeout|gtimeout)$/.test(w[0])) { w = w.slice(1); while (w[0]?.startsWith("-")) w = w.slice(w[0] === "-s" || w[0] === "-k" ? 2 : 1); w = w.slice(1); continue; }
 		if (/^(?:nohup|sudo|exec|time|caffeinate|nice|stdbuf|env|unbuffer|setsid)$/.test(w[0]) && w.length > 1) { const sudo = w[0] === "sudo"; w = w.slice(1); while (w[0]?.startsWith("-")) w = w.slice(sudo && /^-[pugCh]$/.test(w[0]) ? 2 : 1); continue; }
 		if (w[0] === "command" && w[1] && w[1] !== "-v") { w = w.slice(1); continue; }
 		break;
+	}
+	if (envSubs.length) {
+		const outs = [...envSubs.map((x) => summarizeOne(x, ctx)), summarizeSegment(w.map(shq).join(" "), ctx)];
+		if (outs.includes(null)) return null;
+		const real = outs.filter((x): x is Exclude<SegOut, "noise" | null> => !!x && x !== "noise");
+		if (!real.length) return "noise";
+		return { sum: real.map((x) => x.sum).join(" · "), rule: `env-subst+${real[real.length - 1].rule}`, parts: real.flatMap((x) => x.parts ?? [{ sum: x.sum, host: x.host }]) };
 	}
 	const [cmd0, ...args] = w;
 	// $Q args, where an earlier Q=/path/to/tool in the same command named it

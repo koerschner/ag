@@ -2485,5 +2485,105 @@
   "hosts": [
    "ag-engine"
   ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "mise use bun@1.3.13 >/dev/null 2>&1"
+  },
+  "sum": "Pin bun@1.3.13 with mise",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "mise install bun@1.3.13 2>&1"
+  },
+  "sum": "Install bun@1.3.13 (mise)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "mise exec -- bun run test 2>&1"
+  },
+  "sum": "Run tests (mise)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "mise x node@20 -- npm run dev"
+  },
+  "sum": "Run dev (mise node@20)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "mise ls --current 2>/dev/null"
+  },
+  "sum": "List mise tools (current)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "J=\"$(op-shared item get Card --format json)\"; CH=\"$(jq -r '.f[]|select(.label==\"cardholder name\").value' <<<\"$J\")\" CN=\"$(jq -r '.n|gsub(\"[^0-9]\";\"\")' <<<\"$J\")\" A1=\"1 Main St\" node fill.mjs 2>&1 | tail -5"
+  },
+  "sum": "Read secret \"Card\" \u00b7 Parse JSON \u00b7 Run fill.mjs",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "GH_TOKEN=\"$(cat tok)\" gh pr list"
+  },
+  "sum": "Read tok \u00b7 List PRs",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/x && git diff docs/reference.md | head -40"
+  },
+  "sum": "Diff docs/reference.md",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "git diff --stat origin/dev...HEAD -- src/a.ts"
+  },
+  "sum": "Diff stats of src/a.ts",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "git log --oneline -- macos-apps/ keys.js | head"
+  },
+  "sum": "Git log of macos-apps/, keys.js",
+  "hosts": [
+   "ag-engine"
+  ]
  }
 ]

@@ -62,7 +62,8 @@ EOF
 # The run takes a slot on the client's screen queue (ag-screen-queue, an exec job): one job at a time on
 # that screen, and the shims there queue stray osascript/cliclick input behind it.
 inner="launchctl submit -l $id -- $dir/run || exit 1
-trap 'launchctl remove $id 2>/dev/null' EXIT TERM INT HUP
+trap 'launchctl remove $id 2>/dev/null' EXIT
+trap 'exit 143' TERM INT HUP  # a bare TERM trap returns into the loop, so cancel never stopped it
 # If the launchd job vanished without writing done (removed, crashed), fail instead of waiting forever.
 until test -f $dir/done; do sleep 5; launchctl list $id >/dev/null 2>&1 || { sleep 2; test -f $dir/done || { echo 'ag-client-cua: the run ended without a result' >> $dir/log; echo 1 > $dir/done; }; }; done
 cat $dir/out 2>/dev/null || tail -20 $dir/log

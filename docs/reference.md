@@ -660,7 +660,8 @@ The user sits at a client machine; agents run on a host (ag). Every machine stow
   ag-mac's desktop by default (`ag-chatgpt-cua` locally on ag-mac, `ag-mac cua` from anywhere else, both
   queued as below), `--client --why …` to the client Mac and `--phone --why …` to the iPhone via
   iPhone Mirroring (both `ag-client-cua`, gated by `ag-client-cua-gate`). `ag cua --status|cancel|attach`
-  wrap `ag-screen-queue`. The scripts below are its internals; agents only call `ag cua`.
+  wrap `ag-screen-queue`; add `--client` to read or cancel jobs on the client's queue (client and phone
+  jobs) from any machine, never by SSHing into the client yourself. The scripts below are its internals; agents only call `ag cua`.
 - **The screen queue** (`ag-screen-queue`, formerly `ag-screen-queue`; front end `ag screen`): the screen is the
   scarce resource, so every job that acts on a Mac's screen runs one at a time on that Mac's queue. Two job
   kinds: `cua` (a computer-use run) and `exec` (a shell command that clicks, types or raises windows).

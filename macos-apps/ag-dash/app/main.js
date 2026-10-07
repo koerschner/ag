@@ -4,7 +4,7 @@
 // keys ag-rules for app ag-dash-app (hotkeys.js): by default Ctrl+Cmd+A shows/hides the window, both Command keys
 // open the quick entry box (entry.js), and with Shift too a screenshot of the screen under the mouse is attached.
 // agdash://entry also opens the box. When ag-dash can't be reached, the window shows why and offers the fix (offline.js).
-const { app, BrowserWindow, desktopCapturer, ipcMain, Notification, shell, session, screen } = require("electron");
+const { app, BrowserWindow, clipboard, desktopCapturer, ipcMain, Menu, Notification, shell, session, screen } = require("electron");
 const fs = require("fs");
 const path = require("path");
 const entry = require("./entry");
@@ -114,6 +114,18 @@ function createWindow() {
   });
   win.webContents.on("will-navigate", (e, url) => {
     if (!inApp(url)) { e.preventDefault(); shell.openExternal(url); }
+  });
+  // Right-click on an image or video: save it (a Save dialog, in Downloads by default), copy it, or copy its address.
+  // Electron has no context menu of its own, so without this right-click does nothing.
+  win.webContents.on("context-menu", (_e, p) => {
+    if (!p.srcURL || (p.mediaType !== "image" && p.mediaType !== "video")) return;
+    const image = p.mediaType === "image";
+    Menu.buildFromTemplate([
+      { label: image ? "Save Image As…" : "Save Video As…", click: () => win?.webContents.downloadURL(p.srcURL) },
+      ...(image ? [{ label: "Copy Image", click: () => win?.webContents.copyImageAt(p.x, p.y) }] : []),
+      { label: image ? "Copy Image Address" : "Copy Video Address", click: () => clipboard.writeText(p.srcURL) },
+      { label: "Open in Browser", click: () => shell.openExternal(p.srcURL) },
+    ]).popup({ window: win });
   });
   // Closing the window hides it (Mac convention); Cmd+Q quits.
   win.on("close", (e) => {

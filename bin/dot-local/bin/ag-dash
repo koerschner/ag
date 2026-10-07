@@ -262,12 +262,14 @@ function mediaIn(text?: string): Media[] {
 	mediaCache.set(text, out);
 	return out;
 }
+// Shown inline, but "Save Image As…" (the Mac app's right-click menu, a browser's) suggests the real file name.
+const inlineName = (name: string) => `inline; filename*=UTF-8''${encodeURIComponent(name)}`;
 function serveFile(path: string, req: Request): Response {
 	const file = Bun.file(path);
 	const size = file.size;
 	// ETag from size+mtime: after max-age the browser revalidates and gets a 304 instead of the whole file again.
 	const etag = `"${size.toString(36)}-${Math.floor(file.lastModified).toString(36)}"`;
-	const headers: Record<string, string> = { "content-type": mediaType(path), "accept-ranges": "bytes", "cache-control": "private, max-age=300", etag };
+	const headers: Record<string, string> = { "content-type": mediaType(path), "accept-ranges": "bytes", "cache-control": "private, max-age=300", etag, "content-disposition": inlineName(path.split("/").pop()!) };
 	if (req.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
 	const range = req.headers.get("range")?.match(/bytes=(\d*)-(\d*)/);
 	if (!range) return new Response(file, { headers: { ...headers, "content-length": String(size) } });
@@ -1362,7 +1364,9 @@ async function handle(req: Request): Promise<Response> {
 					const e = JSON.parse(sessionLines(file)[Number(url.searchParams.get("line"))] ?? "");
 					const img: any = imagesOf(e.message?.content)[Number(url.searchParams.get("idx") ?? 0)];
 					if (!img?.data) return bad("no such image", 404);
-					return new Response(Buffer.from(img.data, "base64"), { headers: { "content-type": img.mimeType || "image/png", "cache-control": "private, max-age=3600" } });
+					const type = img.mimeType || "image/png";
+					const name = `image-${url.searchParams.get("line")}-${Number(url.searchParams.get("idx") ?? 0) + 1}.${type.split("/")[1]?.replace("jpeg", "jpg") || "png"}`;
+					return new Response(Buffer.from(img.data, "base64"), { headers: { "content-type": type, "cache-control": "private, max-age=3600", "content-disposition": inlineName(name) } });
 				} catch {
 					return bad("no such image", 404);
 				}

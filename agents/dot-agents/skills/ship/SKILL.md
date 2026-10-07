@@ -2,7 +2,7 @@
 name: ship
 description: Straight-through SC-10 autopilot for the arcade repo — Linear issue or spec → worktree → build → simplify → PR → CI and review-bot loop → merge to dev, with no check-ins. Driven by the Pi `/ship` command; do not invoke on your own.
 disable-model-invocation: true
-argument-hint: <ARC-123 | Linear URL | "one-paragraph spec"> [SC-N]
+argument-hint: <FT-123 | Linear URL | "one-paragraph spec"> [SC-N]
 ---
 
 # Ship
@@ -36,7 +36,7 @@ Run the audit skills on your own diff and fix what they find; don't produce a re
 
 Parse the argument:
 
-- `ARC-123` or a Linear URL: an existing issue.
+- `FT-123` or a Linear URL: an existing issue.
 - Free text: a spec. Create the issue from it.
 - `SC-N` anywhere: the PR's Slop Continuum rating. Otherwise self-rate by prior architecture discussion in this session, per the harness's "Run it" rule: none → **SC-10**; one exchange where the user updated on something you said → **SC-9**; more → lower.
 
@@ -66,7 +66,7 @@ Apply the `simplify` skill to what you touched, then the step-3 arcade audits th
 
 ## 4. Pull request
 
-Follow `arcade-create-pull-request` for the title and body (Summary, How to Test, Risk, Issue Link `Closes ARC-…`), but create it without showing a draft.
+Follow `arcade-create-pull-request` for the title and body (Summary, How to Test, Risk, Issue Link `Closes FT-…`), but create it without showing a draft.
 
 - Title ends with the rating from kickoff (e.g. `(SC-10)`), under 70 characters.
 - Add `## Judgment calls` if you made any.

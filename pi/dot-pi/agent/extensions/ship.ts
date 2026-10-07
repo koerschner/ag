@@ -5,7 +5,7 @@
  * (issue → worktree → build → simplify → PR → CI/bot loop → merge to dev).
  * This extension keeps it moving without a human typing "go":
  *
- *   /ship ARC-123            ship an existing Linear issue
+ *   /ship FT-123            ship an existing Linear issue
  *   /ship "spec…" SC-10      create the issue from a spec, then ship it
  *   /ship stop               abandon the active run (nothing is undone)
  *
@@ -181,7 +181,7 @@ export default function shipExtension(pi: ExtensionAPI): void {
 		handler: async (args, ctx) => {
 			const argument = args.trim();
 			if (!argument) {
-				ctx.ui.notify('Usage: /ship <ARC-123 | Linear URL | "spec"> [SC-N]   ·   /ship stop', "warning");
+				ctx.ui.notify('Usage: /ship <FT-123 | Linear URL | "spec"> [SC-N]   ·   /ship stop', "warning");
 				return;
 			}
 			if (argument === "stop") {

@@ -95,7 +95,7 @@ export async function labelVerdict(label: string, d: ReturnType<typeof digest>):
 export function namerPrompt(label: string | null, d: ReturnType<typeof digest>): string {
 	return [
 		"Name a terminal tab for this work session in 1-3 words (ideally 2), Title Case, no quotes or punctuation.",
-		"Use the most distinctive keywords of what the session as a whole is about: the specific product, system, feature, ticket or person (e.g. \"Stripe Refunds\", \"ARC-944 Demo\"). The first request usually sets the topic; later requests are usually follow-up steps on it (fixes, reviews, PRs, \"run it\"), so don't name those steps. Name a later topic only if the session clearly moved on to it for good. Avoid generic words like Review, PR, Fix, Update or Check on their own.",
+		"Use the most distinctive keywords of what the session as a whole is about: the specific product, system, feature, ticket or person (e.g. \"Stripe Refunds\", \"FT-944 Demo\"). The first request usually sets the topic; later requests are usually follow-up steps on it (fixes, reviews, PRs, \"run it\"), so don't name those steps. Name a later topic only if the session clearly moved on to it for good. Avoid generic words like Review, PR, Fix, Update or Check on their own.",
 		label ? `Current name: ${label} (it was judged a poor fit; keep any of its keywords that are still right).` : "",
 		"Reply with only the name.",
 		"",

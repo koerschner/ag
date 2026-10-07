@@ -1,109 +1,115 @@
-// A chat's scrolling, ChatGPT-style: it opens at the bottom and stays pinned there as messages arrive, images load
-// or the box grows. Scrolled up to read, nothing moves under you: the turn at the top of the view is the anchor, and
-// whatever changes above or below it (older pages loading, new messages, the window of loaded messages moving),
-// it stays where it was on screen. A ↓ button takes you back down. Scrolling near the top loads the next older page.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+// A chat's scrolling. The browser owns the scroll position; this only decides whether to follow the bottom.
+//
+// Why it can't jump: nothing is ever inserted or resized above what you're reading. The whole transcript loads at
+// once and only its end changes as the agent works (state/tx.ts), and media reserve their height before they load
+// (styles.css), so there is nothing to compensate for and no correction to race your scrolling. This writes scrollTop
+// only when you ask for it (opening a chat, ↓, sending) and while it follows the bottom. Following stops on any scroll
+// input of yours toward older messages (wheel, touch, keys, the scrollbar), never on a scroll event (those can be the
+// browser's own clamping or this hook's writes), and resumes when you scroll back down to the bottom.
+//
+// The one layout change that can still move what you're reading is a change of width (sidebar, window, rotation),
+// which reflows everything: the turn at the top of the view keeps its place then.
+import { createContext, useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 
-const NEAR = 150;
+const NEAR = 80;
+const UP_KEYS = new Set(["PageUp", "ArrowUp", "Home"]);
 
-export function useStickyScroll(key: string, opts: { onTop?: () => Promise<boolean> | null | void; onBottom?: () => void }) {
+// Steps (Thread.tsx) fold away when their turn ends only while following: folding while you read would pull the
+// page out from under you.
+export const FollowContext = createContext<RefObject<boolean> | null>(null);
+
+export function useStickyScroll(key: string) {
 	const scroll = useRef<HTMLDivElement>(null);
 	const content = useRef<HTMLDivElement>(null);
-	const atBottom = useRef(true);
-	const anchor = useRef<{ key: string; off: number; fromBottom: number } | null>(null);
+	const follow = useRef(true);
 	const [away, setAway] = useState(false);
-	const loadingOlder = useRef(false);
-	const lastTop = useRef(-1);
-	const opt = useRef(opts);
-	opt.current = opts;
+	const lastTop = useRef(0);
+	const anchor = useRef<{ el: Element; off: number } | null>(null);
 
-	const toBottom = useCallback((smooth = false) => {
-		const s = scroll.current;
-		if (!s) return;
-		atBottom.current = true;
-		anchor.current = null;
-		setAway(false);
-		s.scrollTo({ top: s.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+	const setFollow = useCallback((on: boolean) => {
+		follow.current = on;
+		setAway(!on);
 	}, []);
 
-	// The first turn still visible at the top of the view, and where it sits. A turn that starts with a prompt is
-	// preferred: the oldest loaded turn often starts mid-way (no prompt yet) and changes key when older items load.
-	// fromBottom is the fallback when the anchor is gone.
-	const capture = useCallback(() => {
-		const s = scroll.current, c = content.current;
-		if (!s || !c) return;
-		const box = s.getBoundingClientRect();
-		const fromBottom = s.scrollHeight - s.scrollTop;
-		let first: { key: string; off: number } | null = null;
-		for (const el of c.querySelectorAll<HTMLElement>("[data-turn]")) {
-			const r = el.getBoundingClientRect();
-			if (r.bottom <= box.top) continue;
-			if (r.top >= box.bottom) break;
-			const a = { key: el.dataset.turn!, off: r.top - box.top };
-			if (!a.key.startsWith("t:")) return void (anchor.current = { ...a, fromBottom });
-			first ??= a;
-		}
-		anchor.current = first ? { ...first, fromBottom } : { key: "", off: 0, fromBottom };
-	}, []);
+	const toBottom = useCallback(
+		(smooth = false) => {
+			const s = scroll.current;
+			setFollow(true);
+			s?.scrollTo({ top: s.scrollHeight, behavior: smooth ? "smooth" : "auto" });
+		},
+		[setFollow],
+	);
 
-	// A new chat opens at the bottom.
+	// A chat opens at the bottom, following.
 	useLayoutEffect(() => {
-		atBottom.current = true;
-		anchor.current = null;
-		setAway(false);
+		setFollow(true);
 		const s = scroll.current;
-		if (s) s.scrollTop = s.scrollHeight;
-	}, [key]);
+		if (s) s.scrollTop = lastTop.current = s.scrollHeight;
+	}, [key, setFollow]);
 
-	// Whatever changes size: at the bottom, stay there; scrolled up, keep the anchor turn where it was.
 	useEffect(() => {
 		const s = scroll.current, c = content.current;
 		if (!s || !c) return;
+		const unfollow = () => follow.current && setFollow(false);
+		const onWheel = (e: WheelEvent) => e.deltaY < 0 && unfollow();
+		let touchY = 0;
+		const onTouchStart = (e: TouchEvent) => void (touchY = e.touches[0]?.clientY ?? 0);
+		const onTouchMove = (e: TouchEvent) => (e.touches[0]?.clientY ?? 0) > touchY + 2 && unfollow(); // finger down = scroll up
+		const onKey = (e: KeyboardEvent) => {
+			const t = e.target as HTMLElement | null;
+			if ((UP_KEYS.has(e.key) || (e.key === " " && e.shiftKey)) && !t?.closest?.("input, textarea, select, [contenteditable]")) unfollow();
+		};
+		const onPointer = (e: PointerEvent) => e.target === s && unfollow(); // the scrollbar
+		s.addEventListener("wheel", onWheel, { passive: true });
+		s.addEventListener("touchstart", onTouchStart, { passive: true });
+		s.addEventListener("touchmove", onTouchMove, { passive: true });
+		addEventListener("keydown", onKey);
+		s.addEventListener("pointerdown", onPointer);
+
+		// Following: whatever grows (new messages, the composer, the keyboard), stay at the bottom.
+		// Not following: leave the position alone, except to keep the top turn in place when the width changes.
+		let width = s.clientWidth;
 		const ro = new ResizeObserver(() => {
-			if (atBottom.current) return void (s.scrollTop = s.scrollHeight);
+			const widthChanged = s.clientWidth !== width;
+			width = s.clientWidth;
+			if (follow.current) return void (s.scrollTop = lastTop.current = s.scrollHeight);
 			const a = anchor.current;
-			if (!a) return;
-			const el = a.key ? c.querySelector<HTMLElement>(`[data-turn="${CSS.escape(a.key)}"]`) : null;
-			if (!el) s.scrollTop = s.scrollHeight - a.fromBottom;
-			else {
-				const d = el.getBoundingClientRect().top - s.getBoundingClientRect().top - a.off;
-				if (Math.abs(d) >= 1) s.scrollTop += d;
-			}
-			// The correction keeps the anchor (the scroll event it causes isn't a move of yours).
-			lastTop.current = s.scrollTop;
-			if (!el) a.fromBottom = s.scrollHeight - s.scrollTop;
+			if (!widthChanged || !a?.el.isConnected) return;
+			const d = a.el.getBoundingClientRect().top - s.getBoundingClientRect().top - a.off;
+			if (Math.abs(d) >= 1) s.scrollTop = lastTop.current = s.scrollTop + d;
 		});
 		ro.observe(c);
 		ro.observe(s);
-		return () => ro.disconnect();
-	}, [key]);
+		return () => {
+			ro.disconnect();
+			s.removeEventListener("wheel", onWheel);
+			s.removeEventListener("touchstart", onTouchStart);
+			s.removeEventListener("touchmove", onTouchMove);
+			removeEventListener("keydown", onKey);
+			s.removeEventListener("pointerdown", onPointer);
+		};
+	}, [key, setFollow]);
 
+	// Back down at the bottom (moving down, so a nudge up from the bottom doesn't count): follow again.
+	// Not following: note the turn at the top of the view, for a width change (see above).
+	const capturing = useRef(false);
 	const onScroll = useCallback(() => {
-		const s = scroll.current;
-		if (!s) return;
-		const near = s.scrollHeight - s.scrollTop - s.clientHeight < NEAR;
-		const back = near && !atBottom.current; // came back down to the bottom (not merely still there)
-		atBottom.current = near;
-		setAway(!near);
-		// Re-anchor only when the view actually moved: a browser can fire scroll after content changed without the
-		// position changing (the ResizeObserver hasn't corrected it yet), and that must not overwrite the anchor.
-		if (near) anchor.current = null;
-		else if (s.scrollTop !== lastTop.current || !anchor.current) capture();
+		const s = scroll.current, c = content.current;
+		if (!s || !c) return;
+		const down = s.scrollTop > lastTop.current;
 		lastTop.current = s.scrollTop;
-		if (back && !loadingOlder.current && s.scrollTop >= 400) opt.current.onBottom?.();
-		if (s.scrollTop < 400 && !loadingOlder.current) {
-			const p = opt.current.onTop?.();
-			if (p) {
-				loadingOlder.current = true;
-				void p.then((again) =>
-					requestAnimationFrame(() => {
-						loadingOlder.current = false;
-						if (again) onScroll(); // flung to the top (or still too short to scroll): keep going
-					}),
-				);
+		if (!follow.current && down && s.scrollHeight - s.scrollTop - s.clientHeight < NEAR) setFollow(true);
+		if (follow.current || capturing.current) return;
+		capturing.current = true;
+		requestAnimationFrame(() => {
+			capturing.current = false;
+			const top = s.getBoundingClientRect().top;
+			for (const el of c.querySelectorAll("[data-turn]")) {
+				const r = el.getBoundingClientRect();
+				if (r.bottom > top) return void (anchor.current = { el, off: r.top - top });
 			}
-		}
-	}, [capture]);
+		});
+	}, [setFollow]);
 
-	return { scroll, content, onScroll, away, toBottom, atBottom };
+	return { scroll, content, onScroll, away, toBottom, follow };
 }

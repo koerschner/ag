@@ -146,33 +146,50 @@ await step("rides out a server restart", async () => {
 	if (await p.locator(".net").count()) throw new Error("still reconnecting");
 	if (!(await p.locator(".thread .a .md").count())) throw new Error("thread gone");
 });
-await step("scrolled up, nothing moves (the window slides, older pages load)", async () => {
-	// Any open chat with more history than one page; skipped when there's none.
+await step("scrolling: whole history, nothing moves while you read, follows the bottom", async () => {
+	// Any open chat with more than a page of history; skipped when there's none.
 	const st = await (await fetch(`${base}/api/state`)).json();
 	let long = null;
 	for (const c of st.cards) if (c.sid && (await fetch(`${base}/api/transcript?sid=${c.sid}&limit=150`)).headers.get("x-more") === "1") (long = c.sid);
 	if (!long) return console.log("     (no long chat open; skipped)");
 	await p.evaluate((u) => window.go(u), `/chat/${long}`);
 	await p.waitForSelector(".thread .turn");
-	await p.waitForTimeout(1000);
-	await p.evaluate(() => document.querySelector("#scroll").scrollTo(0, 0));
 	await p.waitForTimeout(1500);
-	await p.evaluate(() => { const s = document.querySelector("#scroll"); s.scrollTo(0, s.scrollHeight / 2); });
-	await p.waitForTimeout(400);
-	const before = await p.evaluate(() => { const s = document.querySelector("#scroll"); const top = s.getBoundingClientRect().top; const el = [...document.querySelectorAll("[data-turn]")].find((e) => e.getBoundingClientRect().bottom > top + 50); return { key: el.dataset.turn, y: Math.round(el.getBoundingClientRect().top - top) }; });
-	await p.evaluate(() => { const { useTx, useUi } = window.agDash; const ref = `sid=${useUi.getState().route.sid}`; const e = useTx.getState().entries[ref]; const extra = e.items.slice(-15).map((x, i) => ({ ...x, k: `e2e${i}` })); useTx.setState({ entries: { ...useTx.getState().entries, [ref]: { ...e, items: [...e.items.slice(15), ...extra] } } }); });
+	const scroller = () => p.evaluate(() => { const s = document.querySelector("#scroll"); return { top: s.scrollTop, gap: s.scrollHeight - s.scrollTop - s.clientHeight }; });
+	const append = () => p.evaluate(() => { const { useTx, useUi } = window.agDash; const ref = `sid=${useUi.getState().route.sid}`; const e = useTx.getState().entries[ref]; const extra = e.items.slice(-15).map((x, i) => ({ ...x, k: `${1e9 + i}` })); useTx.setState({ entries: { ...useTx.getState().entries, [ref]: { ...e, items: [...e.items, ...extra] } } }); });
+	// The whole transcript is loaded: nothing will ever be put in above you.
+	const all = (await (await fetch(`${base}/api/transcript?sid=${long}&from=0`)).json()).length;
+	const have = await p.evaluate(() => { const { useTx, useUi } = window.agDash; return useTx.getState().entries[`sid=${useUi.getState().route.sid}`].items.length; });
+	if (have < all) throw new Error(`loaded ${have} of ${all} items`);
+	// Opened at the bottom, following: new messages keep it there.
+	if ((await scroller()).gap > 2) throw new Error("didn't open at the bottom");
+	await append();
+	await p.waitForTimeout(200);
+	if ((await scroller()).gap > 2) throw new Error("didn't follow new messages");
+	// Wheel up through the whole history: every step moves the content by exactly the wheel's delta.
+	await p.mouse.move(700, 400);
+	let prev = (await scroller()).top;
+	while (prev > 0) {
+		await p.mouse.wheel(0, -600);
+		await p.waitForTimeout(40);
+		const now = (await scroller()).top;
+		if (now !== Math.max(0, prev - 600)) throw new Error(`scroll jumped: ${prev} → ${now} on a 600px wheel`);
+		prev = now;
+	}
+	// Scrolled up reading: new messages and a real refresh don't move what's on screen.
+	await p.mouse.wheel(0, await p.evaluate(() => { const s = document.querySelector("#scroll"); return Math.round(Math.min(1500, (s.scrollHeight - s.clientHeight) / 2)); }));
+	await p.waitForTimeout(100);
+	const at = (await scroller()).top;
+	await append();
 	await p.waitForTimeout(300);
-	const y = await p.evaluate((k) => { const s = document.querySelector("#scroll"); const el = document.querySelector(`[data-turn="${CSS.escape(k)}"]`); return el ? Math.round(el.getBoundingClientRect().top - s.getBoundingClientRect().top) : null; }, before.key);
-	if (y === null || Math.abs(y - before.y) > 2) throw new Error(`moved from ${before.y} to ${y}`);
-	// Loading an older page above keeps the view still (and loads one page, not the whole history).
-	await p.evaluate((u) => window.go(u), "/chat");
-	await p.evaluate((u) => window.go(u), `/chat/${long}`);
-	await p.waitForTimeout(1500);
-	const n0 = await p.locator("[data-turn]").count();
-	await p.evaluate(() => document.querySelector("#scroll").scrollTo(0, 0));
-	await p.waitForTimeout(1500);
-	const top = await p.evaluate(() => document.querySelector("#scroll").scrollTop);
-	if (top < 200) throw new Error(`older page load jumped to the top (scrollTop ${top}, turns ${n0} → ${await p.locator("[data-turn]").count()})`);
+	if ((await scroller()).top !== at) throw new Error("moved when messages arrived");
+	if (!(await p.locator(".jump.show").count())) throw new Error(`no ↓ button while scrolled up (${JSON.stringify(await scroller())})`);
+	// ↓ goes back down and follows again.
+	await p.click(".jump");
+	await p.waitForTimeout(800);
+	await append();
+	await p.waitForTimeout(200);
+	if ((await scroller()).gap > 2) throw new Error("↓ didn't resume following");
 	await p.goto(url);
 	await p.waitForSelector(".thread .a .md");
 });

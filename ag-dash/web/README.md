@@ -24,6 +24,10 @@ server: `AG_DASH_PORT=7386 AG_DASH_PASSIVE=1 AG_DASH_STATE_DIR=/tmp/agdash-test 
   a board at least that new arrives. It never flickers back, and a failure undoes it with a toast.
 - **Nothing moves under the pointer:** the sidebar and lists freeze their order while the pointer is over them
   (or a menu, rename or drag is open) and re-sort when it leaves (`state/order.ts`).
+- **Scrolling never jumps:** a chat loads whole, and after that only its end changes (refreshes fetch from the last
+  turn on), media reserve their height, so nothing above what you're reading ever moves. The browser owns the scroll
+  position; the page only follows the bottom, and stops the moment you scroll up (`ui/useScroll.ts`, `state/tx.ts`).
+  Don't reintroduce paging older history in above the reader, or JS that corrects scrollTop while you scroll.
 - **Transcripts redraw only what changed:** items carry the server's stable keys; a refresh keeps every unchanged
   item object, so React skips unchanged turns (`state/tx.ts`, `ui/Thread.tsx`). Unchanged refreshes are a 304.
 - **Never stuck:** the board and recent transcripts are kept on the device (IndexedDB) and painted at once; what

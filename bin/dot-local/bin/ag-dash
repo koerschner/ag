@@ -499,11 +499,10 @@ async function resumeSession(sid: string): Promise<string> {
 	return tab.tab_id;
 }
 
-// Transcript for the drawer: prompts, answers, thinking, tool calls with a short result, and media
-// (images embedded in the session, plus image/video files mentioned by path). The newest `limit` items; `more`
-// says older ones exist, and the clients ask for a bigger limit as you scroll up (like ChatGPT's history).
-// `from` (a line in the session file: an item key's first part) instead of a count: everything from that line on, so a
-// page scrolled up to read keeps exactly the items it has, plus whatever is new.
+// Transcript for the chat page: prompts, answers, thinking, tool calls with a short result, and media
+// (images embedded in the session, plus image/video files mentioned by path). The newest `limit` items, with `more`
+// saying older ones exist; or `from` (a line in the session file: an item key's first part): everything from that line
+// on. The page loads a chat whole (from=0) and then refreshes only from its last turn's line (ag-dash/web/src/state/tx.ts).
 function transcript(file: string, ref: string, limit = 150, from?: number) {
 	const lines = sessionLines(file);
 	const out: any[] = [];

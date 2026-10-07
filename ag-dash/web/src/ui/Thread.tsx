@@ -1,13 +1,14 @@
 // A chat's transcript: turns of a prompt, the work ("Worked for … · Explored 6 files, ran 3 commands", open while
 // live) and the answer. Every turn, block and step is keyed by the server's stable item keys, so a refresh redraws
 // only what changed, and what you opened stays open.
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { dur, tildify } from "../lib/format";
 import { md } from "../lib/markdown";
 import { buildTurns, diffOf, exploreCounts, groupSteps, KIND_ICON, parseArgs, stepKind, stepsDetail, type Block, type Row, type ToolItem, type Turn } from "../lib/turns";
 import type { Media, Origin, TxItem } from "../lib/types";
 import { Icon } from "./Icon";
 import { copyText } from "../lib/clipboard";
+import { FollowContext } from "./useScroll";
 
 // Turns are rebuilt on every refresh; a turn whose items are the same objects as before is reused as is, so React
 // skips it entirely.
@@ -181,10 +182,12 @@ function Steps({ block: b, txRef }: { block: Extract<Block, { kind: "steps" }>; 
 	const id = `${txRef}|${b.key}`;
 	const [open, setOpen] = useState<boolean>(toggled.get(id) ?? b.live);
 	const ref = useRef<HTMLDetailsElement>(null);
-	// Steps open themselves while the turn runs and fold away when it ends, unless you opened or closed them by hand.
+	const follow = useContext(FollowContext);
+	// Steps open themselves while the turn runs and fold away when it ends, unless you opened or closed them by hand,
+	// or you're scrolled up reading (folding would pull the page out from under you; they stay open then).
 	useEffect(() => {
-		if (!toggled.has(id)) setOpen(b.live);
-	}, [b.live, id]);
+		if (!toggled.has(id) && (b.live || follow?.current !== false)) setOpen(b.live);
+	}, [b.live, id, follow]);
 	const { detail, thoughtOnly } = stepsDetail(b.steps);
 	const span = b.startTs && b.endTs ? b.endTs - b.startTs : 0;
 	return (

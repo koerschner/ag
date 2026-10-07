@@ -7,13 +7,13 @@ import { useBoard, view } from "../state/board";
 import { resolve, useCurrent } from "../state/current";
 import { saveDraftText } from "../state/drafts";
 import { queue, settleSent, useOutbox } from "../state/outbox";
-import { hydrate, load, loadOlder, setOpenRef, trim, useEntry } from "../state/tx";
+import { hydrate, load, setOpenRef, useEntry } from "../state/tx";
 import { anchorOf, go, newChat, openPop, setCollapsed, toast, useUi, type ListView } from "../state/ui";
 import { Composer } from "./Composer";
 import { Icon } from "./Icon";
 import { newChatModel } from "./Overlays";
 import { Thread, useTurns } from "./Thread";
-import { useStickyScroll } from "./useScroll";
+import { FollowContext, useStickyScroll } from "./useScroll";
 
 export function Main() {
 	const route = useUi((s) => s.route);
@@ -192,7 +192,6 @@ function ChatView({ card: c }: { card: Card }) {
 	useEffect(() => {
 		setOpenRef(ref);
 		void hydrate(ref);
-		trim(ref); // a chat opens at the bottom: back to the newest page if older ones were loaded last time
 		return () => setOpenRef(null);
 	}, [ref]);
 
@@ -215,12 +214,11 @@ function ChatView({ card: c }: { card: Card }) {
 	}, [entry.items, c.tab]);
 
 	const turns = useTurns(entry.items, isWorking(c));
-	const sc = useStickyScroll(ref, { onTop: () => loadOlder(ref), onBottom: () => trim(ref) });
-	// Refresh the transcript whenever the card says it changed (at once on opening, then debounced). Scrolled up to
-	// read, it keeps what's loaded and only adds what's new, so nothing above you drops off.
+	const sc = useStickyScroll(ref);
+	// Refresh the transcript whenever the card says it changed (at once on opening, then debounced).
 	const first = useRef(true);
 	useEffect(() => {
-		const t = setTimeout(() => void load(ref, { hold: !sc.atBottom.current }), first.current ? 0 : 120);
+		const t = setTimeout(() => void load(ref), first.current ? 0 : 120);
 		first.current = false;
 		return () => clearTimeout(t);
 	}, [sig, ref]);
@@ -229,12 +227,9 @@ function ChatView({ card: c }: { card: Card }) {
 			<div className="scroll-wrap">
 			<div className="scroll" id="scroll" ref={sc.scroll} onScroll={sc.onScroll}>
 				<div className="thread" ref={sc.content}>
-					{entry.more && entry.items.length > 0 && (
-						<div className="live">
-							<span className="shimmer">Loading earlier messages…</span>
-						</div>
-					)}
-					<Thread turns={turns} txRef={ref} />
+					<FollowContext value={sc.follow}>
+						<Thread turns={turns} txRef={ref} />
+					</FollowContext>
 					{!entry.items.length && <Empty state={entry.state} />}
 					<Pending tab={c.tab} />
 					<Live card={c} />
@@ -357,7 +352,7 @@ function SessionView({ sid }: { sid: string }) {
 		return () => ((live = false), setOpenRef(null));
 	}, [sid, ref]);
 	const turns = useTurns(entry.items, false);
-	const sc = useStickyScroll(ref, { onTop: () => loadOlder(ref) });
+	const sc = useStickyScroll(ref);
 	const doResume = async () => {
 		setBusy(true);
 		try {

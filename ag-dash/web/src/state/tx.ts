@@ -1,22 +1,22 @@
 // Transcripts, per chat ("ref": sid=<id> or tab=<id>). Each is shown from what this page (or this device) already
 // has, at once, and refreshed in the background: when the open chat's card changes, on reconnect, and ahead of
 // time for the chats you're likely to open next (the top of the sidebar, a row you point at).
-// Refreshes keep the item objects that didn't change (stable keys from the server), so only new or changed
-// messages redraw.
+// A chat loads whole, once; after that a refresh asks only for its last turn onward (from=<that turn's line>) and
+// splices it in. So the transcript only ever changes at its end: nothing above what you're reading is inserted,
+// dropped or re-keyed, which is what lets the page leave scrolling to the browser (ui/useScroll.ts). Refreshes keep
+// the item objects that didn't change (stable keys from the server), so only new or changed messages redraw.
 import { create } from "zustand";
 import { cleanJson } from "../lib/format";
 import { kv, ls } from "../lib/kv";
 import type { TxItem } from "../lib/types";
 import { useUi } from "./ui";
 
-export const TX_PAGE = 150;
-const TX_KEEP = 60; // transcripts kept on this device (newest page each), least recently used dropped first
+const TX_KEEP = 20; // whole transcripts kept on this device, least recently used dropped first
 
-// limit: how many of the newest items to load; from (set while you're scrolled up reading): load everything from this
-// item's line on instead, so what's loaded only grows at the bottom and nothing above you drops off.
-export type TxEntry = { items: TxItem[]; more: boolean; state: "loading" | "ok" | "error"; limit: number; from?: number; etag?: string; saved?: boolean };
+// etag/from: the last refresh's (a 304 answers only the same question).
+export type TxEntry = { items: TxItem[]; state: "loading" | "ok" | "error"; from?: number; etag?: string; saved?: boolean };
 export const useTx = create<{ entries: Record<string, TxEntry> }>(() => ({ entries: {} }));
-const blank: TxEntry = { items: [], more: false, state: "loading", limit: TX_PAGE };
+const blank: TxEntry = { items: [], state: "loading" };
 export const useEntry = (ref?: string | null) => useTx((s) => (ref ? (s.entries[ref] ?? blank) : blank));
 
 const set = (ref: string, e: Partial<TxEntry>) =>
@@ -24,18 +24,24 @@ const set = (ref: string, e: Partial<TxEntry>) =>
 
 // ---------- device copy ----------
 let keys: string[] = ls.get("agchat.txkeys", []);
-function persist(ref: string, items: TxItem[], more: boolean) {
+// At most every few seconds per chat: a working chat changes every step, and a whole transcript can be a megabyte.
+const saving = new Map<string, ReturnType<typeof setTimeout>>();
+function persist(ref: string, items: TxItem[]) {
+	clearTimeout(saving.get(ref));
+	saving.set(ref, setTimeout(() => (saving.delete(ref), save(ref, items)), 3000));
+}
+function save(ref: string, items: TxItem[]) {
 	keys = [ref, ...keys.filter((k) => k !== ref)];
 	for (const k of keys.splice(TX_KEEP)) void kv.del(`tx:${k}`);
 	ls.set("agchat.txkeys", keys);
-	void kv.set(`tx:${ref}`, { items: items.slice(-TX_PAGE), more: more || items.length > TX_PAGE, v: 2 });
+	void kv.set(`tx:${ref}`, { items, v: 3 });
 }
 // Fill in a chat from this device's copy, if the page doesn't have it yet (opening a chat after a reload).
 export async function hydrate(ref: string) {
 	if (useTx.getState().entries[ref]?.items.length) return;
-	const e = await kv.get<{ items: TxItem[]; more: boolean; v?: number }>(`tx:${ref}`);
-	if (!e?.items?.length || e.v !== 2 || useTx.getState().entries[ref]?.items.length) return;
-	set(ref, { items: e.items, more: e.more, state: "ok", saved: true });
+	const e = await kv.get<{ items: TxItem[]; v?: number }>(`tx:${ref}`);
+	if (!e?.items?.length || e.v !== 3 || useTx.getState().entries[ref]?.items.length) return;
+	set(ref, { items: e.items, state: "ok", saved: true });
 }
 
 // ---------- loading ----------
@@ -64,15 +70,14 @@ export const setOpenRef = (ref: string | null) => {
 	for (const [r, x] of retry) if (r !== ref) (clearTimeout(x.t), retry.delete(r));
 };
 
-export function load(ref: string, opts: { limit?: number; hold?: boolean } = {}): Promise<void> {
-	if (opts.limit) set(ref, { limit: opts.limit, from: undefined });
-	else if (opts.hold) {
-		// Scrolled up: keep what's loaded (from its first item on) instead of the newest `limit`.
-		const e = useTx.getState().entries[ref];
-		const first = e?.items[0] && Number.parseInt(e.items[0].k);
-		// Not while a load is running: it may be an older page (a bigger limit) that this would cancel.
-		if (e && first !== undefined && !Number.isNaN(first) && e.from === undefined && !inflight.has(ref)) set(ref, { from: first });
-	}
+const lineOf = (x: TxItem) => Number.parseInt(x.k);
+// Where a refresh starts: the last turn's prompt (its tool results and answer are still arriving); 0 = load it whole.
+function tailFrom(items: TxItem[]) {
+	for (let i = items.length - 1; i >= 0; i--) if (items[i].role === "user") return lineOf(items[i]) || 0;
+	return 0;
+}
+
+export function load(ref: string): Promise<void> {
 	if (inflight.has(ref)) {
 		again.add(ref);
 		return inflight.get(ref)!;
@@ -87,12 +92,12 @@ export function load(ref: string, opts: { limit?: number; hold?: boolean } = {})
 
 async function fetchOnce(ref: string) {
 	const cur = useTx.getState().entries[ref] ?? blank;
-	const { limit, from } = cur;
+	const from = tailFrom(cur.items);
 	let r: Response;
 	try {
-		r = await fetch(`/api/transcript?${ref}&limit=${limit}${from !== undefined ? `&from=${from}` : ""}`, {
+		r = await fetch(`/api/transcript?${ref}&from=${from}`, {
 			signal: AbortSignal.timeout(20000),
-			headers: cur.etag && !cur.saved ? { "if-none-match": cur.etag } : {},
+			headers: cur.etag && !cur.saved && cur.from === from ? { "if-none-match": cur.etag } : {},
 		});
 		if (!r.ok && r.status !== 304) throw new Error(String(r.status));
 	} catch {
@@ -115,30 +120,13 @@ async function fetchOnce(ref: string) {
 		if (cur.state !== "ok") set(ref, { state: "ok" });
 		return;
 	}
-	const items = await cleanJson<TxItem[] | null>(r).catch(() => null);
-	if (!Array.isArray(items)) return;
-	const more = r.headers.get("x-more") === "1";
+	const tail = await cleanJson<TxItem[] | null>(r).catch(() => null);
+	if (!Array.isArray(tail)) return;
+	// Loads of one chat never overlap (inflight), so what's loaded is still what `from` was worked out from.
 	const now = useTx.getState().entries[ref] ?? blank;
-	if (now.limit !== limit || now.from !== from) return; // a different window was asked for meanwhile; its load follows
-	set(ref, { items: reuse(now.items, items), more, state: "ok", etag, saved: false });
-	if (limit === TX_PAGE && from === undefined) persist(ref, items, more);
-}
-
-// Shrink back to the newest page (the open chat, scrolled back to the bottom after reading older pages).
-export function trim(ref: string) {
-	const e = useTx.getState().entries[ref];
-	if (!e || (e.limit <= TX_PAGE && e.from === undefined)) return;
-	set(ref, { limit: TX_PAGE, from: undefined, etag: undefined });
-	void load(ref);
-}
-// Resolves true when it's worth trying again (the page grew, or another load was running and went through); false
-// when ag-dash couldn't be reached, so scrolling at the top doesn't retry in a loop (the open chat's own backoff does).
-export function loadOlder(ref: string): Promise<boolean> | null {
-	const e = useTx.getState().entries[ref];
-	if (!e?.more || failed.has(ref)) return null;
-	if (inflight.has(ref)) return inflight.get(ref)!.then(() => !failed.has(ref));
-	const before = e.items.length;
-	return load(ref, { limit: e.items.length + TX_PAGE }).then(() => !failed.has(ref) && (useTx.getState().entries[ref]?.items.length ?? 0) > before);
+	const items = reuse(now.items, [...now.items.filter((x) => lineOf(x) < from), ...tail]);
+	set(ref, { items, state: "ok", from, etag, saved: false });
+	if (items !== now.items) persist(ref, items);
 }
 export const retryOpen = () => openRef && void load(openRef);
 

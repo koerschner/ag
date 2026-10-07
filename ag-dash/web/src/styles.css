@@ -219,11 +219,13 @@ body.dragging .item:hover .arch, body.dragging .item:hover .more { display: none
 .md th { font-weight: 600; }
 .md blockquote { border-left: 2px solid var(--faint); padding-left: 16px; color: var(--muted); }
 .md hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
-.md img { max-width: 100%; border-radius: 12px; }
+/* Media take their full height before they load (fixed height, letterboxed), so an image loading above what you
+   are reading never moves it (see ui/useScroll.ts). */
+.md img { height: 240px; width: auto; max-width: 100%; object-fit: scale-down; border-radius: 12px; }
 .done-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--green); font-weight: 600; letter-spacing: .05em; padding: 2px 10px; border-radius: 99px; border: 1px solid color-mix(in srgb, var(--green) 35%, transparent); }
 .done-pill svg { width: 13px; height: 13px; }
-.media { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
-.media img, .media video { max-height: 240px; max-width: 100%; border-radius: 14px; cursor: zoom-in; background: var(--panel); }
+.media { display: flex; gap: 8px; overflow-x: auto; margin: 8px 0; } /* one row: an image loading never wraps the next one onto a new line */
+.media img, .media video { flex: none; height: 240px; width: auto; min-width: 120px; max-width: 100%; object-fit: scale-down; border-radius: 14px; cursor: zoom-in; background: var(--panel); }
 .err { color: var(--red); font-size: 14px; margin: 10px 0; padding: 10px 14px; border-radius: 12px; background: color-mix(in srgb, var(--red) 8%, transparent); }
 
 /* thought / steps: a ChatGPT/Codex-style activity timeline. Collapsed to one line ("Worked for 36s · Explored 6

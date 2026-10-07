@@ -537,6 +537,18 @@ On opted-in machines, the shell routes Claude Code, Pi, and Codex through
 TrueFoundry. Keep `~/.zshenv.local` untracked; machines without `TFY_TOKEN`
 continue using the standard providers configured by each tool.
 
+## Image generation (ag-image)
+
+`ag-image "<prompt>" [-o out.jpg] [-i ref.png ...] [--aspect 16:9] [--size 1K|2K|4K] [-n 4] [--show]`
+generates or edits images with **Nano Banana Pro** (`gemini-3-pro-image-preview`) through TrueFoundry
+(`TFY_TOKEN`; no Google key). `-i` passes reference images (a logo to reproduce, the old version to
+restyle, a style sample); `-n` runs variants in parallel; `--model gpt-image-2` etc. for other
+TrueFoundry image models. Gateway quirks: `/chat/completions` is refused for this model; text-only
+goes to `/images/generations` with `generationConfig.imageConfig` (aspectRatio, imageSize) in the
+JSON body, and reference images go to multipart `/images/edits` with `aspect_ratio` and `image_size`
+fields. OpenAI's `size` is ignored (you get 1K). Tip: models misspell less when the prompt spells the
+word out and asks for "no other text"; check every variant's text before handing it over.
+
 ## Screen recordings (QA video)
 
 Agents hand the user QA walkthroughs as video, not just screenshots. Both helpers write H.264/yuv420p

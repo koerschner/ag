@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""ag-image: generate or edit an image with Nano Banana Pro (Gemini 3 Pro Image) through TrueFoundry.
+
+  ag-image "prompt" [-o out.jpg] [--aspect 16:9] [--size 1K|2K|4K] [-i ref.png ...] [-n 3]
+  echo "prompt" | ag-image -o out.jpg
+
+  -i/--image   reference image(s) to edit or match (logo, style, the old version). Repeatable.
+  --aspect     1:1 2:3 3:2 3:4 4:3 4:5 5:4 9:16 16:9 21:9 (default 1:1)
+  --size       1K, 2K (default) or 4K
+  -n           how many variants (run in parallel; out-1.jpg, out-2.jpg, ...)
+  --model      default gemini-3-pro-image-preview (any TrueFoundry image model id, e.g. gpt-image-2)
+  --show       open the result(s) on the user's screen with ag-show
+
+Prints the written path(s). Uses $TFY_TOKEN (from ~/.zshenv.local) and $AG_AI_GATEWAY
+(default https://tfy.promptlens.trilogy.com). No Google key needed: the gateway holds it.
+
+Gateway notes (learned 2026-10): TrueFoundry rejects /chat/completions for this model; use the
+OpenAI-style /images/generations (text only) or /images/edits (multipart, with reference images).
+On /images/generations unknown JSON fields pass through to Gemini's generateContent body, which is
+how generationConfig.imageConfig (aspectRatio, imageSize) gets there; on /images/edits the form
+fields are aspect_ratio and image_size. OpenAI's `size` is ignored (you get 1K).
+"""
+import argparse, base64, concurrent.futures as cf, json, mimetypes, os, subprocess, sys, urllib.request, uuid
+from pathlib import Path
+
+ASPECTS = "1:1 2:3 3:2 3:4 4:3 4:5 5:4 9:16 16:9 21:9".split()
+
+
+def token():
+    t = os.environ.get("TFY_TOKEN") or os.environ.get("TFY_API_KEY")
+    if not t:
+        f = Path.home() / ".zshenv.local"
+        if f.exists():
+            for line in f.read_text().splitlines():
+                line = line.strip().removeprefix("export ")
+                if line.startswith("TFY_TOKEN="):
+                    t = line.split("=", 1)[1].strip().strip("'\"")
+    if not t:
+        sys.exit("ag-image: TFY_TOKEN is not set (see ~/.zshenv.local)")
+    return t
+
+
+def multipart(fields, files):
+    b = uuid.uuid4().hex
+    out = bytearray()
+    for k, v in fields.items():
+        out += f'--{b}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode()
+    for k, p in files:
+        ctype = mimetypes.guess_type(p)[0] or "application/octet-stream"
+        out += f'--{b}\r\nContent-Disposition: form-data; name="{k}"; filename="{Path(p).name}"\r\nContent-Type: {ctype}\r\n\r\n'.encode()
+        out += Path(p).read_bytes() + b"\r\n"
+    out += f"--{b}--\r\n".encode()
+    return bytes(out), f"multipart/form-data; boundary={b}"
+
+
+def generate(a, base, tok):
+    cfg = {"responseModalities": ["IMAGE"], "imageConfig": {"aspectRatio": a.aspect, "imageSize": a.size}}
+    gemini = "gemini" in a.model
+    if a.image:
+        fields = {"model": a.model, "prompt": a.prompt}
+        if gemini:
+            fields.update(aspect_ratio=a.aspect, image_size=a.size)
+        data, ctype = multipart(fields, [("image", p) for p in a.image])
+        url = f"{base}/images/edits"
+    else:
+        body = {"model": a.model, "prompt": a.prompt}
+        if gemini:
+            body["generationConfig"] = cfg
+        data, ctype, url = json.dumps(body).encode(), "application/json", f"{base}/images/generations"
+    req = urllib.request.Request(url, data, {"Authorization": f"Bearer {tok}", "Content-Type": ctype})
+    try:
+        with urllib.request.urlopen(req, timeout=300) as r:
+            res = json.load(r)
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"HTTP {e.code}: {e.read()[:500].decode(errors='replace')}")
+    imgs = [d["b64_json"] for d in res.get("data", []) if d.get("b64_json")]
+    if not imgs:
+        raise RuntimeError(f"no image returned: {json.dumps(res)[:500]}")
+    return base64.b64decode(imgs[0])
+
+
+def main():
+    p = argparse.ArgumentParser(prog="ag-image", description=__doc__.split("\n")[0])
+    p.add_argument("prompt", nargs="?")
+    p.add_argument("-o", "--out", default="image.jpg")
+    p.add_argument("-i", "--image", action="append", default=[])
+    p.add_argument("--aspect", default="1:1", choices=ASPECTS)
+    p.add_argument("--size", default="2K", choices=["1K", "2K", "4K"])
+    p.add_argument("-n", type=int, default=1)
+    p.add_argument("--model", default="gemini-3-pro-image-preview")
+    p.add_argument("--show", action="store_true")
+    a = p.parse_args()
+    a.prompt = a.prompt or (sys.stdin.read().strip() if not sys.stdin.isatty() else "")
+    if not a.prompt:
+        p.error("prompt required (argument or stdin)")
+    for f in a.image:
+        if not Path(f).is_file():
+            p.error(f"no such image: {f}")
+    base = os.environ.get("AG_AI_GATEWAY", "https://tfy.promptlens.trilogy.com").rstrip("/")
+    tok = token()
+    out = Path(a.out)
+    paths = [out] if a.n == 1 else [out.with_name(f"{out.stem}-{i}{out.suffix}") for i in range(1, a.n + 1)]
+    ok = []
+    with cf.ThreadPoolExecutor(a.n) as ex:
+        futs = {ex.submit(generate, a, base, tok): path for path in paths}
+        for fut in cf.as_completed(futs):
+            path = futs[fut]
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(fut.result())
+                ok.append(path)
+                print(path)
+            except Exception as e:
+                print(f"ag-image: {path}: {e}", file=sys.stderr)
+    if a.show:
+        for path in sorted(ok):
+            subprocess.run(["ag-show", str(path)])
+    sys.exit(0 if len(ok) == len(paths) else 1)
+
+
+if __name__ == "__main__":
+    main()

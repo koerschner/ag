@@ -419,9 +419,30 @@ def ambiguous(ref, hits):
 
 # ---------- acting on sessions ----------
 
+def t3_ui():
+    """True when T3 Code is the UI (AG_UI=t3 in ~/ag-personal/env): sessions live as T3 threads (docs/t3.md)."""
+    return personal_env("AG_UI") == "t3"
+
+
+def t3_send(s, text):
+    """Queue text into the T3 thread bound to this session's Pi file. None if there's no such thread."""
+    f = getattr(s, "file", None) or (file_for_sid(s.sid) if getattr(s, "sid", None) else None)
+    if not f:
+        return None
+    r = subprocess.run([os.path.expanduser("~/.local/bin/ag-t3"), "send", "--json", f, text],
+                       capture_output=True, text=True, timeout=60)
+    if r.returncode != 0:
+        return None
+    return json.loads(r.stdout)
+
+
 def prompt(s, text, interrupt=False):
-    """Send a prompt to a session: ag-dash's /api/prompt when it has the card (marks it seen, handles
-    interrupt), else ag-mux agent prompt (wakes hibernated panes)."""
+    """Send a prompt to a session: its T3 thread when T3 is the UI, else ag-dash's /api/prompt when it has
+    the card (marks it seen, handles interrupt), else ag-mux agent prompt (wakes hibernated panes)."""
+    if t3_ui():
+        sent = t3_send(s, text)
+        if sent:
+            return sent
     if s.state == "closed":
         raise AgError(f"{s.title} is closed; reopen it with: ag resume {s.sid[-8:]}")
     if s.card:

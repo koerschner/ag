@@ -289,7 +289,24 @@ function pinTab(i: Item, pane: string) {
 	log(i.id, "pin_failed", { pane });
 }
 
+// T3 Code as the UI (AG_UI=t3 in ~/ag-personal/env): items come back in the deferring session's T3 thread (resume
+// and fork alike: the thread has the context), or a new T3 thread when there's none (docs/t3.md).
+const T3_UI = (process.env.AG_UI || (() => { try { return readFileSync(`${HOME}/ag-personal/env`, "utf8").match(/^AG_UI=(.*)$/m)?.[1].trim() ?? ""; } catch { return ""; } })()) === "t3";
+function fireT3(i: Item) {
+	const t3 = `${HOME}/.local/bin/ag-t3`;
+	const icon = i.waiting_for ? "⧖" : i.when === "online" ? "●" : isWake(i) ? "↺" : "◷";
+	injected("ag-tickler", prompt(i), { id: i.id, when: i.when });
+	let r: { id: string; title: string; url: string } | null = null;
+	if (i.session) {
+		try { r = JSON.parse(execFileSync(t3, ["send", "--json", i.session, prompt(i)], { encoding: "utf8", timeout: 90_000 })); } catch {}
+	}
+	r ??= JSON.parse(execFileSync(t3, ["new", "--json", "--title", `${icon} ${i.title}`.slice(0, 60), ...(i.pin ? ["--pin"] : []), prompt(i)], { encoding: "utf8", timeout: 90_000 }));
+	try { mux("notification", "show", `${icon} ${i.title}`.slice(0, 40), "--body", `Fired in T3: ${r!.title}`, "--sound", "request"); } catch {}
+	log(i.id, "fired", { thread: r!.id, t3: true });
+}
+
 function fireOne(i: Item) {
+	if (T3_UI) return fireT3(i);
 	const origin = resumes(i) ? originPane(i) : null;
 	if (origin) {
 		injected("ag-tickler", prompt(i), { id: i.id, when: i.when });

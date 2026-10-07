@@ -74,6 +74,13 @@ const SHARE_DIR = `${HOME}/inbox/share`;
 const PLAYBOOK_DIR = `${HOME}/.config/ag-inbox/playbooks`;
 const MODEL = "gemini-group/gemini-3.5-flash-lite";
 // The AI gateway (TrueFoundry): $AG_AI_GATEWAY, else its line in the private ~/ag-personal/env.
+// T3 Code as the UI (AG_UI=t3 in ~/ag-personal/env): captures become T3 threads via ag-t3, and follow-on matching
+// runs over T3's threads instead of tmux tabs (docs/t3.md). Read at startup; restart the service after changing it.
+const T3_UI = (process.env.AG_UI || (() => { try { return readFileSync(`${HOME}/ag-personal/env`, "utf8").match(/^AG_UI=(.*)$/m)?.[1].trim() ?? ""; } catch { return ""; } })()) === "t3";
+const AG_T3 = `${HOME}/.local/bin/ag-t3`;
+function agT3(...args: string[]): any {
+	return JSON.parse(execFileSync(AG_T3, args, { encoding: "utf8", timeout: 90_000 }));
+}
 const AI_GATEWAY = (process.env.AG_AI_GATEWAY || (() => { try { return readFileSync(`${HOME}/ag-personal/env`, "utf8").match(/^AG_AI_GATEWAY=(.*)$/m)?.[1].trim() ?? ""; } catch { return ""; } })()).replace(/\/$/, "");
 const TFY_URL = `${AI_GATEWAY}/chat/completions`;
 const STT_URL = `${AI_GATEWAY}/audio/transcriptions`;
@@ -223,6 +230,7 @@ function userPrompts(file: string): string[] {
 
 // Every open pi session (one per tab), described by its tab title, first and latest prompt.
 function openSessions(): Session[] {
+	if (T3_UI) return t3Sessions();
 	const tabs = new Map<string, string>(mux("tab", "list").tabs.map((t: any) => [t.tab_id, t.label]));
 	const seenTabs = new Set<string>();
 	return mux("pane", "list").panes.flatMap((p: any) => {
@@ -237,6 +245,17 @@ function openSessions(): Session[] {
 			title: tabs.get(p.tab_id) ?? p.tab_id,
 			first: clip(prompts[0]), latest: prompts.length > 1 ? clip(prompts.at(-1)!) : "",
 		}];
+	}).slice(0, 250);
+}
+
+// T3 mode: every unarchived T3 thread with a Pi session, newest first (tab = pane = the thread id).
+function t3Sessions(): Session[] {
+	const clip = (s: string) => s.replace(/\s+/g, " ").trim().slice(0, 200);
+	return (agT3("threads", "--json") as { id: string; title: string; file: string | null; archived: boolean }[]).flatMap((t) => {
+		if (t.archived || !t.file) return [];
+		const prompts = userPrompts(t.file);
+		if (!prompts.length) return [];
+		return [{ tab: t.id, pane: t.id, file: t.file, title: t.title, first: clip(prompts[0]), latest: prompts.length > 1 ? clip(prompts.at(-1)!) : "" }];
 	}).slice(0, 250);
 }
 
@@ -268,11 +287,20 @@ function withHint(text: string, s: Session): string {
 }
 
 function hintNote(s: Session): string {
+	if (T3_UI) return `The ag-inbox thinks this may be new context for an existing thread, "${s.title}" (T3 thread ${s.tab}, pi session ${s.file}), but wasn't sure enough to add it there. If it clearly fits, don't ask: forward it with \`ag-t3 send ${s.tab} "<my message plus any context you gathered, prefixed with a line saying it was forwarded from the Inbox>"\`, give me the link from \`ag-t3 link ${s.tab}\`, and tell me this thread can be deleted. Ask first only if it's genuinely ambiguous; otherwise handle it here.`;
 	return `The ag-inbox thinks this may be new context for an existing session, "${s.title}" (tab ${s.tab}, pi session ${s.file}), but wasn't sure enough to add it there. If it clearly fits, don't ask: forward it with \`ag send ${s.pane} "<my message plus any context you gathered, prefixed with a line saying it was forwarded from the Inbox>"\`, give me the link from \`ag link ${s.tab}\`, and close this session. Ask first only if it's genuinely ambiguous; otherwise handle it here.`;
 }
 
 // Deliver into the matched session instead of opening a new one. Throws (→ new session) if it can't take input.
 function follow(id: string, text: string, s: Session, p: number) {
+	if (T3_UI) {
+		const note = "The user sent this through the ag-inbox, which routed it into this session as new context. If it clearly doesn't belong here, say so and suggest where it goes.";
+		const msg = `${originTag({ kind: "follow", label: "Routed here from the ag-inbox", note })}\n${text}`;
+		injected("ag-inbox", msg, { id, action: "follow" });
+		agT3("send", "--json", s.tab, msg);
+		log(id, "followed", { thread: s.tab, title: s.title, p, t3: true });
+		return;
+	}
 	const agent = mux("agent", "get", s.pane);
 	if ((agent?.agent_status ?? agent?.agent?.agent_status) === "blocked") throw new Error("session is blocked on a dialog");
 	const note = "The user sent this through the ag-inbox, which routed it into this session as new context. If it clearly doesn't belong here, say so and suggest where it goes.";
@@ -404,7 +432,7 @@ const inflight = new Set<Promise<unknown>>();
 async function handle(id: string, text: string, shot: Shot | null, share: Share | null, audio: string | null, fresh: boolean, pin = false, model = ""): Promise<Launched> {
 	const job: Job = { id, text, shot, share, audio, fresh, pin, model, at: Date.now() };
 	writeFileSync(`${PENDING_DIR}/${id}.json`, JSON.stringify(job));
-	const p = (async () => (pin ? pinSession(id, await launch(id, text, shot, share, audio, fresh, model)) : launch(id, text, shot, share, audio, fresh, model)))();
+	const p = (async () => (pin && !T3_UI ? pinSession(id, await launch(id, text, shot, share, audio, fresh, model)) : launch(id, text, shot, share, audio, fresh, model, pin)))();
 	inflight.add(p);
 	try {
 		return await p;
@@ -444,7 +472,8 @@ function replayPending() {
 	}
 }
 
-async function launch(id: string, text: string, shot: Shot | null, share: Share | null, audio: string | null, fresh: boolean, model = ""): Promise<Launched> {
+async function launch(id: string, text: string, shot: Shot | null, share: Share | null, audio: string | null, fresh: boolean, model = "", pin = false): Promise<Launched> {
+	if (T3_UI) return launchT3(id, text, shot, share, audio, fresh, model, pin);
 	// Start the tab and pi now; failures surface (or are dropped, on a follow-on) after routing.
 	const quick = quickName(text || share?.shared || "") || (audio ? "Voice Note" : share ? "Shared Item" : "Inbox Task");
 	const opening = open(id, quick, model);
@@ -469,6 +498,28 @@ async function launch(id: string, text: string, shot: Shot | null, share: Share 
 }
 
 // Save a shared file. Formats pi can't read (HEIC photos etc.) are converted to JPEG.
+// T3 mode: no tmux tab; route as usual, then follow into a T3 thread or start a new one (pinned if asked).
+async function launchT3(id: string, text: string, shot: Shot | null, share: Share | null, audio: string | null, fresh: boolean, model: string, pin: boolean): Promise<Launched> {
+	try {
+		const { label, prompt, thread, session } = await prepare(id, text, shot, share, audio, fresh);
+		if (thread.action === "follow" && session) {
+			try {
+				follow(id, prompt, session, thread.p);
+				return { action: "follow", label: session.title, tab: session.tab, pane: session.pane };
+			} catch (e) { log(id, "follow_failed", { error: String(e) }); }
+		}
+		injected("ag-inbox", prompt, { id, action: "new" });
+		const r = agT3("new", "--json", "--title", label, ...(pin ? ["--pin"] : []), ...(model ? ["--model", model] : []), prompt);
+		log(id, "sent", { thread: r.id, label, t3: true });
+		return { action: "new", label, tab: r.id, pane: r.id };
+	} catch (e) {
+		const error = e instanceof Error ? e.message : String(e);
+		log(id, "failed", { error });
+		try { execFileSync(AG_MUX, ["notification", "show", "ag-inbox failed", "--body", error.slice(0, 200)], { timeout: 10_000 }); } catch {}
+		throw new Error(error);
+	}
+}
+
 async function saveShared(id: string, file: File, n: number): Promise<string> {
 	const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
 	const name = (file.name || `file-${n}`).replace(/[^\w.-]+/g, "_").slice(-80);

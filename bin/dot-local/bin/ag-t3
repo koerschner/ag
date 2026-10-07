@@ -1,0 +1,306 @@
+#!/usr/bin/env bun
+// ag-t3: Ag's bridge to the T3 Code server on the session host (ag-t3.service, https://ag.<tailnet>.ts.net).
+// T3 runs Pi with the real ~/.pi/agent, so a T3 thread is a Pi session file plus T3's view of it. ag's capture
+// (ag-inbox), `ag send`/`ag report` and the ag-tickler deliver through here when T3 is the UI (AG_UI=t3 in
+// ~/ag-personal/env). Design: docs/t3.md.
+//
+//   ag-t3 new [--title T] [--pin] [--model M] [--project DIR] <text>   start a thread and send it <text>; prints id + link
+//   ag-t3 send <thread|session id|session file> <text>                 queue <text> into a thread (resumes its Pi session)
+//   ag-t3 thread <session id|session file>                              the T3 thread bound to a Pi session (exit 1: none)
+//   ag-t3 threads [--json]                                              every thread: id, title, pinned, Pi session file
+//   ag-t3 import [--dry-run] [--all-open | <session>…]                  migrate open ag sessions into T3 (history, pin, title)
+//   ag-t3 link <thread>                                                 the thread's URL
+//   ag-t3 delete <thread>…                                              delete threads
+//   ag-t3 refresh                                                       re-snapshot imported history not yet opened in T3
+//   ag-t3 token                                                         (re)issue the cached admin token
+// The text may also come on stdin ("-"). Talks to 127.0.0.1:3773 over T3's WebSocket RPC with an admin bearer token
+// cached in ~/.config/ag/t3.token (0600), reissued with `t3 auth session issue` when it stops working.
+
+import { Database } from "bun:sqlite";
+import { execFileSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { basename, dirname } from "node:path";
+
+const HOME = homedir();
+const ORIGIN = process.env.AG_T3_ORIGIN ?? "http://127.0.0.1:3773";
+const PUBLIC = process.env.AG_T3_PUBLIC ?? `https://ag.${personal("AG_TAILNET") || "tailnet.ts.net"}`;
+const T3_HOME = `${HOME}/.t3`;
+const DB = `${T3_HOME}/userdata/statev2.sqlite`;
+const TOKEN_FILE = `${HOME}/.config/ag/t3.token`;
+const T3 = `${HOME}/.local/bin/t3`;
+const DEFAULT_MODEL = process.env.AG_T3_MODEL ?? "truefoundry/anthropic-primary/claude-opus-5-5";
+const SESSIONS = `${HOME}/.pi/agent/sessions`;
+
+function personal(key: string): string {
+	if (process.env[key]) return process.env[key]!;
+	try { return readFileSync(`${HOME}/ag-personal/env`, "utf8").match(new RegExp(`^${key}=(.*)$`, "m"))?.[1].trim() ?? ""; } catch { return ""; }
+}
+const die = (msg: string, code = 1): never => { console.error(`ag-t3: ${msg}`); process.exit(code); };
+
+// ---------- auth + RPC ----------
+function issueToken(): string {
+	const out = execFileSync(T3, ["auth", "session", "issue", "--ttl", "3650d", "--label", "ag-t3", "--token-only"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+	const token = out.split("\n").find((l) => l.startsWith("eyJ"))?.trim();
+	if (!token) die("couldn't issue a T3 token (is ag-t3.service running?)");
+	mkdirSync(dirname(TOKEN_FILE), { recursive: true });
+	writeFileSync(TOKEN_FILE, token!, { mode: 0o600 });
+	chmodSync(TOKEN_FILE, 0o600);
+	return token!;
+}
+const token = () => (existsSync(TOKEN_FILE) ? readFileSync(TOKEN_FILE, "utf8").trim() : "") || issueToken();
+
+type Rpc = { call: (tag: string, payload: unknown) => Promise<any>; close: () => void };
+async function open(tok = token(), retried = false): Promise<Rpc> {
+	const ws = new WebSocket(`${ORIGIN.replace(/^http/, "ws")}/ws?orchestrationProtocol=2`, { headers: { authorization: `Bearer ${tok}` } } as any);
+	try {
+		await new Promise<void>((res, rej) => { ws.onopen = () => res(); ws.onerror = (e: any) => rej(new Error(e?.message ?? "websocket error")); });
+	} catch (e) {
+		if (retried) die(`can't reach T3 at ${ORIGIN}: ${e}`);
+		return open(issueToken(), true); // expired or revoked token: reissue once
+	}
+	let n = 0;
+	const pending = new Map<string, (exit: any) => void>();
+	ws.onmessage = (e) => {
+		for (const line of String(e.data).split("\n").filter(Boolean)) {
+			const m = JSON.parse(line);
+			if (m._tag === "Ping") ws.send(JSON.stringify({ _tag: "Pong" }));
+			if (m._tag === "Exit" && pending.has(m.requestId)) { pending.get(m.requestId)!(m.exit); pending.delete(m.requestId); }
+		}
+	};
+	const call = (tag: string, payload: unknown) => new Promise<any>((res, rej) => {
+		const id = String(++n);
+		pending.set(id, (exit) => (exit._tag === "Success" ? res(exit.value) : rej(new Error(JSON.stringify(exit.cause ?? exit).slice(0, 600)))));
+		ws.send(JSON.stringify({ _tag: "Request", id, tag, payload, headers: [] }));
+	});
+	return { call, close: () => ws.close() };
+}
+const uuid = () => crypto.randomUUID();
+const dispatch = (rpc: Rpc, command: Record<string, unknown>) => rpc.call("orchestration.dispatchCommand", { commandId: uuid(), ...command });
+
+// ---------- reads (T3's projection, read-only) ----------
+type Thread = { id: string; title: string; projectId: string; file: string | null; pinnedAt: string | null; updatedAt: string; archived: boolean };
+function threads(): Thread[] {
+	if (!existsSync(DB)) return [];
+	const db = new Database(DB, { readonly: true });
+	try {
+		return (db.query(`
+			SELECT t.thread_id AS id, t.title, t.project_id AS projectId, t.updated_at AS updatedAt, t.archived_at IS NOT NULL AS archived,
+			       json_extract(t.payload_json, '$.pinnedAt') AS pinnedAt,
+			       (SELECT json_extract(p.payload_json, '$.nativeThreadRef.nativeId') FROM orchestration_v2_projection_provider_threads p
+			         WHERE p.thread_id = t.thread_id AND p.driver = 'pi' ORDER BY p.updated_at DESC LIMIT 1) AS file
+			FROM orchestration_v2_projection_threads t WHERE t.deleted_at IS NULL ORDER BY t.updated_at DESC`).all() as any[])
+			.map((r) => ({ ...r, archived: !!r.archived }));
+	} finally { db.close(); }
+}
+const sidOf = (s: string) => s.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)?.[0];
+function fileForSid(sid: string): string | null {
+	for (const d of readdirSync(SESSIONS)) {
+		const f = readdirSync(`${SESSIONS}/${d}`).find((x) => x.endsWith(`_${sid}.jsonl`));
+		if (f) return `${SESSIONS}/${d}/${f}`;
+	}
+	return null;
+}
+// A thread id, a Pi session id/file, or a unique title match.
+function findThread(ref: string): Thread | null {
+	const all = threads();
+	const byId = all.find((t) => t.id === ref || t.id.startsWith(ref));
+	if (byId) return byId;
+	const file = ref.endsWith(".jsonl") ? ref : sidOf(ref) ? fileForSid(sidOf(ref)!) : null;
+	if (file) return all.find((t) => t.file === file) ?? null;
+	const hits = all.filter((t) => t.title.toLowerCase().includes(ref.toLowerCase()));
+	return hits.length === 1 ? hits[0] : null;
+}
+let envId = "";
+async function link(t: { id: string }) {
+	envId ||= (await (await fetch(`${ORIGIN}/.well-known/t3/environment`)).json()).environmentId;
+	return `${PUBLIC}/${envId}/${t.id}`;
+}
+
+// ---------- projects ----------
+function projectFor(dir: string): string {
+	const db = new Database(DB, { readonly: true });
+	try {
+		const rows = db.query(`SELECT project_id AS id, workspace_root AS root FROM projection_projects WHERE deleted_at IS NULL`).all() as any[];
+		const hit = rows.find((r) => r.root === dir);
+		if (hit) return hit.id;
+	} catch {} finally { db.close(); }
+	const out = execFileSync(T3, ["project", "add", dir, "--title", dir === HOME ? "Ag" : basename(dir)], { encoding: "utf8" });
+	return out.match(/project ([0-9a-f-]{36})/)?.[1] ?? die(`couldn't add a T3 project for ${dir}: ${out}`);
+}
+
+// ---------- commands ----------
+async function newThread(text: string, o: { title?: string; pin?: boolean; model?: string; project?: string }) {
+	const rpc = await open();
+	const threadId = uuid();
+	const title = (o.title || text.replace(/<ag-origin[\s\S]*?<\/ag-origin>/g, "").trim().split("\n")[0] || "New thread").slice(0, 80);
+	await dispatch(rpc, {
+		type: "thread.create", threadId, projectId: projectFor(o.project ?? HOME), title,
+		modelSelection: { instanceId: "pi", model: o.model || DEFAULT_MODEL },
+		runtimeMode: "full-access", interactionMode: "default", branch: null, worktreePath: null,
+		createdBy: "user", creationSource: "web",
+	});
+	await dispatch(rpc, { type: "message.dispatch", threadId, messageId: uuid(), text, attachments: [], createdBy: "user", creationSource: "web", dispatchMode: { type: "start_immediately" } });
+	if (o.pin) await dispatch(rpc, { type: "thread.pin", threadId });
+	rpc.close();
+	return { id: threadId, title, url: await link({ id: threadId }) };
+}
+
+async function send(ref: string, text: string) {
+	const t = findThread(ref) ?? die(`no T3 thread for ${ref}`, 1);
+	const rpc = await open();
+	await dispatch(rpc, { type: "message.dispatch", threadId: t.id, messageId: uuid(), text, attachments: [], createdBy: "user", creationSource: "web", dispatchMode: { type: "queue_after_active" } });
+	rpc.close();
+	return { id: t.id, title: t.title, url: await link(t) };
+}
+
+// ---------- import (migration from ag's tmux sessions) ----------
+const ORIGIN_TAG = /<ag-origin\b([^>]*)>([\s\S]*?)<\/ag-origin>\s*/g;
+const attr = (a: string, k: string) => a.match(new RegExp(`${k}="([^"]*)"`))?.[1] ?? "";
+const visible = (t: string) => t.replace(ORIGIN_TAG, (_m, a) => `↩ ${attr(a, "label")} “${attr(a, "title")}”\n\n`).trim();
+const textOf = (c: any): string => (typeof c === "string" ? c : (c ?? []).filter((x: any) => x.type === "text").map((x: any) => x.text).join("\n\n")).trim();
+// The active branch of a Pi session (it's a tree after /tree or forks), as user turns and merged assistant replies.
+function history(file: string) {
+	const ents = readFileSync(file, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+	const byId = new Map(ents.filter((e) => e.id).map((e) => [e.id, e]));
+	let leaf = [...ents].reverse().find((e) => e.type === "message");
+	const chain: any[] = [];
+	while (leaf) { chain.unshift(leaf); leaf = byId.get(leaf.parentId); }
+	const out: { id: string; role: string; text: string; at: string; until: string }[] = [];
+	let reply: (typeof out)[number] | null = null;
+	let model: string | null = null;
+	for (const e of chain) {
+		if (e.type === "model_change" && e.provider && e.modelId) model = `${e.provider}/${e.modelId}`;
+		if (e.type !== "message") continue;
+		const role = e.message?.role, text = textOf(e.message?.content);
+		if (role === "user") { if (reply) out.push(reply), (reply = null); if (text) out.push({ id: e.id, role, text: visible(text), at: e.timestamp, until: e.timestamp }); }
+		else if (role === "assistant" && text) { if (reply) { reply.text += `\n\n${text}`; reply.until = e.timestamp; } else reply = { id: e.id, role, text, at: e.timestamp, until: e.timestamp }; }
+	}
+	if (reply) out.push(reply);
+	for (const e of ents) if (e.type === "model_change" && e.provider && e.modelId) model = `${e.provider}/${e.modelId}`;
+	return { messages: out, model, cwd: (ents.find((e) => e.type === "session")?.cwd as string) || HOME };
+}
+// T3's v1 importer hydrates these rows into the thread's visible history the first time it's opened.
+function writeHistory(threadId: string, msgs: ReturnType<typeof history>["messages"]) {
+	const db = new Database(DB);
+	try {
+		db.exec("PRAGMA busy_timeout = 30000");
+		const ins = db.prepare(`INSERT OR IGNORE INTO projection_thread_messages (message_id, thread_id, turn_id, role, text, is_streaming, created_at, updated_at, attachments_json, context_json) VALUES (?, ?, NULL, ?, ?, 0, ?, ?, NULL, NULL)`);
+		db.transaction(() => {
+			for (const m of msgs) ins.run(`agmig-${threadId}-${m.id}`, threadId, m.role, m.text, m.at, m.until);
+			const now = new Date().toISOString();
+			db.prepare(`INSERT OR IGNORE INTO orchestration_v2_legacy_imports (thread_id, source_updated_at, shell_imported_at, transcript_imported_at, imported_message_count, last_error) VALUES (?, ?, ?, NULL, 0, NULL)`)
+				.run(threadId, msgs.at(-1)?.until ?? now, now);
+		})();
+	} finally { db.close(); }
+}
+function piModels(): Set<string> {
+	try { return new Set(JSON.parse(readFileSync(`${T3_HOME}/caches/pi.json`, "utf8")).models.map((m: any) => m.slug)); } catch { return new Set(); }
+}
+
+type AgSession = { sid: string; title: string; pinned: boolean; last: number; tab?: string; status?: string; inbox?: boolean; needs_you?: boolean };
+async function importSessions(sessions: AgSession[], dry: boolean) {
+	const have = new Map(threads().filter((t) => t.file).map((t) => [t.file!, t]));
+	const models = piModels();
+	// Oldest first, so the most recent session is created last and sorts on top.
+	const todo = [...sessions].sort((a, b) => a.last - b.last);
+	const pinned = todo.filter((s) => s.pinned).sort((a, b) => b.last - a.last); // pin order: most recent first
+	const rpc = dry ? null : await open();
+	const results: any[] = [];
+	for (const s of todo) {
+		const file = fileForSid(s.sid);
+		if (!file) { results.push({ sid: s.sid, title: s.title, skipped: "no session file" }); continue; }
+		const existing = have.get(file);
+		if (existing) { results.push({ sid: s.sid, title: s.title, thread: existing.id, skipped: "already imported" }); continue; }
+		const h = history(file);
+		const model = h.model && models.has(h.model) ? h.model : DEFAULT_MODEL;
+		const project = projectFor(existsSync(h.cwd) ? h.cwd : HOME);
+		if (dry) { results.push({ sid: s.sid, title: s.title, messages: h.messages.length, model, pinned: s.pinned }); continue; }
+		const threadId = uuid();
+		await dispatch(rpc!, {
+			type: "thread.create", threadId, projectId: project, title: s.title.slice(0, 120) || "Imported session",
+			modelSelection: { instanceId: "pi", model }, runtimeMode: "full-access", interactionMode: "default",
+			branch: null, worktreePath: null, createdBy: "user", creationSource: "web",
+			importedNativeThread: { ref: { driver: "pi", nativeId: file, strength: "strong" }, metadata: { itemIdentityVersion: 2, title: s.title } },
+		});
+		writeHistory(threadId, h.messages);
+		if (s.pinned) {
+			const rank = pinned.findIndex((p) => p.sid === s.sid);
+			await dispatch(rpc!, { type: "thread.pin", threadId, orderKey: `a${String(rank).padStart(4, "0")}` });
+		}
+		results.push({ sid: s.sid, title: s.title, thread: threadId, messages: h.messages.length, pinned: s.pinned, model });
+	}
+	rpc?.close();
+	return results;
+}
+
+// ---------- CLI ----------
+async function readText(args: string[]) {
+	const t = args.join(" ");
+	return t === "-" || (!t && !process.stdin.isTTY) ? (await Bun.stdin.text()).trim() : t.trim();
+}
+const argv = process.argv.slice(2);
+const flag = (name: string) => { const i = argv.indexOf(name); if (i < 0) return undefined; const v = argv[i + 1]; argv.splice(i, 2); return v; };
+const bool = (name: string) => { const i = argv.indexOf(name); if (i < 0) return false; argv.splice(i, 1); return true; };
+const cmd = argv.shift();
+switch (cmd) {
+	case "new": {
+		const o = { title: flag("--title"), model: flag("--model"), project: flag("--project"), pin: bool("--pin") };
+		const json = bool("--json");
+		const text = await readText(argv) || die("usage: ag-t3 new [--title T] [--pin] <text>", 2);
+		const r = await newThread(text, o);
+		console.log(json ? JSON.stringify(r) : `${r.title}  ${r.url}`);
+		break;
+	}
+	case "send": {
+		const json = bool("--json");
+		const ref = argv.shift() ?? die("usage: ag-t3 send <thread|session> <text>", 2);
+		const text = await readText(argv) || die("usage: ag-t3 send <thread|session> <text>", 2);
+		const r = await send(ref, text);
+		console.log(json ? JSON.stringify(r) : `sent to ${r.title}  ${r.url}`);
+		break;
+	}
+	case "thread": {
+		const t = findThread(argv[0] ?? die("usage: ag-t3 thread <session>", 2));
+		if (!t) process.exit(1);
+		console.log(bool("--json") ? JSON.stringify({ ...t, url: await link(t) }) : t.id);
+		break;
+	}
+	case "threads": {
+		const all = threads();
+		if (bool("--json")) console.log(JSON.stringify(all));
+		else for (const t of all) console.log(`${t.pinnedAt ? "📌" : "  "} ${t.id.slice(0, 8)}  ${t.title.slice(0, 60).padEnd(60)}  ${t.file ? basename(t.file).slice(-14, -6) : ""}`);
+		break;
+	}
+	case "delete": {
+		const rpc = await open();
+		for (const ref of argv) { const t = findThread(ref) ?? die(`no thread ${ref}`); await dispatch(rpc, { type: "thread.delete", threadId: t.id }); console.log(`deleted ${t.title}`); }
+		rpc.close();
+		break;
+	}
+	case "refresh": {
+		// Re-snapshot the visible history of imported threads T3 hasn't hydrated yet (they kept going in tmux).
+		const db = new Database(DB, { readonly: true });
+		const pending = new Set((db.query(`SELECT thread_id FROM orchestration_v2_legacy_imports WHERE transcript_imported_at IS NULL`).all() as any[]).map((r) => r.thread_id));
+		db.close();
+		let n = 0;
+		for (const t of threads()) if (pending.has(t.id) && t.file && existsSync(t.file)) { writeHistory(t.id, history(t.file).messages); n++; }
+		console.log(`refreshed ${n} thread(s)`);
+		break;
+	}
+	case "link": console.log(await link(findThread(argv[0] ?? "") ?? die("no such thread"))); break;
+	case "token": issueToken(); console.log(`token cached in ${TOKEN_FILE}`); break;
+	case "import": {
+		const dry = bool("--dry-run");
+		const allOpen = bool("--all-open");
+		const list: AgSession[] = JSON.parse(execFileSync(`${HOME}/.local/bin/ag`, ["ls", "--json"], { encoding: "utf8" }));
+		const pick = allOpen ? list : list.filter((s) => argv.some((r) => s.sid === r || s.sid.endsWith(r) || s.tab === r));
+		if (!pick.length) die("nothing to import (pass session ids/tabs, or --all-open)", 2);
+		console.log(JSON.stringify(await importSessions(pick, dry), null, 1));
+		break;
+	}
+	default:
+		console.log(readFileSync(import.meta.path, "utf8").split("\n").slice(1, 17).map((l) => l.replace(/^\/\/ ?/, "")).join("\n"));
+		process.exit(cmd ? 2 : 0);
+}
+process.exit(0);

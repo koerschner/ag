@@ -1,0 +1,19 @@
+# T3 Code server (https://ag.<tailnet>.ts.net, port 443 on svc:ag): the agent UI Ag is migrating to
+# (desktop app, web, iOS). Runs Pi with the real ~/.pi/agent. Data in ~/.t3 -> /data/t3 (persistent volume).
+# Session host only. Install/upgrade: ag-t3 install [version]. Design: docs/t3.md.
+[Unit]
+Description=T3 Code server (https://ag.<tailnet>.ts.net)
+After=network-online.target
+
+[Service]
+ExecCondition=%h/.local/bin/ag-machine-role host
+WorkingDirectory=%h
+# zsh -l: the same env as Ag's tmux shells (PATH with ~/.local/bin, model keys from ~/.zshenv.local), minus AG_MUX.
+ExecStart=/usr/bin/zsh -lc 'exec %h/.local/bin/t3 serve --host 127.0.0.1 --port 3773 --no-browser %h'
+Restart=always
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

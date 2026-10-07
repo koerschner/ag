@@ -199,6 +199,14 @@ systemctl --user enable --now ag-dash.service >/dev/null 2>&1 && echo "  ag-dash
 systemctl --user enable --now ag-nessie.service >/dev/null 2>&1 && echo "  nessie (trace sync) on" || warn "ag-nessie.service"
 systemctl --user enable --now ag-telegram.service >/dev/null 2>&1 && echo "  ag-telegram (Telegram replies) on" || warn "ag-telegram.service"
 systemctl --user enable --now ag-telemetry.service >/dev/null 2>&1 && echo "  ag-telemetry (crash readout, http://ag:7378) on" || warn "ag-telemetry.service"
+# T3 Code (docs/t3.md): the pinned nightly into ~/.t3 -> /data/t3, Pi enabled, then the service (host only).
+if "$AG/bin/dot-local/bin/ag-machine-role" host 2>/dev/null; then
+  T3V=0.0.46-nightly.20261007.2774
+  [[ -d /data ]] && { sudo install -d -o "$USER" -g "$USER" /data/t3; [[ -e ~/.t3 ]] || ln -s /data/t3 ~/.t3; }
+  [[ -x ~/.local/bin/t3 ]] || curl -fsSL https://t3.codes/install.sh | T3CODE_VERSION=$T3V sh >/dev/null 2>&1 || warn "t3 install"
+  mkdir -p ~/.t3/userdata; [[ -f ~/.t3/userdata/settings.json ]] || printf '{"providers":{"pi":{"enabled":true,"binaryPath":"%s/.local/bin/pi"},"codex":{"enabled":false},"claudeAgent":{"enabled":false},"cursor":{"enabled":false},"grok":{"enabled":false},"opencode":{"enabled":false},"antigravity":{"enabled":false}}}\n' "$HOME" > ~/.t3/userdata/settings.json
+  systemctl --user enable --now ag-t3.service >/dev/null 2>&1 && echo "  ag-t3 (T3 Code, https://ag.<tailnet>.ts.net) on" || warn "ag-t3.service"
+fi
 # The rest of the host's services (each unit's ExecCondition keeps them off non-hosts, so enabling everywhere is safe).
 for u in ag-inbox.service ag-nav.service ag-private.service ag-file-inbox.service ag-mcp-gateway.service ag-pi-hibernate.service ag-tickler.timer ag-presence.timer; do
   systemctl --user enable --now "$u" >/dev/null 2>&1 && echo "  $u on" || warn "$u"

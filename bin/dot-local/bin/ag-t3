@@ -8,17 +8,19 @@
 //   ag-t3 send <thread|session id|session file> <text>                 queue <text> into a thread (resumes its Pi session)
 //   ag-t3 thread <session id|session file>                              the T3 thread bound to a Pi session (exit 1: none)
 //   ag-t3 threads [--json]                                              every thread: id, title, pinned, Pi session file
-//   ag-t3 import [--dry-run] [--all-open | <session>…]                  migrate open ag sessions into T3 (history, pin, title)
+//   ag-t3 import [--dry-run] [--title T] [--all-open | <session>…]     import closed Pi sessions into T3 (history, pin, title)
 //   ag-t3 link <thread>                                                 the thread's URL
 //   ag-t3 delete <thread>…                                              delete threads
 //   ag-t3 refresh                                                       re-snapshot imported history not yet opened in T3
+//   ag-t3 setup                                                         ensure T3 runs Ag's Pi provider; check models/auth
+//   ag-t3 doctor                                                        check Pi/T3 setup and misleading model selections
 //   ag-t3 token                                                         (re)issue the cached admin token
 // The text may also come on stdin ("-"). Talks to 127.0.0.1:3773 over T3's WebSocket RPC with an admin bearer token
 // cached in ~/.config/ag/t3.token (0600), reissued with `t3 auth session issue` when it stops working.
 
 import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname } from "node:path";
 
@@ -29,7 +31,12 @@ const T3_HOME = `${HOME}/.t3`;
 const DB = `${T3_HOME}/userdata/statev2.sqlite`;
 const TOKEN_FILE = `${HOME}/.config/ag/t3.token`;
 const T3 = `${HOME}/.local/bin/t3`;
-const DEFAULT_MODEL = process.env.AG_T3_MODEL ?? "truefoundry/anthropic-primary/claude-opus-5-5";
+const PI_SETTINGS = existsSync(`${HOME}/.pi/agent/settings.json`) ? JSON.parse(readFileSync(`${HOME}/.pi/agent/settings.json`, "utf8")) : {};
+const DEFAULT_MODEL = process.env.AG_T3_MODEL ?? (PI_SETTINGS.defaultProvider && PI_SETTINGS.defaultModel ? `${PI_SETTINGS.defaultProvider}/${PI_SETTINGS.defaultModel}` : "truefoundry/anthropic-primary/claude-opus-5-5");
+function modelProblem(model: string): string | null {
+	if (model.startsWith("openrouter/")) return "OpenRouter is personal and Pi's Nessie guard silently replaces it in synced T3 sessions";
+	return null;
+}
 const SESSIONS = `${HOME}/.pi/agent/sessions`;
 
 function personal(key: string): string {
@@ -94,6 +101,7 @@ function threads(): Thread[] {
 	} finally { db.close(); }
 }
 const sidOf = (s: string) => s.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)?.[0];
+const sessionIdOfRef = (ref: string) => ref.endsWith(".jsonl") ? basename(ref).match(/_([0-9a-f-]{36})\.jsonl$/)?.[1] : sidOf(ref);
 function fileForSid(sid: string): string | null {
 	for (const d of readdirSync(SESSIONS)) {
 		const f = readdirSync(`${SESSIONS}/${d}`).find((x) => x.endsWith(`_${sid}.jsonl`));
@@ -106,7 +114,8 @@ function findThread(ref: string): Thread | null {
 	const all = threads();
 	const byId = all.find((t) => t.id === ref || t.id.startsWith(ref));
 	if (byId) return byId;
-	const file = ref.endsWith(".jsonl") ? ref : sidOf(ref) ? fileForSid(sidOf(ref)!) : null;
+	const sessionId = sessionIdOfRef(ref);
+	const file = sessionId ? fileForSid(sessionId) : null;
 	if (file) return all.find((t) => t.file === file) ?? null;
 	const hits = all.filter((t) => t.title.toLowerCase().includes(ref.toLowerCase()));
 	return hits.length === 1 ? hits[0] : null;
@@ -130,7 +139,57 @@ function projectFor(dir: string): string {
 }
 
 // ---------- commands ----------
+async function setup() {
+	const rpc = await open();
+	try {
+		const settings = await rpc.call("server.getSettings", {});
+		const pi = { ...settings.providers?.pi, enabled: true, binaryPath: `${HOME}/.local/bin/pi` };
+		const textModel = settings.textGenerationModelSelection;
+		const textGenerationModelSelection = textModel?.instanceId === "pi" && textModel?.model !== "default" && !modelProblem(textModel.model)
+			? textModel : { instanceId: "pi", model: "truefoundry-chat/gemini-group/gemini-3.7-flash" };
+		const updated = await rpc.call("server.updateSettings", { patch: {
+			providers: { pi }, textGenerationModelSelection,
+		} });
+		if (!updated.providers?.pi?.enabled || updated.providers.pi.binaryPath !== pi.binaryPath)
+			die("T3 did not persist the Pi provider configuration");
+	} finally { rpc.close(); }
+	console.log("T3 Pi provider configured");
+}
+function doctor(): number {
+	const problems: string[] = [];
+	const warnings: string[] = [];
+	const settingsFile = `${T3_HOME}/userdata/settings.json`;
+	const settings = existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, "utf8")) : {};
+	if (settings.providers?.pi?.enabled !== true || settings.providers.pi.binaryPath !== `${HOME}/.local/bin/pi` || !existsSync(`${HOME}/.local/bin/pi`))
+		problems.push("T3 Pi provider is not enabled with a working ~/.local/bin/pi");
+	if (!existsSync(`${HOME}/.pi/agent/models.json`)) problems.push("Pi custom models.json is missing; TrueFoundry models will not load");
+	if (!existsSync(`${T3_HOME}/caches/pi.json`)) problems.push("T3 has not probed Pi models yet");
+	else {
+		const models = JSON.parse(readFileSync(`${T3_HOME}/caches/pi.json`, "utf8")).models ?? [];
+		if (!models.some((m: any) => m.slug === DEFAULT_MODEL)) problems.push(`default model ${DEFAULT_MODEL} is unavailable in T3`);
+	}
+	const authFile = `${HOME}/.pi/agent/auth.json`;
+	if (existsSync(authFile)) {
+		const auth = JSON.parse(readFileSync(authFile, "utf8"));
+		for (const [provider, credentials] of Object.entries(auth) as [string, any][]) {
+			if (credentials?.type === "oauth" && credentials.expires < Date.now())
+				warnings.push(`${provider} OAuth access token is expired; Pi may refresh it on use (re-authenticate if refresh fails)`);
+		}
+	}
+	if (existsSync(DB)) {
+		const db = new Database(DB, { readonly: true });
+		try {
+			for (const row of db.query(`SELECT title, json_extract(payload_json, '$.modelSelection.model') AS model FROM orchestration_v2_projection_threads WHERE deleted_at IS NULL`).all() as { title: string; model: string | null }[])
+				if (row.model && modelProblem(row.model)) problems.push(`thread "${row.title}" selects ${row.model}: ${modelProblem(row.model)}`);
+		} finally { db.close(); }
+	}
+	for (const w of warnings) console.warn(`ag-t3 doctor warning: ${w}`);
+	if (problems.length) for (const p of problems) console.error(`ag-t3 doctor: ${p}`);
+	else console.log("ag-t3 doctor: Pi provider, default model and active thread selections look healthy");
+	return problems.length ? 1 : 0;
+}
 async function newThread(text: string, o: { title?: string; pin?: boolean; model?: string; project?: string }) {
+	if (o.model && modelProblem(o.model)) die(`model ${o.model}: ${modelProblem(o.model)}; choose a working model`);
 	const rpc = await open();
 	const threadId = uuid();
 	const title = (o.title || text.replace(/<ag-origin[\s\S]*?<\/ag-origin>/g, "").trim().split("\n")[0] || "New thread").slice(0, 80);
@@ -201,6 +260,17 @@ function piModels(): Set<string> {
 type AgSession = { sid: string; title: string; pinned: boolean; last: number; tab?: string; status?: string; inbox?: boolean; needs_you?: boolean };
 async function importSessions(sessions: AgSession[], dry: boolean) {
 	const have = new Map(threads().filter((t) => t.file).map((t) => [t.file!, t]));
+	let live: Set<string>;
+	try {
+		const agents = JSON.parse(execFileSync(`${HOME}/.local/bin/ag-mux`, ["agent", "list"], { encoding: "utf8" }));
+		const panes = JSON.parse(execFileSync(`${HOME}/.local/bin/ag-mux`, ["pane", "list"], { encoding: "utf8" }));
+		const paths = [
+			...(agents.result?.agents ?? []).map((a: any) => a.agent_session?.value),
+			...(panes.result?.panes ?? []).flatMap((p: any) => [p.agent_session?.value, p.sleeping_session]),
+		].filter(Boolean);
+		live = new Set(paths.map((p: string) => basename(p).match(/_([0-9a-f-]{36})\.jsonl$/)?.[1]).filter(Boolean));
+	} catch { die("Cannot inspect tmux sessions; refusing to import Pi history blindly"); }
+
 	const models = piModels();
 	// Oldest first, so the most recent session is created last and sorts on top.
 	const todo = [...sessions].sort((a, b) => a.last - b.last);
@@ -210,10 +280,11 @@ async function importSessions(sessions: AgSession[], dry: boolean) {
 	for (const s of todo) {
 		const file = fileForSid(s.sid);
 		if (!file) { results.push({ sid: s.sid, title: s.title, skipped: "no session file" }); continue; }
+		if (live.has(s.sid)) { results.push({ sid: s.sid, title: s.title, skipped: "still open or sleeping in tmux" }); continue; }
 		const existing = have.get(file);
 		if (existing) { results.push({ sid: s.sid, title: s.title, thread: existing.id, skipped: "already imported" }); continue; }
 		const h = history(file);
-		const model = h.model && models.has(h.model) ? h.model : DEFAULT_MODEL;
+		const model = h.model && models.has(h.model) && !modelProblem(h.model) ? h.model : DEFAULT_MODEL;
 		const project = projectFor(existsSync(h.cwd) ? h.cwd : HOME);
 		if (dry) { results.push({ sid: s.sid, title: s.title, messages: h.messages.length, model, pinned: s.pinned }); continue; }
 		const threadId = uuid();
@@ -244,6 +315,8 @@ const flag = (name: string) => { const i = argv.indexOf(name); if (i < 0) return
 const bool = (name: string) => { const i = argv.indexOf(name); if (i < 0) return false; argv.splice(i, 1); return true; };
 const cmd = argv.shift();
 switch (cmd) {
+	case "setup": await setup(); process.exit(doctor());
+	case "doctor": process.exit(doctor());
 	case "new": {
 		const o = { title: flag("--title"), model: flag("--model"), project: flag("--project"), pin: bool("--pin") };
 		const json = bool("--json");
@@ -293,8 +366,21 @@ switch (cmd) {
 	case "import": {
 		const dry = bool("--dry-run");
 		const allOpen = bool("--all-open");
+		const titleOverride = flag("--title");
+		if (titleOverride && argv.length !== 1) die("--title requires exactly one session", 2);
 		const list: AgSession[] = JSON.parse(execFileSync(`${HOME}/.local/bin/ag`, ["ls", "--json"], { encoding: "utf8" }));
 		const pick = allOpen ? list : list.filter((s) => argv.some((r) => s.sid === r || s.sid.endsWith(r) || s.tab === r));
+		// Deferred sessions may already be closed in tmux; their Pi files still hold full context.
+		for (const ref of argv) {
+			const id = sessionIdOfRef(ref);
+			const file = id ? fileForSid(id) : null;
+			if (!file || !existsSync(file)) continue;
+			const sid = basename(file).match(/_([0-9a-f-]{36})\.jsonl$/)?.[1];
+			if (!sid || pick.some((s) => s.sid === sid)) continue;
+			const entries = readFileSync(file, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
+			const title = titleOverride ?? [...entries].reverse().find((e) => e.type === "session_info" && e.name)?.name ?? basename(file);
+			pick.push({ sid, title, pinned: false, last: statSync(file).mtimeMs });
+		}
 		if (!pick.length) die("nothing to import (pass session ids/tabs, or --all-open)", 2);
 		console.log(JSON.stringify(await importSessions(pick, dry), null, 1));
 		break;

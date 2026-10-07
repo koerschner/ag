@@ -1,6 +1,6 @@
 # T3 Code server (https://ag.<tailnet>.ts.net, port 443 on svc:ag): the agent UI Ag is migrating to
 # (desktop app, web, iOS). Runs Pi with the real ~/.pi/agent. Data in ~/.t3 -> /data/t3 (persistent volume).
-# Session host only. Install/upgrade: ag-t3 install [version]. Design: docs/t3.md.
+# Session host only. Upgrade when turns are idle: t3 update <pinned version> --yes. Design: docs/t3.md.
 [Unit]
 Description=T3 Code server (https://ag.<tailnet>.ts.net)
 After=network-online.target

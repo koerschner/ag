@@ -204,8 +204,13 @@ if "$AG/bin/dot-local/bin/ag-machine-role" host 2>/dev/null; then
   T3V=0.0.46-nightly.20261007.2774
   [[ -d /data ]] && { sudo install -d -o "$USER" -g "$USER" /data/t3; [[ -e ~/.t3 ]] || ln -s /data/t3 ~/.t3; }
   [[ -x ~/.local/bin/t3 ]] || curl -fsSL https://t3.codes/install.sh | T3CODE_VERSION=$T3V sh >/dev/null 2>&1 || warn "t3 install"
+  [[ "$(~/.local/bin/t3 --version 2>/dev/null)" == "t3 v$T3V" ]] || warn "T3 version differs from $T3V; update with t3 update $T3V --yes when no turns are running"
   mkdir -p ~/.t3/userdata; [[ -f ~/.t3/userdata/settings.json ]] || printf '{"providers":{"pi":{"enabled":true,"binaryPath":"%s/.local/bin/pi"},"codex":{"enabled":false},"claudeAgent":{"enabled":false},"cursor":{"enabled":false},"grok":{"enabled":false},"opencode":{"enabled":false},"antigravity":{"enabled":false}}}\n' "$HOME" > ~/.t3/userdata/settings.json
   systemctl --user enable --now ag-t3.service >/dev/null 2>&1 && echo "  ag-t3 (T3 Code, https://ag.<tailnet>.ts.net) on" || warn "ag-t3.service"
+  # T3's Pi catalog is populated asynchronously on first boot. Check the actual integration,
+  # not just whether the service started; flag expired OAuth and models the Nessie guard reroutes.
+  for i in {1..10}; do [[ -f ~/.t3/caches/pi.json ]] && break; sleep 1; done
+  "$AG/bin/dot-local/bin/ag-t3" setup || warn "T3 model/auth setup needs attention (ag-t3 doctor)"
 fi
 # The rest of the host's services (each unit's ExecCondition keeps them off non-hosts, so enabling everywhere is safe).
 for u in ag-inbox.service ag-nav.service ag-private.service ag-file-inbox.service ag-mcp-gateway.service ag-pi-hibernate.service ag-tickler.timer ag-presence.timer; do

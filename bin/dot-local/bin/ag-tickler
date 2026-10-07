@@ -34,6 +34,7 @@
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { basename } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { originTag } from "../../../pi/dot-pi/agent/extensions/ag-origin.ts";
 
@@ -268,7 +269,7 @@ function originPane(i: Item): string | null {
 	if (!i.session) return null;
 	try {
 		const panes = mux("pane", "list").panes as { pane_id: string; agent_status?: string; agent_session?: { value?: string } }[];
-		const p = panes.find((x) => x.agent_session?.value === i.session);
+		const p = panes.find((x) => x.agent_session?.value && basename(x.agent_session.value) === basename(i.session!));
 		return p && ["idle", "done"].includes(p.agent_status ?? "") ? p.pane_id : null;
 	} catch {
 		return null;
@@ -290,23 +291,43 @@ function pinTab(i: Item, pane: string) {
 }
 
 // T3 Code as the UI (AG_UI=t3 in ~/ag-personal/env): items come back in the deferring session's T3 thread (resume
-// and fork alike: the thread has the context), or a new T3 thread when there's none (docs/t3.md).
+// and fork alike: the thread has the context); a new thread is fallback when the old session cannot be resumed (docs/t3.md).
 const T3_UI = (process.env.AG_UI || (() => { try { return readFileSync(`${HOME}/ag-personal/env`, "utf8").match(/^AG_UI=(.*)$/m)?.[1].trim() ?? ""; } catch { return ""; } })()) === "t3";
 function fireT3(i: Item) {
 	const t3 = `${HOME}/.local/bin/ag-t3`;
 	const icon = i.waiting_for ? "⧖" : i.when === "online" ? "●" : isWake(i) ? "↺" : "◷";
 	injected("ag-tickler", prompt(i), { id: i.id, when: i.when });
 	let r: { id: string; title: string; url: string } | null = null;
-	if (i.session) {
-		try { r = JSON.parse(execFileSync(t3, ["send", "--json", i.session, prompt(i)], { encoding: "utf8", timeout: 90_000 })); } catch {}
+	if (i.session && existsSync(i.session)) {
+		// Closed Pi sessions retain their history; bring it into T3 before waking them.
+		// A session still in tmux must not be imported (two owners of one Pi file).
+		try {
+			const imported = JSON.parse(execFileSync(t3, ["import", "--title", i.title, i.session], { encoding: "utf8", timeout: 90_000 }));
+			if (imported[0]?.skipped === "still open or sleeping in tmux") {
+				const pane = originPane(i);
+				if (pane) {
+					mux("agent", "prompt", pane, prompt(i));
+					log(i.id, "fired", { pane, resumed: true });
+					return;
+				}
+				log(i.id, "pi_fallback", { reason: "session still in tmux but not ready for a prompt; forking Pi context" });
+				return fireOne(i, true);
+			} else if (imported[0]?.thread) {
+				r = JSON.parse(execFileSync(t3, ["send", "--json", i.session, prompt(i)], { encoding: "utf8", timeout: 90_000 }));
+			} else {
+				log(i.id, "t3_fallback", { reason: imported[0]?.skipped ?? "import returned no thread" });
+			}
+		} catch (e) { log(i.id, "t3_fallback", { reason: String(e) }); }
+	} else if (i.session) {
+		log(i.id, "t3_fallback", { reason: `session file missing: ${i.session}` });
 	}
 	r ??= JSON.parse(execFileSync(t3, ["new", "--json", "--title", `${icon} ${i.title}`.slice(0, 60), ...(i.pin ? ["--pin"] : []), prompt(i)], { encoding: "utf8", timeout: 90_000 }));
 	try { mux("notification", "show", `${icon} ${i.title}`.slice(0, 40), "--body", `Fired in T3: ${r!.title}`, "--sound", "request"); } catch {}
 	log(i.id, "fired", { thread: r!.id, t3: true });
 }
 
-function fireOne(i: Item) {
-	if (T3_UI) return fireT3(i);
+function fireOne(i: Item, forcePi = false) {
+	if (T3_UI && !forcePi) return fireT3(i);
 	const origin = resumes(i) ? originPane(i) : null;
 	if (origin) {
 		injected("ag-tickler", prompt(i), { id: i.id, when: i.when });

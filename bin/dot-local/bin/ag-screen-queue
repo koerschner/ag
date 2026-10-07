@@ -90,6 +90,9 @@ kill_tree() {
 
 # Stop a job's codex (not its wrapper): the inner ag-chatgpt-cua then pauses or cleans up and exits.
 stop_codex() { local c=$(get $1 codex.pid); alive "$c" && kill_tree $c; }
+# Stop a running job: its codex for a cua run; the whole inner command for an exec job (no codex of its own;
+# 2026-10-07: cancelling a wedged client-cua exec job did nothing and it held the client's screen for 9h).
+stop_job() { if [[ -n $(get $1 exec) ]]; then local c=$(get $1 inner.pid); alive "$c" && kill_tree $c; else stop_codex $1; fi; }
 
 cmd=${1:-list}; shift 2>/dev/null
 case $cmd in
@@ -140,8 +143,8 @@ cancel)
   st=$(get $id status)
   if finished $st; then print "ag-screen-queue: job $id already $st"; exit 0; fi
   put $id cancel 1
-  # Running: stop codex (the inner ag-chatgpt-cua then runs its cleanup); paused: the runner cleans up.
-  [[ $st == running ]] && stop_codex $id
+  # Running: stop codex (the inner ag-chatgpt-cua then runs its cleanup) or the exec command; paused: the runner cleans up.
+  [[ $st == running ]] && stop_job $id
   for i in {1..40}; do finished "$(get $id status)" && break; sleep 0.5; done
   print "ag-screen-queue: job $id $(get $id status)"
   ;;

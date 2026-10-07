@@ -5,8 +5,9 @@
 #   ag cua --client --why "<reason>" "<task>"    the client Mac's desktop (gated by Jev: only for things
 #                                                that exist solely there, e.g. a dialog showing on it)
 #   ag cua --phone --why "<reason>" "<task>"     the user's iPhone, via iPhone Mirroring on the client (gated)
-#   ag cua --status                              the running and queued jobs on ag-mac
-#   ag cua cancel <id> | attach <id>             cancel a job / re-read its report
+#   ag cua --status [--client]                   the running and queued jobs on ag-mac (--client: the
+#                                                client's screen queue, which also holds phone jobs)
+#   ag cua cancel|attach [--client] <id>         cancel a job / re-read its report
 #
 # Options: --urgent (jump ag-mac's queue, pausing a running non-urgent job), --keep-open (leave what
 # the run opened), --host <alias> (which client; default ag-client). The task may also come on stdin.
@@ -15,11 +16,23 @@
 set -euo pipefail
 bin=$(dirname "$(readlink -f "$0")")
 target=mac why=${CLIENT_CUA_WHY:-}
-usage() { sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; }
 
+# Queue commands; --client/--phone/--host point them at the client's queue (no client desktop driving).
 case ${1:-} in
-  --status | status | list | --list) exec "$bin/ag-screen-queue" list ;;
-  cancel | attach) exec "$bin/ag-screen-queue" "$@" ;;
+  --status | status | list | --list | cancel | attach)
+    verb=$1; shift; case $verb in cancel | attach) ;; *) verb=list ;; esac; args=()
+    for a in "$@"; do
+      case $a in
+        --client | --phone) export SCREEN_HOST=${CLIENT_CUA_HOST:-ag-client} ;;
+        --status | --list) ;;
+        *) args+=("$a") ;;
+      esac
+    done
+    if [[ -n ${SCREEN_HOST:-} && $(uname) == Darwin ]]; then
+      exec ssh -o ConnectTimeout=10 -o BatchMode=yes "$SCREEN_HOST" "~/.local/bin/ag-screen-queue $verb ${args[*]:-}"
+    fi
+    exec "$bin/ag-screen-queue" $verb "${args[@]}" ;;
   -h | --help | help) usage; exit 0 ;;
 esac
 

@@ -900,12 +900,13 @@ async function pollOnce() {
 	const seenTabs = new Set<string>();
 	const keys = new Set<string>(); // state keys still alive this poll
 	const waits = ticklerWaits();
-	// Panes ag-mux restored asleep (`ag-mux _sleep`; pi starts when the tab is viewed) have no agent yet: show
-	// them as idle cards for their session, so a restore or host move doesn't empty the board.
+	// Sleeping panes have no agent yet: ones ag-mux restored asleep (`ag-mux _sleep`) and ones ag-pi-hibernate put to
+	// sleep (its sleep screen tags the pane @ag_sleep). Show them as idle cards for their session, so a restore, a host
+	// move or hibernation doesn't drop chats off the board; pi starts when the tab is viewed or prompted.
 	const awake = new Set(snap.agents.map((a: any) => a.pane_id));
 	const sleepers = (snap.panes ?? [])
 		.filter((p: any) => p.sleeping_session && !awake.has(p.pane_id))
-		.map((p: any) => ({ ...p, agent: "pi", agent_status: "idle", agent_session: { agent: "pi", kind: "path", value: p.sleeping_session } }));
+		.map((p: any) => ({ ...p, agent: "pi", agent_status: "idle", agent_session: { agent: "pi", kind: "path", value: p.sleeping_session }, asleep: true }));
 	for (const a of [...snap.agents, ...sleepers]) {
 		if (seenTabs.has(a.tab_id)) continue; // one card per tab (first agent pane)
 		seenTabs.add(a.tab_id);
@@ -951,7 +952,8 @@ async function pollOnce() {
 		}
 		const waiting: Waiting[] = a.agent_status === "working" ? [] : [...tick, ...(cs.waiting ? [{ title: "Marked waiting", kind: "manual" as const, detail: "asked the session to schedule its wake-up" }] : [])];
 		const isWaiting = waiting.length > 0 && a.agent_status !== "blocked";
-		const needsYou = a.agent_status === "blocked" || (!isWaiting && ready && (s?.lastAssistant?.ts ?? 0) > cs.seenAt);
+		// Asleep: no badge or ping (hibernation retires an unseen answer's badge; waking it brings the badge back).
+		const needsYou = !a.asleep && (a.agent_status === "blocked" || (!isWaiting && ready && (s?.lastAssistant?.ts ?? 0) > cs.seenAt));
 		const ats = s?.lastAssistant?.ts ?? 0;
 		// Only chats archived while working need the verdict (close, or bounce back).
 		const judgeIt = !!cs.archived;

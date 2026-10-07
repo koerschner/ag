@@ -233,6 +233,16 @@ def daemon():
         time.sleep(SWEEP_EVERY_S)
 
 
+def mark_asleep(sess):
+    """Tag this pane @ag_sleep=<session> (tmux), or clear it (sess=None). ag-mux reports the tag as the pane's
+    sleeping_session, so ag-dash keeps the chat on the board as an idle card and focus/prompts wake it."""
+    pane = os.environ.get("TMUX_PANE")
+    if not pane or not os.environ.get("TMUX"):
+        return
+    args = ["set-option", "-p", "-t", pane, "@ag_sleep", sess] if sess else ["set-option", "-p", "-u", "-t", pane, "@ag_sleep"]
+    subprocess.run(["tmux", *args], capture_output=True)
+
+
 def wait_screen(sess):
     import termios
     import tty
@@ -240,6 +250,7 @@ def wait_screen(sess):
     marker = os.path.join(WAITING, str(os.getpid()))
     with open(marker, "w") as f:
         f.write(sess)
+    mark_asleep(sess)
     since = time.strftime("%a %H:%M", time.localtime(os.path.getmtime(sess)))
     sys.stdout.write("\033]0;💤 π\007\033[2J\033[H")
     sys.stdout.write(f"\n  💤 pi session hibernated to save memory (last active {since}).\n\n"
@@ -254,6 +265,7 @@ def wait_screen(sess):
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
         os.unlink(marker)
+        mark_asleep(None)
     sys.stdout.write("\033[2J\033[H")
     sys.exit(1 if ch in (b"\x03", b"\x04") else 0)
 

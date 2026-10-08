@@ -324,7 +324,7 @@ function tickSchedule(title: string, when?: string, at?: string): string {
 // ---------- shell segment rules ----------
 
 const FILTERS = new Set(["grep", "rg", "egrep", "head", "tail", "jq", "sed", "awk", "sort", "uniq", "wc", "cut", "tr", "cat", "column", "less", "tee", "fold", "nl", "fmt", "base64", "xxd", "od", "python3", "node", "paste"]);
-const NOISE = /^(?:echo|printf|sleep|date|true|false|:|set|export|umask|source|\.|wait|clear|unset|cd|pushd|popd|local|shopt|trap|exit|return|break|continue|read|done|fi|esac|else|\[\[?|\]|test|time|then|do|print|pwd|setopt|unsetopt|declare|typeset|emulate)$/;
+const NOISE = /^(?:echo|printf|sleep|date|true|false|:|set|export|umask|source|\.|wait|clear|unset|cd|pushd|popd|local|shopt|trap|exit|return|break|continue|read|done|fi|esac|else|\[\[?|\]|test|time|then|do|print|pwd|setopt|unsetopt|declare|typeset|emulate|hash|rehash)$/;
 
 type Rule = { id: string; cmd: RegExp; fn: (args: string[], raw: string, ctx: Ctx, seg: string) => string | SegOut | undefined };
 
@@ -368,7 +368,7 @@ const gitSub: Record<string, (a: string[]) => string | undefined> = {
 	remote: () => "Git remotes",
 	"merge-base": () => "Find merge base",
 	blame: (a) => `Blame ${shortPath(positional(a, ["-L"]).pop() ?? "")}`,
-	restore: (a) => `Restore ${paths(positional(a, ["--source", "-s"]))}`,
+	restore: (a) => { const f = paths(positional(a, ["--source", "-s"])); const staged = a.includes("--staged") || a.includes("-S"); return staged && !a.some((x) => x === "--worktree" || x === "-W") ? `Unstage ${f === "." ? "all changes" : f}` : `Restore ${f}${flagVal(a, "--source", "-s") ? ` from ${flagVal(a, "--source", "-s")}` : ""}`; },
 	rm: (a) => `Untrack ${paths(positional(a))}`,
 	mv: (a) => { const p = positional(a); return `Move ${shortPath(p[0] ?? "")} → ${shortPath(p[1] ?? "")}`; },
 	tag: () => "Git tags",
@@ -897,6 +897,45 @@ const RULES: Rule[] = [
 		const q1 = (x: string) => (/[\s'"$`\\;&|<>()]/.test(x) ? `'${x.replace(/'/g, "'\\''")}'` : x);
 		return summarizeShell([`ag-${v}`, ...a.slice(a.indexOf(v) + 1).map(q1)].join(" "), ctx).sum;
 	} },
+	{ id: "ag-t3", cmd: /^(?:~\/\.local\/bin\/|(?:\.\/)?(?:[\w.-]+\/)*bin\/)?ag-t3$/, fn: (a) => {
+		// Ag's bridge to the T3 Code server (docs/t3.md)
+		const [v, ...r] = positional(a, ["--title", "--model", "--project", "--since"]);
+		const id = (x?: string) => (!x ? "" : /\//.test(x) ? clip(shortPath(x), 40) : /^[0-9a-f]{8}-[0-9a-f-]+$/i.test(x) ? x.slice(0, 8) : clip(x, 30));
+		const q = (x: string) => `"${clip(x.replace(/\s+/g, " "), 40)}"`;
+		switch (v) {
+			case "new": return `Start T3 thread${flagVal(a, "--title") ? ` ${q(flagVal(a, "--title")!)}` : r.length ? `: ${q(r.join(" "))}` : ""}`;
+			case "send": return r[0] ? `Send ${r[1] ? q(r.slice(1).join(" ")) : "a message"} to T3 thread ${id(r[0])}` : undefined;
+			case "thread": return r[0] ? `Find the T3 thread for ${id(r[0])}` : undefined;
+			case "threads": return "List T3 threads";
+			case "import": return `${a.includes("--dry-run") ? "Preview importing" : "Import"} ${a.includes("--all-open") ? "all open sessions" : r.length === 1 ? id(r[0]) : r.length ? `${r.length} sessions` : "sessions"} into T3`;
+			case "link": return r[0] ? `Get link to T3 thread ${id(r[0])}` : undefined;
+			case "delete": return r.length ? `Delete T3 thread${r.length > 1 ? "s" : ""} ${r.map(id).join(", ")}` : undefined;
+			case "refresh": return "Refresh imported T3 history";
+			case "setup": return "Set up T3's Pi provider";
+			case "setup-models": return "Set up T3's Pi models";
+			case "doctor": return "Check the T3/Pi setup";
+			case "token": return "Issue a T3 admin token";
+		}
+	} },
+	{ id: "t3", cmd: /^(?:~\/\.local\/bin\/)?t3$/, fn: (a) => {
+		// the T3 Code server CLI
+		const [v, w] = positional(a, ["--ttl", "--label", "--channel", "--port", "--host", "--base-dir", "--log-level"]);
+		if (a.includes("--help") || a.includes("-h")) return `Read help for t3${v ? ` ${v}${w ? ` ${w}` : ""}` : ""}`;
+		if (!v && (a.includes("--version") || a.includes("-v"))) return "Check the t3 version";
+		switch (v) {
+			case "pair": { const l = flagVal(a, "--label"), t = flagVal(a, "--ttl"); return `Mint a T3 pairing token${l ? ` for ${clip(l, 30)}` : ""}${t ? ` (${t})` : ""}`; }
+			case "update": return `Update t3${flagVal(a, "--channel") ? ` (${flagVal(a, "--channel")})` : ""}`;
+			case "service": { const sv: Record<string, string> = { install: "Install", uninstall: "Uninstall", start: "Start", stop: "Stop", restart: "Restart", status: "Check" }; return w && sv[w] ? `${sv[w]} the T3 service` : undefined; }
+		}
+	} },
+	{ id: "ag-image", cmd: /^ag-image$/, fn: (a) => {
+		const p = positional(a, ["-o", "--out", "-i", "--image", "--aspect", "--size", "-n", "--model"]);
+		if (a.includes("--help") || a.includes("-h")) return "Read help for ag-image";
+		if (!p[0]) return;
+		const out = flagVal(a, "-o", "--out");
+		const edit = flagVal(a, "-i", "--image") ? "Edit image" : "Generate image";
+		return `${edit}${out ? ` ${shortPath(out)}` : ""}: "${clip(p[0].replace(/\s+/g, " "), 40)}"`;
+	} },
 	{ id: "ag-messages", cmd: /^ag-messages$/, fn: (a) => {
 		const [sub, x] = positional(a, ["--file"]);
 		switch (sub) {
@@ -1182,7 +1221,14 @@ export function summarizeShell(command: string, ctx: Ctx, top = false): Summary 
 	for (const o of outs.map(label)) {
 		const verb = o.match(/^(Stop|Delete|Read|List|Make folder|Search repo for|Find process|Check CI on|Run) /)?.[1];
 		const prev = merged[merged.length - 1];
-		if (verb && prev?.startsWith(`${verb} `) && !prev.includes(" · ")) merged[merged.length - 1] = `${prev}, ${o.slice(verb.length + 1)}`;
+		if (verb && prev?.startsWith(`${verb} `) && !prev.includes(" · ")) {
+			let add = o.slice(verb.length + 1);
+			// "Read a.ts:1–5, a.ts:9–12" → "Read a.ts:1–5, 9–12"
+			const file = add.match(/^(\S+):\d+(?:–\d+)?$/)?.[1];
+			const last = prev.match(/(?:^Read |, )(\S+?):\d+(?:–\d+)?(?:, \d+(?:–\d+)?)*$/)?.[1];
+			if (verb === "Read" && file && file === last) add = add.slice(file.length + 1);
+			merged[merged.length - 1] = `${prev}, ${add}`;
+		}
 		else merged.push(o);
 	}
 	let sum = merged.slice(0, 3).join(" · ");
@@ -1212,6 +1258,46 @@ function mcpSummary(name: string, args: any): Summary | undefined {
 	if (Array.isArray(v)) v = v.join(" ");
 	const detail = v !== undefined ? ` ${typeof v === "string" ? `"${clip(v.replace(/\s+/g, " "), 40)}"` : clip(JSON.stringify(v), 40)}` : "";
 	return { sum: `${srv[1]}: ${verb}${detail}`, hosts: [srv[2] ?? "mcp"], rule: "mcp" };
+}
+
+/** T3 Code's own MCP tools (mcp__t3-code__*): its threads, headless preview browser, delegated tasks and PR watches. */
+function t3McpSummary(verb: string, args: any): string | undefined {
+	const th = (x?: string) => `T3 thread ${String(x ?? "").slice(0, 8)}`;
+	const q = (x: unknown, n = 40) => `"${clip(String(x ?? "").replace(/\s+/g, " "), n)}"`;
+	const task = (x?: string) => { const d = (() => { try { return decodeURIComponent(String(x ?? "")); } catch { return String(x ?? ""); } })(); return clip(d.split(":").pop() ?? d, 40); };
+	const pr = (u?: string) => { const m = String(u ?? "").match(/github\.com\/[^/]+\/([^/]+)\/pull\/(\d+)/); return m ? `${m[1]}#${m[2]}` : shortUrl(String(u ?? "")); };
+	const a = args ?? {};
+	switch (verb) {
+		case "task_status": return `Check delegated task ${task(a.taskId)}`;
+		case "task_cancel": return `Cancel delegated task ${task(a.taskId)}`;
+		case "delegate_task": return a.task ? `Delegate task: ${q(a.task, 50)}` : undefined;
+		case "preview_snapshot": return `Snapshot the preview page${a.save ? " (saved)" : ""}`;
+		case "preview_screenshot": return "Screenshot the preview page";
+		case "preview_open": return a.url ? `Open preview of ${shortUrl(a.url)}` : "Open a preview";
+		case "preview_navigate": return a.url ? `Preview: go to ${shortUrl(a.url)}` : undefined;
+		case "preview_evaluate": return "Preview: run JavaScript";
+		case "preview_click": return a.locator ? `Preview: click ${clip(String(a.locator), 40)}` : undefined;
+		case "preview_type": return a.text !== undefined ? `Preview: type ${q(a.text, 30)}` : undefined;
+		case "preview_press": return a.key ? `Preview: press ${clip(String(a.key), 20)}` : undefined;
+		case "preview_scroll": return "Preview: scroll";
+		case "preview_resize": return `Preview: resize${a.width && a.height ? ` to ${a.width}×${a.height}` : ""}`;
+		case "preview_wait_for": return a.text ? `Preview: wait for ${q(a.text, 40)}` : "Preview: wait";
+		case "preview_status": return "Check the preview browser";
+		case "preview_close": case "t3_preview_close": return "Close a preview tab";
+		case "html_preview": case "html_render": return `Render HTML${a.title ? ` ${q(a.title)}` : ""} in T3`;
+		case "watch_pull_request": return a.url ? `Watch PR ${pr(a.url)}` : undefined;
+		case "unwatch_pull_request": return a.url ? `Stop watching PR ${pr(a.url)}` : undefined;
+		case "link_pull_request": return a.url ? `Link PR ${pr(a.url)} to this thread` : undefined;
+		case "unlink_pull_request": return a.url ? `Unlink PR ${pr(a.url)}` : undefined;
+		case "orchestrator_capabilities": return "List T3 orchestrator capabilities";
+		case "t3_environment_read": return "Read the T3 environment";
+		case "t3_thread_read": return a.threadId ? `Read ${a.view === "activity" ? "activity of " : ""}${th(a.threadId)}` : undefined;
+		case "t3_thread_search": return a.query ? `Search T3 threads for ${q(a.query)}` : undefined;
+		case "t3_thread_send": return a.threadId ? `Send ${a.message ? q(a.message) : "a message"} to ${th(a.threadId)}` : undefined;
+		case "t3_thread_configuration": return a.threadId ? `Read settings of ${th(a.threadId)}` : undefined;
+		case "t3_thread_configure": return a.threadId && a.modelSelection?.model ? `Set ${th(a.threadId)} model → ${clip(String(a.modelSelection.model).split("/").pop()!, 30)}` : undefined;
+		case "t3_thread_update": return a.threadId && a.action === "rename" && a.title ? `Rename ${th(a.threadId)} → ${q(a.title)}` : undefined;
+	}
 }
 
 const IMG = /\.(png|jpe?g|gif|webp|heic|svg)$/i;
@@ -1264,6 +1350,7 @@ export function summarize(name: string, args: any, ctx: Ctx = { host: "ag-engine
 			case "ship_halt":
 				return { sum: `${name === "ship_done" ? "Finish" : "Halt"} /ship${args.pr ? ` (PR #${args.pr})` : ""}`, hosts: [ctx.host], rule: "ship" };
 		}
+		if (name.startsWith("mcp__t3-code__")) { const s = t3McpSummary(name.slice(14), args); return s ? { sum: s, hosts: [ctx.host], rule: "mcp-t3" } : { hosts: [ctx.host] }; }
 		if (name.startsWith("mcp_")) return mcpSummary(name, args) ?? { hosts: ["mcp"] };
 	} catch {
 		// A rule that throws is a rule that didn't match.

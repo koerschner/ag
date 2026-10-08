@@ -2585,5 +2585,190 @@
   "hosts": [
    "ag-engine"
   ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-t3 send 5c2d558e-c55e-414c-9199-f8116adca549 \"Forwarded from the Inbox: findings\""
+  },
+  "sum": "Send \"Forwarded from the Inbox: findings\" to T3 thread 5c2d558e",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-t3 link 64ce1024-df70-4525-bfb2-e783d58fa6a7; ag-t3 threads --json | jq '.[0]'"
+  },
+  "sum": "Get link to T3 thread 64ce1024 \u00b7 List T3 threads",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-t3 import --dry-run --all-open > /tmp/t3mig/dry.json"
+  },
+  "sum": "Preview importing all open sessions into T3",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-t3 doctor; ag-t3 setup"
+  },
+  "sum": "Check the T3/Pi setup \u00b7 Set up T3's Pi provider",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "t3 pair --tailscale --ttl 24h --label nathan-client 2>&1"
+  },
+  "sum": "Mint a T3 pairing token for nathan-client (24h)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "~/.local/bin/t3 pair --tailscale --ttl 10m --label engine-check 2>&1"
+  },
+  "sum": "Mint a T3 pairing token for engine-check (10m)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "t3 update --channel nightly --yes 2>&1"
+  },
+  "sum": "Update t3 (nightly)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "hash -r; t3 service install"
+  },
+  "sum": "Install the T3 service",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-image --aspect 16:9 --size 1K -o agimg-test.jpg \"a small green cube on a white table\""
+  },
+  "sum": "Generate image agimg-test.jpg: \"a small green cube on a white table\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-image -n 3 -i rec/chip.png -o out.png \"make it blue\""
+  },
+  "sum": "Edit image out.png: \"make it blue\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "mcp__t3-code__task_status",
+  "args": {
+   "taskId": "node:delegated-task:command%3Amcp%3Ac39d12e9%3Adelegate-task%3Aaudit-t3-harness-20261007-1"
+  },
+  "sum": "Check delegated task audit-t3-harness-20261007-1",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "mcp__t3-code__preview_snapshot",
+  "args": {
+   "save": true
+  },
+  "sum": "Snapshot the preview page (saved)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "mcp__t3-code__t3_thread_read",
+  "args": {
+   "threadId": "ad7dcc39-6526-43ec-8cda-e56bffd5ad7a",
+   "view": "activity",
+   "limit": 30
+  },
+  "sum": "Read activity of T3 thread ad7dcc39",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "mcp__t3-code__watch_pull_request",
+  "args": {
+   "url": "https://github.com/superbuilders/tsa-homepage/pull/11265"
+  },
+  "sum": "Watch PR tsa-homepage#11265",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "mcp__t3-code__preview_open",
+  "args": {
+   "url": "https://www.aclfestival.com/lineup",
+   "open": false
+  },
+  "sum": "Open preview of aclfestival.com/lineup",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "mcp__t3-code__t3_thread_update",
+  "args": {
+   "threadId": "1974b320-c4f8-49c1-ad27-34cbf440b8ec",
+   "action": "rename",
+   "title": "Hetzner limit"
+  },
+  "sum": "Rename T3 thread 1974b320 \u2192 \"Hetzner limit\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/x && sed -n 55,82p src/a/b/c/access.ts; sed -n 625,660p src/a/b/c/access.ts; sed -n 1,5p b.ts"
+  },
+  "sum": "Read src/\u2026/c/access.ts:55\u201382, 625\u2013660, b.ts:1\u20135",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "git reset -q --soft origin/dev && git restore --staged . && git restore --source origin/dev a.ts"
+  },
+  "sum": "Reset branch \u00b7 Unstage all changes \u00b7 Restore a.ts from origin/dev",
+  "hosts": [
+   "ag-engine"
+  ]
  }
 ]

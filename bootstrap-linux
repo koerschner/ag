@@ -198,6 +198,7 @@ systemctl --user enable --now ag-dash.service >/dev/null 2>&1 && echo "  ag-dash
 ~/.local/bin/ag-shortcuts-check >/dev/null 2>&1 && echo "  shortcuts match tmux/SHORTCUTS.md" || warn "ag shortcuts drifted (run ag-shortcuts-check)"
 systemctl --user enable --now ag-nessie.service >/dev/null 2>&1 && echo "  nessie (trace sync) on" || warn "ag-nessie.service"
 systemctl --user enable --now ag-telegram.service >/dev/null 2>&1 && echo "  ag-telegram (Telegram replies) on" || warn "ag-telegram.service"
+systemctl --user enable --now ag-discord.service >/dev/null 2>&1 && echo "  ag-discord (Discord feedback buttons) on" || warn "ag-discord.service"
 systemctl --user enable --now ag-telemetry.service >/dev/null 2>&1 && echo "  ag-telemetry (crash readout, http://ag:7378) on" || warn "ag-telemetry.service"
 # T3 Code (docs/t3.md): the pinned nightly into ~/.t3 -> /data/t3, Pi enabled, then the service (host only).
 if "$AG/bin/dot-local/bin/ag-machine-role" host 2>/dev/null; then

@@ -376,6 +376,13 @@ Moshi on the iPhone connects to the session host over Tailscale and attaches to 
   Inbox session (`/prompt?new=1`). The agent then marks their message: `ag telegram done <id>` (👌,
   completed) or `ag telegram more <id> "context"` (✍ plus a threaded reply). Bots can't react
   with ✅/➡️ (Telegram's fixed reaction set). Log: `~/.local/state/ag/telegram-log.jsonl`.
+- **Discord feedback buttons**: every `ag discord post` carries two buttons, "thanks!" and
+  "bro..." (`--no-buttons` leaves them off), whose ids name the posting session.
+  `ag discord listen` (`ag-discord.service`, session host; a gateway connection, run under uv
+  with `websockets`) answers presses with an ephemeral note. "bro..." (once per person per
+  message) prompts that session (`ag send`, `ag resume` first if closed, else the ag-inbox)
+  that its reply missed, and texts the user (`ag-text`, so a Telegram reply routes back to it).
+  Log: `~/.local/state/ag/discord-feedback.jsonl`.
 - **Telegram status emoji**: ag-notify's own texts carry a status that is edited in place (no new
   ping, since reactions can't be ✅/🔄/➡️): 🔄 when the user comes back to that session and a turn
   starts, ✅ or ⚠️ when it ends, ➡️ once the session sends a newer text. `ag-text` with

@@ -1,0 +1,14 @@
+# ag discord listen: answers the thanks!/bro... buttons on the ag bot's Discord posts
+# ("bro..." wakes the posting session and texts the owner). Session host only (machines/README.md role host).
+[Unit]
+Description=ag-discord (Discord feedback buttons → sessions)
+After=network-online.target ag-mux.service
+
+[Service]
+ExecCondition=%h/.local/bin/ag-machine-role host
+ExecStart=/usr/bin/zsh -lc 'exec %h/.local/bin/ag-discord listen'
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

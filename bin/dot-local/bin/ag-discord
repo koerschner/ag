@@ -8,6 +8,7 @@
   ag discord get <message link>             one message (with what it replies to)
   ag discord post <target> [--reply-to ID|LINK] [--file PATH]... [--dry-run] [TEXT | stdin]
   ag discord delete <message link>          delete one of the bot's own messages (fix a mistake)
+  ag discord listen                         handle the feedback buttons (ag-discord.service on the session host)
   ag discord dce <DiscordChatExporter args> run DiscordChatExporter with the bot token (discord-export skill)
 
 <target> is a channel or thread: an id, a name (`frank`, `#frank`, a thread title), or a
@@ -18,6 +19,12 @@ replies to that message in its channel, so the target can be omitted:
 Posts come from the bot, so every post must open with the AI attribution line
 ("<Assistant> (<model>), assisting <user>:"); `post` refuses text that doesn't. Mentions are
 limited to users (never @everyone/@here/roles).
+
+Feedback buttons: every post carries two buttons, "thanks!" and "bro..." (`--no-buttons` to leave
+them off), tagged with the posting session ($PI_SESSION_ID, else `ag me`). `listen` (a gateway
+connection) answers presses: "thanks!" is acknowledged and logged; "bro..." wakes that session
+(`ag send`, reopening it if closed) saying the reply missed, and texts the user (`ag-text`).
+Presses are logged to ~/.local/state/ag/discord-feedback.jsonl.
 
 Token: $DISCORD_BOT_TOKEN, else op-work item "Discord bot (Arcade)" (field credential) in
 ag-vault. Server: $DISCORD_GUILD, else the DISCORD_GUILD= line in ~/ag-personal/env.
@@ -260,6 +267,8 @@ def cmd_post(a):
     if not ch:
         die("give a channel/thread, or --reply-to a message link", 2)
     body = {"content": text, "allowed_mentions": {"parse": ["users"], "replied_user": True}}
+    if not a.no_buttons:
+        body["components"] = buttons(session_id())
     if reply:
         body["message_reference"] = {"message_id": reply, "channel_id": ch, "fail_if_not_exists": True}
     if a.dry_run:
@@ -267,6 +276,27 @@ def cmd_post(a):
         return
     res = api("POST", f"/channels/{ch}/messages", body, files=a.file)
     print(link(ch, res["id"]))
+
+
+FEEDBACK = Path.home() / ".local/state/ag/discord-feedback.jsonl"
+BIN = Path.home() / ".local/bin"
+
+
+def session_id():
+    sid = os.environ.get("PI_SESSION_ID", "")
+    if not sid:
+        try:
+            sid = json.loads(subprocess.run([str(BIN / "ag"), "me", "--json"], capture_output=True, text=True,
+                                            timeout=15).stdout or "{}").get("sid") or ""
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            sid = ""
+    sid = sid.rsplit("_", 1)[-1].removesuffix(".jsonl")
+    return sid if re.fullmatch(r"[0-9a-fA-F-]{8,64}", sid) else ""
+
+
+def buttons(sid):
+    b = lambda kind, label, style: {"type": 2, "style": style, "label": label, "custom_id": f"ag:fb:{kind}:{sid}"}
+    return [{"type": 1, "components": [b("thanks", "thanks!", 3), b("bro", "bro...", 2)]}]
 
 
 def cmd_delete(a):
@@ -287,6 +317,10 @@ def cmd_dce(rest):
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "dce":
         return cmd_dce(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "listen":
+        # The gateway half needs `websockets`, so it runs under uv.
+        lib = Path(__file__).resolve().parent.parent / "lib/ag/ag_discord_listen.py"
+        os.execvp("uv", ["uv", "run", "-q", "--no-project", "--with", "websockets>=13", "python3", str(lib)])
     p = argparse.ArgumentParser(prog="ag discord", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("whoami").set_defaults(f=cmd_whoami)
@@ -299,6 +333,7 @@ def main():
     s = sub.add_parser("post"); s.add_argument("target", nargs="?"); s.add_argument("text", nargs="?")
     s.add_argument("--reply-to"); s.add_argument("--file", action="append")
     s.add_argument("--dry-run", action="store_true"); s.add_argument("--no-attribution", action="store_true")
+    s.add_argument("--no-buttons", action="store_true", help="leave off the thanks!/bro... feedback buttons")
     s.set_defaults(f=cmd_post)
     a = p.parse_args()
     # `post --reply-to LINK "text"`: a single positional is the text, not a target.

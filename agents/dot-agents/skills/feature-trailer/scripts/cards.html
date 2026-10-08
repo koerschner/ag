@@ -164,6 +164,63 @@ function setupGrid({ dur, beat, label = '', head = '', tiles = [], color }) {
   }
 }
 
+// A lineup that builds one item per step (events, drops, a schedule). Each item: { img, name, when, mystery }.
+// A mystery item arrives shrouded: dark blurred art, a pulsing "?", a sweeping spotlight; it lands last, after a pause.
+function setupLineup({ dur, beat, label = '', head = '', foot = '', items = [], step = 2, color }) {
+  const s = stage(), bgTick = backdrop(s)
+  const n = items.length, cols = n <= 3 ? n : 2, rows = Math.ceil(n / cols)
+  const W = cols === 2 ? 500 : 520, H = Math.round(W * 9 / 16), G = 40
+  const X0 = (1920 - cols * W - (cols - 1) * G) / 2, Y0 = 240
+  const l = $(`<div class="abs label" style="left:0;right:0;text-align:center;top:70px;color:${color || 'var(--accent2)'}">${label}</div>`)
+  const hd = $(`<div class="abs title" style="left:0;right:0;text-align:center;top:112px;font-size:92px;text-shadow:0 0 40px color-mix(in srgb,var(--accent2) 55%,transparent),0 8px 0 color-mix(in srgb,var(--accent2) 55%,#000)">${head}</div>`)
+  const ft = $(`<div class="abs tag" style="left:0;right:0;text-align:center;top:${Y0 + rows * (H + 70) + 4}px;font-size:44px">${foot}</div>`)
+  s.append(l, hd, ft)
+  const t0 = 0.5
+  const at = i => t0 + i * beat * step + (items[i].mystery ? beat * step : 0)
+  const els = items.map((it, i) => {
+    const el = $(`<div class="abs" style="width:${W}px"></div>`)
+    const card = $(`<div style="position:relative;width:${W}px;height:${H}px;border-radius:22px;overflow:hidden;box-shadow:0 0 0 4px rgba(255,255,255,.9),0 18px 40px rgba(0,0,0,.6);background:#000"></div>`)
+    const art = $(`<div style="position:absolute;inset:0;background:url('${it.img}') center/cover"></div>`)
+    card.append(art)
+    let q = null, sweep = null
+    if (it.mystery) {
+      art.style.filter = 'blur(18px) brightness(.35) saturate(1.4)'; art.style.transform = 'scale(1.15)'
+      q = $(`<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:Display,sans-serif;font-weight:700;font-size:${H * 0.62}px;color:#fff;text-shadow:0 0 40px ${color || '#ffd447'},0 0 90px ${color || '#ffd447'}">?</div>`)
+      sweep = $(`<div style="position:absolute;top:-20%;bottom:-20%;width:40%;background:linear-gradient(90deg,transparent,rgba(255,240,200,.35),transparent);transform:skewX(-18deg)"></div>`)
+      card.append(sweep, q)
+    }
+    const nm = $(`<div style="margin-top:12px;display:flex;justify-content:space-between;align-items:baseline;font-family:Body,sans-serif;color:#fff"><span style="font-weight:800;font-size:32px">${it.name}</span><span style="font-weight:700;font-size:26px;color:var(--accent2)">${it.when || ''}</span></div>`)
+    el.append(card, nm)
+    el.style.left = `${X0 + (i % cols) * (W + G)}px`; el.style.top = `${Y0 + Math.floor(i / cols) * (H + 70)}px`
+    s.append(el); return { el, q, sweep, card }
+  })
+  window.render = t => {
+    bgTick(t)
+    s.style.opacity = clamp(t / 0.25) * (1 - clamp((t - (dur - 0.35)) / 0.35))
+    hd.style.transform = `scale(${lerp(1.3, 1, back(t / 0.4))})`; hd.style.opacity = clamp(t / 0.15)
+    l.style.opacity = clamp(t / 0.3)
+    const mi = items.findIndex(it => it.mystery)
+    const focus = mi < 0 ? 0 : ease((t - at(mi) + 0.2) / 0.4) // the room dims when the mystery arrives
+    els.forEach(({ el, q, sweep, card }, i) => {
+      const a = at(i), ti = (t - a) / 0.32
+      const grow = i === mi ? 0.06 * focus : 0
+      el.style.transform = `translateY(${lerp(80, 0, back(ti))}px) scale(${lerp(0.5, 1, back(ti)) + grow}) rotate(${lerp(i % 2 ? 6 : -6, 0, ease(ti))}deg)`
+      el.style.opacity = clamp(ti * 3) * (i === mi || mi < 0 ? 1 : 1 - 0.55 * focus)
+      el.style.zIndex = i === mi ? 2 : 1
+      if (q) {
+        const since = Math.max(0, t - a)
+        const pulse = Math.pow(1 - ((since / beat) % 1), 3)
+        q.style.transform = `scale(${1 + 0.12 * pulse})`
+        sweep.style.left = `${-50 + ((since * 70) % 200)}%`
+        // a nervous shake while it waits
+        card.style.transform = `translate(${Math.sin(since * 47) * 2.5 * clamp(since)}px, ${Math.cos(since * 39) * 2}px)`
+      }
+    })
+    const last = at(items.length - 1)
+    ft.style.opacity = clamp((t - last - beat * 2) / 0.3); ft.style.transform = `translateY(${lerp(24, 0, ease((t - last - beat * 2) / 0.4))}px)`
+  }
+}
+
 // Call to action: tiles of each feature's art, head arriving oversized, sub + CTA pill pulsing on the beat.
 function setupOutro({ dur, beat, head = '', sub = '', cta = '', tiles = [] }) {
   const s = stage(), bgTick = backdrop(s)

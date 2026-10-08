@@ -72,8 +72,8 @@ def main():
         add('intro', intro, intro.get('beats', 8))
     drop_at = t
     for i, f in enumerate(S['features']):
-        if f.get('kind') in ('panel', 'grid'):
-            add(f['kind'], f, f.get('beats', 16 if f['kind'] == 'panel' else 12))
+        if f.get('kind') in ('panel', 'grid', 'lineup'):
+            add(f['kind'], f, f.get('beats', {'panel': 16, 'grid': 12, 'lineup': 16}[f['kind']]))
             continue
         f = dict(f, index=features.index(f) + 1)
         f.setdefault('color', accent); f.setdefault('color2', accent2)
@@ -163,6 +163,10 @@ def main():
         elif k == 'grid':
             x['frames'] = frames('setupGrid', dict(beat=beat, label=p.get('label', ''), head=p.get('head', ''), color=p.get('color'),
                                                    tiles=[[P(a), n] for a, n in p['tiles']]), dur)
+        elif k == 'lineup':
+            x['frames'] = frames('setupLineup', dict(beat=beat, label=p.get('label', ''), head=p.get('head', ''), foot=p.get('foot', ''),
+                                                     step=p.get('step', 2), color=p.get('color'),
+                                                     items=[dict(it, img=P(it['img'])) for it in p['items']]), dur)
         elif k == 'outro':
             tiles = [[f['_art'], f.get('tab', f['name'])] for f in features] if p.get('tiles', True) else []
             x['frames'] = frames('setupOutro', dict(beat=beat, head=p.get('head', ''), sub=p.get('sub', ''), cta=p.get('cta', ''), tiles=tiles), dur)
@@ -194,7 +198,7 @@ def main():
     def seg_cmd(i, x):
         k, p, n = x['kind'], x['p'], x['n']
         dur = n / FPS
-        if k in ('intro', 'title', 'outro', 'grid'):
+        if k in ('intro', 'title', 'outro', 'grid', 'lineup'):
             return f'ffmpeg -v error -y -framerate {FPS} -i "{x["frames"]}/f%04d.png" -frames:v {n} {enc} {{OUT}}'
         if k == 'panel':
             px, py, pw, ph = p.get('win', PANEL_WIN)
@@ -278,13 +282,24 @@ def main():
         k, p, st = x['kind'], x['p'], x['start']
         if auto and k == 'intro':
             place(sfx('whoosh-cinematic'), st + 0.0, 0.6, length=3.0)
-        if auto and k in ('title', 'panel', 'grid'):
+        if auto and k in ('title', 'panel', 'grid', 'lineup'):
             place(sfx('whoosh-short'), st - 0.15, 0.6)
             if k == 'title':
                 place(sfx('impact-bass-1'), st, 0.2, length=0.9)
             if k == 'grid':
                 for ti in range(len(p['tiles'])):
                     place(sfx('pop'), st + 0.35 + ti * beat * 0.5, 0.35)
+            if k == 'lineup':  # mirrors setupLineup's timing
+                step = p.get('step', 2)
+                for ii, it in enumerate(p['items']):
+                    a = st + 0.5 + ii * beat * step + (beat * step if it.get('mystery') else 0)
+                    if it.get('mystery'):
+                        place(sfx('riser'), a - beat * step, 0.45, skip=10.0 - beat * step, length=beat * step + 0.3)
+                        place(sfx('impact-bass-2'), a, 0.35, length=1.6)
+                        place(sfx('glitch-2'), a + 0.05, 0.3, length=0.6)
+                    else:
+                        place(sfx('whoosh-short'), a - 0.12, 0.45)
+                        place(sfx('pop'), a + 0.05, 0.5)
         if auto and k == 'outro':
             place(sfx('whoosh'), st - 0.2, 0.6)
             place(sfx('sparkle'), st + (beat * 2 if p.get('tiles', True) else 0.05), 0.6)

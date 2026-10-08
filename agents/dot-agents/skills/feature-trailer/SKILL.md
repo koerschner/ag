@@ -95,7 +95,10 @@ Paths are relative to the spec file. Every segment length is in beats of `bpm`.
       "win": [960, 140, 800, 800], "zoom": 1.15 },            // a still with a slow push (no footage yet)
     { "kind": "panel", "label": "Sneak peek", "head": "Coming<br>soon", "clip": "clips/x.mp4", "in": 15, "out": 21,
       "crop": [470, 140, 580, 330], "blur": 5 },              // teaser: a blurred glimpse
-    { "kind": "grid", "label": "Also new", "head": "New games", "tiles": [["art/a.png", "Game A"], ["art/b.png", "Game B"]] }
+    { "kind": "grid", "label": "Also new", "head": "New games", "tiles": [["art/a.png", "Game A"], ["art/b.png", "Game B"]] },
+    { "kind": "lineup", "label": "Oct 12–16", "head": "Event week", "foot": "RSVP now!", "step": 2,   // items pop in one per `step` beats
+      "items": [{ "img": "art/e1.webp", "name": "Trivia", "when": "Mon" },
+                { "img": "art/e4.webp", "name": "Mystery Movie", "when": "Fri", "mystery": true }] }  // shrouded, lands last on a riser
   ],
   "outro": { "head": "Try it<br>now", "sub": "in Acme", "cta": "RSVP in Events", "beats": 12, "tiles": true },
   "auto_sfx": true,                                           // whoosh/impact on cards, pop on captions, sparkle on the outro

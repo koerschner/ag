@@ -1,0 +1,206 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+@font-face { font-family: Display; src: url(/font/display); font-weight: 700; }
+@font-face { font-family: Body; src: url(/font/body); font-weight: 100 900; }
+:root { --bg: #070b18; --bg2: #16306b; --accent: #3d8bff; --accent2: #ffb400; --ink: #fff; --muted: #c6d3f5; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 1920px; height: 1080px; overflow: hidden; background: var(--bg); }
+.stage { position: absolute; inset: 0; overflow: hidden; }
+.bg { position: absolute; inset: 0; background: radial-gradient(1200px 700px at 70% 40%, var(--bg2) 0%, var(--bg) 100%); }
+.grid { position: absolute; inset: -200px; top: 380px; transform-origin: 50% 100%;
+  background-image: linear-gradient(color-mix(in srgb, var(--accent) 14%, transparent) 2px, transparent 2px),
+                    linear-gradient(90deg, color-mix(in srgb, var(--accent) 14%, transparent) 2px, transparent 2px);
+  background-size: 80px 80px; transform: perspective(900px) rotateX(55deg) translateY(var(--gy, 0px)); }
+.art { position: absolute; inset: 0; background-size: cover; background-position: center; }
+.shade { position: absolute; inset: 0; background: linear-gradient(90deg, color-mix(in srgb, var(--bg) 94%, transparent) 0%, color-mix(in srgb, var(--bg) 75%, transparent) 38%, transparent 72%); }
+.label { font-family: Display, sans-serif; font-weight: 700; letter-spacing: .32em; font-size: 30px; color: var(--accent2); text-transform: uppercase; }
+.title { font-family: Display, sans-serif; font-weight: 700; text-transform: uppercase; line-height: .92; color: var(--ink); }
+.tag { font-family: Body, sans-serif; font-weight: 700; color: var(--ink); }
+.sub { font-family: Body, sans-serif; font-weight: 500; color: var(--muted); line-height: 1.3; }
+.abs { position: absolute; }
+.flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+.pill { display: inline-block; padding: 18px 42px; border-radius: 999px; font-family: Display, sans-serif; font-weight: 700; font-size: 40px; letter-spacing: .12em; text-transform: uppercase; color: #fff; }
+</style>
+</head>
+<body>
+<div class="stage" id="stage"></div>
+<script>
+// Each setupX(args) builds one card; window.render(t) poses it at time t (seconds).
+// args always carry dur; animated cards also get beat (seconds per beat) so moves land on the music.
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x))
+const ease = x => 1 - Math.pow(1 - clamp(x), 3)
+const back = x => { x = clamp(x); const c = 1.9; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2) }
+const lerp = (a, b, x) => a + (b - a) * x
+const $ = html => { const d = document.createElement('div'); d.innerHTML = html.trim(); return d.firstChild }
+const stage = () => { const s = document.getElementById('stage'); s.innerHTML = ''; s.style.cssText = ''; return s }
+const lines = s => (s || '').split('<br>').length
+window.render = () => {}
+
+function setTheme(theme = {}) {
+  for (const [k, v] of Object.entries(theme)) if (typeof v === 'string' && v.startsWith('#')) document.documentElement.style.setProperty(`--${k}`, v)
+}
+function backdrop(s) {
+  const grid = $(`<div class="grid"></div>`)
+  s.append($(`<div class="bg"></div>`), grid)
+  return t => grid.style.setProperty('--gy', `${(t * 120) % 80}px`)
+}
+
+// Brand open: label, a big word that arrives from oversized (inverse zoom), then the promise line.
+function setupIntro({ dur, beat, label = '', head = '', sub = '' }) {
+  const s = stage(), bgTick = backdrop(s)
+  const size = head.length > 12 ? 150 : 220
+  const l1 = $(`<div class="abs label" style="left:0;right:0;text-align:center;top:330px;font-size:34px">${label}</div>`)
+  const word = $(`<div class="abs title" style="left:0;right:0;text-align:center;top:380px;font-size:${size}px;text-shadow:0 0 60px color-mix(in srgb,var(--accent) 60%,transparent),0 12px 0 color-mix(in srgb,var(--accent) 55%,#000)">${head}</div>`)
+  const l2 = $(`<div class="abs tag" style="left:0;right:0;text-align:center;top:${380 + size * 1.05}px;font-size:60px">${sub}</div>`)
+  s.append(l1, word, l2)
+  window.render = t => {
+    bgTick(t)
+    const a = back(t / 0.55)
+    word.style.transform = `scale(${lerp(1.6, 1, a)})`; word.style.filter = `blur(${lerp(10, 0, ease(t / 0.4))}px)`
+    word.style.opacity = clamp(t / 0.15)
+    l1.style.opacity = clamp((t - 0.2) / 0.25)
+    const st = beat * 2
+    l2.style.opacity = clamp((t - st) / 0.2); l2.style.transform = `translateY(${lerp(30, 0, ease((t - st) / 0.35))}px)`
+    s.style.opacity = 1 - clamp((t - (dur - 0.15)) / 0.15)
+  }
+}
+
+// Feature title card: key art on the right, number + name + tagline on the left.
+function setupTitle({ dur, beat, line1 = '', name, tagline = '', sub = '', color, color2, art }) {
+  const s = stage(); backdrop(s)
+  if (art) s.append($(`<div class="art" style="left:520px;-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 35%);background-image:url('${art}')"></div>`), $(`<div class="shade"></div>`))
+  const artEl = s.querySelector('.art')
+  const two = name.includes('<br>'), size = name.replace(/<br>/g, '').length > 14 ? 110 : 150
+  const top2 = 380 + size * (two ? 1.9 : 1.0) + 30
+  const label = $(`<div class="abs label" style="left:120px;top:300px;color:${color}">${line1}</div>`)
+  const bar = $(`<div class="abs" style="left:120px;top:350px;height:10px;border-radius:5px;width:0;background:linear-gradient(90deg,${color},${color2})"></div>`)
+  const title = $(`<div class="abs title" style="left:112px;top:380px;font-size:${size}px;max-width:1300px;text-shadow:0 0 40px ${color}88,0 8px 0 ${color2}">${name}</div>`)
+  const tag = $(`<div class="abs tag" style="left:120px;top:${top2}px;font-size:54px;max-width:1000px">${tagline}</div>`)
+  const subEl = $(`<div class="abs sub" style="left:120px;top:${top2 + 80}px;font-size:34px;max-width:900px">${sub}</div>`)
+  const flash = $(`<div class="flash"></div>`)
+  s.append(label, bar, title, tag, subEl, flash)
+  window.render = t => {
+    if (artEl) artEl.style.transform = `scale(${lerp(1.12, 1.02, ease(t / 0.6)) + 0.04 * t / dur})`
+    const ti = back((t - 0.05) / 0.45)
+    title.style.transform = `translateX(${lerp(-120, 0, ti)}px) skewX(${lerp(-12, 0, ti)}deg)`
+    title.style.opacity = clamp((t - 0.05) / 0.15)
+    label.style.opacity = clamp(t / 0.25); label.style.transform = `translateY(${lerp(20, 0, ease(t / 0.3))}px)`
+    bar.style.width = `${lerp(0, 260, ease((t - 0.1) / 0.5))}px`
+    tag.style.opacity = clamp((t - 0.3) / 0.25); tag.style.transform = `translateY(${lerp(30, 0, ease((t - 0.3) / 0.4))}px)`
+    subEl.style.opacity = clamp((t - 0.55) / 0.3)
+    flash.style.opacity = clamp(1 - t / 0.18) * 0.8
+    const out = clamp((t - (dur - 0.18)) / 0.18)   // exit: zoom-through toward the viewer
+    s.style.transform = `scale(${1 + out * 0.12})`; s.style.filter = `blur(${out * 10}px)`; s.style.opacity = 1 - out * 0.85
+  }
+}
+
+// Static plate behind a gameplay shot: blurred art (or the brand gradient) and a glowing window.
+function setupStage({ color, art, win }) {
+  const s = stage(); backdrop(s)
+  const [x, y, w, h] = win
+  if (art) s.append($(`<div class="art" style="inset:-60px;background-image:url('${art}');filter:blur(28px) brightness(.45) saturate(1.3)"></div>`))
+  s.append($(`<div class="abs" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;border-radius:26px;background:#000;box-shadow:0 0 0 3px ${color},0 0 60px ${color}aa,0 30px 80px rgba(0,0,0,.7)"></div>`))
+  window.render = () => {}
+}
+
+// Transparent overlays on a shot. part 'frame': window border + feature name tab bottom-left.
+// part 'caption': the callout chip top-right (faded in separately, with a pop).
+function setupOverlay({ part = 'frame', name = '', caption = '', color, color2, win }) {
+  document.body.style.background = document.documentElement.style.background = 'transparent'
+  const s = stage()
+  const [x, y, w, h] = win
+  if (part === 'frame') s.append($(`<div class="abs" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;border-radius:26px;box-shadow:inset 0 0 0 3px ${color}"></div>`))
+  if (part === 'frame') s.append($(`<div class="abs" style="left:${x - 44}px;top:${y + h - 68}px;padding:14px 30px 14px 26px;border-radius:16px;background:linear-gradient(90deg,${color},${color2});font-family:Display,sans-serif;font-weight:700;font-size:40px;letter-spacing:.06em;text-transform:uppercase;color:#fff;text-shadow:0 3px 0 rgba(0,0,0,.35);box-shadow:0 12px 30px rgba(0,0,0,.55);transform:rotate(-2deg)">${name}</div>`))
+  if (part === 'caption' && caption) s.append($(`<div class="abs" style="right:${1920 - x - w - 30}px;top:${y + 34}px;max-width:760px;padding:18px 30px;border-radius:18px;background:rgba(8,12,28,.88);border:3px solid ${color};font-family:Body,sans-serif;font-weight:800;font-size:44px;color:#fff;box-shadow:0 14px 40px rgba(0,0,0,.6);transform:rotate(1.5deg)">${caption}</div>`))
+  window.render = () => {}
+}
+
+// Text on the left, a looping clip window on the right (the clip is composited by ffmpeg).
+function setupPanel({ dur, label = '', head = '', body = '', color, win }) {
+  const s = stage(), bgTick = backdrop(s)
+  const [x, y, w, h] = win
+  const size = lines(head) > 2 ? 80 : 112
+  const winEl = $(`<div class="abs" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px;border-radius:24px;background:#000;box-shadow:0 0 0 3px ${color},0 0 60px ${color}88,0 30px 80px rgba(0,0,0,.7)"></div>`)
+  const l = $(`<div class="abs label" style="left:110px;top:240px;color:${color}">${label}</div>`)
+  const hd = $(`<div class="abs title" style="left:104px;top:290px;font-size:${size}px;max-width:${x - 160}px;text-shadow:0 0 40px ${color}88,0 8px 0 color-mix(in srgb,${color} 55%,#000)">${head}</div>`)
+  const bd = $(`<div class="abs sub" style="left:110px;top:${290 + size * lines(head) * 0.95 + 50}px;width:${Math.min(680, x - 170)}px;font-size:38px;line-height:1.35">${body}</div>`)
+  s.append(winEl, l, hd, bd)
+  window.render = t => {
+    bgTick(t)
+    s.style.opacity = clamp(t / 0.3) * (1 - clamp((t - (dur - 0.5)) / 0.5))
+    const a = back((t - 0.15) / 0.45)
+    hd.style.transform = `translateX(${lerp(-80, 0, a)}px)`; hd.style.opacity = clamp((t - 0.15) / 0.15)
+    l.style.opacity = clamp(t / 0.3)
+    bd.style.opacity = clamp((t - 0.6) / 0.4)
+    winEl.style.transform = `scale(${lerp(0.9, 1, ease((t - 0.1) / 0.5))})`
+  }
+}
+
+// A grid of square tiles (e.g. new games in a catalog): label + head on top, tiles pop in on the beat.
+function setupGrid({ dur, beat, label = '', head = '', tiles = [], color }) {
+  const s = stage(), bgTick = backdrop(s)
+  const cols = tiles.length > 8 ? 5 : 4, rows = Math.ceil(tiles.length / cols)
+  const W = rows > 1 ? 300 : 360, G = 44, X0 = (1920 - cols * W - (cols - 1) * G) / 2, Y0 = rows > 1 ? 270 : 360
+  const l = $(`<div class="abs label" style="left:0;right:0;text-align:center;top:70px;color:${color || 'var(--accent2)'}">${label}</div>`)
+  const hd = $(`<div class="abs title" style="left:0;right:0;text-align:center;top:115px;font-size:100px;text-shadow:0 0 40px color-mix(in srgb,var(--accent) 55%,transparent),0 8px 0 color-mix(in srgb,var(--accent) 55%,#000)">${head}</div>`)
+  s.append(l, hd)
+  const els = tiles.map(([img, nm], i) => {
+    const el = $(`<div class="abs" style="width:${W}px"><div style="width:${W}px;height:${W}px;border-radius:24px;background:#111 url('${img}') center/cover;box-shadow:0 0 0 4px rgba(255,255,255,.9),0 18px 40px rgba(0,0,0,.6)"></div><div style="margin-top:14px;text-align:center;font-family:Body,sans-serif;font-weight:800;font-size:30px;color:#fff;white-space:nowrap">${nm}</div></div>`)
+    el.style.left = `${X0 + (i % cols) * (W + G)}px`; el.style.top = `${Y0 + Math.floor(i / cols) * (W + 90)}px`
+    s.append(el); return el
+  })
+  window.render = t => {
+    bgTick(t)
+    s.style.opacity = clamp(t / 0.25) * (1 - clamp((t - (dur - 0.3)) / 0.3))
+    hd.style.transform = `scale(${lerp(1.3, 1, back(t / 0.4))})`; hd.style.opacity = clamp(t / 0.15)
+    l.style.opacity = clamp(t / 0.3)
+    els.forEach((el, i) => {
+      const ti = (t - 0.35 - i * beat * 0.5) / 0.3
+      el.style.transform = `scale(${lerp(0.3, 1, back(ti))}) rotate(${lerp(i % 2 ? 10 : -10, 0, ease(ti))}deg)`; el.style.opacity = clamp(ti * 3)
+    })
+  }
+}
+
+// Call to action: tiles of each feature's art, head arriving oversized, sub + CTA pill pulsing on the beat.
+function setupOutro({ dur, beat, head = '', sub = '', cta = '', tiles = [] }) {
+  const s = stage(), bgTick = backdrop(s)
+  const cols = tiles.length <= 3 ? 1 : tiles.length <= 4 ? 2 : 3, tw = cols === 1 ? (tiles.length <= 2 ? 620 : 440) : [0, 0, 500, 340][cols], th = Math.round(tw * 9 / 16)
+  const rows = Math.ceil(tiles.length / cols), gridTop = (1080 - rows * th - (rows - 1) * 34) / 2
+  const tileEls = tiles.map(([art, nm]) => {
+    const el = $(`<div class="abs" style="width:${tw}px;height:${th}px;border-radius:22px;overflow:hidden;background:#111 url('${art}') center/cover;box-shadow:0 20px 60px rgba(0,0,0,.6),0 0 0 4px rgba(255,255,255,.9)"><div style="position:absolute;left:0;right:0;bottom:0;padding:40px 22px 14px;font-family:Display,sans-serif;font-weight:700;font-size:32px;color:#fff;text-transform:uppercase;background:linear-gradient(0deg,rgba(0,0,0,.85),transparent)">${nm}</div></div>`)
+    s.append(el); return el
+  })
+  const hasTiles = tiles.length > 0, left = hasTiles ? 90 + cols * (tw + 30) + 60 : 0
+  const align = hasTiles ? `width:${1920 - left - 80}px;` : 'right:0;text-align:center;'
+  const hd = $(`<div class="abs title" style="left:${left}px;${align}top:${lines(head) > 2 ? 220 : 290}px;font-size:${lines(head) > 2 ? 96 : 124}px;text-shadow:0 0 50px color-mix(in srgb,var(--accent2) 55%,transparent),0 10px 0 color-mix(in srgb,var(--accent2) 60%,#000)">${head}</div>`)
+  const sb = $(`<div class="abs tag" style="left:${left + 6}px;${align}top:${hasTiles ? 560 : 600}px;font-size:${sub.length > 30 ? 40 : 52}px">${sub}</div>`)
+  const pill = cta ? $(`<div class="abs" style="left:${left}px;${align}top:${hasTiles ? 700 : 740}px"><span class="pill" style="background:linear-gradient(90deg,var(--accent),var(--accent2))">${cta}</span></div>`) : null
+  s.append(hd, sb); if (pill) s.append(pill)
+  const flash = $(`<div class="flash"></div>`); s.append(flash)
+  window.render = t => {
+    bgTick(t)
+    tileEls.forEach((el, i) => {
+      const ti = (t - i * beat * 0.5) / 0.35
+      const row = Math.floor(i / cols), col = i % cols
+      el.style.left = `${90 + col * (tw + 30)}px`; el.style.top = `${gridTop + row * (th + 34)}px`
+      el.style.transform = `scale(${lerp(0.4, 1, back(ti))}) rotate(${lerp(-6, 0, ease(ti))}deg)`; el.style.opacity = clamp(ti * 3)
+    })
+    const h0 = hasTiles ? beat * 2 : 0.05, h = back((t - h0) / 0.45)
+    hd.style.transform = `scale(${lerp(1.5, 1, h)})`; hd.style.transformOrigin = hasTiles ? 'left center' : 'center'
+    hd.style.filter = `blur(${lerp(10, 0, ease((t - h0) / 0.35))}px)`; hd.style.opacity = clamp((t - h0) / 0.12)
+    sb.style.opacity = clamp((t - h0 - beat) / 0.25)
+    if (pill) {
+      const p0 = h0 + beat * 2, pulse = Math.pow(1 - ((Math.max(0, t - p0) / beat) % 1), 4) * 0.05
+      pill.style.opacity = clamp((t - p0) / 0.2); pill.style.transform = `scale(${lerp(0.6, 1, back((t - p0) / 0.35)) + pulse})`
+      pill.style.transformOrigin = hasTiles ? 'left center' : 'center'
+    }
+    flash.style.opacity = clamp(1 - t / 0.2) * 0.7
+    s.style.opacity = 1 - clamp((t - (dur - 0.6)) / 0.6)
+  }
+}
+</script>
+</body>
+</html>

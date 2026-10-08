@@ -35,7 +35,7 @@ const b64: string = await page.evaluate(async (cfg: any) => {
   const hz = (m: number) => 440 * Math.pow(2, (m - 69) / 12)
   const ctx = new OfflineAudioContext(2, Math.ceil(SR * seconds), SR)
   const master = ctx.createDynamicsCompressor()
-  master.threshold.value = -14; master.ratio.value = 3; master.attack.value = 0.01; master.release.value = 0.2
+  master.threshold.value = -18; master.ratio.value = 4; master.knee.value = 6; master.attack.value = 0.004; master.release.value = 0.15
   master.connect(ctx.destination)
   const bus = (gain: number, pan = 0) => { const g = ctx.createGain(); g.gain.value = gain; const p = ctx.createStereoPanner(); p.pan.value = pan; g.connect(p).connect(master); return g }
   // sidechain-ish pump on music (pads/bass/arp) under the kick
@@ -48,7 +48,7 @@ const b64: string = await page.evaluate(async (cfg: any) => {
     s.connect(flt).connect(g).connect(dest); s.start(t); s.stop(t + dur + 0.05)
     return { flt, g }
   }
-  const drums = bus(0.9)
+  const drums = bus(0.8)
   const kick = (t: number, g0 = 1) => {
     const o = ctx.createOscillator(), g = ctx.createGain()
     o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.12)
@@ -67,12 +67,12 @@ const b64: string = await page.evaluate(async (cfg: any) => {
     o.connect(f).connect(g).connect(dest); o.start(t); o.stop(t + dur + 0.3)
     return f
   }
-  const padBus = ctx.createGain(); padBus.gain.value = 0.10
+  const padBus = ctx.createGain(); padBus.gain.setValueAtTime(0.05, 0); padBus.gain.linearRampToValueAtTime(0.1, Math.max(0.1, dropAt)); padBus.gain.setValueAtTime(0.13, dropAt + 0.01)
   const padFilter = ctx.createBiquadFilter(); padFilter.type = 'lowpass'; padFilter.Q.value = 0.7
   padFilter.frequency.setValueAtTime(500, 0); padFilter.frequency.exponentialRampToValueAtTime(2600, Math.max(0.1, dropAt)); padFilter.frequency.setValueAtTime(3200, dropAt + 0.01)
   padBus.connect(padFilter).connect(music)
-  const bassBus = ctx.createGain(); bassBus.gain.value = 0.22; bassBus.connect(music)
-  const arpBus = ctx.createGain(); arpBus.gain.value = 0.07; const arpPan = ctx.createStereoPanner(); arpPan.pan.value = 0.25
+  const bassBus = ctx.createGain(); bassBus.gain.value = 0.32; bassBus.connect(music)
+  const arpBus = ctx.createGain(); arpBus.gain.value = 0.1; const arpPan = ctx.createStereoPanner(); arpPan.pan.value = 0.25
   const delay = ctx.createDelay(1); delay.delayTime.value = beat * 0.75; const fb = ctx.createGain(); fb.gain.value = 0.3
   arpBus.connect(arpPan).connect(music); arpBus.connect(delay); delay.connect(fb).connect(delay); delay.connect(music)
 

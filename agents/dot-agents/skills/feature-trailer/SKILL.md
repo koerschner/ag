@@ -83,7 +83,7 @@ Paths are relative to the spec file. Every segment length is in beats of `bpm`.
           "caption": "Pick an item", "caption_at": 0.3,
           "zoom": 1.12,                                       // push-in by the end of the shot (default 1.06)
           "crop": [0, 0, 1280, 720],                          // optional source crop x,y,w,h (punch into a region)
-          "sfx": [[8.9, "pop"], [9.2, "sparkle", 0.8]],       // [source_time, sound, vol?, hit_offset?]
+          "sfx": [[8.9, "pop"], [9.2, "sparkle", 0.8]],       // [source_time, sound, vol?, hit_offset?, pre?]
           "audio": 0.6 },                                     // optional: keep the clip's own sound (pitch kept)
         { "clip": "clips/1-send-gift.mp4", "in": 20, "speed": 2.0, "beats": 4 }  // speed instead of out
       ]
@@ -108,7 +108,10 @@ licence: `whoosh`, `whoosh-short`, `whoosh-cinematic`, `impact-bass-1/2`, `riser
 `click-soft`, `key-press`, `typing`, `ping`, `chime`, `sparkle`, `notification`, `error`,
 `glitch-1/2/3`) or a path to any audio file. Prefer the product's own sounds for in-app moments
 (an app's UI sounds: reward, unlock, confirm, message-sent...). `hit_offset` lines up a sound whose hit isn't at its start
-(e.g. a drum roll whose crash is 2.05 s in).
+(e.g. a drum roll whose crash is 2.05 s in); `pre` plays only that many seconds before the hit
+(a 10 s riser with `hit_offset` 10, `pre` 2 swells for 2 s into the moment). Library sounds are
+cut to 2.5 s with a fade, and title impacts are kept short and quiet: long, loud SFX swamp the
+loudness normaliser and bury the music.
 
 ## Engine notes
 

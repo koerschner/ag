@@ -245,9 +245,15 @@ def main():
     inputs, filters, mix = [], [], []
     def inp(path, pre=''):
         inputs.append((pre, path)); return len(inputs) - 1
-    def place(path, at, vol=1.0):
-        j = inp(path); ms = max(0, int(at * 1000))
-        filters.append(f'[{j}]adelay={ms}|{ms},volume={vol}[a{j}]'); mix.append(f'a{j}')
+    def place(path, at, vol=1.0, skip=0.0, length=2.5):
+        """Sound at output time `at`, starting `skip` s into the file, cut to `length` s with a short fade."""
+        j = inp(path)
+        if at < 0:
+            skip, at = skip - at, 0.0
+        ms = int(at * 1000)
+        filters.append(f'[{j}]atrim=start={skip:.3f}:end={skip + length:.3f},asetpts=PTS-STARTPTS,'
+                       f'afade=out:st={max(0, length - 0.25):.3f}:d=0.25,adelay={ms}|{ms},volume={vol}[a{j}]')
+        mix.append(f'a{j}')
 
     m = S.get('music', {})
     if m.get('file'):
@@ -261,7 +267,7 @@ def main():
             end = timeline[-1]['start'] + beat * min(8, max(2, outro.get('beats', 12) - 6))
         if end is not None:
             mcfg['endAt'] = round(end, 4)
-        music = os.path.join(B, f'music-{digest(mcfg)}.wav')
+        music = os.path.join(B, f'music-{digest(mcfg, open(os.path.join(HERE, "music.ts")).read())}.wav')
         if not os.path.exists(music):
             sh(['bun', 'music.ts', music, json.dumps(mcfg)], cwd=RUN)
         j = inp(music)
@@ -271,11 +277,11 @@ def main():
     for x in timeline:
         k, p, st = x['kind'], x['p'], x['start']
         if auto and k == 'intro':
-            place(sfx('whoosh-cinematic'), st + 0.0, 0.7)
+            place(sfx('whoosh-cinematic'), st + 0.0, 0.6, length=3.0)
         if auto and k in ('title', 'panel', 'grid'):
             place(sfx('whoosh-short'), st - 0.15, 0.6)
             if k == 'title':
-                place(sfx('impact-bass-1'), st, 0.55)
+                place(sfx('impact-bass-1'), st, 0.2, length=0.9)
             if k == 'grid':
                 for ti in range(len(p['tiles'])):
                     place(sfx('pop'), st + 0.35 + ti * beat * 0.5, 0.35)
@@ -289,8 +295,10 @@ def main():
             for ev in s.get('sfx', []):
                 src_t, name = ev[0], ev[1]
                 vol = ev[2] if len(ev) > 2 else 0.9
-                lead = ev[3] if len(ev) > 3 else 0.0  # seconds into the sound where its hit is (e.g. a drum roll's crash)
-                place(sfx(name), st + (src_t - s['in']) / x['speed'] - lead, vol)
+                hit = ev[3] if len(ev) > 3 else 0.0  # seconds into the sound where its hit is (a riser's peak, a drum roll's crash)
+                pre = ev[4] if len(ev) > 4 else hit  # how much of the sound to play before the hit
+                at = st + (src_t - s['in']) / x['speed']
+                place(sfx(name), at - pre, vol, skip=hit - pre, length=pre + 1.0)
             if s.get('audio'):  # the clip's own sound, sped up with pitch kept
                 span, speed = x['speed'] * x['n'] / FPS, x['speed']
                 tempo, chain = speed, []

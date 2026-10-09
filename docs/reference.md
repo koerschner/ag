@@ -675,7 +675,7 @@ The user sits at a client machine; agents run on a host (ag). Every machine stow
   Each Mac with a screen runs its own queue (ag-mac's; the client's, which also serves the mirrored iPhone);
   Linux machines forward to ag-mac's. State: `~/.local/state/ag-screen-queue/` (moved from `ag-screen-queue/`,
   which is left as a symlink).
-  Every `ag-chatgpt-cua` run on ag-mac (the `chatgpt_cua` Pi tool, `ag-mac cua` from the engine, local
+  Every `ag-chatgpt-cua` run on ag-mac (the `ag_cua` Pi tool / `ag cua`, via `ag-mac cua` from the engine, local
   calls) is a job in `~/.local/state/ag-screen-queue/jobs/<id>/` (task, caller, status, log, report, rc).
   A detached runner per job waits for its turn (FIFO, one `zsystem flock` lock), then runs
   `ag-chatgpt-cua` with `CUA_QUEUE_INNER=1`; the caller only watches and streams "queued behind

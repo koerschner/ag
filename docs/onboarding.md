@@ -195,11 +195,11 @@ Any Mac that stays on: plugged in, never sleeps, signed in, Tailscale at login.
 2. Keychain items `install` asks for (`ag doctor` lists them): the 1Password service-account token(s), as
    in step 5, and its own login password via `ag-login-password set`, so agents can answer admin prompts.
 3. Install the **ChatGPT desktop app**, sign in, and enable computer use. Agents call it through
-   `ag-mac cua "…"` (the `ag-chatgpt-cua` wrapper, one job at a time).
+   `ag cua "…"` (queued, one job at a time).
 4. Permissions: agent commands arrive over SSH, so grant **Full Disk Access, Accessibility and Screen &
    System Audio Recording** to `/usr/libexec/sshd-keygen-wrapper` (System Settings → Privacy & Security →
    `+` → Cmd+Shift+G). Check with `ag access`; answer later prompts with `ag access allow`.
-5. Test from the engine: `ag-mac run sw_vers`, then `ag-mac cua "open Safari and tell me the page title"`.
+5. Test from the engine: `ag-mac run sw_vers`, then `ag cua "open Safari and tell me the page title"`.
 
 ## 9. Check that it works
 

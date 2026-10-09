@@ -22,7 +22,7 @@ Everything is joined by one Tailscale tailnet.
   client's attach command (today `ag`) points at the engine.
 - **Reaching into the Mac, not routing.** Nothing decides upfront where a query should go. Agents
   on the engine have a `ag-mac` tool/command that runs a task on ag-mac over Tailscale:
-  `ag-mac cua "<task>"` for computer use, `ag-mac run <cmd>` for Mac-only CLIs and builds, and file transfer
+  `ag cua "<task>"` for computer use, `ag-mac run <cmd>` for Mac-only CLIs and builds, and file transfer
   in both directions. An agent calls it when it finds, partway through a task, that it needs the Mac.
   (It generalizes today's `ag-client-cua`.) Jev may still send obviously Mac-only inbox captures straight
   to ag-mac as a shortcut, but that's optional.

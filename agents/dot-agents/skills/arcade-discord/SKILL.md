@@ -37,5 +37,5 @@ ag discord delete <message link>              # remove one of the bot's own post
 
 ## Fallback: computer use on ag-mac only
 
-Only if the `ag discord` CLI is down (bot token missing/revoked, Discord API outage) or the user explicitly wants the message posted as themselves: use the Discord desktop app on **ag-mac** (`ag-mac cua` / the `chatgpt_cua` tool). If Discord on ag-mac is logged out, ask the user to sign it in (see "Tell the user what ag needs"). **Never** use the client Mac (`ag-client-cua`) for Discord, and never enter Discord credentials or use the user's user token for automation (self-botting is against Discord's Terms of Service).
+Only if the `ag discord` CLI is down (bot token missing/revoked, Discord API outage) or the user explicitly wants the message posted as themselves: use the Discord desktop app on **ag-mac** (`ag cua` / the `ag_cua` tool). If Discord on ag-mac is logged out, ask the user to sign it in (see "Tell the user what ag needs"). **Never** use the client Mac (`ag cua --client`) for Discord, and never enter Discord credentials or use the user's user token for automation (self-botting is against Discord's Terms of Service).
 

@@ -24,7 +24,7 @@ later as a new session.
 |---|---|---|
 | **host** (the engine) | `ag-engine`, a rented Linux VPS | every session (tmux, driven by `ag-mux`), every Ag service, the repos |
 | **client** | your laptop, your phone | nothing; it attaches to the host and shows what agents open for you |
-| **extremity** (optional) | `ag-mac`, an always-on Mac | only what needs macOS: computer use, Mac-only apps. Agents reach it with `ag-mac run …` / `ag-mac cua "…"` |
+| **extremity** (optional) | `ag-mac`, an always-on Mac | only what needs macOS: computer use, Mac-only apps. Agents reach it with `ag-mac run …` / `ag cua "…"` |
 
 **Ways in:**
 

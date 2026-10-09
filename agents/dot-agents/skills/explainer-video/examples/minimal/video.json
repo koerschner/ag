@@ -1,0 +1,12 @@
+{
+  "comp": "comp.html",
+  "out": "out/minimal.mp4",
+  "voice": { "model": "gemini-primary/gemini-3.8-flash-tts", "voice": "Puck", "instructions": "Warm, upbeat narrator." },
+  "lines": [
+    { "id": "one", "text": "This is a video made entirely in code.", "gap": 0.4 },
+    { "id": "two", "text": "Every move lands on a word.", "gap": 0.4 },
+    { "id": "three", "text": "Edit it, render it, and grade it again.", "gap": 0 }
+  ],
+  "music": { "bpm": 100, "key": "C", "mode": "major", "volume": 0.12 },
+  "sfx": [["word:two:word", 0, "pop.wav", 0.5]]
+}

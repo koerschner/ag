@@ -1,0 +1,6 @@
+{
+  "name": "explainer-video",
+  "private": true,
+  "type": "module",
+  "dependencies": { "playwright-core": "1.63.0", "gsap": "3.13.0" }
+}

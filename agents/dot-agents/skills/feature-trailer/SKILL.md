@@ -65,7 +65,7 @@ Work in a project dir, e.g. `~/trailers/<yyyy-mm-dd>-<topic>/` with `clips/`, `a
 7. **Self-review** before showing anyone: read `build/sheet.jpg`, then single frames of each title
    card and the outro at 1280 px. Check: text never clipped or overflowing, each shot shows its
    moment (not loading screens or a cursor idling), names correct, no dev badges or test data
-   that looks wrong. Check loudness lands near -14 LUFS and look at the waveform
+   that looks wrong. Check loudness lands near -14 LUFS with true peak below 0 dBTP **on the final mp4** (AAC overshoots the WAV; the mix ends in a limiter for that), and look at the waveform
    (`showwavespic`): one loud sound effect squashes everything else after normalising.
 8. **Show it**: one review page with every cut (video, contact sheet, what each variant is, and
    the judgment calls), opened with `ag-show`; copy the mp4s to the client's `~/Movies/`. If the
@@ -74,6 +74,32 @@ Work in a project dir, e.g. `~/trailers/<yyyy-mm-dd>-<topic>/` with `clips/`, `a
    its visibility), book it where the product announces things, and post a short note for the
    audience (the link, one line per feature, the CTA). Read every post back; markdown conversion
    can glue a bullet onto a URL, so prefer the tool's structured blocks for links and lists.
+
+## Getting creative: footage that doesn't exist yet
+
+When a feature can't be filmed for real (it needs a camera, a real child's face, a paid AI call,
+production data that isn't there), build the footage from the product's own components:
+
+- **Storybook as a film set.** Add a throwaway story in a scratch worktree (never committed) that
+  wires the real component to faked doors: canned delays that mimic the real pacing, results that
+  point at your generated assets. Record it with Playwright `recordVideo`; scale the page with
+  `document.documentElement.style.zoom` (not a small viewport + deviceScaleFactor, which records
+  at the small size) and keep a drawn cursor whose position is divided by the zoom.
+- **A fake camera.** Generate a fictional person with `ag-image` (ask for "laptop-webcam photo …
+  no phone, no UI": otherwise it draws a phone-camera screen), loop it into a gently drifting
+  `.y4m`, and launch full Chromium (not the headless shell) with
+  `--use-fake-ui-for-media-stream --use-fake-device-for-media-stream --use-file-for-fake-video-capture=cam.y4m`.
+  For WebGL effects (background segmentation) add `--use-gl=angle --use-angle=swiftshader
+  --enable-unsafe-swiftshader`. A story's own fake-camera fixture can be swapped for the browser's
+  camera behind a URL flag.
+- **Run the product's real prompts yourself.** For AI output (e.g. avatar styles), read the
+  prompt and per-style text from the repo and run them through `ag-image -i <photo>`; key out the
+  flat backdrop colour with numpy (`uv run --with pillow`), then composite onto the product's
+  shipped backgrounds.
+- **Network the story expects**: `page.route` the API it calls (e.g. an image door) to local files.
+- **Names and test data on screen**: `RENAME="From=To"` in the recorder rewrites text nodes, and
+  blur codes/test values (`crop`+`boxblur`+`overlay`) on stills from PRs.
+- Effects that initialise (segmentation, players) glitch on their first frames: start shots after.
 
 ## Spec format
 

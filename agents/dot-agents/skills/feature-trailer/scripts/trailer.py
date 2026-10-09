@@ -330,7 +330,7 @@ def main():
         place(sfx(ev[1]), ev[0], ev[2] if len(ev) > 2 else 0.9)
 
     filters.append(''.join(f'[{a}]' for a in mix) + f'amix=inputs={len(mix)}:normalize=0:duration=longest,'
-                   f'atrim=0:{total:.4f},afade=out:st={max(0, total - 1.2):.3f}:d=1.2,loudnorm=I=-14:TP=-1.5:LRA=9[out]')
+                   f'atrim=0:{total:.4f},afade=out:st={max(0, total - 1.2):.3f}:d=1.2,loudnorm=I=-14:TP=-2:LRA=9,aresample=48000,alimiter=limit=0.63:level=disabled:attack=2:release=40[out]')
     cmd = ['ffmpeg', '-v', 'error', '-y']
     for pre, path in inputs:
         cmd += pre.split() + ['-i', path]

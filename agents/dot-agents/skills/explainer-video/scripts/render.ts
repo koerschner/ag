@@ -42,8 +42,10 @@ async function worker(k: number) {
   const a = first + k * per, b = Math.min(last, a + per)
   if (a >= b) return
   const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: scale })
-  page.on('pageerror', e => errors.push(e.message))
-  page.on('console', m => { if (m.type() === 'error') errors.push(m.text()) })
+  // print page errors as they happen (worker 0 only, to avoid 4x duplicates), and keep them for the summary
+  const note = (msg: string) => { if (!errors.includes(msg) && k === 0) console.error('[page]', msg); errors.push(msg) }
+  page.on('pageerror', e => note(e.message))
+  page.on('console', m => { if (m.type() === 'error') note(m.text()) })
   await page.addInitScript(d => { (window as any).DATA = d; (window as any).RENDERING = true }, data)
   await page.route('http://video.local/**', r => {
     const u = decodeURIComponent(new URL(r.request().url()).pathname)
@@ -52,7 +54,12 @@ async function worker(k: number) {
     r.fulfill({ body: readFileSync(file), contentType: TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream' })
   })
   await page.goto(`http://video.local/${compPath.split('/').pop()}`, { waitUntil: 'networkidle' })
-  await page.evaluate(async () => { await document.fonts.ready; await Promise.all([...document.images].map(i => i.decode().catch(() => {}))); await (window as any).EV?.ready })
+  const ready = page.evaluate(async () => { await document.fonts.ready; await Promise.all([...document.images].map(i => i.decode().catch(() => {}))); await (window as any).EV?.ready })
+  const timeout = new Promise((_, j) => setTimeout(() => j(new Error('composition not ready after 60 s: did build() throw, or EV.start() never get called?')), 60000))
+  try { await Promise.race([ready, timeout]) } catch (e) {
+    console.error(`render.ts: ${(e as Error).message}\n` + [...new Set(errors)].slice(0, 10).join('\n'))
+    process.exit(1)
+  }
   for (let i = a; i < b; i++) {
     await page.evaluate(t => (window as any).EV.seek(t), i / fps)
     await page.screenshot({ path: `${outdir}/f${String(i).padStart(5, '0')}.jpg`, type: 'jpeg', quality: 92 })

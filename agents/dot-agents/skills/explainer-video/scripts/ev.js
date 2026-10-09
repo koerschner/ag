@@ -14,10 +14,11 @@
   const EV = (window.EV = window.EV || {})
   const hooks = []
   EV.data = window.DATA || null
-  let started
-  EV.ready = new Promise(r => (started = r))
+  let started, failed
+  EV.ready = new Promise((r, j) => { started = r; failed = j })
   EV.start = build => {
-    const go = async () => { await build(); started() }
+    // a throwing build() must fail the render, not leave it waiting forever
+    const go = async () => { try { await build(); started() } catch (e) { console.error('build() failed:', e && e.stack || e); failed(e) } }
     if (EV.data) go()
     else fetch('data.json').then(r => r.json()).then(d => { EV.data = window.DATA = d; go() })
   }

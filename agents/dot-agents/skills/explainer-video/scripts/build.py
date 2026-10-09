@@ -140,6 +140,33 @@ def check_tail(wav, lid):
                              'a burst or click at the clip boundary. Inspect the raw TTS response.')
 
 
+def script_words(text, heard):
+    """Give Whisper's word timings the script's spelling ("free time" -> "FreeTime", "shop" -> "Shop"):
+    captions and EV.word() then match what the script says. Aligns on letters-only forms; where
+    Whisper split or merged words, the script word takes the span of the heard words it covers."""
+    import difflib, re
+    norm = lambda w: re.sub(r'[^a-z0-9]', '', w.lower())
+    sw = [w for w in text.split() if norm(w)]
+    if not heard or not sw:
+        return heard
+    a, b = [norm(w) for w in sw], [norm(w['w']) for w in heard]
+    out = []
+    for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if op == 'equal':
+            out += [{**heard[j], 'w': sw[i]} for i, j in zip(range(i1, i2), range(j1, j2))]
+        elif op == 'replace' and i2 - i1 == j2 - j1:
+            out += [{**heard[j], 'w': sw[i]} for i, j in zip(range(i1, i2), range(j1, j2))]
+        elif op == 'replace':  # split/merged words: spread the heard span over the script words
+            s0, e0, n = heard[j1]['s'], heard[j2 - 1]['e'], i2 - i1
+            out += [{'w': sw[i1 + k], 's': round(s0 + (e0 - s0) * k / n, 3), 'e': round(s0 + (e0 - s0) * (k + 1) / n, 3)} for k in range(n)]
+        elif op == 'insert':
+            continue  # Whisper heard an extra word: drop it
+        elif op == 'delete':  # script word Whisper missed: give it a sliver after the previous word
+            t = out[-1]['e'] if out else heard[0]['s']
+            out += [{'w': sw[i], 's': t, 'e': t + 0.05} for i in range(i1, i2)]
+    return out
+
+
 def runtime():
     RUN.mkdir(parents=True, exist_ok=True)
     for f in HERE.iterdir():
@@ -174,7 +201,7 @@ def main():
         wav, tr = tts(ln, S.get('voice', {}), vo)
         d = probe(wav)
         lines.append({**{k: v for k, v in ln.items() if k != 'gap'}, 'start': round(t, 3), 'dur': round(d, 3), 'end': round(t + d, 3),
-                      'wav': str(wav), 'heard': tr['text'], 'words': [{**w, 's': round(t + w['s'], 3), 'e': round(t + w['e'], 3)} for w in tr['words']]})
+                      'wav': str(wav), 'heard': tr['text'], 'words': [{**w, 's': round(t + w['s'], 3), 'e': round(t + w['e'], 3)} for w in script_words(ln['text'], tr['words'])]})
         t += d + ln.get('gap', 0.45)
     duration = round(lines[-1]['end'] + S.get('tail', 2.5), 3)
     data = {'fps': fps, 'size': [W, H], 'duration': duration, 'lines': lines, 'cues': S.get('cues', {})}

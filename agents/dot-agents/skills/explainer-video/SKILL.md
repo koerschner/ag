@@ -97,7 +97,7 @@ Collect the finished cuts on one comparison page. Try odd ideas too; the point i
 `build.py` calls the TrueFoundry gateway (`$TFY_TOKEN`): default voice
 `gemini-primary/gemini-3.8-flash-tts` (voices such as Puck, Zephyr, Kore; style goes in
 `instructions`, never in the text, or it gets read aloud), or `openai-primary/tts-1-hd`
-(`nova`, `alloy`...). Whisper (`openai-primary/whisper-1`) supplies word timings. The gateway
+(`nova`, `alloy`...). Whisper (`openai-primary/whisper-1`) supplies word timings; `build.py` re-spells them with the script's words (so captions say "FreeTime", not "free time"). The gateway
 lists ElevenLabs models but does not support its speech endpoint (Oct 2026). Lines are cached
 by text and voice, so editing one line re-voices only that line.
 

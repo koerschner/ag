@@ -78,7 +78,7 @@ def probe(path):
 
 
 def tts(line, voice, vo):
-    key = hashlib.sha1(json.dumps([line['text'], voice], sort_keys=True).encode()).hexdigest()[:10]
+    key = hashlib.sha1(json.dumps([line['text'], voice, 'pcm-v2'], sort_keys=True).encode()).hexdigest()[:10]
     wav, words = vo / f"{line['id']}-{key}.wav", vo / f"{line['id']}-{key}.json"
     if not wav.exists():
         model = voice.get('model', 'gemini-primary/gemini-3.8-flash-tts')
@@ -87,18 +87,57 @@ def tts(line, voice, vo):
                 'response_format': 'pcm16' if gemini else 'wav'}
         if voice.get('instructions'):
             body['instructions'] = voice['instructions']
-        raw = vo / f'{wav.stem}.raw'
-        raw.write_bytes(post('/audio/speech', body))
-        # normalise to 48 kHz mono and trim leading/trailing silence so timing is exact
-        sh(['ffmpeg', '-loglevel', 'error', '-y', '-i', raw, '-af',
-            'silenceremove=start_periods=1:start_threshold=-50dB,areverse,silenceremove=start_periods=1:start_threshold=-50dB,areverse',
+        pcm, rate = clean_pcm(post('/audio/speech', body), 24000)
+        raw = vo / f'{wav.stem}.pcm'
+        raw.write_bytes(pcm)
+        # 48 kHz mono; trim leading/trailing silence, keep 60 ms of room tone, fade both ends so clips never click
+        sh(['ffmpeg', '-loglevel', 'error', '-y', '-f', 's16le', '-ar', rate, '-ac', '1', '-i', raw, '-af',
+            'silenceremove=start_periods=1:start_threshold=-50dB,areverse,silenceremove=start_periods=1:start_threshold=-50dB,'
+            'apad=pad_dur=0.06,afade=t=in:d=0.08,areverse,afade=t=in:d=0.012,apad=pad_dur=0.12',
             '-ar', '48000', '-ac', '1', wav])
         raw.unlink()
+        check_tail(wav, line['id'])
     if not words.exists():
         res = json.loads(post('/audio/transcriptions', {'model': 'openai-primary/whisper-1', 'response_format': 'verbose_json',
                                                          'timestamp_granularities[]': 'word'}, {'file': wav}))
         words.write_text(json.dumps({'text': res.get('text', ''), 'words': [{'w': w['word'], 's': round(w['start'], 3), 'e': round(w['end'], 3)} for w in res.get('words', [])]}))
     return wav, json.loads(words.read_text())
+
+
+def clean_pcm(data, default_rate):
+    """TTS bytes -> (16-bit mono PCM, sample rate). The gateway can wrap a WAV inside a WAV and
+    leave bytes after the inner data chunk; played as audio those are a loud burst at the end of
+    every line (a 'radio switching off'). Walk nested RIFF headers to the innermost data chunk
+    and keep exactly its declared length."""
+    rate, pcm = default_rate, data
+    while pcm[:4] == b'RIFF' and pcm[8:12] == b'WAVE':
+        i, nxt = 12, None
+        while i + 8 <= len(pcm):
+            cid, size = pcm[i:i + 4], int.from_bytes(pcm[i + 4:i + 8], 'little')
+            if cid == b'fmt ':
+                rate = int.from_bytes(pcm[i + 12:i + 16], 'little')
+            if cid == b'data':
+                nxt = pcm[i + 8:i + 8 + size]
+                break
+            i += 8 + size + (size & 1)
+        if nxt is None:
+            break
+        pcm = nxt
+    return pcm[: len(pcm) // 2 * 2], rate
+
+
+def check_tail(wav, lid):
+    """Fail loudly if a clip ends (or starts) on a burst: the last/first 30 ms must be quieter than the line itself."""
+    out = subprocess.run(['ffmpeg', '-v', 'error', '-i', str(wav), '-f', 's16le', '-ac', '1', '-ar', '48000', '-'], capture_output=True).stdout
+    import array, math
+    a = array.array('h', out)
+    def rms(x):
+        return 20 * math.log10(math.sqrt(sum(v * v for v in x) / max(1, len(x))) / 32768 + 1e-9)
+    body, n = rms(a[::7]), 1440
+    for name, part in (('end', a[-n:]), ('start', a[:n])):
+        if rms(part) > body - 12:
+            raise SystemExit(f'build.py: VO line {lid!r}: its {name} is as loud as the speech ({rms(part):.0f} vs {body:.0f} dBFS): '
+                             'a burst or click at the clip boundary. Inspect the raw TTS response.')
 
 
 def runtime():

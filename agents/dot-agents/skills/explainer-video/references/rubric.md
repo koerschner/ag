@@ -21,7 +21,7 @@
 12. Captions are on one or two lines, in sync, and never cover something important.
 
 **Sound**
-13. Narration clear and natural (report shows a 1.00-ish match per line; listen to any flagged line).
+13. Narration clear and natural, and every line ends cleanly (no click, burst or chopped tail at clip boundaries: listen to the last half-second of a few lines; report shows a 1.00-ish match per line; listen to any flagged line).
 14. Loudness about -16 LUFS, true peak below -1 dBFS; music audible but under the voice; SFX on on-screen moments, none harsh.
 
 **Story**

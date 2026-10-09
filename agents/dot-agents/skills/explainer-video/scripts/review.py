@@ -59,6 +59,18 @@ for l in data['lines']:
         issues.append(f"narration '{l['id']}' heard as: {l.get('heard')!r}")
     rows.append(f"| {l['id']} | {l['start']:.1f}–{l['end']:.1f} | {r:.2f}{flag} | {l.get('heard', '')} |")
 
+# clip boundaries: right after each line ends, the mix must drop well below the speech (a burst or a
+# hard cut there sounds like a radio switching off)
+import array, math
+pcm = subprocess.run(['ffmpeg', '-v', 'error', '-i', str(mp4), '-f', 's16le', '-ac', '1', '-ar', '16000', '-'], capture_output=True).stdout
+A = array.array('h', pcm)
+def rms(a, b):
+    x = A[int(a * 16000):int(b * 16000)]
+    return 20 * math.log10(math.sqrt(sum(v * v for v in x) / max(1, len(x))) / 32768 + 1e-9)
+for l in data['lines']:
+    speech, after = rms(l['start'] + 0.2, l['end'] - 0.2), rms(l['end'] + 0.02, l['end'] + 0.17)
+    if after > speech - 8:
+        issues.append(f"audio at the end of '{l['id']}' ({l['end']:.1f}s) is nearly as loud as the speech ({after:.0f} vs {speech:.0f} dB): a burst or hard cut at the clip boundary; listen")
 lufs = run(['ffmpeg', '-hide_banner', '-nostats', '-i', mp4, '-af', 'ebur128=peak=true', '-f', 'null', '-']).stderr
 I = re.findall(r'I:\s+(-?[\d.]+) LUFS', lufs)
 P = re.findall(r'Peak:\s+(-?[\d.]+) dBFS', lufs)

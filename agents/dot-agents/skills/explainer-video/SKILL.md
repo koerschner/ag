@@ -101,6 +101,16 @@ Collect the finished cuts on one comparison page. Try odd ideas too; the point i
 lists ElevenLabs models but does not support its speech endpoint (Oct 2026). Lines are cached
 by text and voice, so editing one line re-voices only that line.
 
+Clip boundaries: the gateway can return a WAV nested inside a WAV with junk bytes after the
+audio; decoded naively that is a loud burst at the end of every line ("a radio switching off").
+`build.py` walks to the innermost data chunk, trims silence, fades both ends, pads room tone,
+and refuses any clip whose first/last 30 ms is loud; `review.py` also checks the final mix just
+after each line ends. If a new TTS provider is added, keep those guards.
+
+Calm by default: one idea and one focal element per scene, plain backgrounds (a soft gradient,
+no textures or grids), no persistent HUD, few tags, slow ease-outs (0.6-0.8 s), sound effects
+only on the 3-5 moments that matter, music low. Busy videos read as noise to kids.
+
 ## Files
 
 - `scripts/build.py`: narrate, time, render, mix, mux, review. `--draft`, `--from/--to` (partial frames), `--stage tts`.

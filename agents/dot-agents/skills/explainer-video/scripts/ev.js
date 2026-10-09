@@ -7,7 +7,7 @@
 //                      end of <body>: it runs when DATA is available (rendering: at once; preview: after fetching data.json)
 //   window.tl          build ONE paused GSAP timeline (gsap.timeline({ paused: true })) and put every tween on it at EV.at(...)
 //   EV.onFrame(fn)     fn(t) runs every frame (counters, captions, anything not in the timeline)
-//   EV.captions(el, { maxWords })  karaoke captions from the VO word timings into el (spans .w, current gets .on)
+//   EV.captions(el, { maxWords })  karaoke captions from the VO word timings (script spelling), one chunk per sentence, long ones split evenly; spans .w, current gets .on
 //   EV.ready           resolves when build() finishes; the renderer awaits it (and fonts and images) before frame 0
 // Preview live in a browser: open the composition with ?play (needs data.json beside it), or ?t=12.5 to freeze a frame.
 (function () {
@@ -45,9 +45,21 @@
   EV.captions = (el, { maxWords = 7 } = {}) => {
     need()
     const chunks = []
-    for (const l of EV.data.lines) for (let i = 0; i < l.words.length; i += maxWords) {
-      const ws = l.words.slice(i, i + maxWords)
-      if (ws.length) chunks.push({ s: ws[0].s, e: Math.min(ws[ws.length - 1].e + 0.35, l.end + 0.35), ws })
+    // chunks: one per sentence; a sentence longer than maxWords splits into even parts,
+    // preferring a comma near each split point
+    for (const l of EV.data.lines) {
+      const sentences = [[]]
+      l.words.forEach((w, i) => { sentences[sentences.length - 1].push(w); if (/[.!?]$/.test(w.w) && i < l.words.length - 1) sentences.push([]) })
+      for (const sen of sentences) {
+        const parts = Math.ceil(sen.length / maxWords)
+        let from = 0
+        for (let p = 1; p <= parts; p++) {
+          let to = p === parts ? sen.length : Math.round((sen.length * p) / parts)
+          if (p < parts) for (const d of [0, 1, -1, 2, -2]) if (/[,;:]$/.test(sen[to - 1 + d]?.w ?? '') && to + d - from >= 2) { to += d; break }
+          const ws = sen.slice(from, to); from = to
+          if (ws.length) chunks.push({ s: ws[0].s, e: Math.min(ws[ws.length - 1].e + 0.35, l.end + 0.35), ws })
+        }
+      }
     }
     let shown = null
     EV.onFrame(t => {

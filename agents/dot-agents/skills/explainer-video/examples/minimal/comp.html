@@ -19,6 +19,7 @@ EV.start(() => {
     tl.to(id, { opacity: 0, duration: 0.3 }, EV.end(line) + 0.1)
   }
   tl.to('#dot', { scale: 1, duration: 0.3, ease: 'back.out(3)' }, EV.word('two', 'word'))
+  tl.fromTo('#c', { y: 0 }, { y: -30, duration: 4, ease: 'none' }, EV.at('three')) // keep holds moving (review flags 3 s freezes)
   EV.captions(document.querySelector('#cap'))
 })
 </script></body></html>

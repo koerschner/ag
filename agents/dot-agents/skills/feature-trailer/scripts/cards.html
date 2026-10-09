@@ -149,7 +149,8 @@ function setupGrid({ dur, beat, label = '', head = '', tiles = [], color }) {
   s.append(l, hd)
   const els = tiles.map(([img, nm], i) => {
     const el = $(`<div class="abs" style="width:${W}px"><div style="width:${W}px;height:${W}px;border-radius:24px;background:#111 url('${img}') center/cover;box-shadow:0 0 0 4px rgba(255,255,255,.9),0 18px 40px rgba(0,0,0,.6)"></div><div style="margin-top:14px;text-align:center;font-family:Body,sans-serif;font-weight:800;font-size:30px;color:#fff;white-space:nowrap">${nm}</div></div>`)
-    el.style.left = `${X0 + (i % cols) * (W + G)}px`; el.style.top = `${Y0 + Math.floor(i / cols) * (W + 90)}px`
+    const row = Math.floor(i / cols), inRow = Math.min(cols, tiles.length - row * cols), rx = (1920 - inRow * W - (inRow - 1) * G) / 2
+    el.style.left = `${rx + (i % cols) * (W + G)}px`; el.style.top = `${Y0 + row * (W + 90)}px`
     s.append(el); return el
   })
   window.render = t => {

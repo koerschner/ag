@@ -172,6 +172,7 @@ plist); they write the same state file. ag-dash → **Routines** lists all of th
 | `ag-state-sync` | engine, every 15 min | snapshots Ag state (layout, ag-tickler, ag-dash, inbox…) to GitHub |
 | `ag-toolsum-review` | engine, daily 9am Central | extends ag-dash's tool-call summary rules (`ag-toolsum/README.md`) |
 | `ag-cli-usage` | engine, Mondays 9:07 Central (`routines/`) | audits `ag` CLI adoption vs hand-rolled equivalents (`ag usage`), writes `docs/ag-cli-usage.md`, spins out one fix |
+| `dashboard-proposals` | engine, every 2 days 9:07 Central (`routines/`) | turns data questions the user liked into dashboard proposals with HTML mocks and builds the top one as a PR (private instructions in ag-personal) |
 | `ag-mem-watch`, `nessie`, `ag-chrome-tab-reaper` | ag-mac | memory alerts, Nessie trace sync, closing stale Chrome tabs |
 
 ## ag-rules

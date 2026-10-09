@@ -16,47 +16,64 @@ user's house style, music and sound sources, audiences, and past trailers.
 
 ## Inputs to collect
 
-1. **Features**: name (the product's real current name, check the database or app, not the
-   ticket title), one-line tagline (the benefit, in the audience's words), optional sub line.
-2. **Clips** for each feature. Often a dated `Trailer YYYY-MM-DD` folder on the client's desktop:
-   `scp -o ControlMaster=no -o ControlPath=none 'ag-client:Desktop/Trailer 2026-10-08/*' clips/`.
-   If a feature has no clip, ask, or record one (Playwright on a dev server with a drawn cursor).
+1. **What shipped**: the user's list, cross-checked against the source of truth (recent merges,
+   new rows in the catalog/events tables, the team chat). Real current names come from the live
+   app or database, not ticket titles. If the user names something you can't find any trace of,
+   don't stall: make a placeholder (key art from `ag-image`, vague copy) and flag it in the report.
+2. **Clips** for each feature. Look before asking: recordings from earlier sessions this week
+   (`ag find`, `find ~ -newer ... -name '*.mp4'`), screen-recorder folders, a dated
+   `Trailer YYYY-MM-DD` folder. macOS privacy can block reading the client's Desktop over ssh;
+   `~/Screenshots` or a computer-use job on the Mac works. Missing footage: record it yourself
+   (Playwright on the real page, below) or take a fresh screen grab of production with computer use.
 3. **Audience + CTA**: who watches (guides? kids? parents?) and the one action at the end.
    Write copy for that audience ("play with your students" vs "play with your friends").
-4. **Brand**: theme colours, fonts (`.ttf`), key art if any, and music if the product has its own
-   (games often ship music/SFX; use them over the generated bed).
+4. **Brand**: theme colours, fonts (`.ttf`), key art, cover art for anything featured (events,
+   catalog entries: download the real images), and the product's own music and UI sounds.
+5. **Data the trailer shows**: if a screen shows a name that's about to change (an event series
+   being renamed), change it in the product first, then capture, so the trailer and the app agree.
 
-Ask only for what you can't find. Under "Run it" or an autonomous request, make the calls yourself.
+Ask only for what you can't find. Under "Run it", an overnight brief, or any autonomous request,
+make the calls yourself and list them in the report.
 
 ## Workflow
 
-Work in a project dir, e.g. `~/trailers/<yyyy-mm-dd>-<topic>/` with `clips/`, `spec.json`.
+Work in a project dir, e.g. `~/trailers/<yyyy-mm-dd>-<topic>/` with `clips/`, `art/`, `sfx/`.
 
-1. **Inventory** every clip (never read full-res frames into context; the sheets are ≤1500 px):
+1. **Ingest**: raw screen recordings are often huge (Retina, 3000+ px, 250 MB). Make a 1920-wide
+   30 fps proxy first (`ffmpeg -i raw.mp4 -vf "scale=1920:-2,fps=30" -an -crf 17 clip.mp4`), and plan
+   a `crop` that removes browser chrome and dev/staging badges.
+2. **Inventory** every clip (never read full-res frames into context; the sheets are ≤1500 px):
    ```bash
    S=~/.agents/skills/feature-trailer/scripts
    $S/inspect.sh inspect clips/*.mp4          # per clip: length, size, audio?, contact sheet, busiest seconds
    ```
    Read each `inspect/<clip>-sheet.jpg`. The busiest seconds are action candidates; confirm on
-   the sheet, then pull a single downscaled frame (`ffmpeg -ss T -i clip -frames:v 1 -vf scale=1280:-2`)
-   when you need precision. Note exact source times of moments worth a sound (a click, a
-   reveal, a win screen).
-2. **Plan**: per feature 2–4 shots, each a payoff moment, ordered setup → action → result. Pick a BPM
+   the sheet, then pull a few downscaled frames and `hstack`/`vstack` them into one grid image
+   when you need precision (one read instead of several). Note exact source times of moments
+   worth a sound (a click, a reveal, a win screen).
+3. **Plan**: per feature 2–4 shots, each a payoff moment, ordered setup → action → result. Pick a BPM
    (120–140 energetic, ~104 relaxed) and give every segment a whole number of beats.
-3. **Write `spec.json`** (format below), then check the timeline without rendering:
-   `uv run $S/trailer.py spec.json --plan` (or `python3`). Aim for 1.5–2.5 s per shot, total length
-   fits the brief.
-4. **Render**: `uv run $S/trailer.py spec.json`. First run renders cards (~1–2 min); reruns only
-   redo what changed. It writes the mp4 and `build/sheet.jpg` (one frame per second).
-5. **Self-review** before showing anyone: read `build/sheet.jpg`, then single frames of each title
+4. **Write the spec(s)**. For more than one cut, write a small `make_specs.py` that builds every
+   variant from shared feature functions and per-audience copy dicts (feature order, short vs full
+   shot lists, BPM, key); editing one place updates every cut. Check the timeline without
+   rendering: `python3 $S/trailer.py spec.json --plan`.
+5. **Test new cards alone**: when you add or change a card type, render a throwaway spec with just
+   that segment (`intro`/`outro` null, its own `build_dir`) and check frames before a full build.
+6. **Render** in the background: a 60 s cut takes ~7 min cold, much less cached. Run a
+   `build_all.sh` loop over the specs in its own tmux window, poll its log, and review each cut's
+   sheet as it lands instead of waiting for all of them.
+7. **Self-review** before showing anyone: read `build/sheet.jpg`, then single frames of each title
    card and the outro at 1280 px. Check: text never clipped or overflowing, each shot shows its
    moment (not loading screens or a cursor idling), names correct, no dev badges or test data
-   that looks wrong. Check loudness lands near -14 LUFS:
-   `ffmpeg -i out.mp4 -af ebur128 -f null - 2>&1 | grep -A2 Summary`.
-6. **Show it**: `ag-show <out.mp4>`, also copy it to the client (`scp out.mp4 ag-client:Movies/`)
-   and give a short summary (length, sections, the judgment calls). Iterate on notes.
-7. **Variants**: copy the spec (`spec-kids.json`), change copy/CTA/extra panels, rerun. Shots
-   and cards that didn't change are reused.
+   that looks wrong. Check loudness lands near -14 LUFS and look at the waveform
+   (`showwavespic`): one loud sound effect squashes everything else after normalising.
+8. **Show it**: one review page with every cut (video, contact sheet, what each variant is, and
+   the judgment calls), opened with `ag-show`; copy the mp4s to the client's `~/Movies/`. If the
+   client is asleep, queue the copy with an `ag-tickler` `when: "online"` item.
+9. **Publish** when asked: upload to the video host the product embeds (verify the link plays and
+   its visibility), book it where the product announces things, and post a short note for the
+   audience (the link, one line per feature, the CTA). Read every post back; markdown conversion
+   can glue a bullet onto a URL, so prefer the tool's structured blocks for links and lists.
 
 ## Spec format
 

@@ -4,7 +4,7 @@
   "args": {
    "command": "cd ~/x && sed -n 10,40p src/a.ts | head"
   },
-  "sum": "Read src/a.ts:10\u201340",
+  "sum": "Read src/a.ts:10–40",
   "hosts": [
    "ag-engine"
   ]
@@ -14,7 +14,7 @@
   "args": {
    "command": "ag-mac run 'pkill -x Telegram; pkill -f \"CoreServicesUIAgent\"; xattr -dr com.apple.quarantine /Applications/Telegram.app'"
   },
-  "sum": "Stop Telegram, CoreServicesUIAgent \u00b7 Clear quarantine on /Applications/Telegram.app",
+  "sum": "Stop Telegram, CoreServicesUIAgent · Clear quarantine on /Applications/Telegram.app",
   "hosts": [
    "ag-mac"
   ]
@@ -24,7 +24,7 @@
   "args": {
    "command": "sleep 4; ag-mac run 'screencapture -x /tmp/tg5.png' >/dev/null 2>&1; ag-mac pull /tmp/tg5.png"
   },
-  "sum": "Take a screenshot \u2192 /tmp/tg5.png \u00b7 Copy /tmp/tg5.png from ag-mac",
+  "sum": "Take a screenshot → /tmp/tg5.png · Copy /tmp/tg5.png from ag-mac",
   "hosts": [
    "ag-mac"
   ]
@@ -34,7 +34,7 @@
   "args": {
    "command": "ag-mac run 'defaults read /Applications/Telegram.app/Contents/Info.plist CFBundleShortVersionString'"
   },
-  "sum": "Read macOS setting \u2026/Contents/Info.plist",
+  "sum": "Read macOS setting …/Contents/Info.plist",
   "hosts": [
    "ag-mac"
   ]
@@ -114,7 +114,7 @@
   "args": {
    "command": "cd ~/ag && git add ag-toolsum && git commit -m 'ag-toolsum: deterministic tool summaries' && git push"
   },
-  "sum": "Stage changes \u00b7 Commit \"ag-toolsum: deterministic tool summaries\" \u00b7 Push",
+  "sum": "Stage changes · Commit \"ag-toolsum: deterministic tool summaries\" · Push",
   "hosts": [
    "ag-engine"
   ]
@@ -144,7 +144,7 @@
   "args": {
    "command": "cd ~/arcade.school && git show origin/dev:apps/arcade/src/lib/server/x.ts | sed -n 1,80p"
   },
-  "sum": "Show apps/\u2026/server/x.ts at origin/dev",
+  "sum": "Show apps/…/server/x.ts at origin/dev",
   "hosts": [
    "ag-engine"
   ]
@@ -154,7 +154,7 @@
   "args": {
    "command": "grep -n \"consent\\|ARC-729\" routes/api/chat/messages/server.test.ts | head -40"
   },
-  "sum": "Search \"consent|ARC-729\" in routes/\u2026/messages/server.test.ts",
+  "sum": "Search \"consent|ARC-729\" in routes/…/messages/server.test.ts",
   "hosts": [
    "ag-engine"
   ]
@@ -244,7 +244,7 @@
   "args": {
    "command": "systemctl --user restart ag-dash && sleep 2 && systemctl --user status ag-dash --no-pager | head -5"
   },
-  "sum": "Restart ag-dash \u00b7 Check ag-dash",
+  "sum": "Restart ag-dash · Check ag-dash",
   "hosts": [
    "ag-engine"
   ]
@@ -284,7 +284,7 @@
   "args": {
    "command": "osascript -e 'tell application \"Google Chrome\" to get URL of active tab of front window'"
   },
-  "sum": "AppleScript \u2192 Google Chrome",
+  "sum": "AppleScript → Google Chrome",
   "hosts": [
    "ag-engine"
   ]
@@ -364,7 +364,7 @@
   "args": {
    "command": "ps aux | grep -i telegram | xargs kill"
   },
-  "sum": "Check processes/load \u00b7 Stop processes (each)",
+  "sum": "Check processes/load · Stop processes (each)",
   "hosts": [
    "ag-engine"
   ]
@@ -414,7 +414,7 @@
   "args": {
    "command": "echo hi"
   },
-  "sum": null,
+  "sum": "Echo \"hi\"",
   "hosts": [
    "ag-engine"
   ]
@@ -436,7 +436,7 @@
    "offset": 100,
    "limit": 50
   },
-  "sum": "Read ~/ag/README.md:100\u2013149",
+  "sum": "Read ~/ag/README.md:100–149",
   "hosts": [
    "ag-engine"
   ]
@@ -450,7 +450,7 @@
     {}
    ]
   },
-  "sum": "Edit ~/\u2026/bin/ag-dash (2 changes)",
+  "sum": "Edit ~/…/bin/ag-dash (2 changes)",
   "hosts": [
    "ag-engine"
   ]
@@ -651,7 +651,7 @@
   "args": {
    "command": "/opt/homebrew/bin/hs -c \"return hs.osascript.applescript([[tell application \\\"Google Chrome\\\" to return count of windows]])\""
   },
-  "sum": "AppleScript \u2192 Google Chrome (via Hammerspoon)",
+  "sum": "AppleScript → Google Chrome (via Hammerspoon)",
   "hosts": [
    "ag-engine"
   ]
@@ -691,7 +691,7 @@
   "args": {
    "command": "cd ~/Library/Logs/Roblox && for f in $(ls -t *Player*last.log | head -8); do echo \"$f $(wc -l <$f) join=$(grep -ac 'Joining game' $f) hang=$(grep -ac HangDetected $f)\"; done"
   },
-  "sum": "List *Player*last.log \u00b7 Count lines in $f \u00b7 Search \"Joining game\" in $f +1",
+  "sum": "List *Player*last.log · Count lines in $f · Search \"Joining game\" in $f +1",
   "hosts": [
    "ag-engine"
   ]
@@ -821,7 +821,7 @@
   "args": {
    "command": "cat notes.md | pbcopy"
   },
-  "sum": "Read notes.md \u00b7 Copy to clipboard",
+  "sum": "Read notes.md · Copy to clipboard",
   "hosts": [
    "ag-engine"
   ]
@@ -871,7 +871,7 @@
   "args": {
    "command": "\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --headless=new --disable-gpu --window-size=1440,1100 --screenshot=/tmp/devchart.png file:///tmp/devchart.html 2>/dev/null"
   },
-  "sum": "Screenshot /tmp/devchart.html in headless Chrome \u2192 /tmp/devchart.png",
+  "sum": "Screenshot /tmp/devchart.html in headless Chrome → /tmp/devchart.png",
   "hosts": [
    "ag-engine"
   ]
@@ -951,7 +951,7 @@
   "args": {
    "command": "git ls-files | xargs wc -l"
   },
-  "sum": "List tracked files \u00b7 Count lines in the listed files",
+  "sum": "List tracked files · Count lines in the listed files",
   "hosts": [
    "ag-engine"
   ]
@@ -961,7 +961,7 @@
   "args": {
    "command": "ls *.jsonl | xargs -I{} sh -c 'grep -l \"PRRT_kw\" {} 2>/dev/null'"
   },
-  "sum": "List *.jsonl \u00b7 Search \"PRRT_kw\" in {} (each)",
+  "sum": "List *.jsonl · Search \"PRRT_kw\" in {} (each)",
   "hosts": [
    "ag-engine"
   ]
@@ -1081,7 +1081,7 @@
   "args": {
    "command": "sed -i '' 's/^export const X/const X/' apps/arcade/src/lib/a.ts"
   },
-  "sum": "Edit apps/\u2026/lib/a.ts (sed)",
+  "sum": "Edit apps/…/lib/a.ts (sed)",
   "hosts": [
    "ag-engine"
   ]
@@ -1451,7 +1451,7 @@
   "args": {
    "command": "op-shared item list --vault machine-shared --format json > /tmp/ms.json 2>/tmp/ms.err; wc -c /tmp/ms.json"
   },
-  "sum": "List secrets (op-shared) \u00b7 Count bytes in /tmp/ms.json",
+  "sum": "List secrets (op-shared) · Count bytes in /tmp/ms.json",
   "hosts": [
    "ag-engine"
   ]
@@ -1601,7 +1601,7 @@
   "args": {
    "command": "herdr pane swap --source-pane $P --target-pane $N >/dev/null"
   },
-  "sum": "Swap panes $P \u2194 $N",
+  "sum": "Swap panes $P ↔ $N",
   "hosts": [
    "ag-engine"
   ]
@@ -2111,7 +2111,7 @@
   "args": {
    "command": "case $x in a) ls /tmp;; *) git status;; esac"
   },
-  "sum": "List /tmp \u00b7 Git status",
+  "sum": "List /tmp · Git status",
   "hosts": [
    "ag-engine"
   ]
@@ -2421,7 +2421,7 @@
   "args": {
    "command": "echo '{\"last_until\": \"2026-10-05T13:46:34.299Z\", \"seen\": []}' > ~/.local/state/routines/tessa-student-games/cursor.json"
   },
-  "sum": "Write ~/\u2026/tessa-student-games/cursor.json",
+  "sum": "Write ~/…/tessa-student-games/cursor.json",
   "hosts": [
    "ag-engine"
   ]
@@ -2431,7 +2431,7 @@
   "args": {
    "command": "cd ~/arcade.school && date; TZ=America/Chicago date +'%F %T %a'"
   },
-  "sum": "Show the time \u00b7 Show the time in Chicago",
+  "sum": "Show the time · Show the time in Chicago",
   "hosts": [
    "ag-engine"
   ]
@@ -2471,7 +2471,7 @@
   "args": {
    "command": "chmod +x /tmp/wu/q.sh; Q=/tmp/wu/q.sh\n$Q \"\nselect count(*) from play_sessions\n\" | head"
   },
-  "sum": "Set permissions on /tmp/wu/q.sh \u00b7 Run q.sh",
+  "sum": "Set permissions on /tmp/wu/q.sh · Run q.sh",
   "hosts": [
    "ag-engine"
   ]
@@ -2541,7 +2541,7 @@
   "args": {
    "command": "J=\"$(op-shared item get Card --format json)\"; CH=\"$(jq -r '.f[]|select(.label==\"cardholder name\").value' <<<\"$J\")\" CN=\"$(jq -r '.n|gsub(\"[^0-9]\";\"\")' <<<\"$J\")\" A1=\"1 Main St\" node fill.mjs 2>&1 | tail -5"
   },
-  "sum": "Read secret \"Card\" \u00b7 Parse JSON \u00b7 Run fill.mjs",
+  "sum": "Read secret \"Card\" · Parse JSON · Run fill.mjs",
   "hosts": [
    "ag-engine"
   ]
@@ -2551,7 +2551,7 @@
   "args": {
    "command": "GH_TOKEN=\"$(cat tok)\" gh pr list"
   },
-  "sum": "Read tok \u00b7 List PRs",
+  "sum": "Read tok · List PRs",
   "hosts": [
    "ag-engine"
   ]
@@ -2601,7 +2601,7 @@
   "args": {
    "command": "ag-t3 link 64ce1024-df70-4525-bfb2-e783d58fa6a7; ag-t3 threads --json | jq '.[0]'"
   },
-  "sum": "Get link to T3 thread 64ce1024 \u00b7 List T3 threads",
+  "sum": "Get link to T3 thread 64ce1024 · List T3 threads",
   "hosts": [
    "ag-engine"
   ]
@@ -2621,7 +2621,7 @@
   "args": {
    "command": "ag-t3 doctor; ag-t3 setup"
   },
-  "sum": "Check the T3/Pi setup \u00b7 Set up T3's Pi provider",
+  "sum": "Check the T3/Pi setup · Set up T3's Pi provider",
   "hosts": [
    "ag-engine"
   ]
@@ -2746,7 +2746,7 @@
    "action": "rename",
    "title": "Hetzner limit"
   },
-  "sum": "Rename T3 thread 1974b320 \u2192 \"Hetzner limit\"",
+  "sum": "Rename T3 thread 1974b320 → \"Hetzner limit\"",
   "hosts": [
    "ag-engine"
   ]
@@ -2756,7 +2756,7 @@
   "args": {
    "command": "cd ~/x && sed -n 55,82p src/a/b/c/access.ts; sed -n 625,660p src/a/b/c/access.ts; sed -n 1,5p b.ts"
   },
-  "sum": "Read src/\u2026/c/access.ts:55\u201382, 625\u2013660, b.ts:1\u20135",
+  "sum": "Read src/…/c/access.ts:55–82, 625–660, b.ts:1–5",
   "hosts": [
    "ag-engine"
   ]
@@ -2766,7 +2766,27 @@
   "args": {
    "command": "git reset -q --soft origin/dev && git restore --staged . && git restore --source origin/dev a.ts"
   },
-  "sum": "Reset branch \u00b7 Unstage all changes \u00b7 Restore a.ts from origin/dev",
+  "sum": "Reset branch · Unstage all changes · Restore a.ts from origin/dev",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "echo placeholder"
+  },
+  "sum": "Echo \"placeholder\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "echo"
+  },
+  "sum": "Echo an empty line",
   "hosts": [
    "ag-engine"
   ]

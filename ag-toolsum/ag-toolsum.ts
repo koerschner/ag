@@ -1145,6 +1145,11 @@ function summarizeOne(cmd: string, ctx: Ctx): SegOut {
 
 /** A top-level command that is only "noise" but still has a point: printing variables, checking the time. */
 function quietSum(segs: { seg: string }[]): string | undefined {
+	// a lone `echo word` (placeholder / no-op calls): say exactly what it prints
+	if (segs.length === 1) {
+		const lit = segs[0].seg.trim().match(/^echo(?:\s+([\w.:-]+(?:\s+[\w.:-]+)*))?$/);
+		if (lit) return lit[1] ? `Echo "${clip(lit[1], 40)}"` : "Echo an empty line";
+	}
 	const out: string[] = [];
 	const printed: string[] = [];
 	for (const { seg } of segs) {

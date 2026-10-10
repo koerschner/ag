@@ -46,8 +46,13 @@ cue_t = [min(l['start'] + 0.8, l['end']) for l in data['lines']]
 grid(cue_t, [f"{l['id']} {l['start']:.1f}s" for l in data['lines']], rev / 'cues.jpg', cols=4, w=360)
 
 
-def norm(s):  # letters only, no spaces: "FreeTime" and "free time" compare equal
-    return re.sub(r'[^a-z0-9]', '', s.lower())
+NUM = {'0': 'zero', '1': 'one', '2': 'two', '3': 'three', '4': 'four', '5': 'five', '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine',
+       '10': 'ten', '20': 'twenty', '30': 'thirty', '60': 'sixty', '100': 'hundred'}
+
+
+def norm(s):  # letters only, no spaces: "FreeTime" == "free time", "3." == "three"
+    s = re.sub(r'\b\d+\b', lambda m: NUM.get(m.group(), m.group()), s.lower())
+    return re.sub(r'[^a-z0-9]', '', s)
 
 
 rows, issues = [], []

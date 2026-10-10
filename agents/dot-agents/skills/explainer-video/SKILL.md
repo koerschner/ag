@@ -117,6 +117,7 @@ only on the 3-5 moments that matter, music low. Busy videos read as noise to kid
 ## Files
 
 - `scripts/build.py`: narrate, time, render, mix, mux, review. `--draft`, `--stage tts`, `--from/--to` (renders only those frames into build/frames for a quick look: no mp4 and no review, so the review pack still describes the previous full render).
+- One build per project dir at a time: two runs share build/frames and wreck each other (build.py refuses to encode a short frame set). Render cuts one after another, or give each its own copy.
 - Stopping a render: kill it by PID or `pkill -f 'bun .*render.ts'` from a separate shell; a bare `pkill -f render.ts` inside a tool call matches its own command line and kills that shell.
 - `scripts/capture.ts`: product screens and element boxes from a URL or Storybook.
 - `scripts/render.ts`: deterministic frame renderer (parallel workers), serves `/lib/gsap.min.js` and `/lib/ev.js`.

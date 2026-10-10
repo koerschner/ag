@@ -231,6 +231,11 @@ def main():
     if partial:
         print(f'partial render in {frames} (frames only); run without --from/--to for the mp4')
         return
+    want = round(duration * fps)
+    have = len(list(frames.glob('f*.jpg')))
+    if have < want - 1:
+        sys.exit(f'build.py: only {have} of {want} frames rendered in {frames} (a render died or another run touched this folder; '
+                 'only one build may run per project dir at a time). Rerun.')
     silent = build / 'video.mp4'
     sh(['ffmpeg', '-loglevel', 'error', '-y', '-framerate', fps, '-i', frames / 'f%05d.jpg', '-c:v', 'libx264', '-preset', 'medium',
         '-crf', '18', '-pix_fmt', 'yuv420p', silent])

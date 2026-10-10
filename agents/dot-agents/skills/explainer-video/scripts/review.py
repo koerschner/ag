@@ -57,7 +57,7 @@ def norm(s):  # letters only, no spaces: "FreeTime" == "free time", "3." == "thr
 
 rows, issues = [], []
 for l in data['lines']:
-    a, b = norm(l['text']), norm(l.get('heard', ''))
+    a, b = norm(l.get('say', l['text'])), norm(l.get('heard', ''))
     r = difflib.SequenceMatcher(None, a, b).ratio()
     flag = '' if r >= 0.9 else ' ⚠'
     if flag:

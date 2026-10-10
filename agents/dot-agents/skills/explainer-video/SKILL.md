@@ -101,6 +101,9 @@ Collect the finished cuts on one comparison page. Try odd ideas too; the point i
 lists ElevenLabs models but does not support its speech endpoint (Oct 2026). Lines are cached
 by text and voice, so editing one line re-voices only that line.
 
+Mispronounced names: give the line a `"say"` with a spelling the voice gets right ("Time Back" for
+"Timeback"); captions and `EV.word` cues keep the written `text`. Listen to every brand name once.
+
 Clip boundaries: the gateway can return a WAV nested inside a WAV with junk bytes after the
 audio; decoded naively that is a loud burst at the end of every line ("a radio switching off").
 `build.py` walks to the innermost data chunk, trims silence, fades both ends, pads room tone,

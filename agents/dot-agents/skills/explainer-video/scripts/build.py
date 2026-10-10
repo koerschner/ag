@@ -12,6 +12,8 @@ video.json (paths relative to it):
              "instructions": "Warm, upbeat narrator talking to a 10-year-old." },
   "lead": 0.8, "tail": 2.5,            # silence before the first line / after the last
   "lines": [ { "id": "intro", "text": "...", "gap": 0.5, "scene": "intro" } ],   # gap: silence after this line
+        # optional "say": what the voice reads when it mispronounces the written text ("Time Back" for
+        # "Timeback"); captions and word cues still use "text"
   "music": { "bpm": 96, "key": "D", "mode": "major", "volume": 0.16 }            # generated bed (feature-trailer music.ts)
         # or { "file": "music.mp3", "volume": 0.2 } or false
   "sfx": [ ["line-id", 0.35, "sfx/reward.wav", 0.8] ]   # at a line's start + offset; or ["word:line-id:battery", 0, path, vol]
@@ -78,12 +80,12 @@ def probe(path):
 
 
 def tts(line, voice, vo):
-    key = hashlib.sha1(json.dumps([line['text'], voice, 'pcm-v2'], sort_keys=True).encode()).hexdigest()[:10]
+    key = hashlib.sha1(json.dumps([line.get('say', line['text']), voice, 'pcm-v2'], sort_keys=True).encode()).hexdigest()[:10]
     wav, words = vo / f"{line['id']}-{key}.wav", vo / f"{line['id']}-{key}.json"
     if not wav.exists():
         model = voice.get('model', 'gemini-primary/gemini-3.8-flash-tts')
         gemini = 'gemini' in model
-        body = {'model': model, 'input': line['text'], 'voice': voice.get('voice', 'Puck'),
+        body = {'model': model, 'input': line.get('say', line['text']), 'voice': voice.get('voice', 'Puck'),
                 'response_format': 'pcm16' if gemini else 'wav'}
         if voice.get('instructions'):
             body['instructions'] = voice['instructions']

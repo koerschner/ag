@@ -96,6 +96,9 @@ export function splitShell(cmd: string): { seg: string; pipeAfter: boolean }[] {
 	for (let i = 0; i < cmd.length; i++) {
 		const c = cmd[i];
 		if (q) {
+			// "$(cmd "with quotes")": the substitution has its own quoting
+			const e = q === '"' && c === "$" && cmd[i + 1] === "(" ? substEnd(cmd, i) : -1;
+			if (e > 0) { cur += cmd.slice(i, e); i = e - 1; continue; }
 			cur += c;
 			if (c === "\\" && q === '"' && i + 1 < cmd.length) cur += cmd[++i];
 			else if (c === q) q = null;
@@ -217,6 +220,38 @@ const flagVal = (args: string[], ...names: string[]) => {
 		}
 	}
 };
+
+/** tar cf - dir | tar xf - -C out: old-style bundled flags ("cf"), -f's archive ("-" = a pipe), members. */
+function tarSum(args: string[]): string {
+	const a = [...args];
+	if (/^[a-zA-Z]+$/.test(a[0] ?? "") && /[cxtru]/.test(a[0])) a[0] = `-${a[0]}`;
+	let mode = "c";
+	let file: string | undefined;
+	let dir: string | undefined;
+	const members: string[] = [];
+	for (let i = 0; i < a.length; i++) {
+		const x = a[i];
+		if (/^-[a-zA-Z]+$/.test(x)) {
+			const m = x.match(/[cxtru]/)?.[0];
+			if (m) mode = m;
+			if (x.includes("f")) file = a[++i];
+			else if (x === "-C") dir = a[++i];
+			continue;
+		}
+		if (x.startsWith("--file=")) { file = x.slice(7); continue; }
+		if (x.startsWith("--directory=")) { dir = x.slice(12); continue; }
+		if (x === "--file" || x === "--directory") { if (x === "--file") file = a[++i]; else dir = a[++i]; continue; }
+		if (/^--(?:extract|get)$/.test(x)) { mode = "x"; continue; }
+		if (/^--(?:create)$/.test(x)) { mode = "c"; continue; }
+		if (/^--list$/.test(x)) { mode = "t"; continue; }
+		if (x.startsWith("-")) continue;
+		members.push(x);
+	}
+	const arc = !file || file === "-" ? "" : shortPath(file);
+	if (mode === "x") return `Extract ${arc || "archive from pipe"}${dir ? ` into ${shortPath(dir)}` : ""}`;
+	if (mode === "t") return `List archive ${arc || "from pipe"}`.trim();
+	return `Archive ${paths(members, 1) || shortPath(dir ?? ".")}${arc ? ` → ${arc}` : ""}`;
+}
 
 // ---------- computer-use tasks ----------
 
@@ -802,7 +837,8 @@ const RULES: Rule[] = [
 	{ id: "docker", cmd: /^(docker|podman)$/, fn: (a) => `Docker ${positional(a).slice(0, 2).join(" ")}`.trim() },
 	{ id: "agents-build", cmd: /^(?:\.\/)?(?:agents\.md|agent-instructions)\/build$/, fn: () => "Rebuild AGENTS.md" },
 	{ id: "editor", cmd: /^(diff|cmp|comm)$/, fn: (a) => `Compare ${paths(positional(a), 2)}` },
-	{ id: "archive", cmd: /^(tar|zip|unzip|gzip|gunzip)$/, fn: (a, raw) => `${/^(unzip|gunzip)/.test(raw) || a.some((x) => /^-?\w*x/.test(x)) ? "Extract" : "Archive"} ${paths(positional(a, ["-C", "-f", "-d"]), 1)}` },
+	{ id: "tar", cmd: /^tar$/, fn: (a) => tarSum(a) },
+	{ id: "archive", cmd: /^(zip|unzip|gzip|gunzip)$/, fn: (a, raw) => `${/^(unzip|gunzip)/.test(raw) || a.some((x) => /^-?\w*x/.test(x)) ? "Extract" : "Archive"} ${paths(positional(a, ["-C", "-f", "-d"]), 1)}` },
 	{ id: "env", cmd: /^(env|printenv|hostname|whoami|id|uname|sw_vers|tty|nproc|locale|ulimit)$/, fn: () => "Check environment" },
 	{ id: "sqlite", cmd: /^(sqlite3|psql|duckdb)$/, fn: (a, raw) => `Query ${shortPath(positional(a)[0] ?? raw.split(/\s/)[0])}` },
 	{ id: "pi", cmd: /^(pi|omp|claude|codex|amp)$/, fn: (a, raw) => { const tool = raw.split(/\s/)[0]; return a.includes("-p") || a.includes("--print") || a[0] === "exec" ? `Run ${tool} non-interactively` : `${tool} ${positional(a)[0] ?? ""}`.trim(); } },
@@ -1204,7 +1240,9 @@ export function summarizeShell(command: string, ctx: Ctx, top = false): Summary 
 		}
 		afterPipe = pipeAfter;
 		const sl = seg.match(/^sleep\s+(\d+(?:\.\d+)?)/);
-		if (sl) sleep += Number(sl[1]);
+		// a sleep before any step prefixes the summary ("Wait 20s, then …"); a long one between steps is its own step
+		if (sl && outs.length && Number(sl[1]) >= 10) { if (!pipeAfter) outs.push({ sum: `Wait ${Number(sl[1])}s` }); continue; }
+		if (sl && !outs.length) sleep += Number(sl[1]);
 		ctx.miss = undefined;
 		const o = summarizeSegment(seg, ctx);
 		if (o === "noise") continue;

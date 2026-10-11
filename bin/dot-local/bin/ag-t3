@@ -138,19 +138,38 @@ function projectFor(dir: string): string {
 	return out.match(/project ([0-9a-f-]{36})/)?.[1] ?? die(`couldn't add a T3 project for ${dir}: ${out}`);
 }
 
+// T3 lists Pi's whole catalog: hundreds of OpenRouter models plus the direct anthropic and openai-codex
+// logins. Everything in T3 runs on TrueFoundry, so hide every other model in the server's model preferences
+// (synced to every client) and put the default first. Pi's truefoundry-only extension catches stray picks.
+const onTrueFoundry = (slug: string) => /^truefoundry(-[a-z]+)?\//.test(slug);
+const piCatalog = (): string[] => existsSync(`${T3_HOME}/caches/pi.json`)
+	? (JSON.parse(readFileSync(`${T3_HOME}/caches/pi.json`, "utf8")).models ?? []).map((m: any) => m.slug) : [];
+function trueFoundryOnly(settings: any) {
+	const prefs = settings.providerModelPreferences?.pi ?? {};
+	const hiddenModels = [...new Set([...(prefs.hiddenModels ?? []), ...piCatalog().filter((s) => s !== "default" && !onTrueFoundry(s))])];
+	const modelOrder = [DEFAULT_MODEL, ...(prefs.modelOrder ?? []).filter((s: string) => s !== DEFAULT_MODEL && onTrueFoundry(s))];
+	const favorites = [{ provider: "pi", model: DEFAULT_MODEL },
+		...(settings.favorites ?? []).filter((f: any) => !(f.provider === "pi" && (f.model === DEFAULT_MODEL || !onTrueFoundry(f.model))))];
+	return { favorites, providerModelPreferences: { ...settings.providerModelPreferences, pi: { hiddenModels, modelOrder } } };
+}
+
 // ---------- commands ----------
 async function setup() {
 	const rpc = await open();
 	try {
 		const settings = await rpc.call("server.getSettings", {});
-		const pi = { ...settings.providers?.pi, enabled: true, binaryPath: `${HOME}/.local/bin/pi` };
+		// T3 keeps provider config in providerInstances (an envelope: driver, enabled, config); patch the whole
+		// record so the other instances survive.
+		const instances = settings.providerInstances ?? {};
+		const pi = { ...instances.pi, driver: "pi", enabled: true, config: { ...instances.pi?.config, binaryPath: `${HOME}/.local/bin/pi` } };
 		const textModel = settings.textGenerationModelSelection;
 		const textGenerationModelSelection = textModel?.instanceId === "pi" && textModel?.model !== "default" && !modelProblem(textModel.model)
 			? textModel : { instanceId: "pi", model: "truefoundry-chat/gemini-group/gemini-3.7-flash" };
 		const updated = await rpc.call("server.updateSettings", { patch: {
-			providers: { pi }, textGenerationModelSelection,
+			providerInstances: { ...instances, pi }, textGenerationModelSelection, ...trueFoundryOnly(settings),
 		} });
-		if (!updated.providers?.pi?.enabled || updated.providers.pi.binaryPath !== pi.binaryPath)
+		const saved = updated.providerInstances?.pi;
+		if (!saved?.enabled || saved.config?.binaryPath !== pi.config.binaryPath)
 			die("T3 did not persist the Pi provider configuration");
 	} finally { rpc.close(); }
 	console.log("T3 Pi provider configured");
@@ -160,7 +179,8 @@ function doctor(): number {
 	const warnings: string[] = [];
 	const settingsFile = `${T3_HOME}/userdata/settings.json`;
 	const settings = existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, "utf8")) : {};
-	if (settings.providers?.pi?.enabled !== true || settings.providers.pi.binaryPath !== `${HOME}/.local/bin/pi` || !existsSync(`${HOME}/.local/bin/pi`))
+	const piInstance = settings.providerInstances?.pi;
+	if (piInstance?.enabled !== true || piInstance.config?.binaryPath !== `${HOME}/.local/bin/pi` || !existsSync(`${HOME}/.local/bin/pi`))
 		problems.push("T3 Pi provider is not enabled with a working ~/.local/bin/pi");
 	if (!existsSync(`${HOME}/.pi/agent/models.json`)) problems.push("Pi custom models.json is missing; TrueFoundry models will not load");
 	if (!existsSync(`${T3_HOME}/caches/pi.json`)) problems.push("T3 has not probed Pi models yet");
@@ -168,6 +188,9 @@ function doctor(): number {
 		const models = JSON.parse(readFileSync(`${T3_HOME}/caches/pi.json`, "utf8")).models ?? [];
 		if (!models.some((m: any) => m.slug === DEFAULT_MODEL)) problems.push(`default model ${DEFAULT_MODEL} is unavailable in T3`);
 	}
+	const hidden = new Set(settings.providerModelPreferences?.pi?.hiddenModels ?? []);
+	const visible = piCatalog().filter((s) => s !== "default" && !onTrueFoundry(s) && !hidden.has(s));
+	if (visible.length) warnings.push(`${visible.length} non-TrueFoundry models are visible in T3's picker (e.g. ${visible[0]}); run ag-t3 setup`);
 	const authFile = `${HOME}/.pi/agent/auth.json`;
 	if (existsSync(authFile)) {
 		const auth = JSON.parse(readFileSync(authFile, "utf8"));

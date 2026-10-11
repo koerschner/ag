@@ -148,8 +148,11 @@ def query_prompt(text: str) -> str:
 
 # ---------------------------------------------------------------- sources
 
+AG_ORIGIN = re.compile(r"</?ag-origin\b[^>]*>")  # Ag's routing tags on injected prompts: noise, not content
+
+
 def chunks(text: str) -> list[str]:
-    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s+", " ", AG_ORIGIN.sub(" ", text)).strip()
     if not text:
         return []
     out, start = [], 0

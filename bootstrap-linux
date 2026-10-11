@@ -196,6 +196,10 @@ systemctl --user enable --now ag-toolsum-review.timer >/dev/null 2>&1 && echo " 
 systemctl --user enable --now ag-mux.service >/dev/null 2>&1 && echo "  ag-mux (agd, tmux -L ag) on" || warn "ag-mux.service"
 systemctl --user enable --now ag-dash.service >/dev/null 2>&1 && echo "  ag-dash (http://ag:7376) on" || warn "ag-dash.service"
 ~/.local/bin/ag-shortcuts-check >/dev/null 2>&1 && echo "  shortcuts match tmux/SHORTCUTS.md" || warn "ag shortcuts drifted (run ag-shortcuts-check)"
+if ~/.local/bin/ag-machine-role host; then  # EmbeddingGemma 2 search for T3's ⌥⌘K deep search (builds llama.cpp once)
+  ~/.local/bin/ag-deepsearch setup >/dev/null 2>&1 && systemctl --user enable --now ag-deepsearch.service >/dev/null 2>&1 &&
+    echo "  ag-deepsearch on" || warn "ag-deepsearch (run ag-deepsearch setup)"
+fi
 systemctl --user enable --now ag-nessie.service >/dev/null 2>&1 && echo "  nessie (trace sync) on" || warn "ag-nessie.service"
 systemctl --user enable --now ag-telegram.service >/dev/null 2>&1 && echo "  ag-telegram (Telegram replies) on" || warn "ag-telegram.service"
 systemctl --user enable --now ag-discord.service >/dev/null 2>&1 && echo "  ag-discord (Discord feedback buttons) on" || warn "ag-discord.service"

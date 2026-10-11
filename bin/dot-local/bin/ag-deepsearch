@@ -1,0 +1,421 @@
+#!/usr/bin/env -S uv run --script --quiet
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["numpy>=1.26"]
+# ///
+"""ag-deepsearch: semantic search over open T3 threads and Ag's open tabs.
+
+The DigUp recipe (github.com/ARahim3/DigUp) on the session host: Google DeepMind's EmbeddingGemma 2 (text model,
+ggml-org's Q8_0 GGUF) running on llama.cpp, one vector per stretch of conversation, cosine similarity plus a boost
+for exact words. T3 Code's "Deep search" (fork, apps/server/src/ag/deepSearchRoute.ts) proxies /search.
+
+  ag-deepsearch setup            build llama.cpp (pinned tag + DigUp's no-logits patch) and fetch the model
+  ag-deepsearch serve            embedder + indexer + HTTP API on 127.0.0.1:7395 (ag-deepsearch.service)
+  ag-deepsearch search <words>   query a running server
+  ag-deepsearch status           index size and last refresh
+
+Sources: T3's active (not archived/deleted) threads, read-only from ~/.t3/userdata/statev2.sqlite, and Ag's open
+tabs (`ag ls --json`) via their Pi transcripts. User and assistant text only; no tool output or thinking.
+"""
+
+from __future__ import annotations
+
+import glob
+import hashlib
+import http.server
+import json
+import os
+import re
+import sqlite3
+import subprocess
+import sys
+import threading
+import time
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+import numpy as np
+
+HOME = Path.home()
+SHARE = HOME / ".local/share/ag-deepsearch"
+STATE = HOME / ".local/state/ag-deepsearch"
+INDEX_DB = STATE / "index.sqlite"
+LLAMA_TAG = "b11461"  # first EmbeddingGemma 2 tags are b11452+; DigUp pins this one
+LLAMA_SRC = HOME / ".local/src/llama.cpp"
+LLAMA_SERVER = LLAMA_SRC / "build/bin/llama-server"
+PATCH = Path(__file__).resolve().parent.parent / "share/ag-deepsearch/llama.cpp-no-logits.patch"
+MODEL_REPO = "ggml-org/embeddinggemma-2-GGUF"
+MODEL_REV = "bfcd298762cc34d0357ece5ebdd31791a3a374d8"
+MODEL_NAME = "embeddinggemma-2-Q8_0.gguf"
+MODEL_SHA = "2188ac1deca4b77dffefd603c2776a9d76d9d74ec01841392982ebb840b09135"
+MODEL = SHARE / "models" / MODEL_NAME
+T3_DB = Path(os.environ.get("AG_DEEPSEARCH_T3_DB", HOME / ".t3/userdata/statev2.sqlite"))
+PI_SESSIONS = HOME / ".pi/agent/sessions"
+EMBED_PORT = int(os.environ.get("AG_DEEPSEARCH_EMBED_PORT", "7394"))
+API_PORT = int(os.environ.get("AG_DEEPSEARCH_PORT", "7395"))
+REFRESH_SECONDS = 120
+CHUNK_CHARS = 1400  # ~350-450 tokens; the text model takes 512
+CHUNK_OVERLAP = 200
+MAX_CHUNKS_PER_MESSAGE = 6
+VECTOR_VERSION = f"{MODEL_NAME}@{MODEL_REV[:8]}/chunk{CHUNK_CHARS}"
+
+
+def log(*parts: object) -> None:
+    print(time.strftime("%H:%M:%S"), *parts, flush=True)
+
+
+# ---------------------------------------------------------------- setup
+
+def setup() -> None:
+    SHARE.joinpath("models").mkdir(parents=True, exist_ok=True)
+    if not LLAMA_SERVER.exists():
+        if not LLAMA_SRC.exists():
+            LLAMA_SRC.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["git", "-c", "advice.detachedHead=false", "clone", "--quiet", "--depth", "1",
+                            "--branch", LLAMA_TAG, "https://github.com/ggml-org/llama.cpp", str(LLAMA_SRC)], check=True)
+        if subprocess.run(["git", "-C", str(LLAMA_SRC), "apply", "--check", str(PATCH)], capture_output=True).returncode == 0:
+            subprocess.run(["git", "-C", str(LLAMA_SRC), "apply", str(PATCH)], check=True)
+        venv = SHARE / "cmake-venv"
+        if not (venv / "bin/cmake").exists():
+            subprocess.run(["uv", "venv", "-q", str(venv), "--python", "3.12"], check=True)
+            subprocess.run(["uv", "pip", "install", "-q", "--python", str(venv / "bin/python"), "cmake", "ninja"], check=True)
+        env = {**os.environ, "PATH": f"{venv}/bin:{os.environ['PATH']}"}
+        build = LLAMA_SRC / "build"
+        subprocess.run(["cmake", "-S", str(LLAMA_SRC), "-B", str(build), "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
+                        "-DLLAMA_CURL=OFF", "-DLLAMA_BUILD_TESTS=OFF", "-DLLAMA_BUILD_EXAMPLES=OFF",
+                        "-DLLAMA_BUILD_SERVER=ON", "-DGGML_NATIVE=ON"], check=True, env=env, stdout=subprocess.DEVNULL)
+        subprocess.run(["cmake", "--build", str(build), "--target", "llama-server", "-j", str(max(2, os.cpu_count() - 2))],
+                       check=True, env=env, stdout=subprocess.DEVNULL)
+    print("llama-server:", LLAMA_SERVER)
+    if not MODEL.exists() or sha256(MODEL) != MODEL_SHA:
+        tmp = MODEL.with_suffix(".part")
+        url = f"https://huggingface.co/{MODEL_REPO}/resolve/{MODEL_REV}/{MODEL_NAME}"
+        subprocess.run(["curl", "-fsSL", "-o", str(tmp), url], check=True)
+        if sha256(tmp) != MODEL_SHA:
+            tmp.unlink()
+            sys.exit("model checksum mismatch")
+        tmp.rename(MODEL)
+    print("model:", MODEL)
+
+
+def sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+# ---------------------------------------------------------------- embedder (llama-server child)
+
+def start_embedder() -> subprocess.Popen:
+    threads = str(max(2, (os.cpu_count() or 4) // 2))
+    proc = subprocess.Popen(
+        [str(LLAMA_SERVER), "-m", str(MODEL), "--embedding", "--pooling", "mean", "--host", "127.0.0.1",
+         "--port", str(EMBED_PORT), "-c", "4096", "-b", "1024", "-ub", "1024", "-np", "4", "-t", threads,
+         "--no-webui", "--log-disable"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, preexec_fn=lambda: os.nice(10))
+    for _ in range(120):
+        time.sleep(1)
+        if proc.poll() is not None:  # also catches a port already taken by another process
+            sys.exit(f"llama-server exited ({proc.returncode}); is {EMBED_PORT} free? run `ag-deepsearch setup`")
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{EMBED_PORT}/health", timeout=2)
+            log("embedder ready on", EMBED_PORT)
+            return proc
+        except Exception:
+            pass
+    sys.exit("llama-server did not become healthy")
+
+
+def embed(texts: list[str]) -> np.ndarray:
+    body = json.dumps({"input": texts}).encode()
+    req = urllib.request.Request(f"http://127.0.0.1:{EMBED_PORT}/v1/embeddings", body,
+                                 {"Content-Type": "application/json"})
+    data = json.load(urllib.request.urlopen(req, timeout=600))["data"]
+    vecs = np.array([d["embedding"] for d in sorted(data, key=lambda d: d["index"])], dtype=np.float32)
+    return vecs / np.maximum(np.linalg.norm(vecs, axis=1, keepdims=True), 1e-9)
+
+
+def document_prompt(title: str, text: str) -> str:  # EmbeddingGemma 2's task prompts (model card, as DigUp uses them)
+    return f"title: {title or 'none'} | text: {text}"
+
+
+def query_prompt(text: str) -> str:
+    return f"task: search result | query: {text}"
+
+
+# ---------------------------------------------------------------- sources
+
+def chunks(text: str) -> list[str]:
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return []
+    out, start = [], 0
+    while start < len(text) and len(out) < MAX_CHUNKS_PER_MESSAGE:
+        out.append(text[start:start + CHUNK_CHARS])
+        start += CHUNK_CHARS - CHUNK_OVERLAP
+    return out
+
+
+def t3_documents() -> list[dict]:
+    """Active T3 threads: one document per thread, its messages as units."""
+    if not T3_DB.exists():
+        return []
+    con = sqlite3.connect(f"file:{T3_DB}?mode=ro", uri=True, timeout=10)
+    try:
+        threads = con.execute("""
+            SELECT t.thread_id, t.project_id, t.title, t.updated_at, p.title
+            FROM orchestration_v2_projection_threads t
+            JOIN projection_projects p ON p.project_id = t.project_id
+            WHERE t.deleted_at IS NULL AND t.archived_at IS NULL AND p.deleted_at IS NULL""").fetchall()
+        rows = con.execute("""
+            SELECT m.thread_id, m.message_id, m.role, json_extract(m.payload_json, '$.text'), m.created_at
+            FROM orchestration_v2_projection_messages m
+            JOIN orchestration_v2_projection_threads t ON t.thread_id = m.thread_id
+            WHERE t.deleted_at IS NULL AND t.archived_at IS NULL
+              AND m.streaming = 0 AND m.role IN ('user', 'assistant')""").fetchall()
+    finally:
+        con.close()
+    units: dict[str, list] = {}
+    for thread_id, message_id, role, text, created_at in rows:
+        if text:
+            units.setdefault(thread_id, []).append((message_id, role, text, created_at))
+    return [{"key": f"t3:{tid}", "kind": "thread", "id": tid, "projectId": pid, "title": title, "project": ptitle,
+             "updatedAt": updated, "units": units.get(tid, [])}
+            for tid, pid, title, updated, ptitle in threads]
+
+
+def pi_session_file(sid: str) -> str | None:
+    hits = glob.glob(str(PI_SESSIONS / "*" / f"*_{sid}.jsonl"))
+    return hits[0] if hits else None
+
+
+def tab_documents() -> list[dict]:
+    """Ag's open tabs (ag ls): one document per tab, its Pi transcript's user/assistant text as units."""
+    try:
+        tabs = json.loads(subprocess.run([str(HOME / ".local/bin/ag"), "ls", "--json"], capture_output=True,
+                                         text=True, timeout=60).stdout or "[]")
+    except Exception as error:
+        log("ag ls failed:", error)
+        return []
+    docs = []
+    for tab in tabs:
+        sid = tab.get("sid")
+        path = sid and pi_session_file(sid)
+        if not path:
+            continue
+        units = []
+        with open(path, errors="replace") as f:
+            for n, line in enumerate(f):
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                message = entry.get("message") or {}
+                role = message.get("role")
+                if entry.get("type") != "message" or role not in ("user", "assistant"):
+                    continue
+                content = message.get("content")
+                text = content if isinstance(content, str) else " ".join(
+                    part.get("text", "") for part in content or [] if part.get("type") == "text")
+                if text.strip():
+                    units.append((entry.get("id") or f"line{n}", role, text, entry.get("timestamp")))
+        docs.append({"key": f"tab:{sid}", "kind": "tab", "id": sid, "tab": tab.get("tab"), "title": tab.get("title"),
+                     "link": tab.get("link"), "updatedAt": tab.get("last"), "units": units})
+    return docs
+
+
+# ---------------------------------------------------------------- index
+
+class Index:
+    """index.sqlite holds one row per chunk (its text hash makes refreshes incremental); vectors live in memory."""
+
+    def __init__(self) -> None:
+        STATE.mkdir(parents=True, exist_ok=True)
+        self.db = sqlite3.connect(INDEX_DB, check_same_thread=False)
+        self.db.executescript("""
+            CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT);
+            CREATE TABLE IF NOT EXISTS chunks (
+              id TEXT PRIMARY KEY, doc TEXT NOT NULL, role TEXT, at TEXT, text TEXT NOT NULL, vec BLOB NOT NULL);
+            CREATE INDEX IF NOT EXISTS chunks_doc ON chunks(doc);""")
+        version = self.db.execute("SELECT v FROM meta WHERE k='version'").fetchone()
+        if not version or version[0] != VECTOR_VERSION:
+            self.db.execute("DELETE FROM chunks")
+            self.db.execute("INSERT OR REPLACE INTO meta VALUES ('version', ?)", (VECTOR_VERSION,))
+            self.db.commit()
+        self.lock = threading.Lock()
+        self.docs: dict[str, dict] = {}
+        self.refreshed_at = 0.0
+        self.progress = ""
+        self.load()
+
+    def load(self) -> None:
+        rows = self.db.execute("SELECT id, doc, role, at, text, vec FROM chunks").fetchall()
+        with self.lock:
+            self.ids = [r[0] for r in rows]
+            self.meta = [(r[1], r[2], r[3], r[4]) for r in rows]
+            self.matrix = (np.frombuffer(b"".join(r[5] for r in rows), dtype=np.float16).reshape(-1, 768)
+                           .astype(np.float32) if rows else np.zeros((0, 768), np.float32))
+
+    def refresh(self) -> None:
+        docs = t3_documents() + tab_documents()
+        wanted: dict[str, tuple] = {}
+        for doc in docs:
+            for unit_id, role, text, at in doc["units"]:
+                for i, piece in enumerate(chunks(text)):
+                    digest = hashlib.sha1(f"{doc['title']}\0{piece}".encode()).hexdigest()[:16]
+                    wanted[f"{doc['key']}|{unit_id}|{i}|{digest}"] = (doc["key"], role, str(at or ""), piece,
+                                                                       doc["title"])
+        with self.lock:  # documents first, so chunks become searchable while the rest embed
+            self.docs = {d["key"]: {k: v for k, v in d.items() if k != "units"} for d in docs}
+        have = {r[0] for r in self.db.execute("SELECT id FROM chunks")}
+        stale = have - wanted.keys()
+        todo = [k for k in wanted if k not in have]
+        if stale:
+            self.db.executemany("DELETE FROM chunks WHERE id=?", [(k,) for k in stale])
+            self.db.commit()
+        for start in range(0, len(todo), 16):
+            batch = todo[start:start + 16]
+            vecs = embed([document_prompt(wanted[k][4], wanted[k][3]) for k in batch])
+            self.db.executemany("INSERT OR REPLACE INTO chunks VALUES (?,?,?,?,?,?)",
+                                [(k, *wanted[k][:4], v.astype(np.float16).tobytes()) for k, v in zip(batch, vecs)])
+            self.db.commit()
+            self.progress = f"embedding {start + len(batch)}/{len(todo)}"
+            if start % 320 == 0:
+                log(self.progress)
+                self.load()
+        if todo or stale or not len(self.ids):
+            self.load()
+        self.refreshed_at = time.time()
+        self.progress = ""
+        if todo or stale:
+            log(f"refreshed: +{len(todo)} -{len(stale)} chunks, {len(self.ids)} total, {len(docs)} docs")
+
+    def search(self, query: str, limit: int = 20, kinds: set[str] | None = None) -> dict:
+        query = query.strip()
+        if not query:
+            return {"results": []}
+        qvec = embed([query_prompt(query)])[0]
+        with self.lock:
+            scores = self.matrix @ qvec if len(self.ids) else np.zeros(0)
+            meta, docs = self.meta, self.docs
+        terms = [t for t in re.findall(r"\w+", query.lower()) if len(t) > 2]
+        phrase = query.lower()
+        best: dict[str, tuple[float, float, int]] = {}
+        for i in np.argsort(-scores)[:2000]:
+            doc_key, _, _, text = meta[i]
+            if doc_key not in docs or (kinds and docs[doc_key]["kind"] not in kinds):
+                continue
+            lower = text.lower()
+            exact = (0.12 if phrase in lower else 0.0) + 0.03 * sum(t in lower for t in terms)
+            score = float(scores[i]) + min(exact, 0.2)
+            if doc_key not in best or score > best[doc_key][0]:
+                best[doc_key] = (score, float(scores[i]), int(i))
+        # exact-word hits the vectors ranked low still count (names, error codes, ids)
+        if phrase and len(phrase) > 3:
+            for i, (doc_key, _, _, text) in enumerate(meta):
+                if doc_key in docs and doc_key not in best and phrase in text.lower() and (
+                        not kinds or docs[doc_key]["kind"] in kinds):
+                    best[doc_key] = (float(scores[i]) + 0.12, float(scores[i]), i)
+        ranked = sorted(best.items(), key=lambda kv: -kv[1][0])[:limit]
+        results = []
+        for doc_key, (score, cosine, i) in ranked:
+            doc = docs[doc_key]
+            _, role, at, text = meta[i]
+            results.append({**{k: v for k, v in doc.items() if k != "key"}, "score": round(score, 4),
+                            "similarity": round(cosine, 4), "role": role, "at": at,
+                            "snippet": snippet(text, terms)})
+        return {"results": results, "indexed": len(self.ids), "refreshedAt": self.refreshed_at}
+
+
+def snippet(text: str, terms: list[str]) -> str:
+    if len(text) <= 260:
+        return text
+    lower = text.lower()
+    hits = [lower.find(t) for t in terms if t in lower]
+    start = max(0, min(hits) - 80) if hits else 0
+    end = min(len(text), start + 260)
+    return ("…" if start else "") + text[start:end] + ("…" if end < len(text) else "")
+
+
+# ---------------------------------------------------------------- serve
+
+def serve() -> None:
+    if not LLAMA_SERVER.exists() or not MODEL.exists():
+        setup()
+    embedder = start_embedder()
+    index = Index()
+
+    def refresher() -> None:
+        while True:
+            try:
+                index.refresh()
+            except Exception as error:
+                log("refresh failed:", repr(error))
+            time.sleep(REFRESH_SECONDS)
+
+    threading.Thread(target=refresher, daemon=True).start()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *_args) -> None:  # queries are user content: don't log them
+            pass
+
+        def reply(self, status: int, payload: dict) -> None:
+            body = json.dumps(payload).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self) -> None:
+            url = urllib.parse.urlparse(self.path)
+            params = urllib.parse.parse_qs(url.query)
+            if url.path == "/status":
+                return self.reply(200, {"indexed": len(index.ids), "docs": len(index.docs),
+                                        "refreshedAt": index.refreshed_at, "progress": index.progress,
+                                        "model": VECTOR_VERSION})
+            if url.path == "/search":
+                kinds = set(params["kind"][0].split(",")) if params.get("kind") else None
+                try:
+                    limit = min(50, int(params.get("limit", ["20"])[0]))
+                    result = index.search(params.get("q", [""])[0], limit, kinds)
+                    result["progress"] = index.progress
+                    return self.reply(200, result)
+                except Exception as error:
+                    return self.reply(500, {"error": type(error).__name__})
+            self.reply(404, {"error": "not found"})
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", API_PORT), Handler)
+    log("deep search on", API_PORT)
+    try:
+        server.serve_forever()
+    finally:
+        embedder.terminate()
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help", "help"):
+        print(__doc__)
+    elif args[0] == "setup":
+        setup()
+    elif args[0] == "serve":
+        serve()
+    elif args[0] in ("search", "status"):
+        path = "/status" if args[0] == "status" else "/search?" + urllib.parse.urlencode({"q": " ".join(args[1:])})
+        data = json.load(urllib.request.urlopen(f"http://127.0.0.1:{API_PORT}{path}", timeout=60))
+        if args[0] == "status":
+            print(json.dumps(data, indent=1))
+            return
+        for r in data["results"]:
+            where = r.get("link") or f"T3 thread {r['id']}"
+            print(f"{r['score']:.3f}  [{r['kind']}] {r['title']}  {where}\n       {r['snippet'][:160]}")
+    else:
+        sys.exit(f"unknown command {args[0]}; ag-deepsearch --help")
+
+
+if __name__ == "__main__":
+    main()

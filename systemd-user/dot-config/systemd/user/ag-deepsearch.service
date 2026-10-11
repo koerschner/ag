@@ -1,0 +1,16 @@
+# Semantic search over open T3 threads and Ag tabs (EmbeddingGemma 2 on llama.cpp; bin/dot-local/bin/ag-deepsearch).
+# Session host only. API on 127.0.0.1:7395; T3 Code's Deep search proxies it.
+[Unit]
+Description=ag-deepsearch (EmbeddingGemma 2 search over T3 threads and Ag tabs)
+After=network-online.target ag-mux.service
+
+[Service]
+ExecCondition=%h/.local/bin/ag-machine-role host
+ExecStart=/usr/bin/zsh -lc 'exec %h/.local/bin/ag-deepsearch serve'
+Restart=always
+RestartSec=10
+Nice=10
+MemoryMax=3G
+
+[Install]
+WantedBy=default.target

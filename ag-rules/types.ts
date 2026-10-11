@@ -41,14 +41,21 @@ export type PromptRule = (prompt: Prompt, ag: PromptAg) => void | { text: string
 
 // ---- lane: which lane a message to a T3 thread runs in (T3 server: the fork's apps/server/src/ag/lane.ts) ----
 
-/** A message the user just sent to a T3 thread, before T3 starts it. It may carry <ag-origin> tags. */
+/** A message to a T3 thread, before T3 starts it: every message the user sends, and the first message of any thread
+ * (also ones agents launch). It may carry <ag-origin> tags. */
 export interface LaneMessage {
 	text: string;
 	source: string; // T3's creationSource: "web" | "mobile" | "mcp" | "provider" | "server"
+	createdBy: string; // "user" (incl. ag-t3: the inbox, ag spawn, the tickler) | "agent" | "system"
+	first: boolean; // the thread's first message: nothing has run in it yet
 }
-/** private = move this message, and the thread from then on, to the private lane (personal OpenRouter, outside
- * Nessie: docs/t3.md, "Two lanes"). Nothing = leave it in the lane it's in. */
-export type LaneRule = (input: LaneMessage, ag: AgBase) => { lane: "private" } | undefined;
+/** private = this message, and the thread from then on, runs in the private lane (personal OpenRouter, outside Nessie:
+ * docs/t3.md, "Two lanes"); synced = in the synced lane (company TrueFoundry, Nessie). Nothing = the lane it's in.
+ * When rules disagree, private wins. */
+export type LaneRule = (
+	input: LaneMessage,
+	ag: AgBase,
+) => { lane: "private" | "synced" } | undefined | Promise<{ lane: "private" | "synced" } | undefined>;
 
 // ---- capture: is an ag-inbox capture new context for an open session? (ag-inbox) ----
 

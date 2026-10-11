@@ -2851,5 +2851,25 @@
   "hosts": [
    "ag-engine"
   ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "timeout 200 vp lint --report-unused-disable-directives apps/desktop/src/ag apps/desktop/src/preload.ts apps/desktop/src/window/DesktopWindow.ts 2>&1"
+  },
+  "sum": "Run vp lint on apps/desktop/src/ag, apps/desktop/src/preload.ts +1",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/arcade-xp-120 && timeout 120 bun run dev screenshot \"http://localhost:6117/iframe.html?id=x\" --out tmp/a.png"
+  },
+  "sum": "Run dev screenshot",
+  "hosts": [
+   "ag-engine"
+  ]
  }
 ]

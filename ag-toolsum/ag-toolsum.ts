@@ -517,6 +517,14 @@ const RULES: Rule[] = [
 	{ id: "hw", cmd: /^(ioreg|system_profiler|pmset|caffeinate|diskutil|sysctl|networksetup|scutil|csrutil|spctl|tccutil|codesign|xcode-select|dscacheutil)$/, fn: (_a, raw) => `macOS ${raw.split(/\s/)[0]}` },
 	{ id: "swift", cmd: /^(swift|swiftc|xcodebuild|xcrun|make|cmake|go|cargo)$/, fn: (a, raw) => `${raw.split(/\s/)[0]} ${positional(a, ["-scheme", "-project", "-destination", "-configuration", "-o"])[0] ?? ""}`.trim() },
 	{ id: "format", cmd: /^(?:\.?\/?node_modules\/\.bin\/)?(oxfmt|prettier|biome|eslint|oxlint|tsc|svelte-check)$/, fn: (a, raw) => `Run ${raw.split(/\s/)[0].replace(/^.*\//, "")}${positional(a)[0] ? ` on ${paths(positional(a), 1)}` : ""}` },
+	{ id: "vite-plus", cmd: /^vp$/, fn: (a) => {
+		// Vite+ CLI: vp lint|fmt|check|test|build|dev … [paths]
+		const [sub, ...rest] = positional(a);
+		if (!sub || !/^(lint|fmt|format|check|test|build|dev|preview|install|run)$/.test(sub)) return;
+		if (sub === "test") return `Run tests${rest[0] ? ` (${paths(rest, 1)})` : ""} (vp)`;
+		if (sub === "run") return rest[0] ? `Run ${rest[0]} (vp)` : undefined;
+		return `Run vp ${sub}${rest[0] ? ` on ${paths(rest)}` : ""}`;
+	} },
 	{ id: "node-bin", cmd: /^(?:\.\/)?node_modules\/\.bin\/[\w.-]+$/, fn: (a, raw) => { const sub = a[0] && /^[a-z][\w:-]*$/.test(a[0]) ? ` ${a[0]}` : ""; return `Run ${raw.split(/\s/)[0].replace(/^.*\//, "")}${sub}`; } },
 	{ id: "ag-ts-api", cmd: /^ag-ts-api$/, fn: (a) => `Tailscale API ${a[0] ?? ""} ${a[1] ?? ""}`.trim() },
 	{ id: "ssh-keygen", cmd: /^ssh-keygen$/, fn: (a) => {
@@ -593,7 +601,7 @@ const RULES: Rule[] = [
 		if (/^(install|i|add|ci)$/.test(sub)) return p.length > 1 && sub !== "install" && sub !== "ci" ? `Add package ${p.slice(1).join(" ")}` : "Install dependencies";
 		if (/^(test|vitest|jest|playwright)$/.test(sub)) return `Run tests${p.slice(p.indexOf(sub) + 1).find((x) => /\.(test|spec)\.|\//.test(x)) ? ` (${shortPath(p.slice(p.indexOf(sub) + 1).find((x) => /\.(test|spec)\.|\//.test(x))!)})` : ""}`;
 		if (/^(check|lint|typecheck|tsc|svelte-check|biome|eslint|prettier|format)$/.test(sub)) return `Run ${sub}`;
-		if (/^(build|dev|preview|start)$/.test(sub)) return `Run ${sub}`;
+		if (/^(build|dev|preview|start)$/.test(sub)) { const next = p[p.indexOf(sub) + 1]; return `Run ${sub}${next && /^[a-z][\w-]*$/.test(next) ? ` ${next}` : ""}`; }
 		if (sub === "sync") return `Sync ${p[p.indexOf(sub) + 1] ?? ""}`.trim();
 		return `Run ${shortPath(sub)}`;
 	} },

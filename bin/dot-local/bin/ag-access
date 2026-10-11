@@ -82,17 +82,19 @@ status)
 	;;
 dialogs) dialogs | cut -f1-3 ;;
 allow)
-	# Highest window index first per host, so closing one doesn't shift the ones still to answer; each
-	# click re-checks the window's text first, in case the stack changed meanwhile.
-	n=0
+	# Window indexes follow z-order and shift as prompts close, so each click re-checks the window's
+	# text first; a moved window is retried on a fresh scan (up to 5 passes).
+	n=0; typeset -aU left
+	for pass in {1..5}; do
+	moved=0
 	while IFS=$'\t' read -r h text buttons i; do
 		btns=(${(s:|:)buttons}); btn=
 		if [[ $text =~ “[^”]*($agents)[^”]*” ]]; then btn=${btns[(r)(Allow|OK|Always Allow)]}
 		elif [[ $h == CoreServicesUIAgent && $buttons == 'OK|' ]]; then btn=OK
 		elif [[ $h == CoreServicesUIAgent && $text == *'downloaded from the Internet'*'Homebrew Cask downloaded'* ]]; then btn=Open
 		fi
-		if [[ -z $btn ]]; then print -r -- "left for the user: [$h] $text [$buttons]"; continue; fi
-		AG_SCREEN_OK=1 timeout 10 osascript - $h $i $btn ${text[1,40]} >/dev/null <<'EOF' || { print -r -- "failed ($btn): $text"; continue; }
+		if [[ -z $btn ]]; then left+=("[$h] $text [$buttons]"); continue; fi
+		AG_SCREEN_OK=1 timeout 10 osascript - $h $i $btn ${text[1,40]} >/dev/null 2>&1 <<'EOF' || { moved=1; continue; }
 on run {h, i, btn, snippet}
 	tell application "System Events" to tell process h
 		set w to window (i as integer)
@@ -107,6 +109,10 @@ end run
 EOF
 		print -r -- "answered ($btn): $text"; ((++n)); sleep 0.3
 	done < <(dialogs | sort -t$'\t' -k1,1 -k4,4nr)
+	((moved)) || break
+	done
+	for l in $left; do print -r -- "left for the user: $l"; done
+	((moved)) && print "some prompts kept moving; run ag-access allow again"
 	# An Allow on a screen re-consent prompt adds a fresh replayd approval (30-day expiry): push it to 2100.
 	((n)) && ag-screen-approvals >/dev/null 2>&1 || true
 	;;

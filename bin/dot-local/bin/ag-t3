@@ -5,7 +5,9 @@
 // ~/ag-personal/env). Design: docs/t3.md.
 //
 //   ag-t3 new [--title T] [--pin] [--model M] [--project DIR] <text>   start a thread and send it <text>; prints id + link
-//   ag-t3 send <thread|session id|session file> <text>                 queue <text> into a thread (resumes its Pi session)
+//   ag-t3 send [--model M [--instance I] [--thinking L]] <thread|session id|session file> <text>
+//                                                                       queue <text> into a thread (resumes its Pi session); --model
+//                                                                       switches the thread's model (I: pi or piPrivate) when <text> starts
 //   ag-t3 thread <session id|session file>                              the T3 thread bound to a Pi session (exit 1: none)
 //   ag-t3 threads [--json]                                              every thread: id, title, pinned, Pi session file
 //   ag-t3 import [--dry-run] [--title T] [--all-open | <session>…]     import closed Pi sessions into T3 (history, pin, title)
@@ -33,8 +35,22 @@ const TOKEN_FILE = `${HOME}/.config/ag/t3.token`;
 const T3 = `${HOME}/.local/bin/t3`;
 const PI_SETTINGS = existsSync(`${HOME}/.pi/agent/settings.json`) ? JSON.parse(readFileSync(`${HOME}/.pi/agent/settings.json`, "utf8")) : {};
 const DEFAULT_MODEL = process.env.AG_T3_MODEL ?? (PI_SETTINGS.defaultProvider && PI_SETTINGS.defaultModel ? `${PI_SETTINGS.defaultProvider}/${PI_SETTINGS.defaultModel}` : "truefoundry/anthropic-primary/claude-opus-5-5");
-function modelProblem(model: string): string | null {
-	if (model.startsWith("openrouter/")) return "OpenRouter is personal and Pi's Nessie guard silently replaces it in synced T3 sessions";
+// Two Pi lanes (docs/t3.md, "Model selection safety"). "pi": sessions under ~/.pi, synced to Nessie, company-paid
+// TrueFoundry models only. "piPrivate": Nathan's personal lane, same Pi and config but sessions stored in
+// ~/private-chat/pi-sessions (outside Nessie, like ag-pi-private), personal OpenRouter models only.
+const PRIVATE = "piPrivate";
+const PRIVATE_SESSIONS = `${HOME}/private-chat/pi-sessions`;
+const PRIVATE_DEFAULT_MODEL = "openrouter/anthropic/claude-opus-5.5";
+const onTrueFoundry = (slug: string) => /^truefoundry(-[a-z]+)?\//.test(slug);
+const onOpenRouter = (slug: string) => slug.startsWith("openrouter/");
+const privateEnvOk = (instance: any) =>
+	(instance?.environment ?? []).some((v: any) => v.name === "PI_CODING_AGENT_SESSION_DIR" && v.value === PRIVATE_SESSIONS);
+function modelProblem(model: string, instance = "pi"): string | null {
+	if (model === "default") return null;
+	if (instance === PRIVATE)
+		return onOpenRouter(model) ? null : "the private lane is stored outside Nessie, so it must run on personal OpenRouter models, not company ones";
+	if (onOpenRouter(model)) return `OpenRouter is personal and Pi's Nessie guard silently replaces it in synced T3 sessions (use the ${PRIVATE} instance)`;
+	if (!onTrueFoundry(model)) return "synced T3 sessions run on TrueFoundry; Pi's truefoundry-only extension silently switches this to the TrueFoundry copy";
 	return null;
 }
 const SESSIONS = `${HOME}/.pi/agent/sessions`;
@@ -138,19 +154,30 @@ function projectFor(dir: string): string {
 	return out.match(/project ([0-9a-f-]{36})/)?.[1] ?? die(`couldn't add a T3 project for ${dir}: ${out}`);
 }
 
-// T3 lists Pi's whole catalog: hundreds of OpenRouter models plus the direct anthropic and openai-codex
-// logins. Everything in T3 runs on TrueFoundry, so hide every other model in the server's model preferences
-// (synced to every client) and put the default first. Pi's truefoundry-only extension catches stray picks.
-const onTrueFoundry = (slug: string) => /^truefoundry(-[a-z]+)?\//.test(slug);
+// T3 lists Pi's whole catalog (hundreds of OpenRouter models plus the direct anthropic and openai-codex logins)
+// for every Pi instance. Hide what doesn't belong to each lane in the server's model preferences (synced to every
+// client) and put the lane's default first. Pi's truefoundry-only and nessie-openrouter-guard extensions catch
+// stray picks in the synced lane.
+const LANES = [
+	{ instance: "pi", allowed: onTrueFoundry, defaultModel: DEFAULT_MODEL },
+	{ instance: PRIVATE, allowed: onOpenRouter, defaultModel: PRIVATE_DEFAULT_MODEL },
+];
 const piCatalog = (): string[] => existsSync(`${T3_HOME}/caches/pi.json`)
 	? (JSON.parse(readFileSync(`${T3_HOME}/caches/pi.json`, "utf8")).models ?? []).map((m: any) => m.slug) : [];
-function trueFoundryOnly(settings: any) {
-	const prefs = settings.providerModelPreferences?.pi ?? {};
-	const hiddenModels = [...new Set([...(prefs.hiddenModels ?? []), ...piCatalog().filter((s) => s !== "default" && !onTrueFoundry(s))])];
-	const modelOrder = [DEFAULT_MODEL, ...(prefs.modelOrder ?? []).filter((s: string) => s !== DEFAULT_MODEL && onTrueFoundry(s))];
-	const favorites = [{ provider: "pi", model: DEFAULT_MODEL },
-		...(settings.favorites ?? []).filter((f: any) => !(f.provider === "pi" && (f.model === DEFAULT_MODEL || !onTrueFoundry(f.model))))];
-	return { favorites, providerModelPreferences: { ...settings.providerModelPreferences, pi: { hiddenModels, modelOrder } } };
+function laneModelPreferences(settings: any) {
+	const providerModelPreferences = { ...settings.providerModelPreferences };
+	for (const { instance, allowed, defaultModel } of LANES) {
+		const prefs = providerModelPreferences[instance] ?? {};
+		const hiddenModels = [...new Set([...(prefs.hiddenModels ?? []), ...piCatalog().filter((s) => s !== "default" && !allowed(s))])];
+		const modelOrder = [defaultModel, ...(prefs.modelOrder ?? []).filter((s: string) => s !== defaultModel && allowed(s))];
+		providerModelPreferences[instance] = { hiddenModels, modelOrder };
+	}
+	const laneOf = (f: any) => LANES.find((l) => l.instance === f.provider);
+	const favorites = [
+		...LANES.map((l) => ({ provider: l.instance, model: l.defaultModel })),
+		...(settings.favorites ?? []).filter((f: any) => { const l = laneOf(f); return !l || (f.model !== l.defaultModel && l.allowed(f.model)); }),
+	];
+	return { favorites, providerModelPreferences };
 }
 
 // ---------- commands ----------
@@ -162,17 +189,29 @@ async function setup() {
 		// record so the other instances survive.
 		const instances = settings.providerInstances ?? {};
 		const pi = { ...instances.pi, driver: "pi", enabled: true, config: { ...instances.pi?.config, binaryPath: `${HOME}/.local/bin/pi` } };
+		// The private lane runs the same Pi, but its sessions land in ~/private-chat/pi-sessions (T3 never passes a
+		// session dir, so the environment decides), which Nessie doesn't watch.
+		mkdirSync(PRIVATE_SESSIONS, { recursive: true, mode: 0o700 });
+		chmodSync(`${HOME}/private-chat`, 0o700);
+		chmodSync(PRIVATE_SESSIONS, 0o700);
+		const piPrivate = {
+			...instances[PRIVATE], driver: "pi", displayName: "Pi \u00b7 private (OpenRouter)", enabled: true,
+			environment: [{ name: "PI_CODING_AGENT_SESSION_DIR", value: PRIVATE_SESSIONS, sensitive: false }],
+			config: { ...instances[PRIVATE]?.config, binaryPath: `${HOME}/.local/bin/pi` },
+		};
 		const textModel = settings.textGenerationModelSelection;
 		const textGenerationModelSelection = textModel?.instanceId === "pi" && textModel?.model !== "default" && !modelProblem(textModel.model)
 			? textModel : { instanceId: "pi", model: "truefoundry-chat/gemini-group/gemini-3.7-flash" };
 		const updated = await rpc.call("server.updateSettings", { patch: {
-			providerInstances: { ...instances, pi }, textGenerationModelSelection, ...trueFoundryOnly(settings),
+			providerInstances: { ...instances, pi, [PRIVATE]: piPrivate }, textGenerationModelSelection, ...laneModelPreferences(settings),
 		} });
 		const saved = updated.providerInstances?.pi;
 		if (!saved?.enabled || saved.config?.binaryPath !== pi.config.binaryPath)
 			die("T3 did not persist the Pi provider configuration");
+		if (!updated.providerInstances?.[PRIVATE]?.enabled || !privateEnvOk(updated.providerInstances[PRIVATE]))
+			die("T3 did not persist the private Pi lane");
 	} finally { rpc.close(); }
-	console.log("T3 Pi provider configured");
+	console.log("T3 Pi provider and private lane configured");
 }
 function doctor(): number {
 	const problems: string[] = [];
@@ -182,15 +221,20 @@ function doctor(): number {
 	const piInstance = settings.providerInstances?.pi;
 	if (piInstance?.enabled !== true || piInstance.config?.binaryPath !== `${HOME}/.local/bin/pi` || !existsSync(`${HOME}/.local/bin/pi`))
 		problems.push("T3 Pi provider is not enabled with a working ~/.local/bin/pi");
+	const privateInstance = settings.providerInstances?.[PRIVATE];
+	if (privateInstance?.enabled !== true || !privateEnvOk(privateInstance))
+		problems.push(`T3's private Pi lane (${PRIVATE}, sessions in ~/private-chat/pi-sessions) is missing; run ag-t3 setup`);
 	if (!existsSync(`${HOME}/.pi/agent/models.json`)) problems.push("Pi custom models.json is missing; TrueFoundry models will not load");
 	if (!existsSync(`${T3_HOME}/caches/pi.json`)) problems.push("T3 has not probed Pi models yet");
 	else {
 		const models = JSON.parse(readFileSync(`${T3_HOME}/caches/pi.json`, "utf8")).models ?? [];
 		if (!models.some((m: any) => m.slug === DEFAULT_MODEL)) problems.push(`default model ${DEFAULT_MODEL} is unavailable in T3`);
 	}
-	const hidden = new Set(settings.providerModelPreferences?.pi?.hiddenModels ?? []);
-	const visible = piCatalog().filter((s) => s !== "default" && !onTrueFoundry(s) && !hidden.has(s));
-	if (visible.length) warnings.push(`${visible.length} non-TrueFoundry models are visible in T3's picker (e.g. ${visible[0]}); run ag-t3 setup`);
+	for (const { instance, allowed } of LANES) {
+		const hidden = new Set(settings.providerModelPreferences?.[instance]?.hiddenModels ?? []);
+		const visible = piCatalog().filter((s) => s !== "default" && !allowed(s) && !hidden.has(s));
+		if (visible.length) warnings.push(`${visible.length} models outside the ${instance} lane are visible in its T3 picker (e.g. ${visible[0]}); run ag-t3 setup`);
+	}
 	const authFile = `${HOME}/.pi/agent/auth.json`;
 	if (existsSync(authFile)) {
 		const auth = JSON.parse(readFileSync(authFile, "utf8"));
@@ -202,8 +246,10 @@ function doctor(): number {
 	if (existsSync(DB)) {
 		const db = new Database(DB, { readonly: true });
 		try {
-			for (const row of db.query(`SELECT title, json_extract(payload_json, '$.modelSelection.model') AS model FROM orchestration_v2_projection_threads WHERE deleted_at IS NULL`).all() as { title: string; model: string | null }[])
-				if (row.model && modelProblem(row.model)) problems.push(`thread "${row.title}" selects ${row.model}: ${modelProblem(row.model)}`);
+			for (const row of db.query(`SELECT title, json_extract(payload_json, '$.modelSelection.instanceId') AS instance, json_extract(payload_json, '$.modelSelection.model') AS model FROM orchestration_v2_projection_threads WHERE deleted_at IS NULL`).all() as { title: string; instance: string | null; model: string | null }[]) {
+				const problem = row.model ? modelProblem(row.model, row.instance ?? "pi") : null;
+				if (problem) problems.push(`thread "${row.title}" (${row.instance ?? "pi"}) selects ${row.model}: ${problem}`);
+			}
 		} finally { db.close(); }
 	}
 	for (const w of warnings) console.warn(`ag-t3 doctor warning: ${w}`);
@@ -228,10 +274,13 @@ async function newThread(text: string, o: { title?: string; pin?: boolean; model
 	return { id: threadId, title, url: await link({ id: threadId }) };
 }
 
-async function send(ref: string, text: string) {
+// A modelSelection rides on the queued message: T3 plans the switch when that message's run starts (after any
+// active run), so it never interrupts a running turn. A different instance starts a new native Pi session there,
+// with T3's context handoff (a digest of the thread; the full history stays readable with t3_thread_read).
+async function send(ref: string, text: string, modelSelection?: Record<string, unknown>) {
 	const t = findThread(ref) ?? die(`no T3 thread for ${ref}`, 1);
 	const rpc = await open();
-	await dispatch(rpc, { type: "message.dispatch", threadId: t.id, messageId: uuid(), text, attachments: [], createdBy: "user", creationSource: "web", dispatchMode: { type: "queue_after_active" } });
+	await dispatch(rpc, { type: "message.dispatch", threadId: t.id, messageId: uuid(), text, attachments: [], createdBy: "user", creationSource: "web", dispatchMode: { type: "queue_after_active" }, ...(modelSelection ? { modelSelection } : {}) });
 	rpc.close();
 	return { id: t.id, title: t.title, url: await link(t) };
 }
@@ -350,9 +399,12 @@ switch (cmd) {
 	}
 	case "send": {
 		const json = bool("--json");
-		const ref = argv.shift() ?? die("usage: ag-t3 send <thread|session> <text>", 2);
-		const text = await readText(argv) || die("usage: ag-t3 send <thread|session> <text>", 2);
-		const r = await send(ref, text);
+		const model = flag("--model"), instance = flag("--instance") ?? "pi", thinking = flag("--thinking");
+		if (model && modelProblem(model, instance)) die(`model ${model} on ${instance}: ${modelProblem(model, instance)}`, 2);
+		const ref = argv.shift() ?? die("usage: ag-t3 send [--model M [--instance I] [--thinking L]] <thread|session> <text>", 2);
+		const text = await readText(argv) || die("usage: ag-t3 send [--model M [--instance I] [--thinking L]] <thread|session> <text>", 2);
+		const selection = model ? { instanceId: instance, model, ...(thinking ? { options: [{ id: "thinking", value: thinking }] } : {}) } : undefined;
+		const r = await send(ref, text, selection);
 		console.log(json ? JSON.stringify(r) : `sent to ${r.title}  ${r.url}`);
 		break;
 	}

@@ -12,6 +12,7 @@ Hooks (`on:`), and what runs them (full table: ~/ag/ag-rules/README.md):
     keys         keyboard shortcuts of one app (`app:` ag-dash | ag-dash-app | ag-session)
                                                                               code .json  the app (ag-rules keys <app>)
     hammerspoon  Mac client behavior, loaded by ag.lua                        code .lua
+    lane         move a message to a T3 thread to the private lane?          code .ts    T3 server (fork)
     capture      is an ag-inbox capture new context for an open session?     code .ts    ag-inbox
     new-item     what ag-dash's New item text is for (find vs new work)      code .ts    ag-dash
     answer       an archived-while-working chat answered: is it done?        code .ts    ag-dash

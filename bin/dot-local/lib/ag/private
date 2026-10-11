@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""ag private — take a session off the record: it moves to the private lane, never synced to Nessie.
+
+    ag private [session] [--text MESSAGE]   (default: this session; MESSAGE "-": read stdin)
+The session's T3 thread switches to the private lane (piPrivate: the user's personal OpenRouter account, Pi sessions
+in ~/private-chat, outside Nessie; docs/t3.md "Two lanes") when its next message starts, after any running turn:
+MESSAGE, or a short note asking it to confirm. Turns that already ran on company models stay synced. Saying
+"off the record" in a message does the same (ag-rules: off-the-record). Tmux sessions can't change lanes: start a
+private one with ag-pi-private.
+"""
+import json, os, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+AG_T3 = os.path.expanduser("~/.local/bin/ag-t3")
+PRIVATE = "piPrivate"
+MODEL = "openrouter/anthropic/claude-opus-5.5"
+
+
+def thread_for(ref):
+    """The T3 thread of a session (thread id, session id or file, tab, link, label), or None."""
+    def lookup(r):
+        out = subprocess.run([AG_T3, "thread", r, "--json"], capture_output=True, text=True, timeout=60)
+        return json.loads(out.stdout) if out.returncode == 0 and out.stdout.strip() else None
+    if ref is None:
+        f = os.environ.get("PI_SESSION_FILE")
+        if not f:
+            raise AgError("can't tell which session this is (no $PI_SESSION_FILE); pass one")
+        return lookup(f), f
+    t = lookup(ref)
+    if t:
+        return t, ref
+    s = resolve(ref)
+    return (lookup(s.file) if s.file else None), s.title
+
+
+def main(argv):
+    o, pos = flags(argv, {"--text": True, "--json": False})
+    if o.get("--help") or len(pos) > 1:
+        return usage(__doc__)
+    t, name = thread_for(pos[0] if pos else None)
+    if not t:
+        raise AgError(f"{name} isn't a T3 thread, so it can't change lanes; start a private session with ag-pi-private")
+    if t.get("lane") == PRIVATE:
+        print(f"{t['title']} is already off the record (private lane, not synced to Nessie)  {t.get('url', '')}")
+        return 0
+    text = o.get("--text")
+    if text == "-":
+        text = sys.stdin.read()
+    text = (text or "").strip() or (
+        origin_tag("rule", "Off the record", note="This thread just moved off the record: the private lane, on the "
+                   "user's personal OpenRouter account, stored outside Nessie. Turns before this one ran on company "
+                   "models and stay synced.")
+        + "\nOff the record from here on. Confirm in one line, then wait.")
+    cmd = [AG_T3, "send", "--json", "--instance", PRIVATE, "--model", MODEL]
+    if t.get("thinking"):
+        cmd += ["--thinking", t["thinking"]]
+    out = subprocess.run(cmd + [t["id"], text], capture_output=True, text=True, timeout=60)
+    if out.returncode != 0:
+        raise AgError(f"ag-t3 send failed: {(out.stderr or out.stdout).strip()}")
+    r = json.loads(out.stdout)
+    if o.get("--json"):
+        print(json.dumps({**r, "lane": PRIVATE, "model": MODEL}))
+    else:
+        print(f"off the record: {r['title']} moves to the private lane ({MODEL}) with its next message  {r['url']}")
+
+
+run_main(main)

@@ -102,7 +102,7 @@ const uuid = () => crypto.randomUUID();
 const dispatch = (rpc: Rpc, command: Record<string, unknown>) => rpc.call("orchestration.dispatchCommand", { commandId: uuid(), ...command });
 
 // ---------- reads (T3's projection, read-only) ----------
-type Thread = { id: string; title: string; projectId: string; file: string | null; pinnedAt: string | null; updatedAt: string; archived: boolean };
+type Thread = { id: string; title: string; projectId: string; file: string | null; pinnedAt: string | null; updatedAt: string; archived: boolean; lane: string | null; thinking: string | null };
 function threads(): Thread[] {
 	if (!existsSync(DB)) return [];
 	const db = new Database(DB, { readonly: true });
@@ -110,6 +110,9 @@ function threads(): Thread[] {
 		return (db.query(`
 			SELECT t.thread_id AS id, t.title, t.project_id AS projectId, t.updated_at AS updatedAt, t.archived_at IS NOT NULL AS archived,
 			       json_extract(t.payload_json, '$.pinnedAt') AS pinnedAt,
+			       json_extract(t.payload_json, '$.modelSelection.instanceId') AS lane,
+			       (SELECT json_extract(o.value, '$.value') FROM json_each(t.payload_json, '$.modelSelection.options') o
+			         WHERE json_extract(o.value, '$.id') = 'thinking') AS thinking,
 			       (SELECT json_extract(p.payload_json, '$.nativeThreadRef.nativeId') FROM orchestration_v2_projection_provider_threads p
 			         WHERE p.thread_id = t.thread_id AND p.driver = 'pi' ORDER BY p.updated_at DESC LIMIT 1) AS file
 			FROM orchestration_v2_projection_threads t WHERE t.deleted_at IS NULL ORDER BY t.updated_at DESC`).all() as any[])
@@ -130,6 +133,8 @@ function findThread(ref: string): Thread | null {
 	const all = threads();
 	const byId = all.find((t) => t.id === ref || t.id.startsWith(ref));
 	if (byId) return byId;
+	const byFile = ref.endsWith(".jsonl") && all.find((t) => t.file === ref); // also before the file exists, and private-lane files
+	if (byFile) return byFile;
 	const sessionId = sessionIdOfRef(ref);
 	const file = sessionId ? fileForSid(sessionId) : null;
 	if (file) return all.find((t) => t.file === file) ?? null;

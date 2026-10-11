@@ -39,6 +39,17 @@ export interface PromptAg extends AgBase {
 /** Return nothing to leave the prompt alone, `text` to rewrite it, or `handled` to swallow it (with a note). */
 export type PromptRule = (prompt: Prompt, ag: PromptAg) => void | { text: string } | { handled: string };
 
+// ---- lane: which lane a message to a T3 thread runs in (T3 server: the fork's apps/server/src/ag/lane.ts) ----
+
+/** A message the user just sent to a T3 thread, before T3 starts it. It may carry <ag-origin> tags. */
+export interface LaneMessage {
+	text: string;
+	source: string; // T3's creationSource: "web" | "mobile" | "mcp" | "provider" | "server"
+}
+/** private = move this message, and the thread from then on, to the private lane (personal OpenRouter, outside
+ * Nessie: docs/t3.md, "Two lanes"). Nothing = leave it in the lane it's in. */
+export type LaneRule = (input: LaneMessage, ag: AgBase) => { lane: "private" } | undefined;
+
 // ---- capture: is an ag-inbox capture new context for an open session? (ag-inbox) ----
 
 export interface OpenSession {

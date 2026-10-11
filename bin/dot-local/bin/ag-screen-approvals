@@ -9,11 +9,12 @@
 # path, or unregistered .app file URL) and re-alerts when kScreenCapturePrivacyHintDate passes
 # (every 30 days). It is not TCC.db; the Screen Recording grant itself still comes from
 # System Settings. Seeded: the SSH identity every agent on ag-mac runs under
-# (/usr/libexec/sshd-keygen-wrapper) and Codex Computer Use (ag-chatgpt-cua).
+# (/usr/libexec/sshd-keygen-wrapper; macOS 26.4+ prompts name com.apple.sshd-session) and Codex
+# Computer Use (ag-chatgpt-cua).
 # Needs Full Disk Access for the caller (agents over SSH have it). Safe to re-run any time.
 set -euo pipefail
 plist=~/Library/Group\ Containers/group.com.apple.replayd/ScreenCaptureApprovals.plist
-seed=(/usr/libexec/sshd-keygen-wrapper com.apple.sshd-keygen-wrapper com.openai.codex
+seed=(/usr/libexec/sshd-keygen-wrapper com.apple.sshd-keygen-wrapper /usr/libexec/sshd-session com.apple.sshd-session com.openai.codex
 	"file://$HOME/.codex/computer-use/Codex%20Computer%20Use.app/")
 
 if [[ ${1:-} == --list ]]; then

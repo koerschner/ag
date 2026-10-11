@@ -604,9 +604,16 @@ LaunchAgents) are their own responsible process and inherit none of it.
 - `ag-access` shows what agents may do (Screen Recording, Accessibility, event posting,
   Input Monitoring, Full Disk Access, Automation targets, screen re-consent dates) and any
   permission prompt on screen. Exit 1 if a core grant is missing.
-- `ag-access allow` clicks Allow on pending prompts raised for an agent identity. The prompt
-  swallows synthetic mouse clicks, but an Accessibility click on its button works. While a prompt is up, mouse
-  input to other apps is blocked, so answer it first.
+- `ag-access allow` answers every prompt that's safe for agents: Allow on prompts naming an agent
+  identity (macOS 26.4+ names `com.apple.sshd-session` in screen re-consent prompts), OK on
+  "… is not responding" / "… is not open anymore" notices, and Open on Gatekeeper's first-launch
+  prompt for a Homebrew cask. It lists the rest (another app's grant, e.g. Chrome's local network)
+  for the user. The prompt swallows synthetic mouse clicks, but an Accessibility click on its button
+  works. While a prompt is up, mouse input to other apps is blocked, so answer it first.
+- **An app that never answers `open -a`** is usually frozen behind an unanswered Gatekeeper
+  "downloaded from the Internet" prompt (`lsappinfo` shows it with `!cgsConnection`); every retry
+  stacks another "not responding" notice. Run `ag-access dialogs` / `ag-access allow` before
+  relaunching it.
 - **Forbidden targets lifted.** Codex computer use has a built-in list of apps it refuses
   (terminals such as Ghostty, password managers including 1Password and Keychain Access,
   non-Chrome browsers, UserNotificationCenter, SecurityAgent and Touch ID prompts). By the
@@ -615,7 +622,7 @@ LaunchAgents) are their own responsible process and inherit none of it.
   1Password app or Keychain to reach secrets outside the op-* vaults.
 - `ag-screen-approvals` stops the monthly "X is requesting to bypass the system private window
   picker" re-consent (macOS 15+) by pushing every client's next alert in replayd's
-  `ScreenCaptureApprovals.plist` to 2100, and seeds sshd-keygen-wrapper and Codex Computer Use.
+  `ScreenCaptureApprovals.plist` to 2100, and seeds sshd-keygen-wrapper, sshd-session and Codex Computer Use.
   It isn't TCC.db. `install` runs it; re-run it after granting a new capture app. A first capture by
   a new identity still alerts once (it may name the process, e.g. "ffmpeg", while the approval is
   stored under sshd-keygen-wrapper): `ag-access allow`, then `ag-screen-approvals`.

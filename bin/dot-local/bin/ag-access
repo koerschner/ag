@@ -4,18 +4,22 @@
 #   ag-access              what this process chain may do (Screen Recording, Accessibility, events,
 #                          Full Disk Access, Automation targets) and the screen-approval dates
 #   ag-access dialogs      list permission prompts on screen right now (text + buttons)
-#   ag-access allow        click Allow/OK on every prompt raised for an agent identity (see below)
+#   ag-access allow        answer every prompt that's safe for agents to answer (see below); list the rest
 #
 # Who macOS asks about: TCC judges the *responsible* process. Everything agents run on ag-mac is
 # attributed to /usr/libexec/sshd-keygen-wrapper (`ag-mac run` from ag-engine is SSH),
-# not Ghostty, pi, or ffmpeg. Grants belong to sshd-keygen-wrapper.
+# not Ghostty, pi, or ffmpeg. Grants belong to sshd-keygen-wrapper. macOS 26.4+ names the SSH
+# session itself (com.apple.sshd-session) in replayd's screen re-consent prompts.
 # Launchd jobs (launchctl submit, LaunchAgents) are their own responsible process and get none of it.
 #
 # Why `allow` exists: Codex computer use refuses to touch UserNotificationCenter (TCC prompts) and
 # the prompt swallows synthetic mouse clicks, but an Accessibility click on its button works.
-# It only clicks prompts naming an agent identity; anything else is listed for the user instead.
+# It answers: Allow on prompts naming an agent identity; OK on CoreServicesUIAgent notices
+# ("… is not responding", "… is not open anymore"); Open on Gatekeeper's first-launch prompt for a
+# Homebrew cask (the app sits frozen behind it, so each later `open -a` stacks a "not responding"
+# notice). Anything else (another app's grant, e.g. Chrome's local network) is listed for the user.
 set -euo pipefail
-agents='sshd-keygen-wrapper|ffmpeg|osascript|cliclick|screencapture|node|bun|python|Codex|Terminal|Ghostty'
+agents='sshd-keygen-wrapper|sshd-session|ffmpeg|osascript|cliclick|screencapture|node|bun|python|Codex|Terminal|Ghostty'
 hosts=(UserNotificationCenter universalAccessAuthWarn CoreServicesUIAgent)
 
 probe() {  # CGPreflight*/AXIsProcessTrusted for this process chain (compiled once)
@@ -29,14 +33,16 @@ print(CGPreflightScreenCaptureAccess(), AXIsProcessTrusted(), CGPreflightPostEve
 	$bin
 }
 
-dialogs() {  # prints "host<TAB>window text<TAB>buttons" per prompt window
+dialogs() {  # prints "host<TAB>window text<TAB>buttons<TAB>window index" per prompt window
 	for h in $hosts; do
 		timeout 10 osascript - $h <<'EOF' 2>/dev/null || true
 on run {h}
 	set out to ""
 	tell application "System Events"
 		if not (exists process h) then return ""
+		set i to 0
 		repeat with w in windows of process h
+			set i to i + 1
 			set t to ""
 			repeat with s in (static texts of w)
 				set t to t & (value of s) & " "
@@ -45,7 +51,7 @@ on run {h}
 			repeat with x in (buttons of w)
 				set b to b & (name of x) & "|"
 			end repeat
-			set out to out & h & tab & t & tab & b & linefeed
+			set out to out & h & tab & t & tab & b & tab & i & linefeed
 		end repeat
 	end tell
 	return out
@@ -69,23 +75,40 @@ status)
 		sqlite3 ~/Library/Application\ Support/com.apple.TCC/TCC.db \
 			"select '  '||indirect_object_identifier||'  '||case auth_value when 2 then 'allowed' when 0 then 'DENIED' else auth_value end from access where service='kTCCServiceAppleEvents' and client='/usr/libexec/sshd-keygen-wrapper' order by 1"
 		print "Screen-capture re-consent (next alert):"
-		ag-screen-approvals --list | grep -E 'sshd-keygen|codex|Computer%20Use' | sed 's/^/  /'
+		ag-screen-approvals --list | grep -E 'sshd-|codex|Computer%20Use' | sed 's/^/  /'
 	fi
-	pending=$(dialogs); [[ -n $pending ]] && { print "Pending prompts:"; print -r -- $pending | sed 's/^/  /'; }
+	pending=$(dialogs | cut -f1-3); [[ -n $pending ]] && { print "Pending prompts:"; print -r -- $pending | sed 's/^/  /'; }
 	[[ $scr == true && $ax == true && $fda == true ]] || { print "Fix: see docs/reference.md, \"macOS permissions for agents\""; exit 1; }
 	;;
-dialogs) dialogs ;;
+dialogs) dialogs | cut -f1-3 ;;
 allow)
-	# Answer one prompt at a time: window indexes shift as each one closes.
-	for _ in {1..10}; do
-		IFS=$'\t' read -r h text buttons < <(dialogs | head -1) || break
-		btn=$(print -r -- $buttons | tr '|' '\n' | grep -m1 -xE 'Allow|OK|Always Allow' || true)
-		if [[ -z $btn ]] || ! print -r -- $text | grep -qE $agents; then
-			print "left for the user: [$h] $text [$buttons]"; break
+	# Highest window index first per host, so closing one doesn't shift the ones still to answer; each
+	# click re-checks the window's text first, in case the stack changed meanwhile.
+	n=0
+	while IFS=$'\t' read -r h text buttons i; do
+		btns=(${(s:|:)buttons}); btn=
+		if [[ $text =~ “[^”]*($agents)[^”]*” ]]; then btn=${btns[(r)(Allow|OK|Always Allow)]}
+		elif [[ $h == CoreServicesUIAgent && $buttons == 'OK|' ]]; then btn=OK
+		elif [[ $h == CoreServicesUIAgent && $text == *'downloaded from the Internet'*'Homebrew Cask downloaded'* ]]; then btn=Open
 		fi
-		AG_SCREEN_OK=1 timeout 10 osascript -e "tell application \"System Events\" to tell process \"$h\" to click button \"$btn\" of window 1" >/dev/null
-		print "allowed ($btn): $text"; sleep 1
-	done
+		if [[ -z $btn ]]; then print -r -- "left for the user: [$h] $text [$buttons]"; continue; fi
+		AG_SCREEN_OK=1 timeout 10 osascript - $h $i $btn ${text[1,40]} >/dev/null <<'EOF' || { print -r -- "failed ($btn): $text"; continue; }
+on run {h, i, btn, snippet}
+	tell application "System Events" to tell process h
+		set w to window (i as integer)
+		set t to ""
+		repeat with s in (static texts of w)
+			set t to t & (value of s) & " "
+		end repeat
+		if t does not start with snippet then error "window moved"
+		click button btn of w
+	end tell
+end run
+EOF
+		print -r -- "answered ($btn): $text"; ((++n)); sleep 0.3
+	done < <(dialogs | sort -t$'\t' -k1,1 -k4,4nr)
+	# An Allow on a screen re-consent prompt adds a fresh replayd approval (30-day expiry): push it to 2100.
+	((n)) && ag-screen-approvals >/dev/null 2>&1 || true
 	;;
-*) sed -n '2,17p' $0 | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+*) sed -n '2,21p' $0 | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
 esac

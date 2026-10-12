@@ -355,7 +355,8 @@ async function importSessions(sessions: AgSession[], dry: boolean) {
 		const threadId = uuid();
 		await dispatch(rpc!, {
 			type: "thread.create", threadId, projectId: project, title: s.title.slice(0, 120) || "Imported session",
-			modelSelection: { instanceId: "pi", model }, runtimeMode: "full-access", interactionMode: "default",
+			// A session stored off the record (ag-pi-private) stays in the private lane.
+			modelSelection: { instanceId: file.startsWith(`${PRIVATE_SESSIONS}/`) ? PRIVATE : "pi", model }, runtimeMode: "full-access", interactionMode: "default",
 			branch: null, worktreePath: null, createdBy: "user", creationSource: "web",
 			importedNativeThread: { ref: { driver: "pi", nativeId: file, strength: "strong" }, metadata: { itemIdentityVersion: 2, title: s.title } },
 		});

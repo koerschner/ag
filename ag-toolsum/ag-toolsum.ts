@@ -113,6 +113,11 @@ export function splitShell(cmd: string): { seg: string; pipeAfter: boolean }[] {
 			cur += c;
 			continue;
 		}
+		// ${VAR:-default}: a parameter expansion, not a { } group (its } must not close one)
+		if (c === "$" && cmd[i + 1] === "{") {
+			const e = cmd.indexOf("}", i + 2);
+			if (e > 0) { cur += cmd.slice(i, e + 1); i = e; continue; }
+		}
 		if (c === "(" || (c === "{" && /\s|^$/.test(cmd[i + 1] ?? ""))) depth++;
 		if ((c === ")" || c === "}") && depth > 0) depth--;
 		if (depth === 0) {
@@ -961,6 +966,15 @@ const RULES: Rule[] = [
 			case "token": return "Issue a T3 admin token";
 		}
 	} },
+	{ id: "t3-ship", cmd: /^(?:\.\/|(?:~|\/home\/[^/]+)\/[\w.-]+\/)?ag\/ship$/, fn: (a) => {
+		// the T3 Code fork's ship script (~/t3code/ag/ship): build, gate, deploy, push one commit
+		if (a.includes("--status")) return "Check T3 fork ship status";
+		if (a.includes("--rollback")) return "Roll back the T3 server to the previous build";
+		if (a.includes("--help") || a.includes("-h")) return "Read help for ag/ship";
+		const rev = positional(a, ["--base"])[0];
+		const opts = [a.includes("--no-push") && "no push", a.includes("--no-tests") && "no tests"].filter(Boolean).join(", ");
+		return `Ship ${rev ? clip(rev, 20) : "HEAD"} to the T3 server${a.includes("--no-push") ? "" : " and push"}${opts ? ` (${opts})` : ""}`;
+	} },
 	{ id: "t3", cmd: /^(?:~\/\.local\/bin\/)?t3$/, fn: (a) => {
 		// the T3 Code server CLI
 		const [v, w] = positional(a, ["--ttl", "--label", "--channel", "--port", "--host", "--base-dir", "--log-level"]);
@@ -1332,7 +1346,7 @@ function t3McpSummary(verb: string, args: any): string | undefined {
 		case "preview_press": return a.key ? `Preview: press ${clip(String(a.key), 20)}` : undefined;
 		case "preview_scroll": return "Preview: scroll";
 		case "preview_resize": return `Preview: resize${a.width && a.height ? ` to ${a.width}×${a.height}` : ""}`;
-		case "preview_wait_for": return a.text ? `Preview: wait for ${q(a.text, 40)}` : "Preview: wait";
+		case "preview_wait_for": { const w = a.text ? q(a.text, 40) : a.selector ?? a.locator ? clip(String(a.selector ?? a.locator), 40) : a.url ? shortUrl(String(a.url)) : ""; return w ? `Preview: wait for ${w}` : "Preview: wait"; }
 		case "preview_status": return "Check the preview browser";
 		case "preview_close": case "t3_preview_close": return "Close a preview tab";
 		case "html_preview": case "html_render": return `Render HTML${a.title ? ` ${q(a.title)}` : ""} in T3`;
@@ -1347,6 +1361,12 @@ function t3McpSummary(verb: string, args: any): string | undefined {
 		case "t3_thread_send": return a.threadId ? `Send ${a.message ? q(a.message) : "a message"} to ${th(a.threadId)}` : undefined;
 		case "t3_thread_configuration": return a.threadId ? `Read settings of ${th(a.threadId)}` : undefined;
 		case "t3_thread_configure": return a.threadId && a.modelSelection?.model ? `Set ${th(a.threadId)} model → ${clip(String(a.modelSelection.model).split("/").pop()!, 30)}` : undefined;
+		case "t3_thread_list": return "List T3 threads";
+		case "t3_thread_organize": {
+			const verbs: Record<string, string> = { pin: "Pin", unpin: "Unpin", snooze: "Snooze", unsnooze: "Unsnooze", settle: "Settle", unsettle: "Unsettle", archive: "Archive", unarchive: "Unarchive", mark_unread: "Mark unread" };
+			const v = verbs[String(a.action)];
+			return v ? `${v} ${a.threadId ? th(a.threadId) : "this T3 thread"}${a.action === "snooze" && a.snoozedUntil ? ` until ${clip(String(a.snoozedUntil), 20)}` : ""}` : undefined;
+		}
 		case "t3_thread_update": return a.threadId && a.action === "rename" && a.title ? `Rename ${th(a.threadId)} → ${q(a.title)}` : undefined;
 	}
 }

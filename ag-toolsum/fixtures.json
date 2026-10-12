@@ -2871,5 +2871,67 @@
   "hosts": [
    "ag-engine"
   ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/a && export AWS_PROFILE=playcademy\nQ(){ timeout 200 bun scripts/db query --stage production arcade \"$1\" 2>&1 | sed -n '/──/,$p' | head -${2:-40}; }\nQ \"select count(*) from users\" 20"
+  },
+  "sum": "Query production arcade DB: users",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/t3code && ag/ship --status 2>&1 | head -20"
+  },
+  "sum": "Check T3 fork ship status",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/t3code-x && ./ag/ship --no-tests > /tmp/t3ship.log 2>&1"
+  },
+  "sum": "Ship HEAD to the T3 server and push (no tests)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "mcp__t3-code__t3_thread_organize",
+  "args": {
+   "action": "archive",
+   "threadId": "046e5c32-3eeb-4b58-887c-2d43cd823618"
+  },
+  "sum": "Archive T3 thread 046e5c32",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "mcp__t3-code__t3_thread_list",
+  "args": {
+   "limit": 25
+  },
+  "sum": "List T3 threads",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "mcp__t3-code__preview_wait_for",
+  "args": {
+   "selector": "[data-testid='ag-deep-search']",
+   "timeoutMs": 5000
+  },
+  "sum": "Preview: wait for [data-testid='ag-deep-search']",
+  "hosts": [
+   "ag-engine"
+  ]
  }
 ]

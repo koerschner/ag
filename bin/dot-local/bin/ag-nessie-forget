@@ -1,0 +1,35 @@
+#!/bin/sh
+# ag-nessie-forget: delete synced transcripts from Nessie on the machine whose daemon ingested them.
+#   ag-nessie-forget <node-id>...   node ids from `nessie-cli search` (the pi_chat node, i.e. a result's
+#                                   ancestor whose `nessie-cli stat` type is pi_chat / codex_chat / ...)
+# The headless daemon (ag-engine) has no delete command, and the Nessie app's `nessie-cli delete` only
+# reaches transcripts its own device ingested ("Transcript not found" otherwise). This calls the local
+# nera runtime's DeleteRecentSource RPC (what the app's delete uses): it soft-deletes the chat and its
+# messages and pushes the tombstone on the next cloud sync. Prints the number of nodes removed.
+# Deleting does not stop re-ingestion: move the session file out of ~/.pi first (see docs/reference.md,
+# "Nessie").
+set -eu
+[ $# -ge 1 ] || { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+exec uv run -q --with grpcio python3 - "$@" <<'EOF'
+import json, os, sys, grpc
+c = json.load(open(os.path.expanduser("~/.local/share/nessie/connection-config.json")))
+ch = grpc.insecure_channel(f"{c['host']}:{c['port']}")
+md = [("authorization", "Bearer " + c["token"])]
+call = ch.unary_unary("/nessie.edge.v1.Nera/DeleteRecentSource",
+                      request_serializer=lambda x: x, response_deserializer=lambda x: x)
+def varint(b, i=1):
+    n = s = 0
+    while True:
+        n |= (b[i] & 0x7F) << s; s += 7
+        if not b[i] & 0x80: return n
+        i += 1
+rc = 0
+for node in sys.argv[1:]:
+    req = b"\x0a" + bytes([len(node)]) + node.encode()  # field 1: node_id
+    try:
+        r = call(req, metadata=md, timeout=60)
+        print(f"{node}  deleted {varint(r) if r[:1] == b'\x08' else '?'} nodes")
+    except grpc.RpcError as e:
+        print(f"{node}  {e.code().name}: {e.details()}", file=sys.stderr); rc = 1
+sys.exit(rc)
+EOF

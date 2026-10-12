@@ -69,6 +69,12 @@ everything else (banking, investments, identity, recovery codes); agents must
 not use it, and it is not signed in on ag (app or Chrome extension); sign it in
 only on client machines.
 
+**1Password share links.** Service accounts can't create item share links (`op item share`
+returns 403), and the work account is deliberately not signed in on ag-mac, so no agent can
+make a share link on its own. Store the item with `op-work`/`op-ag`, then ask the user to
+create the link (item → Share → expiry + recipient email) and paste it back. Don't route it
+to the client Mac's desktop: the client-CUA guard blocks that.
+
 After `~/.zshenv.local` exists, run `ag-tfy-env` (or log out and back in) and
 restart ChatGPT desktop: the stowed Codex config routes it through TrueFoundry.
 

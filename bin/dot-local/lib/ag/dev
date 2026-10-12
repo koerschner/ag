@@ -1,0 +1,386 @@
+#!/usr/bin/env python3
+"""ag dev — run dev processes (servers, watchers, builds) in their own labeled tabs, found by label each call.
+
+    ag dev open <label> [--cwd DIR] [--split] -- <command>   new tab (never focused) running the command; an existing
+                                                            dev tab with that exact label is reused (left alone if busy)
+    ag dev run <label> [--no-interrupt] -- <command>        run a command there (Ctrl-C's whatever is running first)
+    ag dev keys <label> <key…>                              send keys or text to the running program (C-c, Enter, q, "rs")
+    ag dev read <label> [--lines N] [--new]                 its last N lines (default 60); --new: only since the last run
+    ag dev wait <label> (--regex R | --match S | --url URL) [--timeout S]
+                                                            wait for new output (since the last run, never the echoed
+                                                            command) or for URL to answer; fails fast if the command exits
+    ag dev ls [--all] [--json]                              dev tabs: marked ones and non-Pi tabs running something
+    ag dev close <label> [--force]                          close it (only ones this session opened, unless --force)
+The command is a shell line: one quoted string, or words joined by spaces. Labels match exactly (case-insensitive),
+then by unique substring; tab and pane ids work too. --split opens a pane beside you instead of a tab.
+"""
+import json, os, re, sys, time
+import subprocess
+import urllib.error, urllib.request
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from aglib import *
+
+FIELDS = ["pane_id", "@ag_pane", "@ag_dev_label", "@ag_dev_owner", "@ag_dev_mark", "@ag_dev_mark_t", "@ag_dev_cmd",
+          "history_size", "cursor_y", "pane_pid", "pane_current_command", "pane_current_path"]
+SEP = "\t"
+# New dev panes: no interactive shell-startup questions (oh-my-zsh's "update? [Y/n]" eats the typed command).
+QUIET = ["--env", "DISABLE_AUTO_UPDATE=true", "--env", "DISABLE_UPDATE_PROMPT=true"]
+
+
+def tmux(*args, check=True):
+    r = subprocess.run(["tmux", "-L", "ag", *args], capture_output=True, text=True, timeout=30)
+    if check and r.returncode:
+        raise AgError(f"tmux {args[0]}: {r.stderr.strip()}")
+    return r.stdout
+
+
+def me_id():
+    """Who owns what this call opens: the Pi session id, else the tmux pane."""
+    return os.environ.get("PI_SESSION_ID") or sid_of(os.environ.get("PI_SESSION_FILE", "")) or os.environ.get("TMUX_PANE", "")
+
+
+class Pane:
+    def __init__(self, mux_pane, raw, tab):
+        self.__dict__.update(mux_pane)
+        self.raw = raw
+        self.tp = raw["pane_id"]
+        self.label = raw["@ag_dev_label"]
+        self.owner = raw["@ag_dev_owner"]
+        self.tab_label = re.sub(r"\s*●+\s*$", "", tab.get("label") or "")
+        self.tab_panes = tab.get("pane_count", 1)
+
+    @property
+    def name(self):
+        return self.label or self.tab_label
+
+    def fg(self):
+        """(busy, foreground command line) from /proc: the tty's foreground process group vs the shell."""
+        pid = self.raw["pane_pid"]
+        try:
+            stat = open(f"/proc/{pid}/stat").read()
+            tpgid = int(stat.rsplit(")", 1)[1].split()[5])
+            if tpgid in (-1, int(pid)):
+                return False, ""
+            cmd = open(f"/proc/{tpgid}/cmdline", "rb").read().replace(b"\0", b" ").decode(errors="replace").strip()
+            return True, cmd or self.raw["pane_current_command"]
+        except (OSError, ValueError, IndexError):
+            c = self.raw["pane_current_command"]
+            return c not in ("bash", "zsh", "sh", "fish", "dash"), c
+
+    def as_dict(self):
+        busy, cmd = self.fg()
+        return {"label": self.name, "tab": self.tab_id, "pane": self.pane_id, "running": cmd if busy else None,
+                "last_command": self.raw["@ag_dev_cmd"] or None, "cwd": self.raw["pane_current_path"],
+                "mine": bool(self.owner) and self.owner == me_id(), "marked": bool(self.label)}
+
+
+def panes():
+    """Every pane that isn't a Pi session's, fresh: ag-mux's snapshot joined with tmux's per-pane options."""
+    snap = mux_json("api", "snapshot")["snapshot"]
+    tabs = {t["tab_id"]: t for t in snap["tabs"]}
+    pi_tabs = {p["tab_id"] for p in snap["panes"] if (p.get("agent_session") or {}).get("value") or p.get("sleeping_session")}
+    raw = {}
+    for line in tmux("list-panes", "-a", "-F", SEP.join("#{%s}" % f for f in FIELDS)).splitlines():
+        r = dict(zip(FIELDS, line.split(SEP)))
+        raw[r["pane_id"]] = r
+    out = []
+    for p in snap["panes"]:
+        r = raw.get(p.get("tmux_pane"))
+        if not r or (p["tab_id"] in pi_tabs and not r["@ag_dev_label"]):
+            continue
+        if (p.get("agent_session") or {}).get("value"):
+            continue
+        out.append(Pane(p, r, tabs.get(p["tab_id"], {})))
+    return out
+
+
+def find(ref, exact_only=False):
+    """The dev pane a label (or tab/pane id) means; None when nothing matches."""
+    ps = panes()
+    q = ref.strip().lower()
+    same = lambda a, b: a == b or a.endswith(":" + b)  # older ids carry a w…: prefix
+    for p in ps:
+        if same(p.pane_id, ref):
+            p.by = "pane"
+            return p
+        if same(p.tab_id, ref):
+            p.by = "tab"
+            return p
+    tests = [lambda p: p.label.lower() == q, lambda p: not p.label and p.tab_label.lower() == q]
+    if not exact_only:
+        word = re.compile(r"\b" + re.escape(q), re.I)
+        tests += [lambda p: word.search(p.name), lambda p: q in p.name.lower()]
+    for test in tests:
+        hits = [p for p in ps if test(p)]
+        by_tab = {}
+        for p in hits:  # several unmarked panes of one tab are one dev tab
+            by_tab.setdefault(p.tab_id if not p.label else p.pane_id, p)
+        hits = list(by_tab.values())
+        mine = [p for p in hits if p.owner and p.owner == me_id()]
+        if len(hits) > 1 and len(mine) == 1:
+            hits = mine
+        if len(hits) == 1:
+            p = hits[0]
+            p.by = "pane" if p.label else "tab"
+            return p
+        if len(hits) > 1:
+            lines = "\n".join(f"  {p.tab_id:<9} {p.pane_id:<9} {clip(p.name, 50)}" for p in hits[:12])
+            raise AgError(f"{ref!r} matches {len(hits)} dev tabs; use the exact label or a tab/pane id:\n{lines}")
+    return None
+
+
+def need(ref):
+    p = find(ref)
+    if not p:
+        raise AgError(f"no dev tab matches {ref!r} (ag dev ls lists them)")
+    return p
+
+
+def refresh(p):
+    """Re-read one pane's tmux fields (history moves on)."""
+    line = tmux("display-message", "-p", "-t", p.tp, SEP.join("#{%s}" % f for f in FIELDS))
+    p.raw = dict(zip(FIELDS, line.rstrip("\n").split(SEP)))
+    return p
+
+
+def setopt(p, **kv):
+    for k, v in kv.items():
+        tmux("set-option", "-p", "-t", p.tp, f"@ag_dev_{k}", str(v))
+
+
+def command_of(pos):
+    cmd = " ".join(pos).strip()
+    if not cmd:
+        raise AgError("no command (put it after --, e.g. ag dev open web -- bun run dev)")
+    return cmd
+
+
+def wait_idle(p, secs):
+    end = time.time() + secs
+    while time.time() < end:
+        if not p.fg()[0]:
+            return True
+        time.sleep(0.2)
+    return not p.fg()[0]
+
+
+def run_in(p, cmd, interrupt=True):
+    busy, what = p.fg()
+    if busy and interrupt:
+        mux("pane", "send-keys", p.pane_id, "ctrl+c")
+        if not wait_idle(p, 5):
+            mux("pane", "send-keys", p.pane_id, "ctrl+c")
+            if not wait_idle(p, 3):
+                raise AgError(f"{p.name} is still running {what!r} after two Ctrl-C (ag dev keys {shq(p.name)} C-c, or close it)")
+    refresh(p)
+    # Mark where this run starts (absolute line of the prompt the command is typed on), so wait/read --new
+    # only see what it prints.
+    setopt(p, mark=int(p.raw["history_size"]) + int(p.raw["cursor_y"]), mark_t=time.time(), cmd=cmd)
+    mux("pane", "run", p.pane_id, cmd)
+
+
+def new_output(p):
+    """Text printed since the last run's mark, the echoed command line dropped."""
+    refresh(p)
+    hs, cy = int(p.raw["history_size"]), int(p.raw["cursor_y"])
+    mark = p.raw["@ag_dev_mark"]
+    if not mark:
+        return None
+    start = int(mark) - hs
+    if start < -hs or int(mark) > hs + cy:  # history trimmed past it, or cleared: everything is new
+        start = -hs
+    text = tmux("capture-pane", "-p", "-J", "-t", p.tp, "-S", str(start)).rstrip()
+    return "\n".join(text.split("\n")[1:])
+
+
+def tail(p, n):
+    return mux("pane", "read", p.pane_id, "--source", "recent-unwrapped", "--lines", str(n)).stdout.rstrip()
+
+
+# ---------- subcommands ----------
+
+def c_open(o, pos):
+    if not pos:
+        raise AgError("usage: ag dev open <label> [--cwd DIR] [--split] -- <command>")
+    label, cmd = pos[0], command_of(pos[1:])
+    p = find(label, exact_only=True)
+    if p:
+        busy, what = p.fg()
+        if busy:
+            return out(o, p, f"{p.name} ({p.tab_id} {p.pane_id}) is already running {what!r}; left it alone (ag dev run restarts it)")
+        run_in(p, cmd)
+        return out(o, p, f"reused {p.name} ({p.tab_id} {p.pane_id}): {cmd}")
+    cwd = os.path.abspath(os.path.expanduser(o.get("--cwd") or os.getcwd()))
+    if not os.path.isdir(cwd):
+        raise AgError(f"no directory {cwd}")
+    if o.get("--split"):
+        tp = os.environ.get("TMUX_PANE")
+        if not tp:
+            raise AgError("--split needs to run inside an ag-mux pane (no $TMUX_PANE); drop --split for a tab")
+        mine = tmux("display-message", "-p", "-t", tp, "#{@ag_pane}").strip()
+        new = mux_json("pane", "split", mine, "--direction", "down", "--ratio", "0.65", "--cwd", cwd, "--no-focus", *QUIET)["pane"]
+        pane_id, tmux_pane = new["pane_id"], new["tmux_pane"]
+    else:
+        r = mux_json("tab", "create", "--label", label, "--cwd", cwd, "--no-focus", *QUIET)
+        pane_id, tmux_pane = r["root_pane"]["pane_id"], r["root_pane"]["tmux_pane"]
+    tmux("set-option", "-p", "-t", tmux_pane, "@ag_dev_label", label)
+    tmux("set-option", "-p", "-t", tmux_pane, "@ag_dev_owner", me_id())
+    # Let the shell finish starting (prompt drawn, screen still for 0.5s), so typed input isn't eaten by a
+    # startup question and the run mark lands on the prompt line.
+    last, still, end = None, 0, time.time() + 6
+    while time.time() < end and still < 5:
+        cur = tmux("capture-pane", "-p", "-t", tmux_pane).strip()
+        still = still + 1 if cur and cur == last else 0
+        last = cur
+        time.sleep(0.1)
+    p = find(pane_id)
+    if not p:
+        raise AgError(f"opened {pane_id} but can't find it again")
+    run_in(p, cmd)
+    return out(o, p, f"opened {label} ({p.tab_id} {p.pane_id}) in {cwd}: {cmd}")
+
+
+def out(o, p, msg):
+    if o.get("--json"):
+        print(json.dumps(p.as_dict(), ensure_ascii=False))
+    else:
+        print(msg)
+    return 0
+
+
+def c_run(o, pos):
+    if not pos:
+        raise AgError("usage: ag dev run <label> -- <command>")
+    p = need(pos[0])
+    cmd = command_of(pos[1:])
+    run_in(p, cmd, interrupt=not o.get("--no-interrupt"))
+    return out(o, p, f"{p.name} ({p.tab_id} {p.pane_id}): {cmd}")
+
+
+def c_keys(o, pos):
+    if len(pos) < 2:
+        raise AgError("usage: ag dev keys <label> <key…>  (C-c, Enter, Escape, q, or literal text)")
+    p = need(pos[0])
+    for k in pos[1:]:
+        m = re.fullmatch(r"C-(.)", k)
+        if m:
+            mux("pane", "send-keys", p.pane_id, f"ctrl+{m.group(1).lower()}")
+        elif k.lower() in ("enter", "escape", "esc", "tab", "up", "down", "left", "right", "space", "backspace") or "+" in k and len(k) > 2:
+            mux("pane", "send-keys", p.pane_id, k)
+        else:
+            mux("pane", "send-text", p.pane_id, k)
+    print(f"sent {' '.join(pos[1:])} to {p.name} ({p.pane_id})")
+
+
+def c_read(o, pos):
+    if not pos:
+        raise AgError("usage: ag dev read <label> [--lines N] [--new]")
+    p = need(pos[0])
+    n = int(o.get("--lines") or 60)
+    busy, what = p.fg()
+    print(f"── {p.name}  ({p.tab_id} {p.pane_id}, {'running ' + clip(what, 60) if busy else 'idle'})", file=sys.stderr)
+    text = new_output(p) if o.get("--new") else tail(p, n)
+    if text is None:
+        raise AgError(f"{p.name} has no run to read from (opened by hand?); drop --new")
+    lines = [l.rstrip() for l in text.splitlines()]
+    print("\n".join(lines[-n:]))
+
+
+def c_wait(o, pos):
+    if not pos or not any(o.get(k) for k in ("--regex", "--match", "--url")):
+        raise AgError("usage: ag dev wait <label> (--regex R | --match S | --url URL) [--timeout S]")
+    p = need(pos[0])
+    timeout = float(o.get("--timeout") or 120)
+    rx = re.compile(o["--regex"], re.M) if o.get("--regex") else None
+    sub, url = o.get("--match"), o.get("--url")
+    if url and not re.match(r"https?://", url):
+        url = "http://" + url
+    if p.raw["@ag_dev_mark"] == "":  # opened by hand: only output from now on counts
+        refresh(p)
+        setopt(p, mark=int(p.raw["history_size"]) + int(p.raw["cursor_y"]) + 1, mark_t=0)
+    t0, end = time.time(), time.time() + timeout
+    mark_t = float(refresh(p).raw["@ag_dev_mark_t"] or 0)
+    while True:
+        text = new_output(p) or ""
+        hit = None
+        if rx:
+            m = rx.search(text)
+            hit = m and m.group(0)
+        elif sub and sub in text:
+            hit = sub
+        elif url:
+            try:
+                with urllib.request.urlopen(url, timeout=3) as r:
+                    hit = f"{url} → HTTP {r.status}"
+            except urllib.error.HTTPError as e:
+                hit = f"{url} → HTTP {e.code}"
+            except (urllib.error.URLError, OSError):
+                pass
+        if hit:
+            print(hit if rx or url else f"matched {hit!r}")
+            if o.get("--json"):
+                print(json.dumps({"matched": hit, "seconds": round(time.time() - t0, 1), **p.as_dict()}, ensure_ascii=False))
+            return 0
+        if mark_t and time.time() - mark_t > 2 and not p.fg()[0]:
+            last = "\n".join(text.splitlines()[-20:])
+            raise AgError(f"{p.name}: the command exited without a match. Its output:\n{last}")
+        if time.time() > end:
+            last = "\n".join(text.splitlines()[-20:])
+            raise AgError(f"{p.name}: no match in {timeout:g}s. Latest output:\n{last}")
+        time.sleep(0.3)
+
+
+def c_ls(o, pos):
+    rows = []
+    for p in panes():
+        busy, _ = p.fg()
+        if not (p.label or busy or o.get("--all")):
+            continue
+        rows.append(p.as_dict())
+    if o.get("--json"):
+        print(json.dumps(rows, ensure_ascii=False, indent=1))
+        return 0
+    for r in rows:
+        state = clip(r["running"], 40) if r["running"] else "idle"
+        print(f"  {r['tab']:<9} {r['pane']:<9} {'mine ' if r['mine'] else '     '}{clip(r['label'], 34):<34} {state}")
+    if not rows:
+        print("(no dev tabs)", file=sys.stderr)
+
+
+def c_close(o, pos):
+    if not pos:
+        raise AgError("usage: ag dev close <label> [--force]")
+    p = need(pos[0])
+    if not o.get("--force") and not (p.owner and p.owner == me_id()):
+        who = f"another session ({p.owner})" if p.owner else "hand (not ag dev)"
+        raise AgError(f"{p.name} ({p.tab_id}) was opened by {who}; pass --force to close it anyway")
+    if p.by == "pane" and p.tab_panes > 1:
+        mux("pane", "close", p.pane_id)
+        print(f"closed pane {p.pane_id} ({p.name})")
+    else:
+        mux("tab", "close", p.tab_id)
+        print(f"closed {p.name} ({p.tab_id})")
+
+
+CMDS = {"open": c_open, "run": c_run, "keys": c_keys, "send": c_keys, "read": c_read, "wait": c_wait, "ls": c_ls, "list": c_ls, "close": c_close}
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        return usage(__doc__)
+    sub = argv[0]
+    if sub not in CMDS:
+        raise AgError(f"unknown subcommand {sub!r} (ag dev --help)")
+    rest = argv[1:]
+    # Everything after -- is the command, never flags.
+    cmd = rest[rest.index("--") + 1:] if "--" in rest else []
+    head = rest[:rest.index("--")] if "--" in rest else rest
+    o, pos = flags(head, {"--cwd": True, "--split": False, "--lines": True, "-n": "--lines", "--new": False,
+                          "--regex": True, "--match": True, "--url": True, "--timeout": True, "--no-interrupt": False,
+                          "--all": False, "--force": False, "--json": False})
+    if o.get("--help"):
+        return usage(__doc__)
+    return CMDS[sub](o, pos + cmd)
+
+
+run_main(main)

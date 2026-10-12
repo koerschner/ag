@@ -891,7 +891,7 @@ const RULES: Rule[] = [
 	} },
 	{ id: "ag-cli", cmd: /^(?:~\/\.local\/bin\/|(?:\.\/)?(?:[\w.-]+\/)*bin\/)?ag$/, fn: (a, _raw, ctx) => {
 		// the ag CLI (docs/ag-cli.md, bin/dot-local/lib/ag/<verb>)
-		const p = positional(a, ["--lines", "-n", "--last", "--days", "--limit", "--cwd", "--label", "-f", "--file", "--to", "--into", "--note", "--after", "--only"]);
+		const p = positional(a, ["--lines", "-n", "--last", "--days", "--limit", "--cwd", "--label", "-f", "--file", "--to", "--into", "--note", "--after", "--only", "--regex", "--match", "--url", "--timeout"]);
 		const [v, ...r] = p;
 		const s = (x?: string, me = "this session") => (x ? clip(x, 40) : me);
 		const q = (x?: string, n = 50) => `"${clip((x ?? "").replace(/\s+/g, " "), n)}"`;
@@ -923,6 +923,21 @@ const RULES: Rule[] = [
 			case "status": return "Check Ag's health";
 			case "logs": return r[0] ? `Read logs of ${r[0]}` : "List Ag services";
 			case "restart": return r.length ? `Restart ${r.join(", ")}` : undefined;
+			case "dev": {
+				const [sub, lbl] = r;
+				const L = lbl ? `"${clip(lbl, 30)}"` : "";
+				const cmd = a.includes("--") ? clip(a.slice(a.indexOf("--") + 1).join(" "), 40) : "";
+				switch (sub) {
+					case "open": return `Open dev tab ${L}${cmd ? `: ${cmd}` : ""}`;
+					case "run": return `Run in dev tab ${L}${cmd ? `: ${cmd}` : ""}`;
+					case "keys": case "send": return `Send keys to dev tab ${L}`;
+					case "read": return `Read dev tab ${L}`;
+					case "wait": return `Wait for dev tab ${L}${flagVal(a, "--url") ? ` (${flagVal(a, "--url")})` : ""}`;
+					case "close": return `Close dev tab ${L}`;
+					case "ls": case "list": return "List dev tabs";
+					default: return "Read help for ag dev";
+				}
+			}
 			case "usage": return "Measure ag CLI usage";
 			case "doctor": return "Check what Ag still lacks on this machine";
 			case "setup": return "Install or update Ag on this machine";

@@ -1129,6 +1129,36 @@
  {
   "tool": "bash",
   "args": {
+   "command": "ag dev open \"kahoot web\" --cwd ~/kahoot -- bun run dev"
+  },
+  "sum": "Open dev tab \"kahoot web\": bun run dev",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag dev wait \"kahoot web\" --url http://127.0.0.1:5173 --timeout 60"
+  },
+  "sum": "Wait for dev tab \"kahoot web\" (http://127.0.0.1:5173)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag dev read storybook --lines 40"
+  },
+  "sum": "Read dev tab \"storybook\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
    "command": "ag send tCY \"hello there\""
   },
   "sum": "Send \"hello there\" to tCY",

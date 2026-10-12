@@ -32,10 +32,14 @@ For anything at the session level, use `ag <verb>` (`ag help` lists them; `ag <v
 
 Run `ag-mux --skill` for the command reference (reading panes, layout, running commands, starting and driving agents, waits). The rules that matter every time:
 
-- **Reading is safe anywhere.** `ag ls`, `ag peek`, `ag read`, `ag find`, and raw `ag-mux tab list`, `ag-mux pane list`, `ag-mux agent list`, and `ag-mux pane read <pane> --source recent-unwrapped --lines 200` work on any pane; use them to orient when the user refers to work elsewhere ("the dev server", "the other agent").
+- **Reading is safe anywhere.** `ag ls`, `ag peek`, `ag read`, `ag find`, and raw `ag-mux tab list`, `ag-mux pane list`, `ag-mux agent list`, `ag dev ls`/`ag dev read <label>` for dev tabs, and `ag-mux pane read <pane> --source recent-unwrapped --lines 200` work on any pane; use them to orient when the user refers to work elsewhere ("the dev server", "the other agent").
 - **Only send input** (`pane run`/`send-text`/`send-keys`, `agent prompt`/`send-keys`) to panes you created or the user pointed you at. Never answer another agent's `blocked` dialog without asking them.
-- **Dev processes** (apps, servers, watchers): start each in a new tab with a descriptive label (or split beside yourself for something short-lived), group related processes as panes in one tab, always pass `--no-focus`, and tell the user the tab/pane labels and IDs. Never create a new tmux session unless asked; close only things you created.
-- **`pane wait-output` also matches output that already exists**, including the echoed command line. Use an anchored sentinel that only appears on completion (`echo PROBE_DONE` + `--regex '^PROBE_DONE$'`).
+- **Dev processes** (apps, servers, watchers, long builds): use **`ag dev`**, never raw `ag-mux tab create` / `pane run` / `pane read` with pane ids you have to carry between calls. Each gets its own tab with a descriptive label, found again by that label on every call:
+  - `ag dev open "<repo> storybook" --cwd <worktree> -- bun run storybook` opens it (never focused) and runs the command; the same label again reuses the tab. `--split` puts a short-lived one in a pane beside you instead.
+  - `ag dev wait <label> --url http://127.0.0.1:6006` or `--regex 'ready in'` waits for it (only output since the last run counts, never the echoed command; fails fast if the command exits). Keep `--timeout` ≤ 120.
+  - `ag dev read <label> [--new]`, `ag dev run <label> -- <cmd>` (restarts: Ctrl-C first), `ag dev keys <label> C-c`, `ag dev ls`, `ag dev close <label>` (only ones you opened) when done.
+  Tell the user the labels and tab ids. Never create a new tmux session unless asked; close only things you created.
+- **Raw `pane wait-output` also matches output that already exists**, including the echoed command line (`ag dev wait` doesn't). If you use it, wait for an anchored sentinel that only appears on completion (`echo PROBE_DONE` + `--regex '^PROBE_DONE$'`).
 - **Delegating to another agent** only when the user asks (see "Use other sessions freely" below for their standing permission): `agent start` needs an existing pane at a shell prompt; `agent prompt --wait` returning `agent_prompt_stalled` or `timeout` doesn't prove the prompt wasn't delivered, so read the pane before resending.
 - `ag-mux notification show "<title>" [--body TEXT] [--sound done|request]` surfaces a toast to the user. A missing method is not a reason to restart agd or tmux.
 

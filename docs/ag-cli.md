@@ -64,6 +64,20 @@ found by `$PI_SESSION_FILE`, not the pane's tab env var. JSON with `--json`.
 | `ag resume <s>` | `POST /api/resume` |
 | `ag private [s] [--text MSG]` | `ag-t3 send --instance piPrivate --model …` (takes a T3 thread off the record: stored outside Nessie, same model) |
 
+### Dev processes
+
+| Command | Replaces |
+|---|---|
+| `ag dev open <label> [--cwd D] [--split] -- <cmd>` | `ag-mux tab create --label … --no-focus \| jq .result.root_pane.pane_id`, then `pane run` |
+| `ag dev run <label> -- <cmd>`, `ag dev keys <label> C-c` | `pane run` / `send-text` / `send-keys`, `tmux -L ag send-keys` with a remembered pane id |
+| `ag dev read <label> [--new]`, `ag dev wait <label> (--regex R\|--url U)` | `pane read --source recent-unwrapped \| jq -r .result.text`, `tmux capture-pane`, `pane wait-output` (which also matches old output) |
+| `ag dev ls`, `ag dev close <label>` | `tab list \| jq 'select(.label==…)'`, `tab close` |
+
+Added 2026-10-12 (the weekly usage report's biggest remaining gap, ~300 calls/week). The tab is found by label
+on every call; the pane carries tmux options `@ag_dev_label`, `@ag_dev_owner` (the session that opened it, so
+`close` only closes your own without `--force`) and `@ag_dev_mark` (the absolute line where the last run
+started, so `wait` and `read --new` only see that run's output).
+
 ### System
 
 | Command | Replaces |

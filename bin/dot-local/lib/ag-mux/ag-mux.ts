@@ -1281,6 +1281,8 @@ JSON on stdout, errors as JSON on stderr (exit 1; syntax errors exit 2).
   state through hooks; \`agent start|prompt [--wait]|wait|read|send-keys\` drive them.
 - \`pane read --source visible|recent|recent-unwrapped\`, \`pane wait-output --match|--regex\`, \`pane run\`,
   \`pane send-text\`, \`pane send-keys\`. Use \`--no-focus\` for background work.
+- Dev processes (servers, watchers): use \`ag dev open|run|read|wait|ls|close <label>\` (\`ag dev --help\`), which
+  finds the tab by label each call, instead of carrying pane ids between \`tab create\`, \`pane run\` and \`pane read\`.
 - Don't run \`tmux attach\` or bare \`ag-mux attach\` from inside a pane. Raw tmux is \`tmux -L ag …\`.
 `;
 

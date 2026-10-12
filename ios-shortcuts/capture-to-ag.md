@@ -3,7 +3,8 @@
 Two separate shortcuts:
 - **Voice to ag** is on the **Action Button**: it grabs a screenshot of whatever is on screen, then recording starts right away. Tap the screen
   to finish; the recording is sent to ag, transcribed with Whisper (TrueFoundry), and the transcript
-  becomes the prompt.
+  becomes the prompt. **Tap right away (under 1 s) to type instead:** a "Type to ag" text box opens,
+  and the typed text is sent with the same screenshot.
 - **Capture to ag** is an icon on the **Home Screen** (page 2, top left): tap it, type in the
   "Capture" text box, tap Done. No screenshot.
 
@@ -33,7 +34,9 @@ flowchart TD
     A[Action Button → Voice to ag] --> V0["Take Screenshot → JPEG"]
     V0 --> V4["Record Audio: Immediately, finish On Tap"]
     V4 --> V7{"Duration < 1 s?"}
-    V7 -- yes --> V8["Stop (discard)"]
+    V7 -- yes --> V8["Ask for Input (Text) 'Type to ag'<br/>empty → stop"]
+    V8 --> V8b["Save Date.txt and Date.jpg → ag-queue/"]
+    V8b --> F
     V7 -- no --> V9["Save Date.m4a and Date.jpg → ag-queue/"]
     V9 --> F["Run Shortcut: Flush ag Queue"]
 
@@ -81,7 +84,12 @@ The flush sends every queued file as the form field `text` with type **File**: a
    1. **If** Shortcut Input has any value → **Set Variable** *Shot* = Shortcut Input; **Otherwise** →
       **Take Screenshot** → **Convert Image** JPEG → **Set Variable** *Shot* = Converted Image. **End If**.
    2. **Record Audio**: Quality Normal, Start Recording **Immediately**, Finish Recording **On Tap**.
-   3. **Get Details of Media**: Duration of Recorded Audio → **If** less than 1 → **Stop This Shortcut** → **End If**.
+   3. **Get Details of Media**: Duration of Recorded Audio → **If** less than 1 (quick tap = type instead):
+      **Ask for Input** Text, prompt "Type to ag", multiple lines → **If** Provided Input does not have any
+      value → **Stop This Shortcut** → **End If** → **Format Date** (Current Date, `yyyyMMdd-HHmmss-SSS`) →
+      **Set Name** Provided Input → `<Formatted Date>.txt` → **Save File** `ag-queue/` (Ask off, Overwrite on) →
+      **Set Name** *Shot* → `<Formatted Date>.jpg` → **Save File** `ag-queue/` → **Run Shortcut** Flush ag Queue →
+      **Stop This Shortcut** → **End If**.
    4. **Format Date**: Current Date, Custom `yyyyMMdd-HHmmss-SSS`.
    5. **Set Name**: Recorded Audio → `<Formatted Date>.m4a` → **Save File**: subpath `ag-queue/`, Ask off, Overwrite on.
    6. **Set Name**: *Shot* → `<Formatted Date>.jpg` → **Save File**: subpath `ag-queue/`, Ask off, Overwrite on.
@@ -130,3 +138,6 @@ Claude (anthropic-primary/claude-opus-5-5), assisting <user>:
   ag Button deleted; Capture to ag's ag-state logic removed. Home Screen capture verified through
   Mirroring (request `ff84f981`).
 - 2026-09-30: Capture to ag no longer takes a screenshot (text only), per the user.
+- 2026-10-12: Voice to ag gained a typed path: a quick tap (<1 s) on the recording opens a "Type to ag"
+  text box, sent with the screenshot. Edited on ag-mac (iCloud sync); server path verified with a dry run.
+  Still to verify on the physical phone.

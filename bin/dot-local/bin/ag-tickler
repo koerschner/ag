@@ -344,10 +344,13 @@ function fireOne(i: Item, forcePi = false) {
 	const pane: string = mux("tab", "create", "--cwd", cwd, "--label", label, "--no-focus").root_pane.pane_id;
 	const agent = `ag-tickler-${i.id}`;
 	const extra = i.mode === "fork" && i.session && existsSync(i.session) ? ["--", "--fork", i.session] : [];
+	// A fork of an off-the-record session must stay off the record: plain `pi --fork` would write the copied
+	// history under ~/.pi, which Nessie syncs. ag-pi-private keeps the fork in ~/private-chat/pi-sessions.
+	const kind = extra.length && i.session!.startsWith(`${HOME}/private-chat/`) ? "ag-pi-private" : "pi";
 	// A brand-new pane's shell may still be initializing (agent_pane_busy); retry for ~20s.
 	for (let tries = 0; ; tries++) {
 		try {
-			mux("agent", "start", agent, "--kind", "pi", "--pane", pane, "--timeout", "60000", ...extra);
+			mux("agent", "start", agent, "--kind", kind, "--pane", pane, "--timeout", "60000", ...extra);
 			break;
 		} catch (e) {
 			if (tries >= 10 || !String(e).includes("agent_pane_busy")) throw e;

@@ -38,9 +38,6 @@ export default function (pi: ExtensionAPI) {
 			.find((e: any) => e.type === "message" && e.message.role === "assistant") as any;
 		const msg = entry?.message;
 		if (!msg || msg.stopReason !== "error") return;
-		// Personal OpenRouter sessions (the private lane, stored outside ~/.pi) must never fall back to the
-		// company's TrueFoundry models: those traces would be company-paid but outside Nessie.
-		if (msg.provider === "openrouter" || ctx.model?.provider === "openrouter") return;
 		const text = String(msg.errorMessage ?? "");
 		const inChain = tried.size > 0;
 		if (!POLICY.test(text) && !inChain) return;

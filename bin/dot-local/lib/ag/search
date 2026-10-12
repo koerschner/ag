@@ -201,7 +201,7 @@ def main(argv):
         open_by_sid = {}
 
     files = {}
-    for f in SESSIONS.glob("*/*.jsonl"):
+    for f in map(Path, session_files()):
         s = sid_of(str(f))
         if s and s != me and (s in open_by_sid or f.stat().st_mtime >= since):
             files[str(f)] = s

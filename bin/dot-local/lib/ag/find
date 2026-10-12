@@ -25,7 +25,7 @@ def closed(o):
     since = time.time() - float(o.get("--days") or 7) * 86400
     open_sids = {s.sid for s in Index().all_open() if s.sid}
     files = []
-    for f in SESSIONS.glob("*/*.jsonl"):
+    for f in map(Path, session_files()):
         try:
             mt = f.stat().st_mtime
         except OSError:
@@ -63,7 +63,7 @@ def main(argv):
     # Candidate files: rg -l per term, intersected (fast over GBs of jsonl).
     cand = None
     for t in terms:
-        r = subprocess.run(["rg", "-l", "-i", "-F", "--no-messages", "--glob", "*.jsonl", "-e", t, str(SESSIONS)], capture_output=True, text=True)
+        r = subprocess.run(["rg", "-l", "-i", "-F", "--no-messages", "--glob", "*.jsonl", "-e", t, str(SESSIONS), str(PRIVATE_SESSIONS)], capture_output=True, text=True)
         hits = set(r.stdout.splitlines())
         cand = hits if cand is None else cand & hits
     cand = cand or set()

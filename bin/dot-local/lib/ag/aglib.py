@@ -41,6 +41,13 @@ def user_name():
 
 
 SESSIONS = HOME / ".pi/agent/sessions"
+# Off-the-record sessions (the private lane, ag-pi-private): flat, outside ~/.pi so Nessie never syncs them.
+PRIVATE_SESSIONS = HOME / "private-chat/pi-sessions"
+
+
+def session_files(pattern="*.jsonl"):
+    """Every Pi session file matching `pattern`, synced (~/.pi/agent/sessions/<cwd>/) and private."""
+    return glob.glob(str(SESSIONS / "*" / pattern)) + glob.glob(str(PRIVATE_SESSIONS / pattern))
 AG_MUX = str(HOME / ".local/bin/ag-mux")
 BOARD = os.environ.get("AG_DASH_URL", "http://127.0.0.1:7376")  # ag-dash; listens on loopback on the host
 BOARD_PUBLIC = "http://ag:7376"  # links for people: the Tailscale Service, never a machine name
@@ -191,14 +198,14 @@ def shq(s):
 # ---------- session files ----------
 
 def file_for_sid(sid):
-    hits = glob.glob(str(SESSIONS / f"*/*_{sid}.jsonl"))
+    hits = session_files(f"*_{sid}.jsonl")
     return hits[0] if hits else None
 
 
 def files_matching(part):
     """Session files whose id starts or ends with `part`."""
     out = {}
-    for f in glob.glob(str(SESSIONS / f"*/*_*{part}*.jsonl")):
+    for f in session_files(f"*_*{part}*.jsonl"):
         s = sid_of(f)
         if s and (s.startswith(part) or s.endswith(part)):
             out[s] = f

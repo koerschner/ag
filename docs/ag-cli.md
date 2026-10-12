@@ -62,7 +62,7 @@ found by `$PI_SESSION_FILE`, not the pane's tab env var. JSON with `--json`.
 | `ag pin [on\|off] [s]`, `ag wait [s]`, `ag unwait` | `POST /api/card` |
 | `ag rename "label" [s]`, `ag close [s] [--after N]` | `tab rename/close` |
 | `ag resume <s>` | `POST /api/resume` |
-| `ag private [s] [--text MSG]` | `ag-t3 send --instance piPrivate --model …` (takes a T3 thread off the record: personal OpenRouter, outside Nessie) |
+| `ag private [s] [--text MSG]` | `ag-t3 send --instance piPrivate --model …` (takes a T3 thread off the record: stored outside Nessie, same model) |
 
 ### System
 

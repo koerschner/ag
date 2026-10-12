@@ -2,11 +2,11 @@
 """ag private — take a session off the record: it moves to the private lane, never synced to Nessie.
 
     ag private [session] [--text MESSAGE]   (default: this session; MESSAGE "-": read stdin)
-The session's T3 thread switches to the private lane (piPrivate: the user's personal OpenRouter account, Pi sessions
-in ~/private-chat, outside Nessie; docs/t3.md "Two lanes") when its next message starts, after any running turn:
-MESSAGE, or a short note asking it to confirm. Turns that already ran on company models stay synced. Saying
-"off the record" in a message does the same (ag-rules: off-the-record). Tmux sessions can't change lanes: start a
-private one with ag-pi-private.
+The session's T3 thread switches to the private lane (piPrivate: the same TrueFoundry models, Pi sessions in
+~/private-chat, outside Nessie; docs/t3.md "Two lanes") when its next message starts, after any running turn:
+MESSAGE, or a short note asking it to confirm. It keeps its model. Turns that already ran in the synced lane stay
+synced. Saying "off the record" in a message does the same (ag-rules: off-the-record). Tmux sessions can't change
+lanes: start a private one with ag-pi-private.
 """
 import json, os, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -14,7 +14,7 @@ from aglib import *
 
 AG_T3 = os.path.expanduser("~/.local/bin/ag-t3")
 PRIVATE = "piPrivate"
-MODEL = "openrouter/anthropic/claude-opus-5.5"
+DEFAULT_MODEL = "truefoundry/anthropic-primary/claude-opus-5-5"
 
 
 def thread_for(ref):
@@ -48,11 +48,12 @@ def main(argv):
     if text == "-":
         text = sys.stdin.read()
     text = (text or "").strip() or (
-        origin_tag("rule", "Off the record", note="This thread just moved off the record: the private lane, on the "
-                   "user's personal OpenRouter account, stored outside Nessie. Turns before this one ran on company "
-                   "models and stay synced.")
+        origin_tag("rule", "Off the record", note="This thread just moved off the record: the private lane, stored "
+                   "outside Nessie, on the same TrueFoundry models. Turns before this one ran in the synced lane and "
+                   "stay synced.")
         + "\nOff the record from here on. Confirm in one line, then wait.")
-    cmd = [AG_T3, "send", "--json", "--instance", PRIVATE, "--model", MODEL]
+    model = t["model"] if (t.get("model") or "").startswith("truefoundry") else DEFAULT_MODEL
+    cmd = [AG_T3, "send", "--json", "--instance", PRIVATE, "--model", model]
     if t.get("thinking"):
         cmd += ["--thinking", t["thinking"]]
     out = subprocess.run(cmd + [t["id"], text], capture_output=True, text=True, timeout=60)
@@ -60,9 +61,9 @@ def main(argv):
         raise AgError(f"ag-t3 send failed: {(out.stderr or out.stdout).strip()}")
     r = json.loads(out.stdout)
     if o.get("--json"):
-        print(json.dumps({**r, "lane": PRIVATE, "model": MODEL}))
+        print(json.dumps({**r, "lane": PRIVATE, "model": model}))
     else:
-        print(f"off the record: {r['title']} moves to the private lane ({MODEL}) with its next message  {r['url']}")
+        print(f"off the record: {r['title']} moves to the private lane ({model}) with its next message  {r['url']}")
 
 
 run_main(main)

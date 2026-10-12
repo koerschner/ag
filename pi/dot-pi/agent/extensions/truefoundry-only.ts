@@ -1,34 +1,31 @@
 /**
- * Keep synced Pi sessions (everything under ~/.pi: T3 threads and tmux sessions) on TrueFoundry.
+ * Run every Pi session on TrueFoundry: T3 threads in either lane (synced under ~/.pi or private in ~/private-chat),
+ * tmux sessions and routines.
  *
- * Pi also has direct provider logins (anthropic, openai-codex) whose models appear in T3's picker
- * next to the TrueFoundry copies of the same models. Picking one bills a personal subscription
- * instead of TrueFoundry, and the anthropic OAuth token can fail to refresh. When a session under
- * ~/.pi selects a non-TrueFoundry model, switch to the TrueFoundry copy of the same model
- * (anthropic/claude-opus-5-5 → truefoundry/anthropic-primary/claude-opus-5-5,
- * openai-codex/gpt-6-astra → truefoundry-openai/gpt-6-astra), or to the default TrueFoundry model
- * when there is no copy. OpenRouter is left to nessie-openrouter-guard. Sessions stored elsewhere
- * (ag-pi-private, the headless research runs with their own config) are untouched.
+ * Pi also knows the user's personal OpenRouter account and the direct provider logins (anthropic, openai-codex),
+ * whose models appear in pickers next to the TrueFoundry copies. When a session selects one of those, switch to the
+ * TrueFoundry copy of the same model (anthropic/claude-opus-5-5 and openrouter's anthropic/claude-opus-5.5 →
+ * truefoundry/anthropic-primary/claude-opus-5-5, openai-codex/gpt-6-astra → truefoundry-openai/gpt-6-astra), or to
+ * the default TrueFoundry model when there is no copy. Runs with their own Pi agent dir (e.g. headless research
+ * pipelines) load their own extensions and are untouched.
  */
-import { homedir } from "node:os";
-import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-const WATCHED = join(homedir(), ".pi") + "/";
 const DEFAULT: [string, string] = ["truefoundry", "anthropic-primary/claude-opus-5-5"];
 const onTrueFoundry = (provider?: string) => !!provider && provider.startsWith("truefoundry");
+// A model's own name, without vendor or group prefixes, dots as dashes: openrouter's anthropic/claude-opus-5.5 and
+// TrueFoundry's anthropic-primary/claude-opus-5-5 are both claude-opus-5-5. These are unique among TrueFoundry models.
+const bare = (id: string) => id.split("/").pop()!.replace(/\./g, "-");
 
 export default function (pi: ExtensionAPI) {
 	const guard = async (ctx: any) => {
 		const model = ctx.model;
-		if (!model || onTrueFoundry(model.provider) || model.provider === "openrouter") return;
-		const file: string | undefined = ctx.sessionManager.getSessionFile();
-		if (file && !file.startsWith(WATCHED)) return;
-		const available: any[] = ctx.modelRegistry.getAvailable();
-		const copy =
-			available.find((m) => onTrueFoundry(m.provider) && m.id === model.id) ??
-			available.find((m) => onTrueFoundry(m.provider) && m.id.endsWith(`/${model.id}`));
-		const target = copy ?? ctx.modelRegistry.find(...DEFAULT);
+		if (!model || onTrueFoundry(model.provider)) return;
+		const available: any[] = ctx.modelRegistry.getAvailable().filter((m: any) => onTrueFoundry(m.provider));
+		const target =
+			available.find((m) => m.id === model.id) ??
+			available.find((m) => bare(m.id) === bare(model.id)) ??
+			ctx.modelRegistry.find(...DEFAULT);
 		if (!target) return;
 		await pi.setModel(target);
 		ctx.ui.notify(`${model.provider}/${model.id} isn't on TrueFoundry; using ${target.provider}/${target.id} instead.`, "warning");

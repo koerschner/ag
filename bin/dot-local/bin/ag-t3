@@ -35,23 +35,18 @@ const TOKEN_FILE = `${HOME}/.config/ag/t3.token`;
 const T3 = `${HOME}/.local/bin/t3`;
 const PI_SETTINGS = existsSync(`${HOME}/.pi/agent/settings.json`) ? JSON.parse(readFileSync(`${HOME}/.pi/agent/settings.json`, "utf8")) : {};
 const DEFAULT_MODEL = process.env.AG_T3_MODEL ?? (PI_SETTINGS.defaultProvider && PI_SETTINGS.defaultModel ? `${PI_SETTINGS.defaultProvider}/${PI_SETTINGS.defaultModel}` : "truefoundry/anthropic-primary/claude-opus-5-5");
-// Two Pi lanes (docs/t3.md, "Model selection safety"). "pi": sessions under ~/.pi, synced to Nessie, company-paid
-// TrueFoundry models only. "piPrivate": Nathan's personal lane, same Pi and config but sessions stored in
-// ~/private-chat/pi-sessions (outside Nessie, like ag-pi-private), personal OpenRouter models only.
+// Two Pi lanes (docs/t3.md, "Two lanes"), both on the same TrueFoundry models. "pi": sessions under ~/.pi, synced to
+// Nessie. "piPrivate": off the record, same Pi and config but sessions stored in ~/private-chat/pi-sessions (outside
+// Nessie, like ag-pi-private). A thread's first message decides its lane (the fork's lane hook and Nathan's ag-rules).
 const PRIVATE = "piPrivate";
+const LANE_INSTANCES = ["pi", PRIVATE];
 const PRIVATE_SESSIONS = `${HOME}/private-chat/pi-sessions`;
-const PRIVATE_DEFAULT_MODEL = "openrouter/anthropic/claude-opus-5.5";
 const onTrueFoundry = (slug: string) => /^truefoundry(-[a-z]+)?\//.test(slug);
-const onOpenRouter = (slug: string) => slug.startsWith("openrouter/");
 const privateEnvOk = (instance: any) =>
 	(instance?.environment ?? []).some((v: any) => v.name === "PI_CODING_AGENT_SESSION_DIR" && v.value === PRIVATE_SESSIONS);
-function modelProblem(model: string, instance = "pi"): string | null {
-	if (model === "default") return null;
-	if (instance === PRIVATE)
-		return onOpenRouter(model) ? null : "the private lane is stored outside Nessie, so it must run on personal OpenRouter models, not company ones";
-	if (onOpenRouter(model)) return `OpenRouter is personal and Pi's Nessie guard silently replaces it in synced T3 sessions (use the ${PRIVATE} instance)`;
-	if (!onTrueFoundry(model)) return "synced T3 sessions run on TrueFoundry; Pi's truefoundry-only extension silently switches this to the TrueFoundry copy";
-	return null;
+function modelProblem(model: string): string | null {
+	if (model === "default" || onTrueFoundry(model)) return null;
+	return "every Pi session runs on TrueFoundry; Pi's truefoundry-only extension silently switches this to the TrueFoundry copy";
 }
 const SESSIONS = `${HOME}/.pi/agent/sessions`;
 
@@ -102,7 +97,7 @@ const uuid = () => crypto.randomUUID();
 const dispatch = (rpc: Rpc, command: Record<string, unknown>) => rpc.call("orchestration.dispatchCommand", { commandId: uuid(), ...command });
 
 // ---------- reads (T3's projection, read-only) ----------
-type Thread = { id: string; title: string; projectId: string; file: string | null; pinnedAt: string | null; updatedAt: string; archived: boolean; lane: string | null; thinking: string | null };
+type Thread = { id: string; title: string; projectId: string; file: string | null; pinnedAt: string | null; updatedAt: string; archived: boolean; lane: string | null; model: string | null; thinking: string | null };
 function threads(): Thread[] {
 	if (!existsSync(DB)) return [];
 	const db = new Database(DB, { readonly: true });
@@ -111,6 +106,7 @@ function threads(): Thread[] {
 			SELECT t.thread_id AS id, t.title, t.project_id AS projectId, t.updated_at AS updatedAt, t.archived_at IS NOT NULL AS archived,
 			       json_extract(t.payload_json, '$.pinnedAt') AS pinnedAt,
 			       json_extract(t.payload_json, '$.modelSelection.instanceId') AS lane,
+			       json_extract(t.payload_json, '$.modelSelection.model') AS model,
 			       (SELECT json_extract(o.value, '$.value') FROM json_each(t.payload_json, '$.modelSelection.options') o
 			         WHERE json_extract(o.value, '$.id') = 'thinking') AS thinking,
 			       (SELECT json_extract(p.payload_json, '$.nativeThreadRef.nativeId') FROM orchestration_v2_projection_provider_threads p
@@ -122,11 +118,9 @@ function threads(): Thread[] {
 const sidOf = (s: string) => s.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)?.[0];
 const sessionIdOfRef = (ref: string) => ref.endsWith(".jsonl") ? basename(ref).match(/_([0-9a-f-]{36})\.jsonl$/)?.[1] : sidOf(ref);
 function fileForSid(sid: string): string | null {
-	for (const d of readdirSync(SESSIONS)) {
-		const f = readdirSync(`${SESSIONS}/${d}`).find((x) => x.endsWith(`_${sid}.jsonl`));
-		if (f) return `${SESSIONS}/${d}/${f}`;
-	}
-	return null;
+	const match = (dir: string) => { const f = readdirSync(dir).find((x) => x.endsWith(`_${sid}.jsonl`)); return f ? `${dir}/${f}` : null; };
+	for (const d of readdirSync(SESSIONS)) { const f = match(`${SESSIONS}/${d}`); if (f) return f; }
+	return existsSync(PRIVATE_SESSIONS) ? match(PRIVATE_SESSIONS) : null; // off-the-record sessions (flat)
 }
 // A thread id, a Pi session id/file, or a unique title match.
 function findThread(ref: string): Thread | null {
@@ -160,27 +154,21 @@ function projectFor(dir: string): string {
 }
 
 // T3 lists Pi's whole catalog (hundreds of OpenRouter models plus the direct anthropic and openai-codex logins)
-// for every Pi instance. Hide what doesn't belong to each lane in the server's model preferences (synced to every
-// client) and put the lane's default first. Pi's truefoundry-only and nessie-openrouter-guard extensions catch
-// stray picks in the synced lane.
-const LANES = [
-	{ instance: "pi", allowed: onTrueFoundry, defaultModel: DEFAULT_MODEL },
-	{ instance: PRIVATE, allowed: onOpenRouter, defaultModel: PRIVATE_DEFAULT_MODEL },
-];
+// for every Pi instance. Hide everything outside TrueFoundry in the server's model preferences (synced to every
+// client) and put the default first; the private lane's picker mirrors the synced lane's. Pi's truefoundry-only
+// extension catches stray picks.
 const piCatalog = (): string[] => existsSync(`${T3_HOME}/caches/pi.json`)
 	? (JSON.parse(readFileSync(`${T3_HOME}/caches/pi.json`, "utf8")).models ?? []).map((m: any) => m.slug) : [];
 function laneModelPreferences(settings: any) {
+	const prefs = settings.providerModelPreferences?.pi ?? {};
+	const hiddenModels = [...new Set([...(prefs.hiddenModels ?? []), ...piCatalog().filter((s) => s !== "default" && !onTrueFoundry(s))])];
+	const modelOrder = [DEFAULT_MODEL, ...(prefs.modelOrder ?? []).filter((s: string) => s !== DEFAULT_MODEL && onTrueFoundry(s))];
 	const providerModelPreferences = { ...settings.providerModelPreferences };
-	for (const { instance, allowed, defaultModel } of LANES) {
-		const prefs = providerModelPreferences[instance] ?? {};
-		const hiddenModels = [...new Set([...(prefs.hiddenModels ?? []), ...piCatalog().filter((s) => s !== "default" && !allowed(s))])];
-		const modelOrder = [defaultModel, ...(prefs.modelOrder ?? []).filter((s: string) => s !== defaultModel && allowed(s))];
-		providerModelPreferences[instance] = { hiddenModels, modelOrder };
-	}
-	const laneOf = (f: any) => LANES.find((l) => l.instance === f.provider);
+	for (const instance of LANE_INSTANCES) providerModelPreferences[instance] = { hiddenModels, modelOrder };
 	const favorites = [
-		...LANES.map((l) => ({ provider: l.instance, model: l.defaultModel })),
-		...(settings.favorites ?? []).filter((f: any) => { const l = laneOf(f); return !l || (f.model !== l.defaultModel && l.allowed(f.model)); }),
+		{ provider: "pi", model: DEFAULT_MODEL },
+		...(settings.favorites ?? []).filter((f: any) =>
+			!LANE_INSTANCES.includes(f.provider) || (onTrueFoundry(f.model) && !(f.provider === "pi" && f.model === DEFAULT_MODEL))),
 	];
 	return { favorites, providerModelPreferences };
 }
@@ -194,13 +182,13 @@ async function setup() {
 		// record so the other instances survive.
 		const instances = settings.providerInstances ?? {};
 		const pi = { ...instances.pi, driver: "pi", enabled: true, config: { ...instances.pi?.config, binaryPath: `${HOME}/.local/bin/pi` } };
-		// The private lane runs the same Pi, but its sessions land in ~/private-chat/pi-sessions (T3 never passes a
-		// session dir, so the environment decides), which Nessie doesn't watch.
+		// The private lane runs the same Pi and models, but its sessions land in ~/private-chat/pi-sessions (T3 never
+		// passes a session dir, so the environment decides), which Nessie doesn't watch.
 		mkdirSync(PRIVATE_SESSIONS, { recursive: true, mode: 0o700 });
 		chmodSync(`${HOME}/private-chat`, 0o700);
 		chmodSync(PRIVATE_SESSIONS, 0o700);
 		const piPrivate = {
-			...instances[PRIVATE], driver: "pi", displayName: "Pi \u00b7 private (OpenRouter)", enabled: true,
+			...instances[PRIVATE], driver: "pi", displayName: "Pi \u00b7 private (unsynced)", enabled: true,
 			environment: [{ name: "PI_CODING_AGENT_SESSION_DIR", value: PRIVATE_SESSIONS, sensitive: false }],
 			config: { ...instances[PRIVATE]?.config, binaryPath: `${HOME}/.local/bin/pi` },
 		};
@@ -235,10 +223,10 @@ function doctor(): number {
 		const models = JSON.parse(readFileSync(`${T3_HOME}/caches/pi.json`, "utf8")).models ?? [];
 		if (!models.some((m: any) => m.slug === DEFAULT_MODEL)) problems.push(`default model ${DEFAULT_MODEL} is unavailable in T3`);
 	}
-	for (const { instance, allowed } of LANES) {
+	for (const instance of LANE_INSTANCES) {
 		const hidden = new Set(settings.providerModelPreferences?.[instance]?.hiddenModels ?? []);
-		const visible = piCatalog().filter((s) => s !== "default" && !allowed(s) && !hidden.has(s));
-		if (visible.length) warnings.push(`${visible.length} models outside the ${instance} lane are visible in its T3 picker (e.g. ${visible[0]}); run ag-t3 setup`);
+		const visible = piCatalog().filter((s) => s !== "default" && !onTrueFoundry(s) && !hidden.has(s));
+		if (visible.length) warnings.push(`${visible.length} models outside TrueFoundry are visible in the ${instance} T3 picker (e.g. ${visible[0]}); run ag-t3 setup`);
 	}
 	const authFile = `${HOME}/.pi/agent/auth.json`;
 	if (existsSync(authFile)) {
@@ -252,7 +240,7 @@ function doctor(): number {
 		const db = new Database(DB, { readonly: true });
 		try {
 			for (const row of db.query(`SELECT title, json_extract(payload_json, '$.modelSelection.instanceId') AS instance, json_extract(payload_json, '$.modelSelection.model') AS model FROM orchestration_v2_projection_threads WHERE deleted_at IS NULL`).all() as { title: string; instance: string | null; model: string | null }[]) {
-				const problem = row.model ? modelProblem(row.model, row.instance ?? "pi") : null;
+				const problem = row.model ? modelProblem(row.model) : null;
 				if (problem) problems.push(`thread "${row.title}" (${row.instance ?? "pi"}) selects ${row.model}: ${problem}`);
 			}
 		} finally { db.close(); }
@@ -405,7 +393,7 @@ switch (cmd) {
 	case "send": {
 		const json = bool("--json");
 		const model = flag("--model"), instance = flag("--instance") ?? "pi", thinking = flag("--thinking");
-		if (model && modelProblem(model, instance)) die(`model ${model} on ${instance}: ${modelProblem(model, instance)}`, 2);
+		if (model && modelProblem(model)) die(`model ${model}: ${modelProblem(model)}`, 2);
 		const ref = argv.shift() ?? die("usage: ag-t3 send [--model M [--instance I] [--thinking L]] <thread|session> <text>", 2);
 		const text = await readText(argv) || die("usage: ag-t3 send [--model M [--instance I] [--thinking L]] <thread|session> <text>", 2);
 		const selection = model ? { instanceId: instance, model, ...(thinking ? { options: [{ id: "thinking", value: thinking }] } : {}) } : undefined;

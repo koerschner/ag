@@ -49,8 +49,8 @@ export interface LaneMessage {
 	createdBy: string; // "user" (incl. ag-t3: the inbox, ag spawn, the tickler) | "agent" | "system"
 	first: boolean; // the thread's first message: nothing has run in it yet
 }
-/** private = this message, and the thread from then on, runs in the private lane (personal OpenRouter, outside Nessie:
- * docs/t3.md, "Two lanes"); synced = in the synced lane (company TrueFoundry, Nessie). Nothing = the lane it's in.
+/** private = this message, and the thread from then on, runs in the private lane (Pi sessions outside Nessie:
+ * docs/t3.md, "Two lanes"); synced = in the synced lane (Pi sessions under ~/.pi, Nessie); both run the same TrueFoundry models. Nothing = the lane it's in.
  * When rules disagree, private wins. */
 export type LaneRule = (
 	input: LaneMessage,

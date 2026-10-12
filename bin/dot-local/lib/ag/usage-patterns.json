@@ -20,6 +20,7 @@
   {"id": "service-logs", "verb": "logs", "re": "journalctl --user[^|;\\n]*-u (ag-|pi-)|\\.local/state/ag-[\\w-]+(/[^ ]*)?\\.log", "what": "read an Ag service log by hand"},
   {"id": "routine-state", "verb": "routine", "re": "state/routines/[\\w-]+\\.json\\b|systemctl --user list-timers", "what": "inspect routine status/timers by hand (not a routine using its own state dir)"},
   {"id": "agent-status", "verb": "ls", "re": "ag-mux (agent|pane) get", "what": "check another session's agent status with agent/pane get + jq"},
-  {"id": "mux-snapshot", "verb": "ls", "re": "ag-mux (api snapshot|tab list)", "what": "dump the whole mux state (snapshot / tab list) + jq"},
-  {"id": "dev-tab", "verb": "(none yet)", "re": "ag-mux tab create", "what": "open a labeled dev-process tab (server, watcher) by hand"}
+  {"id": "mux-snapshot", "verb": "ls", "re": "ag-mux (api snapshot|tab list|pane list)", "what": "dump the whole mux state (snapshot / tab list) + jq"},
+  {"id": "dev-tab", "verb": "(none yet)", "re": "ag-mux tab create|tmux -L ag new-window", "what": "open a labeled dev-process tab (server, watcher) by hand"},
+  {"id": "pane-run", "verb": "(none yet)", "what": "type a command into a dev pane (ag-mux pane run/send-text, tmux send-keys)", "re": "ag-mux pane (run|send-text|send-keys)|tmux -L ag send-keys"}
 ]

@@ -29,6 +29,11 @@ step "apt packages"
 sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq &&
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${APT[@]}" >/dev/null || warn "apt install"
 sudo usermod -aG docker "$USER" 2>/dev/null || true
+# bubblewrap needs an AppArmor profile to create user namespaces on Ubuntu 24.04+ (value-engine sandbox).
+if [ -d /etc/apparmor.d ] && [ ! -f /etc/apparmor.d/bwrap ]; then
+  printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' 'profile bwrap /usr/bin/bwrap flags=(unconfined) {' '  userns,' '  include if exists <local/bwrap>' '}' |
+    sudo tee /etc/apparmor.d/bwrap >/dev/null && sudo apparmor_parser -r /etc/apparmor.d/bwrap || warn "bwrap apparmor profile"
+fi
 
 step "GitHub CLI (from cli.github.com: Ubuntu's own gh is too old for \`gh pr create --attach\`, which needs 2.99+)"
 if ! have gh || ! dpkg -s gh 2>/dev/null | grep -q '^Version: 2\.\(99\|[1-9][0-9][0-9]\)'; then

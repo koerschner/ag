@@ -64,6 +64,12 @@ if ! have cloudflared; then
     sudo apt-get update -qq && sudo apt-get install -y -qq cloudflared >/dev/null || warn "cloudflared"
 fi
 
+step "OpenTofu (the session host runs ag-infra)"
+if "$AG/bin/dot-local/bin/ag-machine-role" host 2>/dev/null && ! have tofu; then
+  curl -fsSL https://get.opentofu.org/install-opentofu.sh -o /tmp/install-opentofu.sh &&
+    sh /tmp/install-opentofu.sh --install-method deb >/dev/null 2>&1 || warn "opentofu"
+fi
+
 step "GNU Stow 2.4 (Ubuntu's 2.3 mishandles --dotfiles with dot-* directories)"
 if ! [[ $(stow --version 2>/dev/null) == *" 2.4"* || $(stow --version 2>/dev/null) == *" 2.5"* ]]; then
   ( cd /tmp && curl -fsSL https://ftp.gnu.org/gnu/stow/stow-2.4.1.tar.gz | tar xz && cd stow-2.4.1 &&

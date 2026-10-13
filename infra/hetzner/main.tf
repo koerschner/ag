@@ -81,7 +81,7 @@ resource "hcloud_server" "worker" {
   name         = "ag-worker-${count.index + 1}"
   server_type  = var.worker_type
   image        = var.image
-  location     = var.location
+  location     = coalesce(var.worker_location, var.location)
   ssh_keys     = [hcloud_ssh_key.ag_mac.id]
   firewall_ids = [hcloud_firewall.tailnet_only.id]
   labels       = { system = "ag", role = "worker" }

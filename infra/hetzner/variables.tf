@@ -28,8 +28,17 @@ variable "worker_count" {
   default = 0
 }
 variable "worker_type" {
-  type    = string
-  default = "ccx33"
+  # Dedicated (ccx*) types count against the account's dedicated-vCPU limit, which the engine already fills,
+  # so workers default to shared vCPUs: cpx62 = 16 AMD vCPU / 32 GB / 640 GB (EU, ~$0.25/h). cx53 (16 / 32 / 320,
+  # ~$0.06/h) is cheaper but often sold out; ag-infra tries every EU location before giving up.
+  description = "Hetzner server type for workers (ag-infra workers up --type)"
+  type        = string
+  default     = "cpx62"
+}
+variable "worker_location" {
+  description = "Location for workers; \"\" = same as the engine. Shared types are far cheaper in the EU (nbg1, fsn1, hel1)."
+  type        = string
+  default     = "nbg1"
 }
 variable "user" {
   description = "Linux login created on every machine (sessions run as it); set in a *.auto.tfvars file (infra/README.md)"

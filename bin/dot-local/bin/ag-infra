@@ -1,29 +1,114 @@
 #!/usr/bin/env bash
 # ag-infra: create, scale and destroy Ag's rented Linux machines (infra/hetzner, OpenTofu).
-#   ag-infra plan | up | down | scale N | status | ssh [name]
+#   ag-infra plan | up | down | status | ssh [name]
+#   ag-infra workers                                   list workers (type, location, $/hour)
+#   ag-infra workers up [N] [--type T] [--location L]  spin up N workers (default 1), wait until they're ready
+#   ag-infra workers down                              destroy every worker (the engine is untouched)
+#   ag-infra scale N                                   same as `workers up N` with the saved type/location
+# Run it on the session host (ag-engine): state lives in ~/.local/state/ag-infra there.
 # Secrets are read from the ag-vault work vault via op-work, only into this process.
 set -euo pipefail
 here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 dir="$(cd "$here/../../../infra/hetzner" && pwd)"
 state="$HOME/.local/state/ag-infra"; mkdir -p "$state"
+saved="$state/workers.env" # the worker shape last applied, so a plain `up` never resizes or moves them
 VAULT=${AG_INFRA_VAULT:-ag-vault} # op-work's service account only sees this vault
 
+WORKER_TYPE=cpx62 WORKER_LOCATION=nbg1
+[ -f "$saved" ] && . "$saved"
+
 secrets() {
-  export HCLOUD_TOKEN TF_VAR_tailscale_auth_key TF_VAR_ssh_public_key TF_VAR_ag_deploy_key
+  export HCLOUD_TOKEN TF_VAR_tailscale_auth_key TF_VAR_ag_deploy_key
   HCLOUD_TOKEN=$(op-work read "op://$VAULT/Hetzner Cloud/credential")
   TF_VAR_tailscale_auth_key=$(op-work read "op://$VAULT/Tailscale ag auth key/credential")
-  TF_VAR_ssh_public_key=$(cat "$HOME/.ssh/id_ed25519.pub")
   TF_VAR_ag_deploy_key=$(op-work read "op://$VAULT/ag repo deploy key/private key")
 }
 tf() { tofu -chdir="$dir" "$@"; }
 init() { tf init -input=false -upgrade=false -backend-config="path=$state/terraform.tfstate" >/dev/null; }
 workers() { tf output -json workers 2>/dev/null | jq length 2>/dev/null || echo 0; }
+names() { tf output -json workers 2>/dev/null | jq -r '.[].name' 2>/dev/null || true; }
+wvars() { echo -var "worker_count=$1" -var "worker_type=$WORKER_TYPE" -var "worker_location=$WORKER_LOCATION"; }
+forget() { for h in "$@"; do ssh-keygen -R "$h" >/dev/null 2>&1 || true; done; }
+
+# Wait for each worker to join the tailnet and finish cloud-init + bootstrap-linux.
+ready() {
+  local h deadline=$((SECONDS + ${AG_INFRA_WAIT:-900}))
+  for h in $(names); do
+    printf '%s: waiting for Tailscale SSH' "$h"
+    until ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$h" true 2>/dev/null; do
+      [ $SECONDS -lt $deadline ] || { echo " ... timed out (Hetzner web console is the break-glass)"; return 1; }
+      printf .; sleep 10
+    done
+    printf ', cloud-init'
+    ssh "$h" 'cloud-init status --wait >/dev/null 2>&1; cloud-init status | sed "s/status: //"' | tr -d '\n'
+    seed "$h"
+    echo "; $(ssh "$h" 'echo $(nproc) vCPU, $(free -g | awk "/Mem/{print \$2}") GB RAM, $(df -h / | awk "NR==2{print \$4}") free')"
+  done
+}
+
+# Give a worker what pi needs to run there: the model config and the TrueFoundry key (nothing else secret).
+seed() {
+  local tfy; tfy=$(zsh -c '. ~/.zshenv.local 2>/dev/null; print -r -- "$TFY_TOKEN"')
+  [ -n "$tfy" ] || { echo " (no TFY_TOKEN in ~/.zshenv.local: pi won't run on $1)"; return 0; }
+  scp -q "$(readlink -f ~/.pi/agent/models.json)" "$1:.pi/agent/models.json"
+  printf 'export TFY_TOKEN=%q\n' "$tfy" | ssh "$1" 'umask 077; cat > ~/.zshenv.local
+    grep -qs zshenv.local ~/.bashrc || sed -i "1i [ -f ~/.zshenv.local ] && . ~/.zshenv.local  # ag-infra seed (before the non-interactive return)" ~/.bashrc'
+  printf ', seeded pi'
+}
+
+list() {
+  init
+  local out; out=$(tf output -json workers 2>/dev/null || echo '[]')
+  if [ "$(jq length <<<"$out")" = 0 ]; then echo "no workers (spin one up: ag-infra workers up)"; return; fi
+  HCLOUD_TOKEN=${HCLOUD_TOKEN:-$(op-work read "op://$VAULT/Hetzner Cloud/credential")}
+  local prices; prices=$(curl -fsS -H "Authorization: Bearer $HCLOUD_TOKEN" https://api.hetzner.cloud/v1/server_types?per_page=50)
+  jq -r --argjson p "$prices" '.[] | . as $w
+    | ([$p.server_types[] | select(.name == $w.type) | .prices[] | select(.location == $w.location) | .price_hourly.gross][0] // "?") as $h
+    | "\($w.name)\t\($w.type)\t\($w.location)\t$\($h | tostring | .[0:6])/h"' <<<"$out" | column -t
+}
 
 cmd=${1:-status}; shift || true
 case $cmd in
-  plan)   secrets; init; tf plan -var "worker_count=$(workers)" "$@" ;;
-  up)     secrets; init; tf apply -auto-approve -var "worker_count=${AG_WORKERS:-$(workers)}" "$@" ;;
-  scale)  secrets; init; tf apply -auto-approve -var "worker_count=${1:?usage: ag-infra scale N}" ;;
+  plan)   secrets; init; tf plan $(wvars "$(workers)") "$@" ;;
+  up)     secrets; init; tf apply -auto-approve $(wvars "${AG_WORKERS:-$(workers)}") "$@" ;;
+  scale)  set -- up "$@"; exec "$0" workers "$@" ;;
+  workers)
+    sub=${1:-list}; shift || true
+    case $sub in
+      list) list ;;
+      up)
+        n=1 loc_given=
+        while [ $# -gt 0 ]; do
+          case $1 in
+            --type) WORKER_TYPE=${2:?}; shift 2 ;;
+            --location) WORKER_LOCATION=${2:?}; loc_given=1; shift 2 ;;
+            [0-9]*) n=$1; shift ;;
+            *) echo "ag-infra workers up: unknown argument $1" >&2; exit 2 ;;
+          esac
+        done
+        secrets; init
+        before=$(names)
+        # Hetzner often runs out of a shared type in one location ("resource_unavailable"): unless a location
+        # was given, try the other EU ones before giving up.
+        tries=$WORKER_LOCATION; [ -n "$loc_given" ] || tries="$WORKER_LOCATION $(tr ' ' '\n' <<<"nbg1 fsn1 hel1" | grep -vx "$WORKER_LOCATION" | xargs)"
+        for WORKER_LOCATION in $tries; do
+          log=$(mktemp); if tf apply -auto-approve -no-color $(wvars "$n") 2>&1 | tee "$log" | grep -E '^(Plan|Apply)|Error' ; [ "${PIPESTATUS[0]}" = 0 ]; then rm -f "$log"; break; fi
+          grep -q resource_unavailable "$log" || { cat "$log" >&2; rm -f "$log"; exit 1; }
+          rm -f "$log"; echo "$WORKER_TYPE is sold out in $WORKER_LOCATION; trying the next location"
+          [ "$WORKER_LOCATION" = "${tries##* }" ] && { echo "no capacity anywhere; try --type cpx62 (or cpx52)" >&2; exit 1; }
+        done
+        printf 'WORKER_TYPE=%q\nWORKER_LOCATION=%q\n' "$WORKER_TYPE" "$WORKER_LOCATION" >"$saved"
+        # A recreated worker reuses its name with a new host key.
+        forget $(comm -13 <(sort <<<"$before") <(names | sort))
+        ready; list ;;
+      down)
+        secrets; init
+        gone=$(names)
+        for h in $gone; do ssh -o ConnectTimeout=5 "$h" sudo tailscale logout 2>/dev/null || true; done
+        tf apply -auto-approve $(wvars 0)
+        forget $gone; echo "workers destroyed: ${gone:-none}" ;;
+      *) sed -n '2,8p' "$0"; exit 2 ;;
+    esac ;;
   down)   # Repos and worktrees live on the engine's local disk, not /data: refuse while any work exists only there.
           if [ -z "${AG_INFRA_FORCE:-}" ]; then
             unsaved=$(ssh -o ConnectTimeout=5 ag-engine '~/.local/bin/ag-unsaved' 2>&1); rc=$?
@@ -38,10 +123,10 @@ case $cmd in
           # Free the tailnet names first so a rebuilt machine gets the same hostname back.
           for h in $(tf output -json 2>/dev/null | jq -r '[.engine.value.name?, (.workers.value[]?.name)] | .[] // empty'); do
             ssh -o ConnectTimeout=5 "$h" sudo tailscale logout 2>/dev/null || true
-          done; tf apply -auto-approve -var engine_enabled=false -var worker_count=0
+          done; tf apply -auto-approve -var engine_enabled=false $(wvars 0)
           # A rebuilt machine has a new host key: forget the old one so ssh doesn't refuse it.
-          for h in ag-engine ${AG_TAILNET:+ag-engine.$AG_TAILNET} $(seq -f 'ag-worker-%g' 1 20); do ssh-keygen -R "$h" >/dev/null 2>&1; done ;;
+          forget ag-engine ${AG_TAILNET:+ag-engine.$AG_TAILNET} $(seq -f 'ag-worker-%g' 1 20) ;;
   status) init; tf output ;;
   ssh)    exec ssh "${1:-ag-engine}" ;;
-  *) sed -n '2,4p' "$0"; exit 2 ;;
+  *) sed -n '2,8p' "$0"; exit 2 ;;
 esac

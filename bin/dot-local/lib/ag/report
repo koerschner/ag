@@ -47,9 +47,13 @@ def main(argv):
     msg = f"{tag('')}\n{text}"
     try:
         p = resolve(ref, ix)
-        if p.state != "closed":
-            prompt(p, msg)
-            print(f"reported to {p.title} ({p.tab})  {p.link}")
+        # Under T3 a parent with no tmux tab still has a thread, which resumes on a message: deliver there
+        # instead of treating it as closed (the ag-inbox fallback routed such reports back into the sender).
+        sent = t3_send(p, msg) if t3_ui() else None
+        if sent or p.state != "closed":
+            if not sent:
+                prompt(p, msg)
+            print(f"reported to {p.title} ({p.tab or 'T3 thread'})  {p.link}")
             return 0
         why = f"the originating session {p.link} is closed (ag resume {p.sid[-8:]} reopens it)"
     except AgError as e:

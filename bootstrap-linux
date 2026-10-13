@@ -16,7 +16,7 @@ USE_DOTFILES=${AG_DOTFILES:-$([[ -d $DOTFILES/.git ]] && echo 1 || echo 0)}
 # Stow packages that make sense on Linux (no ghostty/hammerspoon/alfred), per repo.
 AG_PACKAGES=(ag-dash ag-inbox agents bin claude codex pi systemd-user tmux)
 DOTFILES_PACKAGES=(ag bin git mise nvim ssh tmux zsh)
-APT=(git git-crypt curl jq unzip zsh stow ripgrep fd-find fzf build-essential docker.io ca-certificates gnupg neovim tmux mosh python3 htop ffmpeg bubblewrap)
+APT=(git git-crypt curl jq unzip zsh stow ripgrep fd-find fzf build-essential docker.io ca-certificates gnupg neovim tmux mosh python3 htop ffmpeg bubblewrap passt)
 backup=$HOME/.dotfiles-backup/$(date +%Y%m%d-%H%M%S)
 failed=()
 export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.local/share/mise/shims:$PATH"
@@ -29,11 +29,15 @@ step "apt packages"
 sudo DEBIAN_FRONTEND=noninteractive apt-get update -qq &&
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${APT[@]}" >/dev/null || warn "apt install"
 sudo usermod -aG docker "$USER" 2>/dev/null || true
-# bubblewrap needs an AppArmor profile to create user namespaces on Ubuntu 24.04+ (value-engine sandbox).
-if [ -d /etc/apparmor.d ] && [ ! -f /etc/apparmor.d/bwrap ]; then
-  printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' 'profile bwrap /usr/bin/bwrap flags=(unconfined) {' '  userns,' '  include if exists <local/bwrap>' '}' |
-    sudo tee /etc/apparmor.d/bwrap >/dev/null && sudo apparmor_parser -r /etc/apparmor.d/bwrap || warn "bwrap apparmor profile"
-fi
+# bubblewrap and pasta need AppArmor profiles to create user namespaces on Ubuntu 24.04+ (value-engine sandbox).
+while read -r pname pbin; do
+  [ -d /etc/apparmor.d ] && [ ! -f "/etc/apparmor.d/$pname" ] || continue
+  printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' "profile $pname $pbin flags=(unconfined) {" '  userns,' "  include if exists <local/$pname>" '}' |
+    sudo tee "/etc/apparmor.d/$pname" >/dev/null && sudo apparmor_parser -r "/etc/apparmor.d/$pname" || warn "$pname apparmor profile"
+done <<'EOF'
+bwrap /usr/bin/bwrap
+pasta-userns /usr/bin/pasta{,.avx2}
+EOF
 
 step "GitHub CLI (from cli.github.com: Ubuntu's own gh is too old for \`gh pr create --attach\`, which needs 2.99+)"
 if ! have gh || ! dpkg -s gh 2>/dev/null | grep -q '^Version: 2\.\(99\|[1-9][0-9][0-9]\)'; then

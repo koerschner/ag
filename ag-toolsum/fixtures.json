@@ -2963,5 +2963,35 @@
   "hosts": [
    "ag-engine"
   ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/freetime-inquiry && bin/q \"select role, count(*) from users group by 1\""
+  },
+  "sum": "Query DB: users",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "bin/q \"select * from xp_day_totals limit 2\""
+  },
+  "sum": "Query DB: xp_day_totals",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/arcade.school && gh run list --branch main --limit 4 --json status; ls /tmp/hny.sh"
+  },
+  "sum": "List CI runs · List /tmp/hny.sh",
+  "hosts": [
+   "ag-engine"
+  ]
  }
 ]

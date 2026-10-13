@@ -853,6 +853,13 @@ const RULES: Rule[] = [
 	{ id: "tar", cmd: /^tar$/, fn: (a) => tarSum(a) },
 	{ id: "archive", cmd: /^(zip|unzip|gzip|gunzip)$/, fn: (a, raw) => `${/^(unzip|gunzip)/.test(raw) || a.some((x) => /^-?\w*x/.test(x)) ? "Extract" : "Archive"} ${paths(positional(a, ["-C", "-f", "-d"]), 1)}` },
 	{ id: "env", cmd: /^(env|printenv|hostname|whoami|id|uname|sw_vers|tty|nproc|locale|ulimit)$/, fn: () => "Check environment" },
+	// bin/q "select …": a project-local read-only SQL helper (e.g. ~/freetime-inquiry/bin/q); only when the argument is SQL
+	{ id: "sql-helper", cmd: /^(?:\.\/)?bin\/q$/, fn: (a) => {
+		const sql = positional(a)[0];
+		if (!sql || !/^\s*(select|with|explain|show|describe|table)\b/i.test(sql)) return;
+		const table = sql.match(/\bfrom\s+([a-z_][\w.]*)/i)?.[1];
+		return `Query DB${table ? `: ${table}` : ""}`;
+	} },
 	{ id: "sqlite", cmd: /^(sqlite3|psql|duckdb)$/, fn: (a, raw) => `Query ${shortPath(positional(a)[0] ?? raw.split(/\s/)[0])}` },
 	{ id: "pi", cmd: /^(pi|omp|claude|codex|amp)$/, fn: (a, raw) => { const tool = raw.split(/\s/)[0]; return a.includes("-p") || a.includes("--print") || a[0] === "exec" ? `Run ${tool} non-interactively` : `${tool} ${positional(a)[0] ?? ""}`.trim(); } },
 	{ id: "hammerspoon", cmd: /^hs$/, fn: (a) => {
@@ -1301,7 +1308,9 @@ export function summarizeShell(command: string, ctx: Ctx, top = false): Summary 
 	for (const o of outs.map(label)) {
 		const verb = o.match(/^(Stop|Delete|Read|List|Make folder|Search repo for|Find process|Check CI on|Run) /)?.[1];
 		const prev = merged[merged.length - 1];
-		if (verb && prev?.startsWith(`${verb} `) && !prev.includes(" · ")) {
+		// only merge like with like: "List CI runs" + "List /tmp/x" must stay apart (a phrase vs a path)
+		const sameKind = (x: string, y: string) => /\s/.test(x) === /\s/.test(y);
+		if (verb && prev?.startsWith(`${verb} `) && !prev.includes(" · ") && sameKind(prev.slice(verb.length + 1).split(", ")[0], o.slice(verb.length + 1))) {
 			let add = o.slice(verb.length + 1);
 			// "Read a.ts:1–5, a.ts:9–12" → "Read a.ts:1–5, 9–12"
 			const file = add.match(/^(\S+):\d+(?:–\d+)?$/)?.[1];

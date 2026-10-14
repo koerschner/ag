@@ -508,10 +508,15 @@ const RULES: Rule[] = [
 		return `Search "${clip(pat.replace(/\\\|/g, "|"), 40)}"${where ? ` in ${where}` : ""}`;
 	} },
 	{ id: "ls", cmd: /^(ls|tree|eza)$/, fn: (a) => `List ${paths(positional(a, ["-I", "-L"])) || "directory"}` },
-	{ id: "find", cmd: /^(find|fd)$/, fn: (a) => {
-		const name = flagVal(a, "-name", "-iname", "-path");
-		const root = a.find((x) => !x.startsWith("-") && x !== name);
-		return `Find ${name ? `"${name}" ` : "files "}in ${shortPath(root ?? ".")}`;
+	{ id: "find", cmd: /^(find|fd)$/, fn: (a, raw) => {
+		// find ROOT… EXPR: `-path X -prune` excludes X, so it is not what is searched for
+		const isFind = raw.startsWith("find");
+		const tests = a.flatMap((x, i) => (/^-i?(?:name|path)$/.test(x) && a[i + 1] && a[i + 2] !== "-prune" ? [a[i + 1]] : []));
+		const fdPos = isFind ? [] : positional(a, ["-e", "-E", "-t", "-d", "--max-depth", "--exclude", "--extension", "--type"]); // fd PATTERN [PATH]
+		const name = isFind ? tests[0] : fdPos[0];
+		const newer = isFind ? flagVal(a, "-newer") : undefined;
+		const root = isFind ? (a[0] && !/^[-(!]/.test(a[0]) ? a[0] : undefined) : fdPos[1];
+		return `Find ${name ? `"${name}" ` : "files "}${newer ? `newer than ${shortPath(newer)} ` : ""}in ${shortPath(root ?? ".")}`;
 	} },
 	{ id: "wc", cmd: /^wc$/, fn: (a, _r, _c, seg) => { const p = positional(a); const f = p.length ? p : (seg.match(/<\s*([^\s<>|;]+)/)?.slice(1) ?? []); if (!f.length) return; const what = a.some((x) => /^-\w*[cm]/.test(x)) && !a.some((x) => /^-\w*l/.test(x)) ? "bytes" : a.some((x) => /^-\w*w/.test(x)) && !a.some((x) => /^-\w*l/.test(x)) ? "words" : "lines"; return `Count ${what} in ${paths(f)}`; } },
 	{ id: "perl", cmd: /^perl$/, fn: (a) => (a.some((x) => /^-\w*i/.test(x)) ? `Edit ${paths(positional(a, ["-e", "-E"]))} (perl)` : "Run Perl snippet") },
@@ -840,6 +845,7 @@ const RULES: Rule[] = [
 		const tool = raw.split(/\s/)[0];
 		if (tool === "ffprobe") return `Inspect media ${shortPath(positional(a, ["-v", "-loglevel", "-select_streams", "-show_entries", "-of", "-print_format", "-sexagesimal", "-i"])[0] ?? flagVal(a, "-i") ?? "")}`.trim();
 		const out = positional(a, ["-i", "-r", "-t", "-ss", "-vf", "-c:v", "-c:a", "-crf", "-preset", "-f", "-s", "-b:v", "-filter_complex", "-map", "-pix_fmt", "--out", "-o", "-Z", "-z", "-loglevel", "-framerate", "-to", "-frames:v", "-q:v", "-an", "-y"]).pop();
+		if (tool === "ffmpeg" && (out === "/dev/null" || (out === "-" && flagVal(a, "-f") === "null"))) return `Test-render ${shortPath(flagVal(a, "-i") ?? "media")} (output discarded)`;
 		return `Convert media${out ? ` → ${shortPath(out)}` : ""}`;
 	} },
 	{ id: "pkg", cmd: /^(brew|apt|apt-get|pip3?|cargo|go|stow)$/, fn: (a, raw) => { const tool = raw.split(/\s/)[0]; const p = positional(a); return `${tool} ${p.slice(0, 2).join(" ")}`.trim(); } },
@@ -1230,6 +1236,8 @@ function quietSum(segs: { seg: string }[]): string | undefined {
 		const lit = segs[0].seg.trim().match(/^echo(?:\s+([\w.:-]+(?:\s+[\w.:-]+)*))?$/);
 		if (lit) return lit[1] ? `Echo "${clip(lit[1], 40)}"` : "Echo an empty line";
 	}
+	const checked = fileChecks(segs);
+	if (checked) return checked;
 	const out: string[] = [];
 	const printed: string[] = [];
 	for (const { seg } of segs) {
@@ -1242,6 +1250,49 @@ function quietSum(segs: { seg: string }[]): string | undefined {
 		return;
 	}
 	return out.length ? [...new Set(out)].map((x) => (x === "PRINT" ? `Print ${[...new Set(printed)].join(", ")}` : x)).join(" · ") : undefined;
+}
+
+/** Commands that only test whether files exist (`[ -f x ] && echo yes`, in `for` loops too) → "Check for x". */
+function fileChecks(segs: { seg: string }[], lists: Record<string, string> = {}, paths: string[] = []): string | undefined {
+	let afterPipe = false;
+	for (const { seg, pipeAfter } of segs as { seg: string; pipeAfter?: boolean }[]) {
+		let s = seg.trim().replace(/^(?:(?:do|if|then|elif|else|!)\s+)+/, "");
+		const piped = afterPipe;
+		afterPipe = !!pipeAfter;
+		// echo "$d $( [ -f $d/x ] && echo yes )": substitutions that are file checks themselves
+		if (/^(?:echo|printf)\s/.test(s) && s.includes("$(")) {
+			for (const sub of substitutions(s)) if (!fileChecks(splitShell(sub), lists, paths)) return;
+			continue;
+		}
+		if (/\$\(|`/.test(s) || /(?:^|\s)\d*>>?(?!\s*\/dev\/null)/.test(s.replace(/\d*>&\d/g, ""))) return;
+		if (piped) { if (/^(?:head|tail)(?:\s+-n?\s*\d+|\s+-\d+)?$/.test(s)) continue; return; }
+		if (/^(?:fi|done|cd(?:\s+\S+)?|true|:)$/.test(s) || /^(?:echo|printf)(?:\s|$)/.test(s)) continue;
+		const loop = s.match(/^for\s+([A-Za-z_]\w*)\s+in\s+(.+)$/);
+		if (loop) { lists[loop[1]] = words(loop[2]).map(shortPath).join(", "); continue; }
+		const w = words(s);
+		const body = w[0] === "test" ? w.slice(1) : (w[0] === "[" && w.at(-1) === "]") || (w[0] === "[[" && w.at(-1) === "]]") ? w.slice(1, -1) : null;
+		if (!body?.length) return;
+		for (let i = 0; i < body.length; i++) {
+			const t = body[i];
+			if (/^(?:!|-o|-a|&&|\|\|)$/.test(t)) continue;
+			if (!/^-[fdesxrwLh]$/.test(t) || !body[i + 1]) return;
+			paths.push(body[++i]);
+		}
+	}
+	if (!paths.length) return;
+	// paths under a loop variable read "a, b in <list>"; group them per variable
+	const groups = new Map<string, Set<string>>();
+	const bare = (p: string) => p.replace(/^["']|["']$/g, "").match(/^\$\{?([A-Za-z_]\w*)\}?\/?$/)?.[1];
+	for (const p of paths) {
+		const b = bare(p);
+		// [ -d $d ]: the loop items themselves, unless files inside them are checked too (that covers the folder)
+		if (b && lists[b]) { if (!paths.some((q) => !bare(q) && new RegExp(`^\\$\\{?${b}\\b`).test(q))) groups.set("", (groups.get("") ?? new Set()).add(lists[b])); continue; }
+		const lead = p.match(/^\$\{?([A-Za-z_]\w*)\}?\/(.+)$/);
+		const v = Object.keys(lists).find((k) => new RegExp(`\\$\\{?${k}\\b`).test(p));
+		const [key, item] = lead && lists[lead[1]] ? [` in ${lists[lead[1]]}`, lead[2]] : v ? [` (${v}: ${lists[v]})`, shortPath(p)] : ["", shortPath(p)];
+		groups.set(key, (groups.get(key) ?? new Set()).add(item));
+	}
+	return clip(`Check for ${[...groups].map(([k, items]) => `${[...items].join(", ")}${k}`).join("; ")}`);
 }
 
 export function summarizeShell(command: string, ctx: Ctx, top = false): Summary & { allNoise?: boolean } {

@@ -2993,5 +2993,85 @@
   "hosts": [
    "ag-engine"
   ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~ && for d in ~/arcade-*/; do if [ -d \"$d/node_modules/commander\" ] || [ -d \"$d/node_modules/.bin\" ]; then echo $d; fi; done | head -3"
+  },
+  "sum": "Check for node_modules/commander, node_modules/.bin in ~/arcade-*/",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "for s in vox-paper diagram-loop; do [ -f ~/trailers/2026-10-09-freetime-walkthrough-$s/out/freetime-$s.mp4 ] && echo \"done $s\" || echo \"pending $s\"; done"
+  },
+  "sum": "Check for ~/…/out/freetime-$s.mp4 (s: vox-paper, diagram-loop)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "test -f ~/a/b.txt && echo yes || echo no"
+  },
+  "sum": "Check for ~/a/b.txt",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "find . -path ./node_modules -prune -o -newer apps/x/types.ts -type f -print"
+  },
+  "sum": "Find files newer than apps/x/types.ts in .",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ffmpeg -loglevel error -y -pattern_type glob -i '*.png' -vf scale=480:320 -frames:v 1 /dev/null"
+  },
+  "sum": "Test-render *.png (output discarded)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "fd foo src"
+  },
+  "sum": "Find \"foo\" in src",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~; for d in arcade-dataq arcade-energy-analysis; do [ -d $d ] && echo \"$d $( [ -f $d/.env.local ] && echo HASENV)\"; done"
+  },
+  "sum": "Check for .env.local in arcade-dataq, arcade-energy-analysis",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "for d in a b; do [ -d \"$d\" ] && echo $d; done"
+  },
+  "sum": "Check for a, b",
+  "hosts": [
+   "ag-engine"
+  ]
  }
 ]

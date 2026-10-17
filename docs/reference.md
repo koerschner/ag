@@ -465,7 +465,10 @@ run by agents (started over SSH) can drive Chrome with osascript.
 ## Pi sessions archive
 
 `ag-pi-sessions-sync` copies every Pi session transcript to the user's private GitHub: repos
-`<owner>/pi-sessions-NNN` ("volumes"), laid out as `machines/<machine>/<project>/<session>.jsonl`.
+`<owner>/pi-sessions-NNN` ("volumes"), laid out as `machines/<machine>/<project>/<session>.jsonl`. Transcripts over 90 MB (GitHub rejects files
+over 100 MB) are stored as `<session>.jsonl.part001`, `.part002`, … split at line ends; `cat` them in order to
+rebuild. Pushes go in chunks under 400 MB, so a backlog from failed runs drains instead of growing past
+GitHub's 2 GB push limit.
 Design notes: `docs/ag.md` ("pi-sessions archive").
 
 - **Redacted, then encrypted.** Token and key patterns, payment cards (issuer prefix + Luhn) and

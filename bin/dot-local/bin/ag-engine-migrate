@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# ag-engine-migrate: move the session host (ag-engine) to a freshly built replacement machine.
+#   ag-engine-migrate sync <new>      copy ~ and /data to <new> while everything keeps running (repeatable)
+#   ag-engine-migrate cutover <new>   stop Ag here, final copy, swap names: <new> becomes ag-engine and
+#                                     this machine becomes <old-name> (default ag-engine-old) with no Ag services
+#   ag-engine-migrate rollback <new>  undo a cutover from the old machine (rename back, restart its services)
+# Run it ON the current engine. <new> is the replacement's tailnet name, e.g. ag-engine-aws, built by
+# `ag-infra up -var engine_name=ag-engine-aws` (an unlisted name has the client role, so it runs no host
+# services until cutover). Cutover kills every session here: they come back on <new> through ag-mux's
+# layout restore (interrupted turns resume). It runs detached (systemd-run), so it survives its own session.
+# Excludes: AG_MIGRATE_EXCLUDE="money-research other-dir" (paths relative to ~ and /data) stay behind.
+set -euo pipefail
+cmd=${1:-}; new=${2:-}
+[[ -n $cmd && -n $new ]] || { sed -n '2,13p' "$0"; exit 2; }
+old_name=${AG_MIGRATE_OLD_NAME:-ag-engine-old}
+log=~/.local/state/ag-engine-migrate.log
+# By Tailscale IP: the cutover renames <new>, and its old name stops resolving.
+new_ip=${AG_MIGRATE_NEW_IP:-$(tailscale ip -4 "$new" 2>/dev/null || true)}
+[[ -n $new_ip || $cmd == rollback ]] || { echo "$new isn't on the tailnet" >&2; exit 1; }
+ssh_new() { ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "$new_ip" "$@"; }
+
+excludes=(--exclude=/.cache/ --exclude=/.local/share/Trash/ --exclude=/lost+found/)
+for x in ${AG_MIGRATE_EXCLUDE:-}; do excludes+=("--exclude=/$x/" "--exclude=/$x"); done
+# Bind mounts under ~ (~/.pi, ~/inbox, ~/.local/state, …) are /data's, copied with /data: never walk or delete them.
+while read -r m; do excludes+=("--exclude=${m#"$HOME"}/"); done < <(findmnt -rn -o TARGET | grep "^$HOME/")
+rs() { "$@" || { local rc=$?; [[ $rc == 23 || $rc == 24 ]]; }; } # 23/24: unreadable or vanished files, expected live
+
+# One pass of ~ and /data. -x keeps it on each filesystem: ~/.pi, ~/inbox and ~/.local/state are bind mounts
+# of /data on both machines, so they travel with /data. Pass --final at cutover to include enabled units.
+copy() {
+  local extra=()
+  # Until cutover, keep systemd's enable links out so <new> can't start ag-mux (and resume sessions) on a reboot.
+  [[ ${1:-} == --final ]] || extra=(--exclude='/.config/systemd/user/*.wants/')
+  local r=(rsync -aHAX --numeric-ids --delete -x --info=stats1 -e "ssh -o BatchMode=yes" --rsync-path="sudo rsync" "${excludes[@]}" "${extra[@]}")
+  echo "== ~ ($(date))"; rs "${r[@]}" "$HOME/" "$new_ip:$HOME/"
+  echo "== /data ($(date))"; rs "${r[@]}" /data/ "$new_ip:/data/"
+}
+
+case $cmd in
+  sync)
+    ssh_new true || { echo "can't reach $new over Tailscale SSH" >&2; exit 1; }
+    [[ $(ssh_new '~/ag/bin/dot-local/bin/ag-machine-role' 2>/dev/null) != host ]] || { echo "$new already has the host role; refusing" >&2; exit 1; }
+    copy ;;
+
+  cutover)
+    if [[ ${AG_MIGRATE_DETACHED:-} != 1 ]]; then
+      ssh_new true || { echo "can't reach $new" >&2; exit 1; }
+      echo "cutover to $new runs detached; follow it with: tail -f $log (here), then on ag-engine once it's back"
+      sudo systemd-run --unit="ag-engine-migrate-$(date +%s)" --uid="$USER" --gid="$(id -g)" \
+        --setenv=HOME="$HOME" --setenv=AG_MIGRATE_DETACHED=1 --setenv=AG_MIGRATE_EXCLUDE="${AG_MIGRATE_EXCLUDE:-}" \
+        --setenv=XDG_RUNTIME_DIR="/run/user/$(id -u)" --setenv=DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus" --setenv=AG_MIGRATE_NEW_IP="$new_ip" --setenv=PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin" \
+        "$(readlink -f "$0")" cutover "$new"
+      exit 0
+    fi
+    exec >>"$log" 2>&1
+    echo "=== cutover to $new starting $(date)"
+    ag-text "🚚 Ag is moving to its new machine: sessions pause for ~15-30 min and come back on their own." 2>/dev/null || true
+    copy  # warm pass while things still run, so the stopped window is short
+    echo "== stopping Ag here"
+    systemctl --user stop 'ag-*.timer' 'ag-routine-*.timer' 2>/dev/null || true
+    for u in $(systemctl --user list-units --no-legend --plain --type=service --state=running | awk '{print $1}' | grep -E '^(ag-|money-)'); do
+      systemctl --user stop "$u" || true
+    done
+    tmux -L ag kill-server 2>/dev/null || true
+    sleep 3
+    sudo systemctl stop docker docker.socket containerd 2>/dev/null || true
+    copy --final
+    echo "== docker volumes"
+    ssh_new 'sudo systemctl stop docker docker.socket containerd' || true
+    sudo tar -C /var/lib/docker -cf - volumes | ssh_new 'sudo tar -C /var/lib/docker -xf -' || echo "docker volumes: copy failed (dev data only)"
+    ssh_new 'sudo systemctl start docker' || true
+    echo "== this machine becomes $old_name (no Ag services)"
+    sudo tailscale serve clear svc:ag 2>/dev/null || true
+    for u in $(systemctl --user list-unit-files --no-legend --plain | awk '{print $1}' | grep -E '^(ag-|money-)'); do
+      systemctl --user disable "$u" >/dev/null 2>&1 || true
+    done
+    sudo hostnamectl set-hostname "$old_name"
+    sudo sed -i "s/\bag-engine\b/$old_name/g" /etc/hosts
+    sudo tailscale set --hostname="$old_name"
+    sleep 5
+    echo "== $new becomes ag-engine"
+    ssh_new "sudo hostnamectl set-hostname ag-engine && sudo sed -i 's/\b$new\b/ag-engine/g' /etc/hosts && sudo tailscale set --hostname=ag-engine"
+    sleep 10
+    ssh_new 'cd ~/ag && git pull -q --ff-only; systemctl --user daemon-reload; ~/ag/bootstrap-linux' || echo "bootstrap-linux on $new reported errors"
+    # Clients knew ag-engine by the old machine's host key.
+    for h in ag-mac ag-client; do
+      ssh_new "ssh -o BatchMode=yes -o ConnectTimeout=10 $h 'ssh-keygen -R ag-engine; ssh-keygen -R ag-engine.\${AG_TAILNET:-x}' >/dev/null 2>&1" || echo "couldn't reset ag-engine's host key on $h"
+    done
+    ssh_new '~/.local/bin/ag-text "✅ Ag is back on its new machine (AWS). Sessions are restoring." 2>/dev/null' || true
+    echo "=== cutover done $(date)" ;;
+
+  rollback)
+    [[ $(hostname) == "$old_name" ]] || { echo "run rollback on the old machine ($old_name)" >&2; exit 1; }
+    ssh -o BatchMode=yes ag-engine "sudo tailscale serve clear svc:ag; systemctl --user stop 'ag-*' ; tmux -L ag kill-server; sudo hostnamectl set-hostname $new; sudo sed -i 's/\\bag-engine\\b/$new/g' /etc/hosts; sudo tailscale set --hostname=$new" || true
+    sleep 5
+    sudo hostnamectl set-hostname ag-engine; sudo sed -i "s/\b$old_name\b/ag-engine/g" /etc/hosts; sudo tailscale set --hostname=ag-engine
+    sudo systemctl start docker || true
+    ~/ag/bootstrap-linux ;;
+
+  *) sed -n '2,13p' "$0"; exit 2 ;;
+esac

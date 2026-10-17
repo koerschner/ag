@@ -5,7 +5,8 @@ Design (docs/ag.md, "pi-sessions archive"):
   - Repos <owner>/pi-sessions-NNN ("volumes"; <owner> = $AG_GITHUB_OWNER, else the gh account). The newest
     unarchived one is current; when it passes ROLL_GB, a new volume is created and the old one archived. The newest volume holding a file
     has its latest version.
-  - Layout: machines/<machine>/<project dir>/<session>.jsonl
+  - Layout: machines/<machine>/<project dir>/<session>.jsonl (over SPLIT_MB: <session>.jsonl.partNNN,
+    split at line ends; GitHub rejects files over 100 MB).
   - Redact first (token/key patterns -> [REDACTED:<kind>]), then git-crypt encrypts everything under
     machines/, so GitHub only holds ciphertext. Originals stay untouched.
   - Only "quiet" files are copied (untouched for QUIET_MIN minutes), so a live session isn't recommitted
@@ -27,6 +28,7 @@ VAULT = "ag-vault"
 KEY_ITEM = "pi-sessions git-crypt key"
 ROLL_GB = 4.0
 BATCH_MB = 400
+SPLIT_MB = 90  # GitHub rejects any file over 100 MB, so bigger transcripts are stored as <name>.partNNN
 HOME = Path.home()
 STATE = Path(os.environ.get("PI_SESSIONS_STATE", HOME / ".local/state/pi-sessions"))
 LOCK = STATE / "lock"
@@ -192,6 +194,26 @@ def ensure_volume(key, dry):
     return name, repo
 
 
+def write_parts(dst, text):
+    """Write text to dst, or, past SPLIT_MB, to dst.part001, dst.part002, … split at line ends
+    (cat them in order to rebuild the transcript). Clears whichever form is stale."""
+    for old in dst.parent.glob(dst.name + ".part*"):
+        old.unlink()
+    data = text.encode()
+    limit = SPLIT_MB * 1024 * 1024
+    if len(data) <= limit:
+        dst.write_bytes(data); return
+    dst.unlink(missing_ok=True)
+    start, n = 0, 0
+    while start < len(data):
+        end = len(data) if len(data) - start <= limit else data.rfind(b"\n", start, start + limit) + 1
+        if end <= start:  # one line longer than the limit: cut it
+            end = start + limit
+        n += 1
+        dst.with_name(f"{dst.name}.part{n:03d}").write_bytes(data[start:end])
+        start = end
+
+
 def commit_bytes(repo, base, c):
     """Bytes of the objects commit c adds on top of base (what pushing base..c uploads, uncompressed)."""
     objs = sh("git", "rev-list", "--objects", f"{base}..{c}", cwd=repo, capture=True)
@@ -309,7 +331,7 @@ def run(a):
         dst = repo / "machines" / k
         dst.parent.mkdir(parents=True, exist_ok=True)
         text, counts = redact(p.read_text(errors="replace"))
-        dst.write_text(text)
+        write_parts(dst, text)
         for c, n in counts.items():
             totals[c] = totals.get(c, 0) + n
         index[k] = [st.st_size, int(st.st_mtime)]

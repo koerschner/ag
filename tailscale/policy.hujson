@@ -30,11 +30,11 @@
 			"dst":    ["tag:ag-engine", "tag:ag-worker"],
 			"users":  ["autogroup:nonroot", "root"],
 		},
-		// The engine SSHes into workers it spins up.
+		// The engine SSHes into workers it spins up, and into a replacement engine while migrating to it.
 		{
 			"action": "accept",
 			"src":    ["tag:ag-engine"],
-			"dst":    ["tag:ag-worker"],
+			"dst":    ["tag:ag-worker", "tag:ag-engine"],
 			"users":  ["autogroup:nonroot", "root"],
 		},
 		// Default: members SSH into their own devices in check mode.

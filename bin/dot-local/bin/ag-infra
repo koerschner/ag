@@ -1,25 +1,28 @@
 #!/usr/bin/env bash
-# ag-infra: create, scale and destroy Ag's rented Linux machines (infra/hetzner, OpenTofu).
-#   ag-infra plan | up | down | status | ssh [name]
-#   ag-infra workers                                   list workers (type, location, $/hour)
-#   ag-infra workers up [N] [--type T] [--location L]  spin up N workers (default 1), wait until they're ready
+# ag-infra: create, scale and destroy Ag's rented Linux machines (infra/aws: EC2 via OpenTofu).
+#   ag-infra plan | up | down | status | ssh [name] | console [name]
+#   ag-infra workers                                   list workers (type, AZ, instance id)
+#   ag-infra workers up [N] [--type T]                 spin up N workers (default 1), wait until they're ready
 #   ag-infra workers down                              destroy every worker (the engine is untouched)
-#   ag-infra scale N                                   same as `workers up N` with the saved type/location
-# Run it on the session host (ag-engine): state lives in ~/.local/state/ag-infra there.
-# Secrets are read from the ag-vault work vault via op-work, only into this process.
+#   ag-infra scale N                                   same as `workers up N` with the saved type
+# Run it on the session host (ag-engine): state lives in ~/.local/state/ag-infra/aws there.
+# AWS credentials: AWS_PROFILE, else AG_AWS_PROFILE from ~/ag-personal/env. Other secrets come from the
+# ag-vault work vault via op-work, only into this process.
 set -euo pipefail
 here="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
-dir="$(cd "$here/../../../infra/hetzner" && pwd)"
-state="$HOME/.local/state/ag-infra"; mkdir -p "$state"
-saved="$state/workers.env" # the worker shape last applied, so a plain `up` never resizes or moves them
+dir="$(cd "$here/../../../infra/aws" && pwd)"
+state="$HOME/.local/state/ag-infra/aws"; mkdir -p "$state"
+saved="$state/workers.env" # the worker type last applied, so a plain `up` never resizes them
 VAULT=${AG_INFRA_VAULT:-ag-vault} # op-work's service account only sees this vault
+export AWS_PROFILE=${AWS_PROFILE:-$(sed -n 's/^AG_AWS_PROFILE=//p' ~/ag-personal/env 2>/dev/null | tail -n 1)}
+[ -n "$AWS_PROFILE" ] || unset AWS_PROFILE
 
-WORKER_TYPE=cpx62 WORKER_LOCATION=nbg1
+WORKER_TYPE=c7a.4xlarge
 [ -f "$saved" ] && . "$saved"
 
+aws() { if command -v aws >/dev/null; then command aws "$@"; else uvx --from awscli aws "$@"; fi; }
 secrets() {
-  export HCLOUD_TOKEN TF_VAR_tailscale_auth_key TF_VAR_ag_deploy_key
-  HCLOUD_TOKEN=$(op-work read "op://$VAULT/Hetzner Cloud/credential")
+  export TF_VAR_tailscale_auth_key TF_VAR_ag_deploy_key
   TF_VAR_tailscale_auth_key=$(op-work read "op://$VAULT/Tailscale ag auth key/credential")
   TF_VAR_ag_deploy_key=$(op-work read "op://$VAULT/ag repo deploy key/private key")
 }
@@ -27,8 +30,12 @@ tf() { tofu -chdir="$dir" "$@"; }
 init() { tf init -input=false -upgrade=false -backend-config="path=$state/terraform.tfstate" >/dev/null; }
 workers() { tf output -json workers 2>/dev/null | jq length 2>/dev/null || echo 0; }
 names() { tf output -json workers 2>/dev/null | jq -r '.[].name' 2>/dev/null || true; }
-wvars() { echo -var "worker_count=$1" -var "worker_type=$WORKER_TYPE" -var "worker_location=$WORKER_LOCATION"; }
+wvars() { echo -var "worker_count=$1" -var "worker_type=$WORKER_TYPE"; }
 forget() { for h in "$@"; do ssh-keygen -R "$h" >/dev/null 2>&1 || true; done; }
+instance() { # instance id for a machine name (engine or worker)
+  local n=${1:-ag-engine}
+  tf output -json 2>/dev/null | jq -r --arg n "$n" '[.engine.value // empty, (.workers.value[]?)] | .[] | select(.name == $n) | .id' | head -1
+}
 
 # Wait for each worker to join the tailnet and finish cloud-init + bootstrap-linux.
 ready() {
@@ -36,7 +43,7 @@ ready() {
   for h in $(names); do
     printf '%s: waiting for Tailscale SSH' "$h"
     until ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$h" true 2>/dev/null; do
-      [ $SECONDS -lt $deadline ] || { echo " ... timed out (Hetzner web console is the break-glass)"; return 1; }
+      [ $SECONDS -lt $deadline ] || { echo " ... timed out (break-glass: ag-infra console $h)"; return 1; }
       printf .; sleep 10
     done
     printf ', cloud-init'
@@ -60,11 +67,7 @@ list() {
   init
   local out; out=$(tf output -json workers 2>/dev/null || echo '[]')
   if [ "$(jq length <<<"$out")" = 0 ]; then echo "no workers (spin one up: ag-infra workers up)"; return; fi
-  HCLOUD_TOKEN=${HCLOUD_TOKEN:-$(op-work read "op://$VAULT/Hetzner Cloud/credential")}
-  local prices; prices=$(curl -fsS -H "Authorization: Bearer $HCLOUD_TOKEN" https://api.hetzner.cloud/v1/server_types?per_page=50)
-  jq -r --argjson p "$prices" '.[] | . as $w
-    | ([$p.server_types[] | select(.name == $w.type) | .prices[] | select(.location == $w.location) | .price_hourly.gross][0] // "?") as $h
-    | "\($w.name)\t\($w.type)\t\($w.location)\t$\($h | tostring | .[0:6])/h"' <<<"$out" | column -t
+  jq -r '.[] | "\(.name)\t\(.type)\t\(.location)\t\(.id)"' <<<"$out" | column -t
 }
 
 cmd=${1:-status}; shift || true
@@ -77,27 +80,18 @@ case $cmd in
     case $sub in
       list) list ;;
       up)
-        n=1 loc_given=
+        n=1
         while [ $# -gt 0 ]; do
           case $1 in
             --type) WORKER_TYPE=${2:?}; shift 2 ;;
-            --location) WORKER_LOCATION=${2:?}; loc_given=1; shift 2 ;;
             [0-9]*) n=$1; shift ;;
             *) echo "ag-infra workers up: unknown argument $1" >&2; exit 2 ;;
           esac
         done
         secrets; init
         before=$(names)
-        # Hetzner often runs out of a shared type in one location ("resource_unavailable"): unless a location
-        # was given, try the other EU ones before giving up.
-        tries=$WORKER_LOCATION; [ -n "$loc_given" ] || tries="$WORKER_LOCATION $(tr ' ' '\n' <<<"nbg1 fsn1 hel1" | grep -vx "$WORKER_LOCATION" | xargs)"
-        for WORKER_LOCATION in $tries; do
-          log=$(mktemp); if tf apply -auto-approve -no-color $(wvars "$n") 2>&1 | tee "$log" | grep -E '^(Plan|Apply)|Error' ; [ "${PIPESTATUS[0]}" = 0 ]; then rm -f "$log"; break; fi
-          grep -q resource_unavailable "$log" || { cat "$log" >&2; rm -f "$log"; exit 1; }
-          rm -f "$log"; echo "$WORKER_TYPE is sold out in $WORKER_LOCATION; trying the next location"
-          [ "$WORKER_LOCATION" = "${tries##* }" ] && { echo "no capacity anywhere; try --type cpx62 (or cpx52)" >&2; exit 1; }
-        done
-        printf 'WORKER_TYPE=%q\nWORKER_LOCATION=%q\n' "$WORKER_TYPE" "$WORKER_LOCATION" >"$saved"
+        tf apply -auto-approve $(wvars "$n")
+        printf 'WORKER_TYPE=%q\n' "$WORKER_TYPE" >"$saved"
         # A recreated worker reuses its name with a new host key.
         forget $(comm -13 <(sort <<<"$before") <(names | sort))
         ready; list ;;
@@ -109,7 +103,7 @@ case $cmd in
         forget $gone; echo "workers destroyed: ${gone:-none}" ;;
       *) sed -n '2,8p' "$0"; exit 2 ;;
     esac ;;
-  down)   # Repos and worktrees live on the engine's local disk, not /data: refuse while any work exists only there.
+  down)   # Repos and worktrees live on the engine's root disk, not /data: refuse while any work exists only there.
           if [ -z "${AG_INFRA_FORCE:-}" ]; then
             unsaved=$(ssh -o ConnectTimeout=5 ag-engine '~/.local/bin/ag-unsaved' 2>&1); rc=$?
             if [ $rc -ne 0 ]; then
@@ -128,5 +122,8 @@ case $cmd in
           forget ag-engine ${AG_TAILNET:+ag-engine.$AG_TAILNET} $(seq -f 'ag-worker-%g' 1 20) ;;
   status) init; tf output ;;
   ssh)    exec ssh "${1:-ag-engine}" ;;
+  console) # Break-glass shell over SSM Session Manager (no SSH, no tailnet); needs the session-manager-plugin.
+          init; id=$(instance "${1:-ag-engine}"); [ -n "$id" ] || { echo "ag-infra console: no machine named ${1:-ag-engine}" >&2; exit 1; }
+          aws ssm start-session --target "$id" ;;
   *) sed -n '2,8p' "$0"; exit 2 ;;
 esac

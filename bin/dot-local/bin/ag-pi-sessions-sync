@@ -10,7 +10,8 @@ Design (docs/ag.md, "pi-sessions archive"):
     machines/, so GitHub only holds ciphertext. Originals stay untouched.
   - Only "quiet" files are copied (untouched for QUIET_MIN minutes), so a live session isn't recommitted
     every run; it's picked up once it settles, and again if it changes later.
-  - Pushes in batches under ~BATCH_MB (GitHub rejects pushes over 2 GB).
+  - Commits in batches under ~BATCH_MB and pushes any unpushed backlog in chunks under ~BATCH_MB
+    (GitHub rejects pushes over 2 GB with HTTP 500).
   - The git-crypt key (base64) lives in 1Password: ag-vault "pi-sessions git-crypt key" (via op-work).
 
 Sources: this machine's ~/.pi/agent/sessions, plus any `--remote <ssh-alias>` machines pulled over SSH
@@ -191,6 +192,44 @@ def ensure_volume(key, dry):
     return name, repo
 
 
+def commit_bytes(repo, base, c):
+    """Bytes of the objects commit c adds on top of base (what pushing base..c uploads, uncompressed)."""
+    objs = sh("git", "rev-list", "--objects", f"{base}..{c}", cwd=repo, capture=True)
+    ids = "\n".join(l.split()[0] for l in objs.splitlines() if l) + "\n"
+    sizes = sh("git", "cat-file", "--batch-check=%(objectsize)", cwd=repo, capture=True, input=ids)
+    return sum(int(x) for x in sizes.split() if x.isdigit())
+
+
+def push_pending(repo):
+    """Push every local commit origin lacks, in chunks under BATCH_MB each.
+
+    One push of the whole backlog can pass GitHub's 2 GB push limit (it answers HTTP 500), and then every
+    later run retries the same, growing push forever. So walk the unpushed commits oldest first and push
+    each prefix that stays under BATCH_MB. Other machines push to the same volume (each under its own
+    machines/<name>), so rebase onto origin first, and again after a failed push."""
+    # Ciphertext doesn't delta-compress; skip the delta search (it burned minutes of CPU per push attempt).
+    sh("git", "config", "pack.window", "0", cwd=repo)
+    failures = 0
+    while True:
+        sh("git", "pull", "-q", "--rebase", "origin", "main", cwd=repo, check=False)
+        pending = sh("git", "rev-list", "--reverse", "origin/main..HEAD", cwd=repo, capture=True).split()
+        if not pending:
+            return
+        target, size, base = pending[0], 0, "origin/main"
+        for c in pending:
+            size += commit_bytes(repo, base, c); base = c
+            if size > BATCH_MB * 1024 * 1024 and c != pending[0]:
+                break
+            target = c
+        if sh("git", "push", "-q", "origin", f"{target}:refs/heads/main", cwd=repo, check=False) == 0:
+            sh("git", "fetch", "-q", "origin", "main", cwd=repo, check=False)
+            failures = 0
+            continue
+        failures += 1
+        if failures >= 3:
+            raise SystemExit(f"ag-pi-sessions-sync: push failed 3 times ({len(pending)} commit(s) unpushed)")
+
+
 def machine_name():
     n = socket.gethostname().split(".")[0].lower()
     return machine_alias(n)
@@ -253,7 +292,10 @@ def run(a):
         if index.get(k) != [st.st_size, int(st.st_mtime)] or (repo and not (repo / "machines" / k).exists() and k not in index):
             todo.append((k, p, st))
     print(f"ag-pi-sessions-sync: {len(todo)} new/changed quiet session(s) -> {name}")
-    if a.dry_run or not todo:
+    if a.dry_run:
+        return
+    push_pending(repo)  # a backlog left by earlier failed runs goes first, in chunks
+    if not todo:
         return
 
     totals, batch, batch_bytes, done = {}, 0, 0, 0
@@ -261,13 +303,7 @@ def run(a):
         sh("git", "add", "-A", "machines", cwd=repo)
         if sh("git", "diff", "--cached", "--quiet", cwd=repo, check=False):
             sh("git", "commit", "-qm", msg, cwd=repo)
-            # Other machines push to the same volume (each under its own machines/<name>), so rebase first.
-            for attempt in range(3):
-                sh("git", "pull", "-q", "--rebase", "origin", "main", cwd=repo, check=False)
-                if sh("git", "push", "-q", "origin", "HEAD:main", cwd=repo, check=False) == 0:
-                    break
-            else:
-                raise SystemExit("ag-pi-sessions-sync: push failed 3 times")
+            push_pending(repo)
         index_f.write_text(json.dumps(index))
     for k, p, st in todo:
         dst = repo / "machines" / k

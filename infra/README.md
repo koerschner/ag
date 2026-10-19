@@ -1,9 +1,9 @@
 # infra: Ag machines as code
 
-The rented Linux side of Ag (see `docs/ag.md`). OpenTofu + AWS EC2 (`infra/aws`), driven by `ag-infra`.
-`infra/hetzner` (and `ag-infra-hetzner`) is the previous home, kept only until the old engine is decommissioned.
+The rented Linux side of Ag (see `docs/ag.md`). OpenTofu + Hetzner Cloud (`infra/hetzner`), driven by `ag-infra`.
+`infra/aws` (driven by `ag-infra-aws`, same commands) is a standby alternative on AWS EC2; `ag-engine-migrate`
+moves the session host between machines.
 
-    ag-infra console [name]                            # break-glass shell over SSM Session Manager
 
     ag-infra plan | up | down | status | ssh [name]
     ag-infra workers                                   # list workers with type, location, $/hour
@@ -46,13 +46,13 @@ no location policies; restricting AWS regions needs an org-level SCP), so the co
 only accepts `ash`/`hil`, `infra/aws` only `us-*` regions, and `ag-infra*` refuse other locations before
 calling the provider.
 
-## AWS specifics (infra/aws)
+## AWS specifics (infra/aws, ag-infra-aws)
 
 - Credentials: `AWS_PROFILE`, else `AG_AWS_PROFILE` in `~/ag-personal/env`. The account needs EC2, EBS and IAM rights.
 - Uses the account's **default VPC** (one default subnet in `availability_zone`; shared accounts often hit the VPC
   limit). The security group `ag-tailnet-only` allows inbound UDP 41641 (Tailscale) and ICMP only.
 - The engine's data volume is a gp3 EBS volume in the same AZ (`prevent_destroy`, encrypted), mounted at /data;
   cloud-init waits for it to attach and formats it only when it has no filesystem yet.
-- Break-glass is SSM Session Manager (`ag-infra console`, instance role `ag-machine`), not a web console.
-- Resize the engine with `ag-infra up -var engine_type=…` (stop/start). Add `owner = "you@work"` to your tfvars to
+- Break-glass is SSM Session Manager (`ag-infra-aws console`, instance role `ag-machine`), not a web console.
+- Resize the engine with `ag-infra-aws up -var engine_type=…` (stop/start). Add `owner = "you@work"` to your tfvars to
   tag every resource with an Owner.

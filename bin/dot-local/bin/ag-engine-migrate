@@ -30,7 +30,9 @@ rs() { "$@" || { local rc=$?; [[ $rc == 23 || $rc == 24 ]]; }; } # 23/24: unread
 copy() {
   local extra=()
   # Until cutover, keep systemd's enable links out so <new> can't start ag-mux (and resume sessions) on a reboot.
-  [[ ${1:-} == --final ]] || extra=(--exclude='/.config/systemd/user/*.wants/')
+  # The final pass (Ag stopped) skips node_modules: walking them is most of its time, and the warm pass already
+  # copied them (excluded paths are never deleted on <new>), so at worst they're a little stale (bun install).
+  if [[ ${1:-} == --final ]]; then extra=(--exclude='node_modules/'); else extra=(--exclude='/.config/systemd/user/*.wants/'); fi
   local r=(rsync -aHAX --numeric-ids --delete -x --info=stats1 -e "ssh -o BatchMode=yes" --rsync-path="sudo rsync" "${excludes[@]}" "${extra[@]}")
   echo "== ~ ($(date))"; rs "${r[@]}" "$HOME/" "$new_ip:$HOME/"
   echo "== /data ($(date))"; rs "${r[@]}" /data/ "$new_ip:/data/"
@@ -69,6 +71,11 @@ case $cmd in
     ssh_new 'sudo systemctl stop docker docker.socket containerd' || true
     sudo tar -C /var/lib/docker -cf - volumes | ssh_new 'sudo tar -C /var/lib/docker -xf -' || echo "docker volumes: copy failed (dev data only)"
     ssh_new 'sudo systemctl start docker' || true
+    echo "== bind mounts of /data under ~ (fstab or transient) on $new"
+    findmnt -rn -o TARGET,SOURCE | awk -v h="$HOME/" 'index($1,h)==1 && $2 ~ /\[\// {src=$2; sub(/^[^[]*\[/,"",src); sub(/\]$/,"",src); print "/data" src, $1}' |
+      while read -r src dst; do
+        ssh_new "grep -qs ' $dst ' /etc/fstab || { echo '$src $dst none bind,nofail 0 0' | sudo tee -a /etc/fstab >/dev/null; }; sudo install -d -o $USER -g $USER '$dst'; mountpoint -q '$dst' || sudo mount '$dst'" || echo "bind mount $dst failed"
+      done
     echo "== this machine becomes $old_name (no Ag services)"
     sudo tailscale serve clear svc:ag 2>/dev/null || true
     for u in $(systemctl --user list-unit-files --no-legend --plain | awk '{print $1}' | grep -E '^(ag-|money-)'); do
@@ -82,6 +89,8 @@ case $cmd in
     ssh_new "sudo hostnamectl set-hostname ag-engine && sudo sed -i 's/\b$new\b/ag-engine/g' /etc/hosts && sudo tailscale set --hostname=ag-engine"
     sleep 10
     ssh_new 'cd ~/ag && git pull -q --ff-only; systemctl --user daemon-reload; ~/ag/bootstrap-linux' || echo "bootstrap-linux on $new reported errors"
+    # Everything enabled here (copied in the final pass) starts there too, including units bootstrap doesn't know.
+    ssh_new 'systemctl --user daemon-reload; systemctl --user start default.target timers.target' || echo "starting enabled units on $new failed"
     # Clients knew ag-engine by the old machine's host key.
     for h in ag-mac ag-client; do
       ssh_new "ssh -o BatchMode=yes -o ConnectTimeout=10 $h 'ssh-keygen -R ag-engine; ssh-keygen -R ag-engine.\${AG_TAILNET:-x}' >/dev/null 2>&1" || echo "couldn't reset ag-engine's host key on $h"

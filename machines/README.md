@@ -37,7 +37,7 @@ the `ag repo deploy key` from ag-vault (`~/.ssh/ag-deploy`, set as the checkout'
 session host pushes with your GitHub credentials (on ag-engine: https remote + `gh auth setup-git`, no `core.sshCommand`).
 
 `ag-machine-role` prints this Mac's role from the table (unlisted = client); role-specific
-setup uses it, e.g. sleep: hosts never sleep, clients sleep normally (`macos`, Hammerspoon's battery guard).
+setup uses it, e.g. sleep: hosts never sleep, clients sleep only when the lid closes (`macos`, Hammerspoon's battery guard).
 
 Adding a machine: run dotfiles' `bootstrap` (it clones and installs ag) or ag's `bootstrap-linux`, add its
 row to your inventory and its `Host` block to dotfiles' `ssh/dot-ssh/config`, authorize SSH keys between it and the

@@ -4,7 +4,7 @@
 -- (the keys ag-rule ag-session-keys), and the hammerspoon hook of ag-rules: the user's plain-English rules
 -- with Lua code (~/ag/ag-rules, `on: hammerspoon`), such as quick entry and screenshot paste.
 
--- Always-on Macs only (host or extremity): clients sleep normally (see the Power section of dotfiles' macos).
+-- Always-on Macs only (host or extremity): clients keep lid-close sleep (see the Power section of dotfiles' macos).
 if os.execute(os.getenv("HOME") .. "/.local/bin/ag-machine-role host extremity") then
 	require("battery_guard")
 else

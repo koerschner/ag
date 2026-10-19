@@ -50,7 +50,7 @@ const STATES = {
   "ts-Starting": { title: "Tailscale is starting…", body: "ag-dash comes back here as soon as it connects." },
   "ts-NoState": { title: "Tailscale isn't running on this Mac", body: "Open Tailscale to connect; ag-dash comes back here by itself.", button: "Open Tailscale", fix: "open-tailscale" },
   "ts-Unknown": { title: "Tailscale isn't running on this Mac", body: "Open Tailscale to connect; ag-dash comes back here by itself.", button: "Open Tailscale", fix: "open-tailscale" },
-  "engine-down": { title: "ag-engine isn't answering", body: "Tailscale is up on this Mac, but ag-engine (where ag-dash runs) doesn't respond. It may be rebooting or out of memory; that usually clears within a minute or two. Please don't reboot it from Hetzner unless it stays down for 5+ minutes: a reboot stops every running session mid-turn.", button: "Retry now", fix: "retry" },
+  "engine-down": { title: "ag-engine isn't answering", body: "Tailscale is up on this Mac, but ag-engine (where ag-dash runs) doesn't respond. It may be rebooting or out of memory; that usually clears within a minute or two. Please don't reboot it from the AWS console unless it stays down for 5+ minutes: a reboot stops every running session mid-turn.", button: "Retry now", fix: "retry" },
   "dash-down": { title: "ag-dash isn't running on ag-engine", body: "ag-engine is reachable, but its ag-dash service isn't answering. It usually comes back on its own.", button: "Retry now", fix: "retry" },
 };
 let fixing = false;

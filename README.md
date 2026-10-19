@@ -71,7 +71,7 @@ in. Session verbs run on the host (other machines forward them over SSH). Most t
 | `ag setup [--pull]`, `ag doctor` | install or update Ag on this machine; check what it still lacks |
 | `ag status`, `ag logs <svc> [-f]`, `ag restart <svc>` | health of the whole system; one service's logs; restart it |
 | `ag sync` | push the repo and apply it on every machine |
-| `ag infra plan\|up\|down\|status` | create and destroy the rented Linux machines (OpenTofu on Hetzner) |
+| `ag infra plan\|up\|down\|status` | create and destroy the rented Linux machines (OpenTofu on AWS EC2) |
 | `ag ls [--inbox\|--needs-you\|--waiting\|--pinned]` | open sessions, most recent first |
 | `ag find <words>`, `ag search <description>` | find a session: exact words, or fuzzy (LLM-ranked) |
 | `ag read <s>`, `ag peek <s>`, `ag link <s>` | its transcript, its screen right now, its ag-dash link |

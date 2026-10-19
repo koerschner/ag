@@ -13,12 +13,12 @@ in your own fork.
 
 | Machine | What it is | Required? |
 |---|---|---|
-| **engine** | Ubuntu 24.04 VPS (Hetzner). Runs every agent session in tmux and all Ag services | yes |
+| **engine** | Ubuntu 24.04 VM (AWS EC2). Runs every agent session in tmux and all Ag services | yes |
 | **client** | the laptop you sit at. Attaches to the engine with `ag` | yes |
 | **ag-mac** | an always-on Mac (never sleeps) for computer use and Mac-only apps | optional; skip it at first |
 | **phone** | iPhone with Tailscale + Moshi or the ag-dash web app | optional |
 
-Budget roughly: Hetzner CCX33 ≈ $60/mo, Tailscale Premium $18/mo (Personal is free but non-commercial),
+Budget roughly: EC2 m7i.4xlarge ≈ $590/mo on demand (smaller types work; savings plans cut it), Tailscale Premium $18/mo (Personal is free but non-commercial),
 1Password Teams/Business (service accounts), plus your model subscriptions.
 
 ---
@@ -31,7 +31,7 @@ Create these (use a work card if your company pays). Turn on 2FA everywhere.
 |---|---|---|
 | **GitHub** | an account; you'll fork `<owner>/ag` | your copy of Ag |
 | **Tailscale** | a tailnet (Premium if it's for work; Personal for a trial) | joins every machine; SSH between them |
-| **Hetzner Cloud** | an account and a project, payment method added | the engine VPS. New accounts can need ID verification (hours to a day) and are capped at 8 dedicated vCPUs at first |
+| **AWS** | an account with a default VPC, and an IAM user or SSO profile that can manage EC2, EBS and IAM | the engine VM |
 | **1Password** | a Teams or Business account (service accounts need one) | where agents read secrets from |
 | **Models** | at least one: Claude (Pro/Max), ChatGPT (Plus/Pro), or an API key (Anthropic, OpenAI, OpenRouter) | the agents themselves. ChatGPT is also what powers computer use on ag-mac |
 
@@ -53,9 +53,9 @@ Edit these in your fork, commit, and push to `main`:
   `AG_TAILNET` environment variable (e.g. `export AG_TAILNET=tail1234.ts.net`).
 - **`tailscale/policy.hujson`**: the `tests`/`sshTests` use an `OWNER_EMAIL` placeholder;
   `ag-ts-apply-policy` replaces it with `$AG_TAILNET_OWNER`, so export that as your tailnet login email.
-- **`infra/hetzner/variables.tf`**: `user` default → your Linux username; `ag_repo` → your fork;
+- **`infra/aws/*.auto.tfvars`** (untracked; see `infra/README.md`): `user` → your Linux username; `ag_repo` → your fork;
   `dotfiles_repo` → `""` (that's the original owner's personal shell config; without it the engine gets Ag only);
-  `location` if you're not on the US West Coast (`ash` = Virginia, `nbg1`/`fsn1` = Germany).
+  `region`/`availability_zone` in `variables.tf` if not `us-east-1a` (US regions only).
 - **Agent instructions** (`agents.md/sections/`): these were written for the original owner
   (they refer to the owner as "the user"). At least rewrite `015-about-the-user.md` about yourself, and delete the sections
   that are theirs (Arcade, Discord, their payment cards). Then `agents.md/build`.
@@ -85,14 +85,14 @@ Edit these in your fork, commit, and push to `main`:
 
 | Item | Field | Value |
 |---|---|---|
-| `Hetzner Cloud` | `credential` | Hetzner Cloud API token (project → Security → API tokens, Read & Write) |
+| `Tailscale OAuth client (ag)` | `username`, `credential` | client ID and secret (see `tailscale/README.md`): `ag infra` mints the engine's auth key with it |
 | `Tailscale ag auth key` | `credential` | the auth key from step 3 |
 | `ag repo deploy key` | `private key` | an SSH key pair you generate (`ssh-keygen -t ed25519 -f deploy -N ''`); add `deploy.pub` to your fork → Settings → Deploy keys (read-only) |
 | `ag-engine → ag-mac SSH key` | `private key` | only with ag-mac: another key pair; its `.pub` goes in ag-mac's `~/.ssh/authorized_keys` |
 
 4. Point Ag at your vault: `export AG_INFRA_VAULT=<vault id>` in `~/.zshenv.local`.
 
-## 5. Your laptop (client) and the machine that creates the VPS
+## 5. Your laptop (client) and the machine that creates the VM
 
 `ag infra` (OpenTofu) runs from a Mac: ag-mac if you have one, otherwise your laptop.
 
@@ -101,7 +101,8 @@ Install [Homebrew](https://brew.sh) first. Setup links Ag's agent instructions a
 
 ```sh
 ~/ag/bin/dot-local/bin/ag setup   # installs pi, claude, codex, bun, gh, op, uv, stow…
-brew install opentofu
+brew install opentofu awscli
+aws configure sso   # or `aws configure`; then export AWS_PROFILE=<profile> (or AG_AWS_PROFILE in ~/ag-personal/env)
 gh auth login && gh auth setup-git
 git config --global user.name "…"; git config --global user.email "…"
 ```
@@ -126,20 +127,20 @@ Host ag-engine
     User <your linux user>
 ```
 
-## 6. The engine (VPS)
+## 6. The engine (VM)
 
 ### Option A: `ag infra up` (recommended; rebuildable)
 
 ```sh
 ag infra plan        # check what it will create
-ag infra up          # firewall (Tailscale only), 200 GB data volume, CCX33 server
+ag infra up          # security group (Tailscale only), 250 GB data volume, m7i.4xlarge instance + role
 ```
 
 Cloud-init then creates your user, mounts the volume at `/data`, joins the tailnet as `ag-engine`, clones
 your fork, and runs `bootstrap-linux`. Allow 5–10 minutes, then `ssh ag-engine` from your laptop (Tailscale
 SSH, no key needed). Watch progress with `sudo tail -f /var/log/cloud-init-output.log`.
 
-Only port 41641/udp is open to the internet. If Tailscale ever breaks, Hetzner's web console is the way in.
+Only port 41641/udp is open to the internet. If Tailscale ever breaks, `ag infra console` (SSM Session Manager) is the way in.
 
 ### Option B: any Ubuntu 24.04 VPS, by hand
 
@@ -222,4 +223,4 @@ component.
   about them: Telegram (`ag text`), iMessage (`ag messages`), Discord (`ag discord`), Nessie, and the
   arcade.school MCP servers. Ignore those warnings unless you want the feature.
 - Linux service names are generic; the macOS LaunchAgents are named `com.ag.*`. They work as-is.
-- `ag infra` keeps its OpenTofu state on the Mac that ran it (`~/.local/state/ag-infra/`). Back it up.
+- `ag infra` keeps its OpenTofu state on the machine that ran it (`~/.local/state/ag-infra/aws/`). Back it up.

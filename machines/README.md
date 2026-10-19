@@ -12,7 +12,7 @@ public repo. The table below is a generic example in the same format: the parser
 starts with `ag-` and whose Role is one of host, extremity, client, engine, worker.
 
 Roles:
-- **engine** (Ag, Linux): rented, rebuilt from zero by `ag-infra` (infra/hetzner) + `bootstrap-linux`; persistent state on a volume at /data. Design: `docs/ag.md`. Sync it like the others (`git pull --ff-only` in `~/ag` and `~/dotfiles`, re-run `~/ag/bootstrap-linux` if it changed).
+- **engine** (Ag, Linux): rented, rebuilt from zero by `ag-infra` (infra/aws, AWS EC2) + `bootstrap-linux`; persistent state on a volume at /data. Design: `docs/ag.md`. Sync it like the others (`git pull --ff-only` in `~/ag` and `~/dotfiles`, re-run `~/ag/bootstrap-linux` if it changed).
 - **host**: runs Ag's sessions (ag-mux on tmux), every Ag service, and the repos. Agents act from here. Typically ag-engine (rented Linux).
 - **extremity**: the always-on Mac Ag drives for computer use and Mac-only apps and CLIs (ag-mac). No sessions or Ag services; it never sleeps.
 - **client**: where you sit; runs no sessions. Attaches to the host's tmux

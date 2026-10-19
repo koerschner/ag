@@ -1,6 +1,6 @@
 # Ag
 
-Status: **in progress** (started 2026-09-28 in the "Cloud VM Setup" session). First engine `ag-engine` is up (2026-09-29): Hetzner CCX33 (8 vCPU/32 GB; the account is capped at 8 dedicated vCPUs until Hetzner allows a limit request), Hillsboro, joined to the tailnet, `bootstrap-linux` clean, Pi working. Today everything
+Status: **in progress** (started 2026-09-28 in the "Cloud VM Setup" session). First engine `ag-engine` is up (2026-09-29; on Hetzner CCX33 in Hillsboro until 2026-10-19, now AWS EC2 m7i.4xlarge, 16 vCPU/64 GB, us-east-1), joined to the tailnet, `bootstrap-linux` clean, Pi working. Today everything
 still runs on ag-mac (the Mac formerly called `ag`, renamed 2026-09-29); this doc is the target and the source of truth for what goes where.
 
 ## What Ag is
@@ -69,7 +69,9 @@ Nothing important may live only on a machine's local disk.
 
 ## Provider (researched 2026-09-28)
 
-- **Primary: Hetzner Cloud, Hillsboro (HIL).**
+- **Now (since 2026-10-19): AWS EC2, us-east-1** (`infra/aws`): the engine is an m7i.4xlarge with a gp3 data volume,
+  on the work AWS account with an instance role instead of access keys. Hetzner (below) was the first choice and is retired.
+- **First choice (2026-09-28 to 2026-10-19): Hetzner Cloud, Hillsboro (HIL).**
   - Engine: CCX53 (32 vCPU/128 GB, ~€533/mo) or CCX63 (48/192, ~€853/mo), with dedicated vCPUs.
   - Workers: CCX33 or CCX43 built from a Packer snapshot, billed hourly.
   - Tooling: the best `hcloud` CLI and Terraform experience at this price, plus Volumes and snapshots.
@@ -94,7 +96,7 @@ Nothing important may live only on a machine's local disk.
 
 1. Upgrade Tailscale for tagged ephemeral nodes and API/Terraform access (split-out session
    "Upgrade Tailscale Plan").
-2. ✅ IaC (`infra/hetzner`, `ag-infra up`/`down`, verified by a full destroy + rebuild), ✅ `bootstrap-linux` (idempotent, clean run). ✅ One engine up. Left: MCP server auth on the engine, and moving to CCX53 once allowed.
+2. ✅ IaC (`infra/hetzner` then `infra/aws`, `ag-infra up`/`down`, verified by a full destroy + rebuild), ✅ `bootstrap-linux` (idempotent, clean run). ✅ One engine up. Left: MCP server auth on the engine. (Moved off Hetzner to AWS on 2026-10-19 instead of waiting for CCX53.)
 3. ✅ Persistent volume layout (/data bind mounts). ✅ pi-sessions archive: `ag-pi-sessions-sync` (docs/reference.md "Pi sessions archive"), hourly on the host (plus the client over SSH) and on the engine.
 4. ✅ `ag-mac` tool (`bin/dot-local/bin/ag-mac`: run, cua, push/pull, show, status) over the engine's own SSH key (ag-vault "ag-brain → ag-mac SSH key"; the CLI can't rename SSH-key items, authorized on ag-mac only from tailnet IPs); tested run, files, computer use. ✅ MCP on the engine with zero per-machine auth: `ag-mcp-tunnel` (systemd user unit) forwards 127.0.0.1:7381-7384 to ag-mac's shared gateway; Slack's OAuth file copied. When the engine becomes the host, the gateway moves there and auth lives in exactly one place.
 5. Move arcade dev onto the engine as the real test.

@@ -115,7 +115,7 @@ export default function (pi: ExtensionAPI) {
 Reply with JSON only: {"status": "done" | "attention", "headline": "..."}
 - "attention": the agent needs something from the user before it can continue (a question, a decision, approval, a login, a blocker).
 - "done": the work is finished; nothing is required, or they just need to review/confirm the result.
-- headline: at most 90 characters, plain words, no emoji. Say what happened AND what the user should do, e.g. "PR #412 merged to dev; nothing to do" or "Needs your Telegram bot token to finish the notifier".
+- headline: at most 90 characters, plain words, no emoji. Say what happened AND what the user should do, e.g. "PR #412 merged to main; nothing to do" or "Needs your Telegram bot token to finish the notifier".
 
 The user's request: ${prompt.slice(0, 800)}
 

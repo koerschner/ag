@@ -6,7 +6,7 @@ Never block on one long wait (`gh run watch`, `gh pr checks --watch`, `sleep`, `
 
 Never sit idle while CI runs. `sleep N` longer than ~60s is banned, including inside a poll loop. Between status checks, do the next useful thing:
 
-- The next queued card or follow-up in the same task: start it in its own worktree off `origin/dev` (or stacked on the pending branch if it depends on it).
+- The next queued card or follow-up in the same task: start it in its own worktree off the integration branch (arcade: `origin/main`) (or stacked on the pending branch if it depends on it).
 - Anything that doesn't depend on the CI result: review bot comments already posted, reply to/resolve threads, draft the PR description, file follow-up tickets, simplify, run local checks for the next change.
 - Run slow local gates (pre-push hooks, `bun run check`) in a separate tmux pane in the background and read the result later, instead of blocking your tool call on them.
 

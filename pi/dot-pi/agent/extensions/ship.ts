@@ -2,7 +2,7 @@
  * /ship — straight-through SC-10 autopilot for the arcade repo.
  *
  * The process lives in the local skill `~/.agents/skills/ship/SKILL.md`
- * (issue → worktree → build → simplify → PR → CI/bot loop → merge to dev).
+ * (issue → worktree → build → simplify → PR → CI/bot loop → merge to main).
  * This extension keeps it moving without a human typing "go":
  *
  *   /ship FT-123            ship an existing Linear issue
@@ -98,7 +98,7 @@ function kickoffPrompt(skill: string, argument: string, index: string): string {
 		``,
 		`This kickoff is the only approval you get. Run every step without checking in. The harness re-prompts you between turns, so never ask "shall I continue". While you wait on CI or review bots, poll with \`gh\` inside a bash call (sleep up to a few minutes) instead of ending the turn.`,
 		``,
-		`Worktree: \`git -C ${REPO} fetch origin && git -C ${REPO} worktree add ~/arcade-<short-topic> -b <linear-branch> origin/dev\`. Never touch the main checkout's branch.`,
+		`Worktree: \`git -C ${REPO} fetch origin && git -C ${REPO} worktree add ~/arcade-<short-topic> -b <linear-branch> origin/main\`. Never touch the main checkout's branch.`,
 		``,
 		`End with \`ship_done({ pr, summary })\` once merged (verified with gh), or \`ship_halt({ reason, summary })\` if truly blocked.`,
 	].join("\n");

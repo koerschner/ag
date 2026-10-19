@@ -2,7 +2,7 @@
 
 Always do new work in a git worktree so multiple things can be worked on at once. Never create or switch branches in the main checkout (e.g. `~/arcade.school`); leave it on its current branch.
 
-- Create one worktree per task, as a sibling of the main checkout, named `~/<repo>-<short-topic>` (for arcade that is `~/arcade-<short-topic>`), based on the repo's integration branch (check `gh repo view --json defaultBranchRef` — for arcade it is `dev`, not `main`; `main` is production).
+- Create one worktree per task, as a sibling of the main checkout, named `~/<repo>-<short-topic>` (for arcade that is `~/arcade-<short-topic>`), based on the repo's integration branch (check `gh repo view --json defaultBranchRef` — for arcade it is `main`; `dev` was retired on 2026-10-19 and production deploys only from release tags `v<YYYY>.<MM>.<DD>.<n>`, never from a branch).
 - Create it with plain git: `git -C ~/<repo> fetch origin && git -C ~/<repo> worktree add ~/<repo>-<short-topic> -b <branch> origin/<default-branch>`.
 - Do all edits, installs, checks, commits, and pushes from inside that worktree (`cd` there from your own pane).
 - Before starting, check `git worktree list` — reuse an existing worktree if one already exists for the branch.

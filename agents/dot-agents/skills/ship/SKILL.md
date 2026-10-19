@@ -1,13 +1,13 @@
 ---
 name: ship
-description: Straight-through SC-10 autopilot for the arcade repo — Linear issue or spec → worktree → build → simplify → PR → CI and review-bot loop → merge to dev, with no check-ins. Driven by the Pi `/ship` command; do not invoke on your own.
+description: Straight-through SC-10 autopilot for the arcade repo — Linear issue or spec → worktree → build → simplify → PR → CI and review-bot loop → merge to main, with no check-ins. Driven by the Pi `/ship` command; do not invoke on your own.
 disable-model-invocation: true
 argument-hint: <FT-123 | Linear URL | "one-paragraph spec"> [SC-N]
 ---
 
 # Ship
 
-Take one piece of arcade work from kickoff to merged on `dev` without stopping. The kickoff (`/ship …`) is the only approval: it pre-approves every confirmation stop in the team skills this drives, including commits, pushes, the PR draft, the feedback plan, and the merge. Keep the team skills' **conventions**; skip their **stops**.
+Take one piece of arcade work from kickoff to merged on `main` without stopping. The kickoff (`/ship …`) is the only approval: it pre-approves every confirmation stop in the team skills this drives, including commits, pushes, the PR draft, the feedback plan, and the merge. Keep the team skills' **conventions**; skip their **stops**.
 
 Stop early only when you genuinely cannot proceed (see [Blocked](#blocked)).
 
@@ -49,7 +49,7 @@ State in one line what you're shipping and where, then go.
 - Spec: run `arcade-create-issue` and create the issue without waiting (priority from context, default Medium).
 - Run `arcade-consume-issue`, take Linear's branch name, and claim the issue (`assignee: "me"`, `state: "In Progress"`).
 - Already `Done`/`Canceled`, or someone else has an open PR for it: stop as **already done**.
-- Create a sibling worktree off `origin/dev` (see the harness's worktree convention). Never build in `~/arcade.school` itself.
+- Create a sibling worktree off `origin/main` (see the harness's worktree convention). Never build in `~/arcade.school` itself.
 
 ## 2. Build
 
@@ -70,7 +70,7 @@ Follow `arcade-create-pull-request` for the title and body (Summary, How to Test
 
 - Title ends with the rating from kickoff (e.g. `(SC-10)`), under 70 characters.
 - Add `## Judgment calls` if you made any.
-- Base `dev`, not a draft.
+- Base `main`, not a draft.
 - The body opens with the attribution line required for messages written on the user's behalf.
 
 ## 5. CI and review-bot loop
@@ -85,7 +85,7 @@ Loop on the latest pushed HEAD. Ignore anything tied to older SHAs.
     - Findings that would change product direction: make the conservative call, decline or fix minimally, and flag it in the final report. Don't stop.
 4. Gate, commit, push, repeat.
 
-Exit when every required check is green on HEAD and no bot findings are unresolved. Cap at **6 rounds**; after that, merge anyway if CI is green and list the leftover findings in the report. If `dev` moved and conflicts appear, rebase onto `origin/dev` and `--force-with-lease` your own branch.
+Exit when every required check is green on HEAD and no bot findings are unresolved. Cap at **6 rounds**; after that, merge anyway if CI is green and list the leftover findings in the report. If `main` moved and conflicts appear, rebase onto `origin/main` and `--force-with-lease` your own branch.
 
 ## 6. Merge
 
@@ -93,7 +93,7 @@ Exit when every required check is green on HEAD and no bot findings are unresolv
 gh pr merge <pr> --squash --delete-branch --match-head-commit <sha>
 ```
 
-If the only blocker is a required review, retry with `--admin`. Ignore a local "dev is already used by worktree" error from `gh`; check `gh pr view <pr> --json state`.
+If the only blocker is a required review, retry with `--admin`. Ignore a local "main is already used by worktree" error from `gh`; check `gh pr view <pr> --json state`.
 
 ## 7. Cleanup and report
 
@@ -101,7 +101,7 @@ If the only blocker is a required review, retry with `--admin`. Ignore a local "
 - Remove the worktree and local branch. If the remote branch survived and `git push --delete` trips the pre-push hook, run `gh api -X DELETE repos/{owner}/{repo}/git/refs/heads/<branch>`.
 - Call `ship_done({ pr, summary })`. The summary covers the PR URL, merged SHA, net LOC (`git diff --shortstat` of the merge), CI/bot rounds, what was fixed or declined, judgment calls, and anything worth eyeballing on staging.
 
-The `dev → main` release isn't part of this.
+Merging to `main` deploys staging only. The production release (a date tag `v<YYYY>.<MM>.<DD>.<n>` published with `arcade-create-release`) isn't part of this; never publish one from `/ship`.
 
 ## Blocked
 

@@ -13,9 +13,9 @@ The rented Linux side of Ag (see `docs/ag.md`). OpenTofu + AWS EC2 (`infra/aws`)
 - `up`: creates or updates the engine (and N workers); `down`: destroys machines but **keeps the
   engine's data volume** (`prevent_destroy`), so a later `up` resumes where it left off.
 - **Workers** are scratch machines for big fan-outs (many pi sessions, frame extraction). They run
-  shared-vCPU types in the EU (default `cpx62`: 16 vCPU / 32 GB / 640 GB, about $0.25/hour) because
+  shared-vCPU types (Hetzner default `cpx51`: 16 vCPU / 32 GB / 360 GB, about $0.45/hour) because
   dedicated types count against the account's dedicated-vCPU limit, which the engine fills. When a type
-  is sold out in one location (`resource_unavailable`), `workers up` tries nbg1, fsn1 and hel1 in turn.
+  is sold out in one location (`resource_unavailable`), `workers up` tries the other US location (hil ↔ ash).
   The last type and location are saved in `~/.local/state/ag-infra/workers.env`, so `ag-infra up` never
   resizes them. Once a worker is on the tailnet, `workers up` seeds it with what pi needs (models.json
   and `TFY_TOKEN`, in `~/.zshenv.local`) and nothing else secret, so `ssh ag-worker-1 pi -p …` works.
@@ -38,6 +38,13 @@ The rented Linux side of Ag (see `docs/ag.md`). OpenTofu + AWS EC2 (`infra/aws`)
   (Hetzner Object Storage) before a second machine runs `ag-infra`.
 - Machines are reachable only over Tailscale (Tailscale SSH); the Hetzner firewall blocks all
   inbound except Tailscale's UDP port. Break-glass: Hetzner web console.
+
+## US only
+
+Every Ag machine runs in the US. Neither provider can enforce this at the account level (Hetzner Cloud has
+no location policies; restricting AWS regions needs an org-level SCP), so the code does: `infra/hetzner`
+only accepts `ash`/`hil`, `infra/aws` only `us-*` regions, and `ag-infra*` refuse other locations before
+calling the provider.
 
 ## AWS specifics (infra/aws)
 

@@ -2,6 +2,10 @@ variable "region" {
   description = "AWS region (us-east-1 = N. Virginia)"
   type        = string
   default     = "us-east-1"
+  validation {
+    condition     = startswith(var.region, "us-") && !startswith(var.region, "us-gov-")
+    error_message = "Ag machines must be in the US: region must be a us-* region."
+  }
 }
 variable "availability_zone" {
   description = "Single AZ for the machines and the engine's data volume (EBS volumes can't leave their AZ)"

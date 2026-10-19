@@ -15,8 +15,10 @@ state="$HOME/.local/state/ag-infra"; mkdir -p "$state"
 saved="$state/workers.env" # the worker shape last applied, so a plain `up` never resizes or moves them
 VAULT=${AG_INFRA_VAULT:-ag-vault} # op-work's service account only sees this vault
 
-WORKER_TYPE=cpx62 WORKER_LOCATION=nbg1
+WORKER_TYPE=cpx51 WORKER_LOCATION=hil
 [ -f "$saved" ] && . "$saved"
+us_only() { case $1 in ash|hil) ;; *) echo "ag-infra: $1 is not a US location; Ag machines run only in ash or hil" >&2; exit 2 ;; esac; }
+us_only "$WORKER_LOCATION"
 
 secrets() {
   export HCLOUD_TOKEN TF_VAR_tailscale_auth_key TF_VAR_ag_deploy_key
@@ -89,14 +91,15 @@ case $cmd in
         done
         secrets; init
         before=$(names)
-        # Hetzner often runs out of a shared type in one location ("resource_unavailable"): unless a location
-        # was given, try the other EU ones before giving up.
-        tries=$WORKER_LOCATION; [ -n "$loc_given" ] || tries="$WORKER_LOCATION $(tr ' ' '\n' <<<"nbg1 fsn1 hel1" | grep -vx "$WORKER_LOCATION" | xargs)"
+        us_only "$WORKER_LOCATION"
+        # Hetzner sometimes runs out of a type in one location ("resource_unavailable"): unless a location
+        # was given, try the other US one before giving up (never outside the US).
+        tries=$WORKER_LOCATION; [ -n "$loc_given" ] || tries="$WORKER_LOCATION $(tr ' ' '\n' <<<"hil ash" | grep -vx "$WORKER_LOCATION" | xargs)"
         for WORKER_LOCATION in $tries; do
           log=$(mktemp); if tf apply -auto-approve -no-color $(wvars "$n") 2>&1 | tee "$log" | grep -E '^(Plan|Apply)|Error' ; [ "${PIPESTATUS[0]}" = 0 ]; then rm -f "$log"; break; fi
           grep -q resource_unavailable "$log" || { cat "$log" >&2; rm -f "$log"; exit 1; }
           rm -f "$log"; echo "$WORKER_TYPE is sold out in $WORKER_LOCATION; trying the next location"
-          [ "$WORKER_LOCATION" = "${tries##* }" ] && { echo "no capacity anywhere; try --type cpx62 (or cpx52)" >&2; exit 1; }
+          [ "$WORKER_LOCATION" = "${tries##* }" ] && { echo "no US capacity; try --type cpx41 (or ccx33)" >&2; exit 1; }
         done
         printf 'WORKER_TYPE=%q\nWORKER_LOCATION=%q\n' "$WORKER_TYPE" "$WORKER_LOCATION" >"$saved"
         # A recreated worker reuses its name with a new host key.

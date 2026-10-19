@@ -1,7 +1,12 @@
+# Ag machines must run in the US (near the owner): Hetzner's only US locations are ash and hil.
 variable "location" {
-  description = "Hetzner location; hil = Hillsboro, OR (US West)"
+  description = "Hetzner location: hil = Hillsboro, OR or ash = Ashburn, VA (US only)"
   type        = string
   default     = "hil"
+  validation {
+    condition     = contains(["ash", "hil"], var.location)
+    error_message = "Ag machines must be in the US: location must be ash or hil."
+  }
 }
 variable "image" {
   type    = string
@@ -28,17 +33,20 @@ variable "worker_count" {
   default = 0
 }
 variable "worker_type" {
-  # Dedicated (ccx*) types count against the account's dedicated-vCPU limit, which the engine already fills,
-  # so workers default to shared vCPUs: cpx62 = 16 AMD vCPU / 32 GB / 640 GB (EU, ~$0.25/h). cx53 (16 / 32 / 320,
-  # ~$0.06/h) is cheaper but often sold out; ag-infra tries every EU location before giving up.
+  # Shared vCPUs, so workers don't count against the dedicated-vCPU limit the engine fills. In the US the
+  # largest shared type is cpx51 (16 AMD vCPU / 32 GB / 360 GB, ~$0.45/h); cpx62/cx* exist only in the EU.
   description = "Hetzner server type for workers (ag-infra workers up --type)"
   type        = string
-  default     = "cpx62"
+  default     = "cpx51"
 }
 variable "worker_location" {
-  description = "Location for workers; \"\" = same as the engine. Shared types are far cheaper in the EU (nbg1, fsn1, hel1)."
+  description = "Location for workers: ash or hil (US only); \"\" = same as the engine"
   type        = string
-  default     = "nbg1"
+  default     = ""
+  validation {
+    condition     = contains(["", "ash", "hil"], var.worker_location)
+    error_message = "Ag machines must be in the US: worker_location must be ash, hil or \"\"."
+  }
 }
 variable "user" {
   description = "Linux login created on every machine (sessions run as it); set in a *.auto.tfvars file (infra/README.md)"

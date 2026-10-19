@@ -72,6 +72,12 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   role       = aws_iam_role.ag.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
+# The machines' AWS credentials: the engine runs ag-infra (EC2/EBS/IAM) and `bun run secrets` (SSM) on this role,
+# so no access key lives on any machine (~/.aws/config's profile has only a region). Workers share the role.
+resource "aws_iam_role_policy_attachment" "machine" {
+  role       = aws_iam_role.ag.name
+  policy_arn = var.machine_policy_arn
+}
 resource "aws_iam_instance_profile" "ag" {
   name = "ag-machine"
   role = aws_iam_role.ag.name

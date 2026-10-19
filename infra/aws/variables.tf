@@ -64,6 +64,11 @@ variable "ssh_public_key" {
   description = "ag-mac's ~/.ssh/id_ed25519.pub (break-glass; normal access is Tailscale SSH)"
   type        = string
 }
+variable "machine_policy_arn" {
+  description = "Managed policy on the machines' instance role (ag-machine): what Ag can do in this AWS account"
+  type        = string
+  default     = "arn:aws:iam::aws:policy/AdministratorAccess"
+}
 variable "tailscale_auth_key" {
   description = "Workers' Tailscale auth key: reusable, ephemeral, pre-authorized, tagged (from op-work)"
   type        = string

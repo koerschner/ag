@@ -22,5 +22,6 @@
   {"id": "agent-status", "verb": "ls", "re": "ag-mux (agent|pane) get", "what": "check another session's agent status with agent/pane get + jq"},
   {"id": "mux-snapshot", "verb": "ls", "re": "ag-mux (api snapshot|tab list|pane list)", "what": "dump the whole mux state (snapshot / tab list) + jq"},
   {"id": "dev-tab", "verb": "dev", "re": "ag-mux tab create|tmux -L ag new-window", "what": "open a labeled dev-process tab (server, watcher) by hand"},
-  {"id": "pane-run", "verb": "dev", "what": "type a command into a dev pane (ag-mux pane run/send-text, tmux send-keys)", "re": "ag-mux pane (run|send-text|send-keys)|tmux -L ag send-keys"}
+  {"id": "pane-run", "verb": "dev", "what": "type a command into a dev pane (ag-mux pane run/send-text, tmux send-keys)", "re": "ag-mux pane (run|send-text|send-keys)|tmux -L ag send-keys"},
+  {"id": "mac-ssh", "verb": "mac", "re": "\\b(ssh|scp) [^|;&\\n]*\\bag-mac[: ]", "what": "run a command or copy a file on ag-mac with raw ssh/scp instead of ag-mac run/push/pull"}
 ]

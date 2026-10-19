@@ -17,12 +17,14 @@ log=~/.local/state/ag-engine-migrate.log
 # By Tailscale IP: the cutover renames <new>, and its old name stops resolving.
 new_ip=${AG_MIGRATE_NEW_IP:-$(tailscale ip -4 "$new" 2>/dev/null || true)}
 [[ -n $new_ip || $cmd == rollback ]] || { echo "$new isn't on the tailnet" >&2; exit 1; }
-ssh_new() { ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "$new_ip" "$@"; }
+ssh_new() { ssh -n -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new "$new_ip" "$@"; }
 
 excludes=(--exclude=/.cache/ --exclude=/.local/share/Trash/ --exclude=/lost+found/)
 for x in ${AG_MIGRATE_EXCLUDE:-}; do excludes+=("--exclude=/$x/" "--exclude=/$x"); done
 # Bind mounts under ~ (~/.pi, ~/inbox, ~/.local/state, …) are /data's, copied with /data: never walk or delete them.
-while read -r m; do excludes+=("--exclude=${m#"$HOME"}/"); done < <(findmnt -rn -o TARGET | grep "^$HOME/")
+# Only in the ~ pass: anchored patterns apply to every transfer, and /inbox/ or /money-research/x/ exist in /data too.
+home_excludes=()
+while read -r m; do home_excludes+=("--exclude=${m#"$HOME"}/"); done < <(findmnt -rn -o TARGET | grep "^$HOME/")
 rs() { "$@" || { local rc=$?; [[ $rc == 23 || $rc == 24 ]]; }; } # 23/24: unreadable or vanished files, expected live
 
 # One pass of ~ and /data. -x keeps it on each filesystem: ~/.pi, ~/inbox and ~/.local/state are bind mounts
@@ -34,7 +36,7 @@ copy() {
   # copied them (excluded paths are never deleted on <new>), so at worst they're a little stale (bun install).
   if [[ ${1:-} == --final ]]; then extra=(--exclude='node_modules/'); else extra=(--exclude='/.config/systemd/user/*.wants/'); fi
   local r=(rsync -aHAX --numeric-ids --delete -x --info=stats1 -e "ssh -o BatchMode=yes" --rsync-path="sudo rsync" "${excludes[@]}" "${extra[@]}")
-  echo "== ~ ($(date))"; rs "${r[@]}" "$HOME/" "$new_ip:$HOME/"
+  echo "== ~ ($(date))"; rs "${r[@]}" "${home_excludes[@]}" "$HOME/" "$new_ip:$HOME/"
   echo "== /data ($(date))"; rs "${r[@]}" /data/ "$new_ip:/data/"
 }
 
@@ -59,8 +61,9 @@ case $cmd in
     ag-text "🚚 Ag is moving to its new machine: sessions pause for ~15-30 min and come back on their own." 2>/dev/null || true
     copy  # warm pass while things still run, so the stopped window is short
     echo "== stopping Ag here"
-    systemctl --user stop 'ag-*.timer' 'ag-routine-*.timer' 2>/dev/null || true
-    for u in $(systemctl --user list-units --no-legend --plain --type=service --state=running | awk '{print $1}' | grep -E '^(ag-|money-)'); do
+    # Every user timer (routines, money-*-resume, ...), or one restarts a service after it's stopped.
+    systemctl --user stop '*.timer' 2>/dev/null || true
+    for u in $(systemctl --user list-units --no-legend --plain --type=service --state=running | awk '{print $1}' | grep -Fxf <(find ~/.config/systemd/user -maxdepth 1 -name '*.service' -printf '%f\n')); do
       systemctl --user stop "$u" || true
     done
     tmux -L ag kill-server 2>/dev/null || true
@@ -78,7 +81,8 @@ case $cmd in
       done
     echo "== this machine becomes $old_name (no Ag services)"
     sudo tailscale serve clear svc:ag 2>/dev/null || true
-    for u in $(systemctl --user list-unit-files --no-legend --plain | awk '{print $1}' | grep -E '^(ag-|money-)'); do
+    for u in $(find ~/.config/systemd/user -maxdepth 1 -regextype egrep -regex '.*[.](service|timer|path|socket)' -printf '%f\n'); do
+      systemctl --user stop "$u" >/dev/null 2>&1 || true # copied to <new>: nothing runs on both machines
       systemctl --user disable "$u" >/dev/null 2>&1 || true
     done
     sudo hostnamectl set-hostname "$old_name"
@@ -93,7 +97,7 @@ case $cmd in
     ssh_new 'systemctl --user daemon-reload; systemctl --user start default.target timers.target' || echo "starting enabled units on $new failed"
     # Clients knew ag-engine by the old machine's host key.
     for h in ag-mac ag-client; do
-      ssh_new "ssh -o BatchMode=yes -o ConnectTimeout=10 $h 'ssh-keygen -R ag-engine; ssh-keygen -R ag-engine.\${AG_TAILNET:-x}' >/dev/null 2>&1" || echo "couldn't reset ag-engine's host key on $h"
+      ssh_new "ssh -o BatchMode=yes -o ConnectTimeout=10 $h 'ssh -O exit ag-engine; ssh -O exit ag-engine.\${AG_TAILNET:-x}; ssh-keygen -R ag-engine; ssh-keygen -R ag-engine.\${AG_TAILNET:-x}' >/dev/null 2>&1" || echo "couldn't reset ag-engine's host key on $h"
     done
     ssh_new '~/.local/bin/ag-text "✅ Ag is back on its new machine (AWS). Sessions are restoring." 2>/dev/null' || true
     echo "=== cutover done $(date)" ;;

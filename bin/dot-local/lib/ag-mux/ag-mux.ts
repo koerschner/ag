@@ -420,7 +420,9 @@ function layoutTree(t: Tab) {
 			const pid = byTmux.get(`%${id}`);
 			const p = pid ? PANES.get(pid) : undefined;
 			const a = pid ? S.agents[pid] : undefined;
-			return { size: [w, h], node: { type: "pane", pane_id: pid, cwd: p?.cwd, ...(a ? { agent: a.agent, session: a.session?.value } : {}) } };
+			// Sleeping panes (restored asleep, or hibernated by ag-pi-hibernate: @ag_sleep) have no agent until pi
+			// starts; save their session too, or the next restart forgets them.
+			return { size: [w, h], node: { type: "pane", pane_id: pid, cwd: p?.cwd, ...(a ? { agent: a.agent, session: a.session?.value } : p?.sleep ? { agent: "pi", session: p.sleep } : {}) } };
 		}
 		const open = s[i++];
 		const kids: Cell[] = [];

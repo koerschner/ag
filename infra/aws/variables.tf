@@ -65,7 +65,12 @@ variable "ssh_public_key" {
   type        = string
 }
 variable "tailscale_auth_key" {
-  description = "Ephemeral, pre-authorized, tagged Tailscale auth key (from op-work)"
+  description = "Workers' Tailscale auth key: reusable, ephemeral, pre-authorized, tagged (from op-work)"
+  type        = string
+  sensitive   = true
+}
+variable "tailscale_engine_auth_key" {
+  description = "The engine's Tailscale auth key: single-use, NOT ephemeral (it must survive being offline), tag:ag-engine; ag-infra mints it per run"
   type        = string
   sensitive   = true
 }

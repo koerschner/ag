@@ -22,8 +22,12 @@ WORKER_TYPE=c7a.4xlarge
 
 aws() { if command -v aws >/dev/null; then command aws "$@"; else uvx --from awscli aws "$@"; fi; }
 secrets() {
-  export TF_VAR_tailscale_auth_key TF_VAR_ag_deploy_key
+  export TF_VAR_tailscale_auth_key TF_VAR_tailscale_engine_auth_key TF_VAR_ag_deploy_key
   TF_VAR_tailscale_auth_key=$(op-work read "op://$VAULT/Tailscale ag auth key/credential")
+  # The engine joins non-ephemerally (an ephemeral node is deleted after it's been offline a while), with a
+  # single-use key minted now that expires in an hour. Only a newly created engine uses it (user_data is ignored after).
+  TF_VAR_tailscale_engine_auth_key=$(ag-ts-api POST tailnet/-/keys -H 'Content-Type: application/json' \
+    -d '{"description":"ag-infra engine","expirySeconds":3600,"capabilities":{"devices":{"create":{"reusable":false,"ephemeral":false,"preauthorized":true,"tags":["tag:ag-engine"]}}}}' | jq -r .key)
   TF_VAR_ag_deploy_key=$(op-work read "op://$VAULT/ag repo deploy key/private key")
 }
 tf() { tofu -chdir="$dir" "$@"; }

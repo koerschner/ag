@@ -123,6 +123,7 @@ resource "aws_instance" "engine" {
   user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", merge(local.common, {
     hostname      = var.engine_name
     role          = "engine"
+    ts_auth_key   = var.tailscale_engine_auth_key # non-ephemeral: an ephemeral engine drops off the tailnet when stopped
     ts_tags       = "tag:ag-engine"
     volume_device = "/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${replace(aws_ebs_volume.engine_data.id, "-", "")}"
   }))

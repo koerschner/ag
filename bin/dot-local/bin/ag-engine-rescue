@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# ag-engine-rescue: break-glass SSH to the AWS engine when Tailscale is down. Run it from your Mac (not the engine).
+#   ag-engine-rescue open    allow SSH (port 22) from this Mac's public IP only, print the ssh command
+#   ag-engine-rescue close   remove that rule again (always do this afterwards)
+#   ag-engine-rescue status  show the instance state, public IP and any rescue rules
+# Uses your own AWS credentials (AWS_PROFILE, default playcademy) and the SSH key authorized on the engine
+# (ag-mac's or your client's; see infra/aws extra_ssh_public_keys). sshd only accepts keys, never passwords.
+# If even this fails (sshd or networking broken), the last resort is: stop the instance, attach its root disk to
+# a rescue instance in the same AZ (your user can use the disk's KMS key), fix, reattach (infra/README.md).
+set -euo pipefail
+export AWS_PROFILE=${AWS_PROFILE:-playcademy} AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
+NAME=${AG_ENGINE_NAME:-ag-engine} USER_=${AG_ENGINE_USER:-$USER}
+aws() { if command -v aws >/dev/null; then command aws "$@"; else uvx --from awscli aws "$@"; fi; }
+inst=$(aws ec2 describe-instances --filters "Name=tag:Name,Values=$NAME" "Name=instance-state-name,Values=pending,running,stopping,stopped" \
+  --query 'Reservations[0].Instances[0].[InstanceId,State.Name,PublicIpAddress,SecurityGroups[0].GroupId]' --output text)
+read -r id state ip sg <<<"$inst"
+[[ $id != None ]] || { echo "no instance tagged Name=$NAME" >&2; exit 1; }
+rules() { aws ec2 describe-security-group-rules --filters "Name=group-id,Values=$sg" \
+  --query "SecurityGroupRules[?FromPort==\`22\` && !IsEgress].[SecurityGroupRuleId,CidrIpv4]" --output text; }
+case ${1:-status} in
+  open)
+    me=$(curl -fsS -m10 https://checkip.amazonaws.com | tr -d '[:space:]')
+    aws ec2 authorize-security-group-ingress --group-id "$sg" \
+      --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=$me/32,Description=ag-engine-rescue}]" >/dev/null
+    echo "SSH open from $me/32 to $NAME ($id, $state). Connect with:"
+    echo "  ssh -o StrictHostKeyChecking=accept-new $USER_@$ip"
+    echo "Then fix Tailscale (e.g. sudo systemctl restart tailscaled; sudo tailscale up --ssh ...) and run: ag-engine-rescue close" ;;
+  close)
+    for r in $(rules | awk '{print $1}'); do aws ec2 revoke-security-group-ingress --group-id "$sg" --security-group-rule-ids "$r" >/dev/null && echo "closed $r"; done ;;
+  status)
+    echo "$NAME $id $state public=$ip sg=$sg"; rules | sed 's/^/  rescue rule: /' ;;
+  *) sed -n '2,10p' "$0"; exit 2 ;;
+esac

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ag-infra: create, scale and destroy Ag's machines on AWS EC2 (infra/aws, OpenTofu). US regions only.
-#   ag-infra plan | up | down | status | ssh [name] | console [name]
+#   ag-infra plan | up | down | status | ssh [name]
 #   ag-infra workers                                   list workers (type, AZ, instance id)
 #   ag-infra workers up [N] [--type T]                 spin up N workers (default 1), wait until they're ready
 #   ag-infra workers down                              destroy every worker (the engine is untouched)
@@ -47,7 +47,7 @@ ready() {
   for h in $(names); do
     printf '%s: waiting for Tailscale SSH' "$h"
     until ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$h" true 2>/dev/null; do
-      [ $SECONDS -lt $deadline ] || { echo " ... timed out (break-glass: ag-infra console $h)"; return 1; }
+      [ $SECONDS -lt $deadline ] || { echo " ... timed out (it may still be booting; for the engine, break-glass is ag-engine-rescue from your Mac)"; return 1; }
       printf .; sleep 10
     done
     printf ', cloud-init'
@@ -126,8 +126,5 @@ case $cmd in
           forget ag-engine ${AG_TAILNET:+ag-engine.$AG_TAILNET} $(seq -f 'ag-worker-%g' 1 20) ;;
   status) init; tf output ;;
   ssh)    exec ssh "${1:-ag-engine}" ;;
-  console) # Break-glass shell over SSM Session Manager (no SSH, no tailnet); needs the session-manager-plugin.
-          init; id=$(instance "${1:-ag-engine}"); [ -n "$id" ] || { echo "ag-infra console: no machine named ${1:-ag-engine}" >&2; exit 1; }
-          aws ssm start-session --target "$id" ;;
   *) sed -n '2,8p' "$0"; exit 2 ;;
 esac

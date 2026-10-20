@@ -74,6 +74,11 @@ variable "alert_email" {
   type        = string
   default     = ""
 }
+variable "extra_ssh_public_keys" {
+  description = "More SSH keys authorized for your user (e.g. your client Mac's), used by ag-engine-rescue when Tailscale is down"
+  type        = list(string)
+  default     = []
+}
 variable "tailscale_auth_key" {
   description = "Workers' Tailscale auth key: reusable, ephemeral, pre-authorized, tagged (from op-work)"
   type        = string

@@ -9,6 +9,9 @@ users:
     sudo: "ALL=(ALL) NOPASSWD:ALL"
     ssh_authorized_keys:
       - ${ssh_public_key}
+%{ for k in extra_ssh_public_keys ~}
+      - ${k}
+%{ endfor ~}
 ssh_pwauth: false
 disable_root: true
 package_update: true

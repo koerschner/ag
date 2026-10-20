@@ -32,7 +32,7 @@ data "aws_subnet" "public" {
 }
 
 # Nothing is reachable from the internet except Tailscale's direct-connection port (and ping).
-# SSH and everything else go over the tailnet; break-glass is SSM Session Manager (no inbound port).
+# SSH and everything else go over the tailnet; break-glass is ag-engine-rescue (temporary port 22 from your IP).
 resource "aws_security_group" "tailnet_only" {
   name        = "ag-tailnet-only"
   description = "Ag machines: Tailscale direct connections only"
@@ -60,17 +60,14 @@ resource "aws_security_group" "tailnet_only" {
   tags = { Name = "ag-tailnet-only" }
 }
 
-# Break-glass shell without SSH: `aws ssm start-session --target <instance id>`.
+# No AWS console shell (SSM) on Ag machines: bootstrap-linux disables the agent, and the role has no SSM-core policy.
+# Break-glass is ag-engine-rescue (temporary SSH from your Mac's IP), see infra/README.md.
 resource "aws_iam_role" "ag" {
   name = "ag-machine"
   assume_role_policy = jsonencode({
     Version   = "2012-10-17"
     Statement = [{ Effect = "Allow", Principal = { Service = "ec2.amazonaws.com" }, Action = "sts:AssumeRole" }]
   })
-}
-resource "aws_iam_role_policy_attachment" "ssm" {
-  role       = aws_iam_role.ag.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 # The machines' AWS credentials: the engine runs ag-infra (EC2/EBS) and dev work (`bun run secrets`, SSM tunnels,
 # S3, ...) on this role, so no access key lives on any machine (~/.aws/config's profile has only a region).
@@ -143,12 +140,13 @@ resource "aws_ebs_volume" "engine_data" {
 
 locals {
   common = {
-    user              = var.user
-    ssh_public_key    = var.ssh_public_key
-    ts_auth_key       = var.tailscale_auth_key
-    dotfiles_repo     = var.dotfiles_repo
-    ag_repo           = var.ag_repo
-    ag_deploy_key_b64 = base64encode("${trimspace(var.ag_deploy_key)}\n") # OpenSSH needs the trailing newline $(...) strips
+    user                  = var.user
+    ssh_public_key        = var.ssh_public_key
+    extra_ssh_public_keys = var.extra_ssh_public_keys
+    ts_auth_key           = var.tailscale_auth_key
+    dotfiles_repo         = var.dotfiles_repo
+    ag_repo               = var.ag_repo
+    ag_deploy_key_b64     = base64encode("${trimspace(var.ag_deploy_key)}\n") # OpenSSH needs the trailing newline $(...) strips
   }
 }
 

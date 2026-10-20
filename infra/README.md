@@ -5,7 +5,7 @@ The rented Linux side of Ag (see `docs/ag.md`). OpenTofu + AWS EC2 (`infra/aws`)
 that setup is retired and removed, see git history for `infra/hetzner`.)
 
 
-    ag-infra plan | up | down | status | ssh [name] | console [name]
+    ag-infra plan | up | down | status | ssh [name]
     ag-infra workers                                   # list workers with type, AZ, instance id
     ag-infra workers up [N] [--type T]                 # spin up N workers (default 1) and wait until ready
     ag-infra workers down                              # destroy every worker; the engine is untouched
@@ -37,7 +37,7 @@ that setup is retired and removed, see git history for `infra/hetzner`.)
 - State: `~/.local/state/ag-infra/aws/` on the session host, ag-engine (not in git; the ag-state archive
   snapshots it). Move to a remote backend (S3) before a second machine runs `ag-infra`.
 - Machines are reachable only over Tailscale (Tailscale SSH); the security group blocks all
-  inbound except Tailscale's UDP port. Break-glass: SSM Session Manager (`ag-infra console`).
+  inbound except Tailscale's UDP port. Break-glass: `ag-engine-rescue` (below).
 
 ## US only
 
@@ -61,6 +61,16 @@ any other region before calling AWS.
 - **Engine alerts** (`alerts.tf`, set `alert_email` in your tfvars): EventBridge emails you on every console shell or
   SSM command on the engine, snapshot/detach/modify of its disks, stop/terminate/modify/image/screenshot of the
   instance, any change to the ag-machine role, and any machine launched with it. Confirm the SNS email once.
-- Break-glass is SSM Session Manager (`ag-infra console`, instance role `ag-machine`), not a web console.
+- **No AWS console shell.** bootstrap-linux disables the SSM agent and the role has no SSM-core policy, so other
+  admins in a shared account can't open a shell on the machines. (Disabling the agent matters: an account's Default
+  Host Management Configuration can register instances without any instance-profile permissions.)
+- **Break-glass when Tailscale is down: `ag-engine-rescue open`** from your Mac (your own AWS credentials) opens
+  port 22 to your current public IP only and prints the ssh command (keys only: ag-mac's `ssh_public_key` plus
+  `extra_ssh_public_keys`, e.g. your client Mac's). Fix Tailscale, then `ag-engine-rescue close`. Last resort if
+  sshd or networking is broken: stop the instance, attach its root disk to a rescue instance in the same AZ (your
+  user can use the disk key), repair, reattach.
+- **Disk key** (`disk_kms_key_arn`): a customer-managed KMS key whose policy lists only you and `ag-machine`, so
+  snapshots or copies of the engine's disks are useless to other admins. Create it outside OpenTofu; if every
+  listed principal is lost, recovery goes through the account root and AWS Support.
 - Resize the engine with `ag-infra up -var engine_type=…` (stop/start). Add `owner = "you@work"` to your tfvars to
   tag every resource with an Owner.

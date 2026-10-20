@@ -3073,5 +3073,66 @@
   "hosts": [
    "ag-engine"
   ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-infra status 2>&1"
+  },
+  "sum": "Show Ag infra outputs (AWS)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-infra plan -no-color 2>&1"
+  },
+  "sum": "Plan Ag infra changes (AWS)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "AG_WORKERS=0 ag-infra-hetzner up -refresh-only -no-color 2>&1"
+  },
+  "sum": "Refresh Ag infra state (Hetzner)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-infra workers up 2 --type c7a.large"
+  },
+  "sum": "Start 2 Ag worker(s) (AWS)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "for h in ag-mac ag-client; do echo \"== $h\"; ssh -o ConnectTimeout=8 $h 'grep -rlsE \"foo\" ~/.ssh ~/ag'; done"
+  },
+  "sum": "Search \"foo\" in ~/.ssh, ~/ag",
+  "hosts": [
+   "ag-mac",
+   "ag-client"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "uvx --from awscli aws --profile playcademy --region us-east-1 ec2 start-instances --instance-ids i-03152b6ddb1b85312 --query 'StartingInstances[0].CurrentState.Name'"
+  },
+  "sum": "Run AWS ec2 start-instances i-03152b6ddb1b85312",
+  "hosts": [
+   "ag-engine"
+  ]
  }
 ]

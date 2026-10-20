@@ -12,7 +12,7 @@
 // change must keep `ag-toolsum check` (fixtures.json) passing. Add a fixture for each new rule.
 
 export type Summary = { sum?: string; hosts: string[]; rule?: string; miss?: string; parts?: { sum: string; host?: string }[] };
-type Ctx = { host: string; fns?: Record<string, string>; vars?: Record<string, string> /* plain VAR=value seen earlier */; miss?: string /* innermost piece that failed */; heredocs?: Record<string, string> };
+type Ctx = { host: string; fns?: Record<string, string>; vars?: Record<string, string> /* plain VAR=value seen earlier */; loops?: Record<string, string[]> /* for VAR in a b c: the literal values */; miss?: string /* innermost piece that failed */; heredocs?: Record<string, string> };
 type SegOut = { sum: string; host?: string; rule: string; parts?: { sum: string; host?: string }[] } | "noise" | null;
 
 const HOME_RE = /^(?:\/home\/[^/\s'"]+|\/Users\/[^/\s'"]+|\$HOME|~)(?=\/|$)/;
@@ -653,6 +653,13 @@ const RULES: Rule[] = [
 		const p = positional(a, ["-o", "-i", "-p", "-J", "-L", "-R", "-F", "-l", "-E", "-W"]);
 		const host = p[0];
 		if (!host) return;
+		const lv = host.match(/^"?\$\{?([A-Za-z_]\w*)\}?"?$/)?.[1];
+		const each = lv ? ctx.loops?.[lv] : undefined; // ssh $h inside `for h in ag-mac ag-client`
+		if (each?.length) {
+			const r = RULES.find((x) => x.id === "ssh")!.fn([...a.slice(0, a.indexOf(host)), each[0], ...a.slice(a.indexOf(host) + 1)], _raw, ctx, "");
+			if (!r || typeof r === "string") return r;
+			return { ...r, parts: each.flatMap((v) => (r.parts ?? [{ sum: r.sum, host: r.host }]).map((x) => ({ sum: x.sum, host: x.host === r.host ? normHost(v) : x.host }))) };
+		}
 		const h = normHost(host);
 		const inner = p.slice(1).join(" ");
 		if (!inner || /^(?:bash|sh|zsh)(?: -\w+)*$/.test(inner.trim())) return { sum: inner ? `Run a script on ${h}` : `SSH to ${h}`, host: h, rule: "ssh" };
@@ -786,7 +793,7 @@ const RULES: Rule[] = [
 		if (p[0] === "account" && p[1] === "list") return `List 1Password accounts (${tool})`;
 		if (p[0] === "item" && p[1] === "share") return `Share secret ${clip(p[2] ?? "", 40)}${flagVal(a, "--emails") ? ` with ${clip(flagVal(a, "--emails")!, 40)}` : ""}`;
 	} },
-	{ id: "ag-tools", cmd: /^(?:(?:\.\/)?(?:[\w.-]+\/)*bin\/(?=ag-toolsum$))?(ag-text|ag-show|ag-shot|ag-presence|ag-tickler|ag-access|ag-host|ag-inbox|nessie-daemon|ag-login-password|ag-machine-role|ag-record-flow|ag-screen-record|ag-dash-stats|ag-toolsum|ag-cua-queue|ag-screen-queue|ag-screen|ag-type-secret|routine|ag-pi-hibernate)$/, fn: (a, raw) => {
+	{ id: "ag-tools", cmd: /^(?:(?:\.\/)?(?:[\w.-]+\/)*bin\/(?=ag-toolsum$))?(ag-text|ag-show|ag-shot|ag-presence|ag-tickler|ag-access|ag-host|ag-inbox|nessie-daemon|ag-login-password|ag-machine-role|ag-record-flow|ag-screen-record|ag-dash-stats|ag-toolsum|ag-cua-queue|ag-screen-queue|ag-screen|ag-type-secret|routine|ag-pi-hibernate|ag-infra|ag-infra-hetzner)$/, fn: (a, raw) => {
 		const tool = raw.split(/\s/)[0].replace(/^.*\//, "");
 		const p = positional(a);
 		switch (tool) {
@@ -809,6 +816,18 @@ const RULES: Rule[] = [
 				if (p[0] === "cancel") return `Cancel ag-tickler item ${p[1] ?? ""}`.trim();
 				if (p[0] === "trigger") return `Trigger ag-tickler item ${p[1] ?? ""}`.trim();
 				if (p[0] === "add") { const title = flagVal(a, "--title") ?? flagVal(a, "--task"); return title ? tickSchedule(title, flagVal(a, "--when"), flagVal(a, "--at")) : undefined; }
+				return undefined;
+			}
+			case "ag-infra": case "ag-infra-hetzner": {
+				const where = tool === "ag-infra" ? "AWS" : "Hetzner";
+				if (p[0] === "plan") return `Plan Ag infra changes (${where})`;
+				if (p[0] === "status") return `Show Ag infra outputs (${where})`;
+				if (p[0] === "up") return a.includes("-refresh-only") ? `Refresh Ag infra state (${where})` : `Apply Ag infra (${where})`;
+				if (p[0] === "down") return `Destroy Ag infra (${where})`;
+				if (p[0] === "workers" && !p[1]) return `List Ag workers (${where})`;
+				if (p[0] === "workers" && p[1] === "down") return `Destroy all Ag workers (${where})`;
+				if (p[0] === "workers" && p[1] === "up") return `Start ${p[2] ?? 1} Ag worker(s) (${where})`;
+				if (p[0] === "scale" && p[1]) return `Scale Ag workers to ${p[1]} (${where})`;
 				return undefined;
 			}
 			case "ag-pi-hibernate": {
@@ -1051,7 +1070,7 @@ const RULES: Rule[] = [
 		const read = /^(get|describe|list|head|lookup|search|batch-get)-|^(ls|wait)$/.test(op);
 		return `${read ? "Query" : "Run"} AWS ${svc} ${op}${tgt ? ` ${clip(tgt, 40)}` : ""}`;
 	} },
-	{ id: "uvx", cmd: /^(uvx|pipx)$/, fn: (a, raw) => {
+	{ id: "uvx", cmd: /^(uvx|pipx)$/, fn: (a, raw, ctx) => {
 		const tool = raw.split(/\s/)[0];
 		const from = flagVal(a, "--from");
 		const i = a.findIndex((x, k) => !x.startsWith("-") && !/^(--from|--with|--python|-p|--spec)$/.test(a[k - 1] ?? "") && x !== "run");
@@ -1059,6 +1078,8 @@ const RULES: Rule[] = [
 		const prog = a[i].replace(/[=@].*$/, "");
 		const rest = a.slice(i + 1);
 		if (rest.length === 1 && /^(--help|-h)$/.test(rest[0])) return `Read ${prog} help (${tool})`;
+		const inner = prog === "aws" ? RULES.find((r) => r.id !== "uvx" && r.cmd.test(prog))?.fn(rest, [prog, ...rest].join(" "), ctx, "") : undefined;
+		if (typeof inner === "string") return inner; // a tool with its own rule: summarise what it does (uvx --from awscli aws ec2 …)
 		if (/^python3?$/.test(prog) && rest[0] === "-c") return `Run Python snippet (${tool}${from ? `, ${from}` : ""})`;
 		const file = positional(rest).find((x) => /^[\w./~-]+\.\w{1,5}$/.test(x) && !/^-/.test(x));
 		return `Run ${prog}${file ? ` on ${shortPath(file)}` : ""} (${tool})`;
@@ -1123,6 +1144,8 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 		if (arm) return summarizeSegment(arm[1], ctx);
 		const cond = s.replace(/^(?:if|elif|while|until)\s+/, "");
 		if (/^for\s/.test(s)) {
+			const lit = s.match(/^for\s+([A-Za-z_]\w*)\s+in\s+([\w.@ -]+?)\s*;?$/);
+			if (lit) (ctx.loops ??= {})[lit[1]] = lit[2].trim().split(/\s+/);
 			// for x in $(cmd): the list's commands, when every one is understood (otherwise the header stays noise)
 			const subs = substitutions(s).map((x) => summarizeOne(x, { ...ctx, miss: undefined }));
 			const real = subs.filter((x): x is Exclude<SegOut, "noise" | null> => !!x && x !== "noise");
@@ -1300,6 +1323,7 @@ export function summarizeShell(command: string, ctx: Ctx, top = false): Summary 
 	const segs = splitShell(stripHeredocs(command, bodies));
 	ctx = { ...ctx, heredocs: bodies };
 	const outs: { sum: string; host?: string }[] = [];
+	const touched = new Set<string>(); // hosts of parts dropped as repeats (the same step on several hosts)
 	const rules = new Set<string>();
 	let sleep = 0;
 	let unknown = false;
@@ -1343,9 +1367,9 @@ export function summarizeShell(command: string, ctx: Ctx, top = false): Summary 
 		if (o === "noise") continue;
 		if (!o) { unknown = true; miss = ctx.miss ?? seg; break; }
 		rules.add(o.rule);
-		for (const part of o.parts ?? [{ sum: o.sum, host: o.host }]) if (outs[outs.length - 1]?.sum !== part.sum) outs.push(part);
+		for (const part of o.parts ?? [{ sum: o.sum, host: o.host }]) { touched.add(part.host ?? ctx.host); if (outs[outs.length - 1]?.sum !== part.sum) outs.push(part); }
 	}
-	const hosts = [...new Set([...outs.map((o) => o.host ?? ctx.host)])];
+	const hosts = [...new Set([...outs.map((o) => o.host ?? ctx.host), ...touched])];
 	if (unknown) return { hosts: hosts.length ? hosts : [ctx.host], miss };
 	if (!outs.length) {
 		if (sleep) return { sum: `Wait ${sleep}s`, hosts: [ctx.host], rule: "sleep" };

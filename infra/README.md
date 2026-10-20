@@ -54,6 +54,13 @@ any other region before calling AWS.
   limit). The security group `ag-tailnet-only` allows inbound UDP 41641 (Tailscale) and ICMP only.
 - The engine's data volume is a gp3 EBS volume in the same AZ (`prevent_destroy`, encrypted), mounted at /data;
   cloud-init waits for it to attach and formats it only when it has no filesystem yet.
+- **Instance role `ag-machine`** (no access keys on the machines): PowerUserAccess + IAMReadOnlyAccess, plus the
+  inline `ag-guardrails` policy: it may pass only itself to EC2, and may never touch CloudTrail/GuardDuty, its own
+  alerts, Organizations/account settings, or create access keys/logins. It can't change its own permissions, so
+  edits to ag-machine (and to the alerts) need your own admin credentials (e.g. `AWS_PROFILE=<you> ag-infra up`).
+- **Engine alerts** (`alerts.tf`, set `alert_email` in your tfvars): EventBridge emails you on every console shell or
+  SSM command on the engine, snapshot/detach/modify of its disks, stop/terminate/modify/image/screenshot of the
+  instance, any change to the ag-machine role, and any machine launched with it. Confirm the SNS email once.
 - Break-glass is SSM Session Manager (`ag-infra console`, instance role `ag-machine`), not a web console.
 - Resize the engine with `ag-infra up -var engine_type=…` (stop/start). Add `owner = "you@work"` to your tfvars to
   tag every resource with an Owner.

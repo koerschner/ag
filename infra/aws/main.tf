@@ -72,11 +72,53 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   role       = aws_iam_role.ag.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
-# The machines' AWS credentials: the engine runs ag-infra (EC2/EBS/IAM) and `bun run secrets` (SSM) on this role,
-# so no access key lives on any machine (~/.aws/config's profile has only a region). Workers share the role.
+# The machines' AWS credentials: the engine runs ag-infra (EC2/EBS) and dev work (`bun run secrets`, SSM tunnels,
+# S3, ...) on this role, so no access key lives on any machine (~/.aws/config's profile has only a region).
+# Workers share the role. Default: PowerUserAccess (everything except IAM/Organizations) + IAM read-only, plus
+# the guardrails below. The role can't change itself: edits to ag-machine need your own admin credentials.
 resource "aws_iam_role_policy_attachment" "machine" {
+  for_each   = toset(var.machine_policy_arns)
   role       = aws_iam_role.ag.name
-  policy_arn = var.machine_policy_arn
+  policy_arn = each.value
+}
+resource "aws_iam_role_policy" "guardrails" {
+  name = "ag-guardrails"
+  role = aws_iam_role.ag.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      { # launch workers with this same role, nothing else
+        Sid       = "PassOwnRoleToEc2"
+        Effect    = "Allow"
+        Action    = "iam:PassRole"
+        Resource  = aws_iam_role.ag.arn
+        Condition = { StringEquals = { "iam:PassedToService" = "ec2.amazonaws.com" } }
+      },
+      { # never weaken the account's audit trail or threat detection
+        Sid    = "DenyAuditTampering"
+        Effect = "Deny"
+        Action = [
+          "cloudtrail:StopLogging", "cloudtrail:DeleteTrail", "cloudtrail:UpdateTrail", "cloudtrail:PutEventSelectors",
+          "guardduty:DeleteDetector", "guardduty:UpdateDetector", "guardduty:DisassociateFromMasterAccount",
+          "guardduty:DisassociateFromAdministratorAccount",
+        ]
+        Resource = "*"
+      },
+      { # nor its own alerts (alerts.tf): changing them needs your own admin credentials
+        Sid    = "DenyAlertTampering"
+        Effect = "Deny"
+        Action = ["events:DeleteRule", "events:DisableRule", "events:PutRule", "events:PutTargets", "events:RemoveTargets",
+        "sns:DeleteTopic", "sns:SetTopicAttributes", "sns:Unsubscribe", "sns:Subscribe", "sns:RemovePermission", "sns:AddPermission"]
+        Resource = ["arn:aws:events:*:*:rule/ag-engine-alert-*", "arn:aws:sns:*:*:ag-engine-alerts", "arn:aws:sns:*:*:ag-engine-alerts:*"]
+      },
+      { # no account- or org-level changes
+        Sid      = "DenyAccountLevel"
+        Effect   = "Deny"
+        Action   = ["organizations:*", "account:*", "iam:CreateAccessKey", "iam:CreateLoginProfile", "iam:UpdateLoginProfile"]
+        Resource = "*"
+      },
+    ]
+  })
 }
 resource "aws_iam_instance_profile" "ag" {
   name = "ag-machine"

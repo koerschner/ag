@@ -10,6 +10,11 @@
 #
 #   ag-mcp-gateway            run all servers (foreground; the LaunchAgent does this)
 #   ag-mcp-gateway status     show which ports answer
+#
+# A server that can't run on this machine (no credentials, Mac-only tool) should fall back to
+# `exec "$HOME/.local/bin/ag-mcp-noop"` (an empty MCP server) rather than sleep: mcp-proxy only
+# listens once its backend answers initialize, and a closed port makes every Pi session retry it
+# noisily at startup.
 set -u
 
 typeset -A PORT CMD

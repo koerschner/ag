@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""ag-mcp-noop: a stdio MCP server with no tools.
+
+Stand-in backend for an ag-mcp-gateway entry whose real server can't run on this
+machine (no credentials, Mac-only tool, …). mcp-proxy only starts listening once its
+backend answers `initialize`, so a placeholder like `sleep` leaves the port closed and
+every Pi session retries it noisily at startup ("[pi-mcp] Retrying … (attempt 1/5)").
+This answers the handshake and reports an empty tool list, so Pi connects once,
+quietly, and the entry simply contributes nothing here.
+"""
+import json
+import sys
+
+
+def reply(msg_id, result):
+    sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": msg_id, "result": result}) + "\n")
+    sys.stdout.flush()
+
+
+def main():
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        method = msg.get("method", "")
+        msg_id = msg.get("id")
+        if msg_id is None:  # notification: nothing to answer
+            continue
+        if method == "initialize":
+            reply(msg_id, {
+                "protocolVersion": msg.get("params", {}).get("protocolVersion", "2025-06-18"),
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "ag-mcp-noop", "version": "1.0"},
+            })
+        elif method == "tools/list":
+            reply(msg_id, {"tools": []})
+        elif method == "ping":
+            reply(msg_id, {})
+        else:
+            sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": msg_id, "error": {
+                "code": -32601, "message": f"method not available on this machine: {method}"}}) + "\n")
+            sys.stdout.flush()
+
+
+if __name__ == "__main__":
+    main()

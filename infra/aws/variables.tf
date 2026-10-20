@@ -98,3 +98,11 @@ variable "dotfiles_repo" {
   type        = string
   default     = ""
 }
+variable "disk_kms_key_arn" {
+  # A key whose own policy lists only you and the ag-machine role (not the account root), so other admins in a
+  # shared account can't open snapshots or copies of the engine's disks. Create it outside OpenTofu (it must
+  # outlive any rebuild) and set it in your tfvars. "" = AWS's default EBS key (any admin can use it).
+  description = "Customer-managed KMS key for the engine's disks (root and /data)"
+  type        = string
+  default     = ""
+}

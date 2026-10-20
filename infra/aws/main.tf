@@ -136,6 +136,7 @@ resource "aws_ebs_volume" "engine_data" {
   size              = var.engine_volume_gb
   type              = "gp3"
   encrypted         = true
+  kms_key_id        = var.disk_kms_key_arn != "" ? var.disk_kms_key_arn : null
   tags              = { Name = "ag-engine-data" }
   lifecycle { prevent_destroy = true }
 }
@@ -166,6 +167,7 @@ resource "aws_instance" "engine" {
     volume_size = var.engine_root_gb
     volume_type = "gp3"
     encrypted   = true
+    kms_key_id  = var.disk_kms_key_arn != "" ? var.disk_kms_key_arn : null
     tags        = { Name = "ag-engine-root" }
   }
   user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", merge(local.common, {

@@ -48,9 +48,16 @@ phone_publish() {
 			cp $t $dest/
 			print -r -- "<!doctype html><head><meta charset=utf-8><title>${t:t}</title></head><body style=\"margin:0;background:#111;color:#aaa;font:14px system-ui\">
 <video src=\"${t:t}\" controls playsinline autoplay muted style=\"width:100%;max-height:92vh;display:block\"></video><p style=\"padding:0 12px\">${t:t}</p>" > $dest/index.html
-		else
+		elif (( $+commands[pandoc] )); then
 			pandoc -s --embed-resources -f gfm --resource-path=${t:A:h} \
 				--metadata pagetitle=${t:t} -V mainfont=system-ui,-apple-system,sans-serif -o $dest/index.html $t
+		else
+			# No pandoc: publish the raw Markdown, escaped, with a note (install pandoc to render it).
+			echo "ag-show: pandoc not found; publishing raw Markdown (install pandoc to render it)" >&2
+			{ print -r -- "<!doctype html><head><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>${t:t}</title></head><body style=\"margin:0;padding:12px;font:14px system-ui\">
+<p style=\"color:#a60\">Raw Markdown (pandoc isn't installed on this host, so it wasn't rendered).</p><pre style=\"white-space:pre-wrap;word-wrap:break-word\">"
+				sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' $t
+				print -r -- "</pre>"; } > $dest/index.html
 		fi
 	fi
 	# The Tailscale Service svc:ag (ag-svc): same link whichever machine hosts sessions.

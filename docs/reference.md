@@ -697,7 +697,7 @@ The user sits at a client machine; agents run on a host (ag). Every machine stow
   (HTML files bring their referenced local assets; a folder opens its `index.html`).
   Agents call it themselves (see AGENTS.md). Servers on ag are reachable at `http://ag:<port>`.
 - **Reviewing on the phone**: on ag, `ag-show` also publishes HTML pages, folders, and Markdown
-  (rendered with pandoc) to `~/review/<name>/` and prints `phone: http://ag.<tailnet>.ts.net:7374/r/<name>/`.
+  (rendered with pandoc, installed by `bootstrap-linux` and the Brewfile; without it the raw Markdown is published with a note) to `~/review/<name>/` and prints `phone: http://ag.<tailnet>.ts.net:7374/r/<name>/`.
   `ag-file-inbox` serves them to the tailnet, adding a phone viewport and a **Comment** button to HTML.
   A comment posts to `/r/<name>/comment` and is sent as a prompt to the pi session that ran `ag-show`
   (matched by `$PI_SESSION_FILE` in `~/review/<name>/.meta.json`, so it survives pane moves), with

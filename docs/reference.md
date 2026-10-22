@@ -559,6 +559,15 @@ reconnect on their own.
   If the desktop app signs out of it, the session dies: sign in again and rerun `store`.
 - Only ag has the session; on other machines `slack_alpha` idles (no Keychain items).
 
+## Read AI (`ag-readai`)
+
+`ag-readai` reads the user's Read AI meetings (list, transcripts with speaker turns, summaries, metrics) through Read AI's
+OAuth MCP at `https://api.read.ai/mcp`, so agents never need the Read AI web app. One-time `ag-readai auth` registers a
+public client and prints a sign-in URL; the callback is `localhost:8765` on the session host, so forward it from whichever
+machine's browser approves it (`ssh -N -R 8765:127.0.0.1:8765 <machine>`). Client and refresh token live in
+`~/.config/readai/` (0600, never tracked). Then `ag-readai call list_meetings '{"limit":10,"expand":["transcript"]}'`.
+Tokens must carry `resource=https://api.read.ai/mcp` only; a multi-audience token is rejected with 401.
+
 ## arcade_school MCP
 
 The `arcade_school` MCP bridges to the partner's MCP endpoint; its credential file is `~/.config/mcp/arcade-school.headers`, never tracked.

@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+"""ag-readai: read the user's Read AI meetings through Read AI's MCP (https://api.read.ai/mcp).
+
+  ag-readai auth                 one-time OAuth (PKCE). Prints a URL; open it in a browser signed in to
+                                 Read AI. The callback is http://localhost:8765/callback on THIS machine, so
+                                 when the browser runs elsewhere forward it first, e.g. from the session host:
+                                 ssh -N -R 8765:127.0.0.1:8765 <browser-machine>
+  ag-readai tools                list the MCP tools
+  ag-readai call <tool> [json]   call a tool, e.g. ag-readai call list_meetings '{"limit":10,"expand":["transcript"]}'
+
+State (never tracked): ~/.config/readai/client.json (dynamically registered public client) and token.json
+(access + refresh token, mode 0600). Tokens must be minted with resource=https://api.read.ai/mcp; a token
+with several audiences is rejected. Importable: `import readai`-style use via call()/rpc().
+"""
+import base64, hashlib, http.server, json, os, secrets, sys, time, urllib.parse, urllib.request
+D = os.path.expanduser("~/.config/readai"); RES = "https://api.read.ai/mcp"; AUTHN = "https://authn.read.ai/oauth2"
+REDIRECT = "http://localhost:8765/callback"; SCOPE = "openid email offline_access mcp:execute meeting:read"
+
+def _save(name, obj):
+    os.makedirs(D, mode=0o700, exist_ok=True); p = f"{D}/{name}"
+    fd = os.open(p + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600); os.write(fd, json.dumps(obj).encode()); os.close(fd); os.replace(p + ".tmp", p)
+
+def _post(url, form): return json.load(urllib.request.urlopen(urllib.request.Request(url, data=urllib.parse.urlencode(form).encode())))
+
+def client():
+    if not os.path.exists(f"{D}/client.json"):
+        req = urllib.request.Request("https://api.read.ai/oauth/register", headers={"content-type": "application/json"}, data=json.dumps(dict(
+            client_name="ag Read AI client", redirect_uris=[REDIRECT], grant_types=["authorization_code", "refresh_token"],
+            response_types=["code"], token_endpoint_auth_method="none", scope=SCOPE)).encode())
+        _save("client.json", json.load(urllib.request.urlopen(req)))
+    return json.load(open(f"{D}/client.json"))
+
+def token():
+    t = json.load(open(f"{D}/token.json"))
+    if time.time() - os.path.getmtime(f"{D}/token.json") < t.get("expires_in", 600) - 60: return t["access_token"]
+    n = _post(f"{AUTHN}/token", dict(grant_type="refresh_token", refresh_token=t["refresh_token"], client_id=client()["client_id"], resource=RES))
+    n.setdefault("refresh_token", t["refresh_token"]); _save("token.json", n); return n["access_token"]
+
+_id = 0
+def rpc(method, params=None):
+    global _id; _id += 1
+    req = urllib.request.Request(RES, data=json.dumps({"jsonrpc": "2.0", "id": _id, "method": method, "params": params or {}}).encode(),
+        headers={"Authorization": "Bearer " + token(), "content-type": "application/json", "accept": "application/json, text/event-stream"})
+    body = urllib.request.urlopen(req, timeout=180).read().decode()
+    if body.lstrip().startswith("{"): return json.loads(body)
+    return next(json.loads(l[5:]) for l in body.splitlines() if l.startswith("data:"))
+
+def call(name, **args):
+    r = rpc("tools/call", {"name": name, "arguments": args})
+    if "error" in r: raise RuntimeError(r["error"])
+    res = r["result"]
+    if res.get("structuredContent"): return res["structuredContent"]
+    text = "\n".join(c.get("text", "") for c in res.get("content", []))
+    try: return json.loads(text)
+    except ValueError: return text
+
+def auth():
+    c = client(); ver = secrets.token_urlsafe(64); state = secrets.token_urlsafe(16)
+    ch = base64.urlsafe_b64encode(hashlib.sha256(ver.encode()).digest()).rstrip(b"=").decode()
+    print(f"{AUTHN}/auth?" + urllib.parse.urlencode(dict(response_type="code", client_id=c["client_id"], redirect_uri=REDIRECT, scope=SCOPE,
+        code_challenge=ch, code_challenge_method="S256", state=state, resource=RES)), flush=True)
+    class H(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a): pass
+        def do_GET(self):
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if q.get("state", [None])[0] != state or "code" not in q: self.send_response(400); self.end_headers(); return
+            _save("token.json", _post(f"{AUTHN}/token", dict(grant_type="authorization_code", code=q["code"][0], redirect_uri=REDIRECT,
+                client_id=c["client_id"], code_verifier=ver, resource=RES)))
+            self.send_response(200); self.end_headers(); self.wfile.write(b"Read AI connected. You can close this tab.")
+            print("token saved", flush=True); os._exit(0)
+    http.server.HTTPServer(("127.0.0.1", 8765), H).serve_forever()
+
+if __name__ == "__main__":
+    a = sys.argv[1:]
+    if a[:1] == ["auth"]: auth()
+    rpc("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "ag-readai", "version": "1"}})
+    if a[:1] == ["tools"]: print("\n".join(t["name"] for t in rpc("tools/list")["result"]["tools"]))
+    elif a[:1] == ["call"] and len(a) >= 2: print(json.dumps(call(a[1], **json.loads(a[2] if len(a) > 2 else "{}")), indent=1))
+    else: print(__doc__); sys.exit(2)

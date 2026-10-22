@@ -51,6 +51,21 @@ for t in "${req[@]}"; do have "$t" && ok "$t" || no "$t (ag setup installs it)";
 [[ -n $ts ]] && ok tailscale || no "tailscale (install it and sign in to the tailnet)"
 [[ $os == Darwin ]] && { [[ -d /Applications/Hammerspoon.app ]] && ok Hammerspoon || opt "Hammerspoon (clients only: capture, paste, shortcuts)"; }
 
+head_ "Pi"
+models=$HOME/.pi/agent/models.json settings=$HOME/.pi/agent/settings.json
+if [[ -f $models && -f $settings ]] && have jq; then
+	# A big window needs its own compaction reserve: the default (16384) waits until the window is almost full and
+	# caps the summary at 13107 tokens, so compaction fails and the session runs out of room (docs/reference.md).
+	unguarded=$(jq -rn --slurpfile m "$models" --slurpfile s "$settings" '
+		($s[0].compaction.modelOverrides // {}) as $o
+		| [$m[0].providers | to_entries[] | .key as $p | (.value.models // [])[]
+		   | select((.contextWindow // 0) >= 256000) | "\($p)/\(.id)" | select($o[.] == null)] | join(", ")')
+	if [[ -z $unguarded ]]; then ok "compaction reserve set for every model with a 256k+ window"
+	else no "compaction.modelOverrides missing in pi/dot-pi/agent/settings.json for: $unguarded"; fi
+else
+	opt "no ~/.pi/agent/models.json here (compaction check skipped)"
+fi
+
 head_ "Tailnet"
 if [[ -n $ts ]] && "$ts" status >/dev/null 2>&1; then ok "signed in to Tailscale"; else no "Tailscale not running or signed out"; fi
 if curl -fsS -m 3 -o /dev/null http://ag:7373/ 2>/dev/null; then ok "the ag-inbox answers at http://ag:7373"; else opt "http://ag:7373 unreachable (needs the tailnet and a running session host)"; fi

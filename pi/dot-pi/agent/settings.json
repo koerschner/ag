@@ -39,5 +39,177 @@
     "truefoundry-chat/gemini-group/gemini-3.7-flash",
     "truefoundry-chat/perplexity-group/sonar-pro"
   ],
-  "theme": "dark"
+  "theme": "dark",
+  "compaction": {
+    "modelOverrides": {
+      "openrouter/anthropic/claude-fable-5": {
+        "reserveTokens": 400000
+      },
+      "openrouter/anthropic/claude-opus-5.5": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/bedrock-oss-group/devstral-2": {
+        "reserveTokens": 102400
+      },
+      "truefoundry-chat/bedrock-oss-group/kimi-k2-thinking": {
+        "reserveTokens": 102400
+      },
+      "truefoundry-chat/bedrock-oss-group/kimi-k2.5": {
+        "reserveTokens": 102400
+      },
+      "truefoundry-chat/bedrock-oss-group/llama4-maverick": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/bedrock-oss-group/mistral-large-3": {
+        "reserveTokens": 102400
+      },
+      "truefoundry-chat/bedrock-oss-group/qwen3-coder-30b": {
+        "reserveTokens": 102400
+      },
+      "truefoundry-chat/bedrock-oss-group/qwen3-coder-next": {
+        "reserveTokens": 102400
+      },
+      "truefoundry-chat/bedrock-oss-group/qwen3-next-80b": {
+        "reserveTokens": 102400
+      },
+      "truefoundry-chat/bedrock-oss-group/qwen3-vl-235b": {
+        "reserveTokens": 102400
+      },
+      "truefoundry-chat/fireworks-group/kimi-k2p7-code": {
+        "reserveTokens": 102400
+      },
+      "truefoundry-chat/fireworks-group/kimi-k3": {
+        "reserveTokens": 102400
+      },
+      "truefoundry-chat/fireworks-group/kimi-k3-fast": {
+        "reserveTokens": 102400
+      },
+      "truefoundry-chat/fireworks-group/qwen3p8-max": {
+        "reserveTokens": 102400
+      },
+      "truefoundry-chat/gemini-group/gemini-2.5-flash": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/gemini-group/gemini-2.5-flash-flex": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/gemini-group/gemini-2.5-flash-lite-flex": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/gemini-group/gemini-2.5-pro": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/gemini-group/gemini-3-flash-preview": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/gemini-group/gemini-3-flash-preview-flex": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/gemini-group/gemini-3.1-flash-lite-flex": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/gemini-group/gemini-3.1-pro": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/gemini-group/gemini-3.1-pro-preview-customtools": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/gemini-group/gemini-3.5-flash": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/gemini-group/gemini-3.5-flash-flex": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/gemini-group/gemini-3.5-flash-lite": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/gemini-group/gemini-3.5-flash-lite-flex": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/gemini-group/gemini-3.6-flash": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/gemini-group/gemini-3.6-flash-flex": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/gemini-group/gemini-3.7-flash": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/gemini-group/gemini-3.7-flash-flex": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-chat/xai-group/grok-4.3": {
+        "reserveTokens": 102400
+      },
+      "truefoundry-chat/xai-group/grok-4.3-latest": {
+        "reserveTokens": 102400
+      },
+      "truefoundry-chat/xai-group/grok-4.5": {
+        "reserveTokens": 102400
+      },
+      "truefoundry-chat/xai-group/grok-build-0.1": {
+        "reserveTokens": 102400
+      },
+      "truefoundry-chat/xai-group/grok-latest": {
+        "reserveTokens": 102400
+      },
+      "truefoundry-openai/codex-auto-review": {
+        "reserveTokens": 160000
+      },
+      "truefoundry-openai/gpt-4.1": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-openai/gpt-4.1-nano": {
+        "reserveTokens": 400000
+      },
+      "truefoundry-openai/gpt-5": {
+        "reserveTokens": 160000
+      },
+      "truefoundry-openai/gpt-5-mini": {
+        "reserveTokens": 160000
+      },
+      "truefoundry-openai/gpt-5-nano": {
+        "reserveTokens": 160000
+      },
+      "truefoundry-openai/gpt-5.2": {
+        "reserveTokens": 160000
+      },
+      "truefoundry-openai/gpt-5.3-codex": {
+        "reserveTokens": 160000
+      },
+      "truefoundry-openai/gpt-5.4": {
+        "reserveTokens": 160000
+      },
+      "truefoundry-openai/gpt-5.4-mini": {
+        "reserveTokens": 160000
+      },
+      "truefoundry-openai/gpt-5.4-nano": {
+        "reserveTokens": 160000
+      },
+      "truefoundry-openai/gpt-5.5": {
+        "reserveTokens": 160000
+      },
+      "truefoundry-openai/gpt-5.6-luna": {
+        "reserveTokens": 160000
+      },
+      "truefoundry-openai/gpt-5.6-sol": {
+        "reserveTokens": 160000
+      },
+      "truefoundry-openai/gpt-5.6-terra": {
+        "reserveTokens": 160000
+      },
+      "truefoundry-openai/gpt-6-astra": {
+        "reserveTokens": 160000
+      },
+      "truefoundry/anthropic-primary/claude-haiku-5-5": {
+        "reserveTokens": 400000
+      },
+      "truefoundry/anthropic-primary/claude-opus-5-5": {
+        "reserveTokens": 400000
+      },
+      "truefoundry/claude-fable-5-1": {
+        "reserveTokens": 400000
+      }
+    }
+  }
 }

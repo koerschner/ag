@@ -114,6 +114,25 @@ Pi's default model and Ctrl+P rotation are configured only in `settings.json`
 (`defaultProvider`/`defaultModel`/`enabledModels`); nothing in the shell
 config overrides them.
 
+**Compaction on big context windows.** Pi compacts when the context passes
+`contextWindow - reserveTokens` and caps the summary at 80% of `reserveTokens`.
+The default reserve (16384) is sized for 200k windows: on a 1M model it waits
+until the window is 98% full and allows a 13k-token summary, which a long
+session can't fit, so every compaction failed and sessions ran out of room
+mid-reply (2026-10-21). `settings.json` therefore sets
+`compaction.modelOverrides` for every model in `models.json` with a window of
+256k or more, at 40% of the window: a 1M model compacts above 600k with a
+summary cap of up to 128k (its max output). When you add such a model to
+`~/ag-personal/pi-models.json`, give it an override too; `ag doctor` flags any
+that lack one.
+
+**Tool results that lost their tool call.** Pi's overflow recovery can drop a
+reply that was cut off mid tool call while keeping the synthetic result that
+answered it; Anthropic then refuses every later request with a 400
+("unexpected `tool_use_id` found in `tool_result` blocks"). The
+`tool-pairing-guard` extension leaves such results out of each request (the
+transcript keeps them).
+
 Intentionally not tracked in git:
 - `~/.pi/agent/auth.json`
 - `~/.pi/agent/sessions/`

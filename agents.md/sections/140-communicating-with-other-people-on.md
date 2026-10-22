@@ -8,4 +8,4 @@ Applies to ANYTHING another human may read that you author. Always follow the AI
 - This applies to drafts written in the user's voice too. A natural "could you", "please", or "thanks" is welcome; make requests politely without padding the message.
 - When drafting a message for the user to send themselves, mark it clearly as a draft in *their* voice; do not mix the two.
 - Use the name the user goes by (see the personal instructions) when signing drafts in their voice and when writing about them; use their legal name only where a legal name is required.
-- For Discord (the team's default channel), see the Arcade Discord section below.
+- For Discord (the team's default channel), see the FreeTime Discord section below.

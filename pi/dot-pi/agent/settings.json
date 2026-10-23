@@ -3,6 +3,12 @@
   "defaultProvider": "truefoundry",
   "defaultModel": "anthropic-primary/claude-opus-5-5",
   "defaultThinkingLevel": "medium",
+  "defaultTools": [
+    "+codemode"
+  ],
+  "codemode": {
+    "mode": "only"
+  },
   "hideThinkingBlock": true,
   "packages": [
     "npm:pi-mcp-extension"

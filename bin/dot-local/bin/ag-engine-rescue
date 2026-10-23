@@ -24,7 +24,7 @@ case ${1:-status} in
       --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=$me/32,Description=ag-engine-rescue}]" >/dev/null
     echo "SSH open from $me/32 to $NAME ($id, $state). Connect with:"
     echo "  ssh -o StrictHostKeyChecking=accept-new $USER_@$ip"
-    echo "Then fix Tailscale (e.g. sudo systemctl restart tailscaled; sudo tailscale up --ssh ...) and run: ag-engine-rescue close" ;;
+    echo "Then fix Tailscale (e.g. sudo systemctl restart tailscaled; sudo tailscale up ...) and run: ag-engine-rescue close" ;;
   close)
     for r in $(rules | awk '{print $1}'); do aws ec2 revoke-security-group-ingress --group-id "$sg" --security-group-rule-ids "$r" >/dev/null && echo "closed $r"; done ;;
   status)

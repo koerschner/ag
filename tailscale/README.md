@@ -10,6 +10,7 @@
   - Tags: `tag:ag-engine` (the Linux engine / session host) and `tag:ag-worker` (scale-out machines).
   - The owner's devices reach everything. The engine reaches everything. Workers reach only the engine and each other.
   - Tailscale SSH (no browser check) from the owner's devices, ag-mac included, to both tags, and from the engine to workers.
+  Tailscale SSH is **off** on every node since 2026-10-23 (a privilege escalation was disclosed in it); machines use plain OpenSSH with keys in ~/.ssh/authorized_keys. The policy's ssh rules stay so it can be turned back on once patched.
 - **Credentials** (work vault `ag-vault`, read with `op-work`):
   - `Tailscale OAuth client (ag)`: username = client ID, credential = secret. Scopes `all`, may assign
     both tags. Doesn't expire. Use for Terraform (`oauth_client_id`/`oauth_client_secret`, tailnet `-`)
@@ -17,12 +18,12 @@
   - `Tailscale ag auth key` (field `credential`): reusable, ephemeral, pre-authorized, tagged
     `tag:ag-engine` + `tag:ag-worker`, 90-day expiry (date in the item). Replace it before then with
     `ag-ts-mint-auth-key`. Join a machine with
-    `tailscale up --auth-key="$KEY" --advertise-tags=tag:ag-worker --ssh`.
+    `tailscale up --auth-key="$KEY" --advertise-tags=tag:ag-worker`.
     Ephemeral nodes disappear from the tailnet when they go offline, so this key is for **workers** only.
   - The **engine** must not be ephemeral (it vanished once while stopped). `ag-infra` mints it a single-use,
     non-ephemeral, pre-authorized `tag:ag-engine` key per run (1-hour expiry) with the OAuth client. To re-join
     an existing engine by hand, mint one the same way (`ag-ts-api POST tailnet/-/keys`, `"ephemeral":false`),
-    then `sudo tailscale logout && sudo tailscale up --auth-key=file:<key> --hostname=ag-engine --ssh
+    then `sudo tailscale logout && sudo tailscale up --auth-key=file:<key> --hostname=ag-engine
     --advertise-tags=tag:ag-engine` and `ag-svc local` (the Tailscale IP changes; svc:ag doesn't).
 - Recreate from zero: sign into the admin console as the tailnet owner. Generate a 1-day API
   access token (Settings → Keys) and apply `policy.hujson`. Then create the OAuth client with

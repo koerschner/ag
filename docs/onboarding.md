@@ -147,7 +147,7 @@ Only port 41641/udp is open to the internet. If Tailscale ever breaks, `ag infra
 ```sh
 # on the VPS, as a sudo user (not root)
 curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up --ssh --hostname=ag-engine --advertise-tags=tag:ag-engine
+sudo tailscale up --hostname=ag-engine --advertise-tags=tag:ag-engine
 git clone https://github.com/<you>/ag.git ~/ag
 ~/ag/bin/dot-local/bin/ag setup
 ```

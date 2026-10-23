@@ -11,6 +11,7 @@
   - The owner's devices reach everything. The engine reaches everything. Workers reach only the engine and each other.
   - Tailscale SSH (no browser check) from the owner's devices, ag-mac included, to both tags, and from the engine to workers.
   Tailscale SSH is **off** on every node since 2026-10-23 (a privilege escalation was disclosed in it); machines use plain OpenSSH with keys in ~/.ssh/authorized_keys. The policy's ssh rules stay so it can be turned back on once patched.
+  Key expiry is disabled on ag-mac (always-on and unattended, so an expired key would cut it off silently) via the API: POST device/<nodeId>/key with {"keyExpiryDisabled":true} (ag-ts-api, Content-Type application/json). Tagged nodes (the engine) never expire; the owner's own devices keep expiry on.
 - **Credentials** (work vault `ag-vault`, read with `op-work`):
   - `Tailscale OAuth client (ag)`: username = client ID, credential = secret. Scopes `all`, may assign
     both tags. Doesn't expire. Use for Terraform (`oauth_client_id`/`oauth_client_secret`, tailnet `-`)

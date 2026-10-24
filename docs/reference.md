@@ -317,7 +317,7 @@ Guide for agents. Sources: [docs.typesafe.ai](https://docs.typesafe.ai/llms.txt)
 
 **What it is.** A fast decision model, not a chat LLM. You send a `state` (text, JSON object, or array) plus named typed questions; it returns typed answers with calibrated probabilities. It does not generate text, call tools, or write code, so it can't power pi or any coding agent. Use it *inside* code wherever the answer has a known shape: route, gate, score, verify.
 
-**Where Ag uses it** (all `jev-latest` over TrueFoundry, `TFY_TOKEN`). Each is a default ag-rule (`ag-rules/`), so its question, criteria and thresholds are readable and replaceable (`ag-rules eject <name>`):
+**Where Ag uses it** (all `typesafe-account/jev` over TrueFoundry, `TFY_TOKEN`). Each is a default ag-rule (`ag-rules/`), so its question, criteria and thresholds are readable and replaceable (`ag-rules eject <name>`):
 
 | Where | Question | Effect |
 |---|---|---|
@@ -332,11 +332,11 @@ Guide for agents. Sources: [docs.typesafe.ai](https://docs.typesafe.ai/llms.txt)
 **API.**
 
 ```bash
-# Through our TrueFoundry gateway ($AG_AI_GATEWAY, in ~/ag-personal/env; no TypeSafe key needed). The path after
-# /proxy-api/jev-account/jev-endpoint/ is passed straight through to api.typesafe.ai.
-curl -s "$AG_AI_GATEWAY"/proxy-api/jev-account/jev-endpoint/v1/systemone \
+# Through our TrueFoundry gateway ($AG_AI_GATEWAY, in ~/ag-personal/env; no TypeSafe key needed). Jev is a native
+# TrueFoundry model: "typesafe-account/jev" (or pinned "typesafe-account/jev-1.14.0") on /api/llm/v1/systemone.
+curl -s "$AG_AI_GATEWAY"/api/llm/v1/systemone \
   -H "Authorization: Bearer $TFY_TOKEN" -H 'content-type: application/json' \
-  -d '{"model":"jev-latest","state":"Help! My payouts have been failing for 3 days.",
+  -d '{"model":"typesafe-account/jev","state":"Help! My payouts have been failing for 3 days.",
        "questions":{
          "team":{"type":"choice","instructions":"Which team should handle this?",
                  "criteria":{"billing":"Payments, refunds","technical":"Bugs, outages","sales":"Pricing, upgrades"}},
@@ -353,9 +353,9 @@ curl -s "$AG_AI_GATEWAY"/proxy-api/jev-account/jev-endpoint/v1/systemone \
 - Question ids are for your code only and are never sent to the model, so each question must be self-contained. Point at nested state with backticked paths like `` `ticket.messages[0].text` ``.
 - Ask all independent questions over the same state in **one request**. They run in parallel, and extra speculative ones are cheap. Only make a second call when an earlier answer is needed to build the next state.
 - Include a no-match option when nothing may fit. Gate actions on `confidence` or probability thresholds tuned on your own data; route the uncertain ones to a person or a reasoning LLM. A `noul` near 0.5 means "unsure", not "medium".
-- Models: `jev-latest` (currently `jev-1.13.0`); pin the versioned id if you tuned thresholds. 64k tokens per request (32k for state plus the longest question), text only, English is strongest. Priced per input token (about $0.042 per million); output is free. It returns `429` when rate-limited, so retry with backoff.
+- Models: `typesafe-account/jev` (currently `jev-1.13.0`; `typesafe-account/jev-1.14.0` is pinned 1.14); pin the versioned id if you tuned thresholds. 64k tokens per request (32k for state plus the longest question), text only, English is strongest. Priced per input token (about $0.042 per million); output is free. It returns `429` when rate-limited, so retry with backoff.
 - SDKs: Python (`TypeSafeClient` / `AsyncTypeSafeClient`) and JavaScript; see [SDKs](https://docs.typesafe.ai/sdk.md). Try prompts in the [Playground](https://console.typesafe.ai/playground).
-- Access: call Jev through TrueFoundry as above with `TFY_TOKEN` (from `~/.zshenv.local`), not `api.typesafe.ai` directly. It is a TrueFoundry "custom endpoint", so `/chat/completions` rejects it; use the `/proxy-api/` path. TypeSafe SDKs can point at that base URL.
+- Access: call Jev through TrueFoundry as above with `TFY_TOKEN` (from `~/.zshenv.local`), not `api.typesafe.ai` directly. Since 2026-10-23 it is a native TrueFoundry model (`typesafe-account/jev`, `typesafe-account/jev-1.14.0`) on `/api/llm/v1/systemone`; `/chat/completions` rejects it. The old custom endpoint (`/proxy-api/jev-account/jev-endpoint/...`) now returns 403, which made every Jev judgment (client-CUA gate, inbox routing, tab names) fail closed. TypeSafe SDKs can point at `$AG_AI_GATEWAY/api/llm`.
 - In use here:
   - `pi/dot-pi/agent/extensions/ag-tab-name.ts`: keeps tab names accurate (`noul`: does the label still fit the recent prompts?; see "Session config").
   - `ag-inbox` screenshot gate: `noul`, does the capture need the screenshot? (see "ag-inbox").

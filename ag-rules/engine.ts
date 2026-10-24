@@ -16,7 +16,10 @@ const HOME = homedir();
 const AG_RULES = join(process.env.AG_DIR || join(HOME, "ag"), "bin/dot-local/bin/ag-rules"); // this checkout's CLI
 // The AI gateway (TrueFoundry): $AG_AI_GATEWAY, else its line in the private ~/ag-personal/env.
 const AI_GATEWAY = (process.env.AG_AI_GATEWAY || (() => { try { return readFileSync(`${HOME}/ag-personal/env`, "utf8").match(/^AG_AI_GATEWAY=(.*)$/m)?.[1].trim() ?? ""; } catch { return ""; } })()).replace(/\/$/, "");
-export const JEV_URL = `${AI_GATEWAY}/proxy-api/jev-account/jev-endpoint/v1/systemone`;
+// Jev is a native TrueFoundry model (provider account typesafe-account) since 2026-10-23; the old
+// /proxy-api/jev-account/jev-endpoint custom endpoint now answers 403.
+export const JEV_URL = `${AI_GATEWAY}/api/llm/v1/systemone`;
+export const JEV_MODEL = "typesafe-account/jev";
 
 export type RuleInfo = { name: string; on?: string; app?: string; enabled: boolean; path?: string; dir: string; source?: string; sessions?: string; description?: string; text: string };
 
@@ -63,7 +66,7 @@ export async function jev(state: Record<string, unknown>, questions: Record<stri
 	const res = await fetch(JEV_URL, {
 		method: "POST",
 		headers: { authorization: `Bearer ${tfyToken()}`, "content-type": "application/json" },
-		body: JSON.stringify({ model: "jev-latest", state, questions }),
+		body: JSON.stringify({ model: JEV_MODEL, state, questions }),
 		signal: AbortSignal.timeout(timeoutMs),
 	});
 	if (!res.ok) throw new Error(`jev ${res.status}: ${(await res.text()).slice(0, 300)}`);

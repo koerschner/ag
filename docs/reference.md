@@ -763,8 +763,10 @@ The user sits at a client machine; agents run on a host (ag). Every machine stow
   that `launchctl submit`s the GUI-session codex run and waits for it). Non-interactive ssh on the
   client doesn't put `~/.local/bin` first, so there only the queue and the client-CUA gate apply.
 - **Secrets into fields: `ag-type-secret`.** To enter a password or card number, the CUA task itself
-  runs `ag-type-secret [--app "Google Chrome"] op://<vault>/<item>/<field>` after focusing the field:
-  it refuses outside a screen job, checks the frontmost app, reads via op-shared (machine-shared),
+  runs `ag-type-secret [--app "Google Chrome"] [--host <domain>] op://<vault>/<item>/<field>` after
+  focusing the field: it refuses outside a screen job, checks the frontmost app (with `--host`, also
+  that Chrome's front tab is on that domain or a subdomain, so a password can't land in another site's
+  field when the wrong window is in front; pass it for every password), reads via op-shared (machine-shared),
   op-work (ag-vault) or op-ag, and keystrokes it with the value in the environment (never argv,
   output, or the prompt). Never screenshot a filled secret field to check it; ask the CUA run whether
   the field is filled, without digits.

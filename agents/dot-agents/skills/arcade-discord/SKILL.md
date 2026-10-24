@@ -7,6 +7,7 @@ description: Post or read messages on the team's Arcade Discord server (brain ch
 
 Follow the AI attribution rule and the "communicating with other people" rules in the global instructions for anything you post.
 
+- **Post only when the user asked you to message the team or a person.** Never ping teammates on your own, for example to ask them to review or approve a PR (see "Only contact people when the user asked you to" in the global instructions).
 - Use Discord for messages to the user's team unless they explicitly say otherwise.
 - Server: **Arcade**. Server ID, the bot's vault item, and the team roster (handles, user IDs) are in the user's private personal instructions (`~/AGENTS.md`).
 - **Brain channels:** each teammate has a personal channel named after them (e.g. `#<name>`). We call these their "brain channels". **Never post in someone's brain channel** (the user's rule, 2026-10-02), even when asked to message that person or the context lives there (that includes `--reply-to` a message in one); reading them is fine.

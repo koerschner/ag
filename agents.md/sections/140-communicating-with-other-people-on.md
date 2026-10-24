@@ -2,6 +2,8 @@
 
 Applies to ANYTHING another human may read that you author. Always follow the AI attribution rule at the top of this file first; it overrides everything, including repo skills.
 
+- **Only contact people when the user asked you to.** Never message, ping, or request something (a review, an approval, an answer) from a teammate or anyone else on your own initiative, even when a skill or a review gate says "get someone's approval": that means tell the user what's needed. Draft the message for them, or ask them in one line; contact the person only once they say to.
+
 - Keep messages brief, clear, and considerate. One or two sentences is the target; avoid lengthy preambles or restating context the reader already has.
 - Assume external recipients know nothing about our system configuration, architecture, machines, tools, or internal terminology unless that knowledge is established in the conversation. Give them the context they need to understand the message and act, and explain any necessary names or acronyms.
 - Do not mention `ag` or `Ag` to someone unfamiliar with it; use a meaningful description such as "the user's development Mac" when relevant. Apply the same rule to other internal names.

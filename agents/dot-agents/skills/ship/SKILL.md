@@ -93,7 +93,7 @@ Exit when every required check is green on HEAD and no bot findings are unresolv
 gh pr merge <pr> --squash --delete-branch --match-head-commit <sha>
 ```
 
-If the only blocker is a required review, retry with `--admin`. Ignore a local "main is already used by worktree" error from `gh`; check `gh pr view <pr> --json state`.
+If the only blocker is a human-approval gate (a required review, or the `pr-review` status saying "Needs a human: waiting for approval"), retry with `--admin`: the `/ship` kickoff is the approval. Never ask teammates to review or approve (no Discord/Slack pings, no requested reviewers), even when a team skill says to get someone's approval. If `--admin` is refused, halt as blocked. Ignore a local "main is already used by worktree" error from `gh`; check `gh pr view <pr> --json state`.
 
 ## 7. Cleanup and report
 
@@ -108,6 +108,6 @@ Merging to `main` deploys staging only. The production release (a date tag `v<YY
 Call `ship_halt({ reason, summary })` only when you can't move forward:
 
 - **already_done**: the issue is closed, or someone else already has a PR for it.
-- **blocked**: an external blocker you can't fix, such as auth or permissions, a merge refused for something other than a required review, or CI that stays red after honest attempts.
+- **blocked**: an external blocker you can't fix, such as auth or permissions, a merge still refused after `--admin`, or CI that stays red after honest attempts.
 
 Before halting, push everything you have and list exactly what's left.

@@ -17,6 +17,10 @@ command:
 - **The `ag` CLI.** `ag <verb>` calls (docs/ag-cli.md, `bin/dot-local/lib/ag/`) get one summary per verb (rule
   `ag-cli`: "Send "…" to tCY", "Merge tD2 into this session", "Sync ag to every machine" …); passthrough verbs
   (`ag text`, `ag mux` …) are summarized as the `ag-*` tool they run. When you add a verb, add its case and a fixture.
+- **codemode.** Each `tools.X({ … })` call in the script is summarized as that tool call when its key argument
+  is a literal (string consts, `${const}` and `${JSON.stringify(const)}` are resolved, and so are
+  `const q = s => tools.X({ sql: s })` helpers); `ALL_TOOLS`, `searchTools` and `describeTool` become tool-catalogue
+  lookups. Any call it can't resolve (loops over arrays, commands built at run time) leaves the whole script raw.
 - **Machine chips.** `chatgpt_cua`/`mac …` → ag-mac, `ag-client-cua`/`ssh ag-client` → ag-client, TapKit →
   ag-phone, MCP tools → mcp, everything else → the session's own machine (from its working directory).
 

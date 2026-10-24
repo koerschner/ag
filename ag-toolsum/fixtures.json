@@ -3134,5 +3134,228 @@
   "hosts": [
    "ag-engine"
   ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const r = await tools.bash({command:\"cd ~/.local/state/routines/x; cat cursor.json; echo; cat notes.md | tail -30\"}); return r.output"
+  },
+  "sum": "Read cursor.json, notes.md",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const to=\"2026-10-24T02:18:49.369Z\";\nreturn await tools.bash({command:`echo '{\"last_until\": \"${to}\"}' > ~/state/cursor.json && cat ~/state/cursor.json`});"
+  },
+  "sum": "Write ~/state/cursor.json · Read ~/state/cursor.json",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const msg = \"Students on games: 1 msg. Act: none\";\nconst r = await tools.bash({command:`ag-text ${JSON.stringify(msg).replace(/\\$/g,'\\\\$')}`});\nreturn r.output"
+  },
+  "sum": "Text the user \"Students on games: 1 msg. Act: none\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const q = s => tools.mcp_arcade_school_query_readonly({sql:s, contextId:\"r\"});\nconst now = await q(\"select now() as now\");\nconst r = await q(`select m.id from sms_bot.conversation_messages m where m.created_at <= '${now}'`);\nreturn r;"
+  },
+  "sum": "School data: query readonly \"select now() as now\" · School data: query readonly sms_bot.conversation_messages",
+  "hosts": [
+   "mcp"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const cid=\"pgs-1\"; const from=\"2026-10-24T01:44:26Z\";\nconst sql=`select m.id from student_portal.conversation_messages m where m.created_at > '${from}' and m.created_at <= '${to}'`;\nreturn await tools.mcp_arcade_school_query_readonly({contextId:cid, sql});"
+  },
+  "sum": "School data: query readonly student_portal.conversation_messages",
+  "hosts": [
+   "mcp"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "return ALL_TOOLS.map(t=>t.name||t).join(\", \")"
+  },
+  "sum": "List available tools",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const r = await searchTools(\"read file bash shell\", {limit: 10}); return r;"
+  },
+  "sum": "Search tools for \"read file bash shell\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const d = await describeTool(\"mcp_arcade_school_query_readonly\"); return d"
+  },
+  "sum": "Describe tool mcp_arcade_school_query_readonly",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const out={};\nfor (const x of [\"echo\", \"mic test\"]) { out[x] = (await tools.bash({command:`ag find ${x} 2>&1 | head -24`})).output; }\nreturn out;"
+  },
+  "sum": null,
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const rows = [1,2,3]; return rows.map(x=>x*2);"
+  },
+  "sum": null,
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "monitor",
+  "args": {
+   "command": "cd ~/arcade-x && bash .agents/skills/arcade-resolve-pr-feedback/scripts/watch-pr.sh 2913",
+   "description": "PR #2913 watcher"
+  },
+  "sum": "Monitor: Run .agents/…/scripts/watch-pr.sh",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "monitor_stop",
+  "args": {
+   "id": 1
+  },
+  "sum": "Stop monitor 1",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "tool_search",
+  "args": {
+   "query": "+t3-code t3_thread_read",
+   "limit": 1
+  },
+  "sum": "Search tools for \"+t3-code t3_thread_read\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "corepack pnpm install --frozen-lockfile >/tmp/t3inst.log 2>&1"
+  },
+  "sum": "Install dependencies",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "timeout 600 corepack pnpm exec tsc --noEmit -p . 2>&1"
+  },
+  "sum": "Run tsc",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "env -u ANTHROPIC_AUTH_TOKEN timeout 300 pnpm exec vitest run src/a.test.ts 2>&1"
+  },
+  "sum": "Run tests (src/a.test.ts)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "findmnt -rn -o TARGET,SOURCE"
+  },
+  "sum": "List mounts",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "findmnt -n -o UUID,LABEL /data"
+  },
+  "sum": "Show mount /data",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "sudo mount /dev/nvme1n1 /data"
+  },
+  "sum": null,
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "mcp_arcade_school_query_readonly",
+  "args": {
+   "sql": "with t as (select now() as to_ts) select m.id from t left join student_portal.conversation_messages m on true"
+  },
+  "sum": "School data: query readonly student_portal.conversation_messages",
+  "hosts": [
+   "mcp"
+  ]
+ },
+ {
+  "tool": "mcp_arcade_school_query_readonly",
+  "args": {
+   "sql": "select now() as to_ts, m.id from (select 1) x left join student_portal.conversation_messages m on true"
+  },
+  "sum": "School data: query readonly student_portal.conversation_messages",
+  "hosts": [
+   "mcp"
+  ]
+ },
+ {
+  "tool": "mcp_slack_alpha_conversations_search_messages",
+  "args": {
+   "search_query": "\"motivational model\"",
+   "limit": 30
+  },
+  "sum": "Slack: conversations search messages \"motivational model\"",
+  "hosts": [
+   "mcp"
+  ]
  }
 ]

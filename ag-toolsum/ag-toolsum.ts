@@ -586,6 +586,13 @@ const RULES: Rule[] = [
 		const f = positional(a)[0];
 		return f ? `Run ${shortPath(f)}` : undefined;
 	} },
+	{ id: "mounts", cmd: /^(findmnt|lsblk|mount)$/, fn: (a, raw) => {
+		const tool = raw.split(/\s/)[0];
+		const p = positional(a, ["-o", "--output", "-t", "--types", "-S", "--source", "-T", "--target"]);
+		if (tool === "lsblk") return "List block devices";
+		if (tool === "mount" && a.length) return undefined; // mounting something: leave raw
+		return p[0] ? `Show mount ${shortPath(p[0])}` : "List mounts";
+	} },
 	{ id: "node", cmd: /^(node|bun|deno|tsx|bunx|npx|npm|pnpm)$/, fn: (a, raw, _ctx, seg) => {
 		const tool = raw.split(/\s/)[0];
 		const p = positional(a, ["-c", "--cwd", "--filter"]);
@@ -606,7 +613,7 @@ const RULES: Rule[] = [
 			return `Query ${stage} ${db ?? ""} DB${table ? `: ${table}` : ""}`.replace(/\s+/g, " ");
 		}
 		if (tool === "bun" && (p[0] === "-e" || a[0] === "-e")) return "Run Bun snippet";
-		const sub = tool === "bunx" || tool === "npx" ? p[0] : p[0] === "run" || p[0] === "x" ? p[1] : p[0];
+		const sub = tool === "bunx" || tool === "npx" ? p[0] : p[0] === "run" || p[0] === "x" || p[0] === "exec" || p[0] === "dlx" ? p[1] : p[0];
 		if (!sub) return tool === "bun" ? "Run Bun" : undefined;
 		if (/^(install|i|add|ci)$/.test(sub)) return p.length > 1 && sub !== "install" && sub !== "ci" ? `Add package ${p.slice(1).join(" ")}` : "Install dependencies";
 		if (/^(test|vitest|jest|playwright)$/.test(sub)) return `Run tests${p.slice(p.indexOf(sub) + 1).find((x) => /\.(test|spec)\.|\//.test(x)) ? ` (${shortPath(p.slice(p.indexOf(sub) + 1).find((x) => /\.(test|spec)\.|\//.test(x))!)})` : ""}`;
@@ -1176,8 +1183,9 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 		if (!w.length) return "noise";
 		if (/^[A-Za-z_]\w*=/.test(w[0])) { envSubs.push(...substitutions(w[0])); w = w.slice(1); continue; }
 		if (/^(?:timeout|gtimeout)$/.test(w[0])) { w = w.slice(1); while (w[0]?.startsWith("-")) w = w.slice(w[0] === "-s" || w[0] === "-k" ? 2 : 1); w = w.slice(1); continue; }
-		if (/^(?:nohup|sudo|exec|time|caffeinate|nice|stdbuf|env|unbuffer|setsid)$/.test(w[0]) && w.length > 1) { const sudo = w[0] === "sudo"; w = w.slice(1); while (w[0]?.startsWith("-")) w = w.slice(sudo && /^-[pugCh]$/.test(w[0]) ? 2 : 1); continue; }
+		if (/^(?:nohup|sudo|exec|time|caffeinate|nice|stdbuf|env|unbuffer|setsid)$/.test(w[0]) && w.length > 1) { const sudo = w[0] === "sudo"; const env = w[0] === "env"; w = w.slice(1); while (w[0]?.startsWith("-")) w = w.slice((sudo && /^-[pugCh]$/.test(w[0])) || (env && /^-[uSC]$/.test(w[0])) ? 2 : 1); continue; }
 		if (w[0] === "command" && w[1] && w[1] !== "-v") { w = w.slice(1); continue; }
+		if (w[0] === "corepack" && /^(?:pnpm|npm|yarn)$/.test(w[1] ?? "")) { w = w.slice(1); continue; } // corepack pnpm … runs pnpm
 		break;
 	}
 	if (envSubs.length) {
@@ -1413,6 +1421,12 @@ const MCP_SERVERS: [RegExp, string, string?][] = [
 	[/^mcp_github_/, "GitHub"],
 ];
 
+/** The first real table a SQL query reads: skips subqueries "from (select …)" and its own CTE names. */
+function sqlTable(sql: string): string | undefined {
+	const ctes = new Set([...sql.matchAll(/\b([a-z_]\w*)\s+as\s*(?:not\s+)?(?:materialized\s*)?\(/gi)].map((m) => m[1].toLowerCase()));
+	return [...sql.matchAll(/\b(?:from|join)\s+([a-z_][\w.]*)/gi)].map((m) => m[1]).find((t) => !ctes.has(t.toLowerCase()) && !/^(?:select|lateral|unnest)$/i.test(t));
+}
+
 function mcpSummary(name: string, args: any): Summary | undefined {
 	const srv = MCP_SERVERS.find(([re]) => re.test(name));
 	if (!srv) return;
@@ -1420,7 +1434,11 @@ function mcpSummary(name: string, args: any): Summary | undefined {
 	const key = ["id", "issueId", "query", "search_query", "keywords", "title", "name", "table", "facility", "courseId", "moduleId", "channel_id", "text", "message", "body", "sql", "urlOrId"].find((k) => args?.[k] !== undefined && args[k] !== "");
 	let v = key ? args[key] : undefined;
 	if (Array.isArray(v)) v = v.join(" ");
-	const detail = v !== undefined ? ` ${typeof v === "string" ? `"${clip(v.replace(/\s+/g, " "), 40)}"` : clip(JSON.stringify(v), 40)}` : "";
+	// SQL: name the table it reads rather than the first 40 characters of the query
+	const table = key === "sql" && typeof v === "string" ? sqlTable(v) : undefined;
+	if (table) return { sum: `${srv[1]}: ${verb} ${table}`, hosts: [srv[2] ?? "mcp"], rule: "mcp" };
+	const quote = (x: string) => (/^".*"$/s.test(x) ? clip(x, 42) : `"${clip(x, 40)}"`); // a phrase search is already quoted
+	const detail = v !== undefined ? ` ${typeof v === "string" ? quote(v.replace(/\s+/g, " ")) : clip(JSON.stringify(v), 40)}` : "";
 	return { sum: `${srv[1]}: ${verb}${detail}`, hosts: [srv[2] ?? "mcp"], rule: "mcp" };
 }
 
@@ -1470,6 +1488,172 @@ function t3McpSummary(verb: string, args: any): string | undefined {
 	}
 }
 
+// ---------- codemode (JavaScript that calls other tools) ----------
+
+/** Read a JS string literal ('…', "…", `…`, String.raw`…`) at src[i]; ${x} resolves only to a known const, else "…" (partial). */
+function jsString(src: string, i: number, consts: Record<string, string>): { value: string; end: number; partial: boolean } | undefined {
+	let raw = false;
+	if (src.startsWith("String.raw`", i)) { raw = true; i += 10; }
+	const q = src[i];
+	if (q !== "'" && q !== '"' && q !== "`") return;
+	let out = "";
+	let partial = false;
+	for (let j = i + 1; j < src.length; j++) {
+		const c = src[j];
+		if (c === q) return { value: out, end: j + 1, partial };
+		if (q === "`" && c === "$" && src[j + 1] === "{") {
+			const e = skipExpr(src, j + 2, "}");
+			const id = src.slice(j + 2, e).trim();
+			if (/^[A-Za-z_$][\w$]*$/.test(id) && consts[id] !== undefined) out += consts[id];
+			// ${JSON.stringify(msg)} (maybe .replace(…)'d to escape $): the const, as a double-quoted shell word
+			else if (/^JSON\.stringify\(\s*[A-Za-z_$][\w$]*\s*\)(?:\.replace\([^)]*\))*$/.test(id) && consts[id.match(/\(\s*([\w$]+)/)![1]] !== undefined) out += JSON.stringify(consts[id.match(/\(\s*([\w$]+)/)![1]]);
+			else { out += "…"; partial = true; }
+			j = e;
+			continue;
+		}
+		if (c === "\\" && !raw) {
+			const n = src[++j];
+			const esc: Record<string, string> = { n: "\n", t: "\t", r: "\r", b: "\b", f: "\f", v: "\v", "0": "\0" };
+			if (n === "u" && src[j + 1] === "{") { const e = src.indexOf("}", j); out += String.fromCodePoint(parseInt(src.slice(j + 2, e), 16)); j = e; }
+			else if (n === "u") { out += String.fromCharCode(parseInt(src.slice(j + 1, j + 5), 16)); j += 4; }
+			else if (n === "x") { out += String.fromCharCode(parseInt(src.slice(j + 1, j + 3), 16)); j += 2; }
+			else if (n !== "\n") out += esc[n] ?? n; // backslash-newline continues the line
+			continue;
+		}
+		if (c === "\\" && raw) { out += c + (src[j + 1] ?? ""); j++; continue; }
+		out += c;
+	}
+}
+
+/** Index of the first top-level `stop` char (or an unmatched closing bracket) from i, skipping strings and nested brackets. */
+function skipExpr(src: string, i: number, stop = ",}"): number {
+	let depth = 0;
+	for (let j = i; j < src.length; j++) {
+		const c = src[j];
+		if (c === "'" || c === '"' || c === "`") { const s = jsString(src, j, {}); j = (s?.end ?? j + 1) - 1; continue; }
+		if (c === "/" && src[j + 1] === "/") { const e = src.indexOf("\n", j); j = e < 0 ? src.length : e; continue; }
+		if ("([{".includes(c)) depth++;
+		else if (")]}".includes(c)) { if (depth === 0) return j; depth--; }
+		else if (depth === 0 && stop.includes(c)) return j;
+	}
+	return src.length;
+}
+
+/** The object literal at src[i] ("{ … }"): literal properties resolved, the rest listed in `dyn`. */
+function jsObject(src: string, i: number, consts: Record<string, string>, partials: Record<string, string> = {}): { args: Record<string, unknown>; dyn: Set<string>; ids: Record<string, string> } | undefined {
+	while (/\s/.test(src[i] ?? "")) i++;
+	if (src[i] !== "{") return;
+	const args: Record<string, unknown> = {};
+	const dyn = new Set<string>(); // not literal: unknown, or a template with unresolved parts
+	const ids: Record<string, string> = {}; // key → the bare identifier it was given (a helper's parameter)
+	i++;
+	for (;;) {
+		while (/[\s,]/.test(src[i] ?? "")) i++;
+		if (i >= src.length) return;
+		if (src[i] === "}") return { args, dyn, ids };
+		if (src.startsWith("...", i)) { dyn.add("..."); i = skipExpr(src, i); continue; }
+		let key: string;
+		const ks = src[i] === "'" || src[i] === '"' ? jsString(src, i, {}) : undefined;
+		if (ks) { key = ks.value; i = ks.end; }
+		else { const m = src.slice(i).match(/^[A-Za-z_$][\w$]*/); if (!m) return; key = m[0]; i += key.length; }
+		while (/\s/.test(src[i] ?? "")) i++;
+		if (src[i] !== ":") { // shorthand { command }
+			ids[key] = key;
+			if (consts[key] !== undefined) args[key] = consts[key];
+			else { if (partials[key] !== undefined) args[key] = partials[key]; dyn.add(key); }
+			continue;
+		}
+		i++;
+		while (/\s/.test(src[i] ?? "")) i++;
+		const e = skipExpr(src, i);
+		const expr = src.slice(i, e).trim();
+		if (/^[A-Za-z_$][\w$]*$/.test(expr)) ids[key] = expr;
+		const s = jsString(src, i, consts);
+		if (s && src.slice(s.end, e).trim() === "") { args[key] = s.value; if (s.partial) dyn.add(key); }
+		else if (/^-?\d+(?:\.\d+)?$/.test(expr)) args[key] = Number(expr);
+		else if (/^(?:true|false)$/.test(expr)) args[key] = expr === "true";
+		else if (/^[A-Za-z_$][\w$]*$/.test(expr) && consts[expr] !== undefined) args[key] = consts[expr];
+		else if (/^[A-Za-z_$][\w$]*$/.test(expr) && partials[expr] !== undefined) { args[key] = partials[expr]; dyn.add(key); }
+		else dyn.add(key);
+		i = e;
+	}
+}
+
+/** The argument each tool needs as a literal for its summary to be exact. */
+const CM_REQUIRED: Record<string, string[]> = { bash: ["command"], read: ["path"], write: ["path"], edit: ["path"] };
+
+/** codemode: summarize each tools.X({ … }) call whose arguments are literals, plus searchTools/ALL_TOOLS lookups. */
+function codemodeSummary(code: string, ctx: Ctx): Summary {
+	const local = { hosts: [ctx.host] };
+	// const NAME = "literal" (or a number): substituted into later tool arguments and ${NAME}
+	const consts: Record<string, string> = {};
+	const partials: Record<string, string> = {}; // templates with unresolved parts: usable where a partial value is fine
+	for (const m of code.matchAll(/\b(?:const|let|var)\s+(?=[A-Za-z_$])/g)) {
+		let at = (m.index ?? 0) + m[0].length;
+		for (;;) { // const a = "x", b = `…`;
+			const d = code.slice(at).match(/^([A-Za-z_$][\w$]*)\s*=\s*/);
+			if (!d) break;
+			at += d[0].length;
+			const e = skipExpr(code, at, ",;\n");
+			const s = jsString(code, at, consts);
+			if (s && code.slice(s.end, e).trim() === "") (s.partial ? partials : consts)[d[1]] = s.value;
+			else if (/^-?\d+(?:\.\d+)?$/.test(code.slice(at, e).trim())) consts[d[1]] = code.slice(at, e).trim();
+			if (code[e] !== ",") break;
+			at = e + 1;
+			while (/\s/.test(code[at] ?? "")) at++;
+		}
+	}
+	const outs: { sum: string }[] = [];
+	const rules = new Set<string>(["codemode"]);
+	const hosts = new Set<string>();
+	const add = (sum: string) => { if (!outs.some((x) => x.sum === sum)) outs.push({ sum }); };
+	const call = (name: string, args: Record<string, unknown>, dyn: Set<string>): boolean => {
+		if ((CM_REQUIRED[name] ?? []).some((k) => typeof args[k] !== "string" || dyn.has(k)) || (name === "bash" && dyn.has("..."))) return false;
+		const r = summarize(name, args, ctx);
+		if (!r.sum) return false;
+		if (r.rule) rules.add(r.rule);
+		for (const h of r.hosts) hosts.add(h);
+		add(r.sum); // already merged ("Read a, b") by the tool's own rule
+		return true;
+	};
+	// const q = (s) => tools.X({ sql: s, … }); q("select …"): each q(…) call is a tools.X call with that argument
+	const helperAt = new Set<number>();
+	for (const h of code.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(?\s*([A-Za-z_$][\w$]*)\s*\)?\s*=>\s*(?:\{\s*return\s+)?(?:await\s+)?tools\.([A-Za-z_$][\w$]*)\s*\(/g)) {
+		const o = jsObject(code, (h.index ?? 0) + h[0].length, consts, partials);
+		const key = o && Object.keys(o.ids).find((k) => o.ids[k] === h[2]);
+		if (!o || !key) return local;
+		helperAt.add((h.index ?? 0) + h[0].lastIndexOf("tools."));
+		const uses = [...code.matchAll(new RegExp(String.raw`(?<![\w$.])${h[1]}\s*\(`, "g"))].filter((u) => (u.index ?? 0) > (h.index ?? 0) + h[0].length);
+		for (const u of uses) {
+			const s = jsString(code, (u.index ?? 0) + u[0].length, consts);
+			const args = { ...o.args };
+			const dyn = new Set([...o.dyn].filter((k) => k !== key));
+			if (s) { args[key] = s.value; if (s.partial) dyn.add(key); }
+			else dyn.add(key);
+			if (!call(h[3], args, dyn)) return local;
+		}
+	}
+	for (const m of code.matchAll(/\btools\.([A-Za-z_$][\w$]*)\s*\(/g)) {
+		if (helperAt.has(m.index ?? -1)) continue;
+		const o = jsObject(code, (m.index ?? 0) + m[0].length, consts, partials);
+		if (!o || !call(m[1], o.args, o.dyn)) return local;
+	}
+	// the sandbox's own tool catalogue
+	for (const m of code.matchAll(/\bsearchTools\s*\(/g)) {
+		const s = jsString(code, (m.index ?? 0) + m[0].length, consts);
+		add(s?.value && !s.partial ? `Search tools for "${clip(s.value, 40)}"` : "Search tools");
+	}
+	for (const m of code.matchAll(/\bdescribe(Tool|Namespace)\s*\(/g)) {
+		const s = jsString(code, (m.index ?? 0) + m[0].length, consts);
+		add(`Describe ${m[1] === "Tool" ? "tool" : "namespace"}${s?.value && !s.partial ? ` ${s.value}` : ""}`);
+	}
+	if (/\bALL_TOOLS\b/.test(code)) add("List available tools");
+	if (!outs.length) return local;
+	let sum = outs.slice(0, 3).map((o) => o.sum).join(" · ");
+	if (outs.length > 3) sum += ` +${outs.length - 3}`;
+	return { sum, hosts: hosts.size ? [...hosts] : [ctx.host], rule: [...rules].join("+"), parts: outs };
+}
+
 const IMG = /\.(png|jpe?g|gif|webp|heic|svg)$/i;
 
 export function summarize(name: string, args: any, ctx: Ctx = { host: "ag-engine" }): Summary {
@@ -1514,6 +1698,16 @@ export function summarize(name: string, args: any, ctx: Ctx = { host: "ag-engine
 				const n = args.tasks?.length ?? args.chain?.length;
 				return { sum: `Delegate${n ? ` ${n} tasks` : ""} to ${args.agent ?? args.tasks?.[0]?.agent ?? "subagent"}: ${clip(String(t).replace(/\s+/g, " "), 50)}`, hosts: [ctx.host], rule: "subagent" };
 			}
+			case "codemode":
+				return typeof args.code === "string" ? codemodeSummary(args.code, ctx) : local;
+			case "monitor": {
+				const r = typeof args.command === "string" ? summarizeShell(args.command, ctx, true) : undefined;
+				return r?.sum ? { sum: `Monitor: ${r.sum}`, hosts: r.hosts, rule: `monitor+${r.rule}` } : local;
+			}
+			case "monitor_stop":
+				return { sum: `Stop monitor ${args.id ?? ""}`.trim(), hosts: [ctx.host], rule: "monitor" };
+			case "tool_search":
+				return typeof args.query === "string" ? { sum: `Search tools for "${clip(args.query, 40)}"`, hosts: [ctx.host], rule: "tool-search" } : local;
 			case "signal_loop_success":
 				return { sum: "Signal loop success", hosts: [ctx.host], rule: "loop" };
 			case "ship_done":

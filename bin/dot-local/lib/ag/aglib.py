@@ -1,7 +1,7 @@
 """Shared library for the `ag` session and system verbs (docs/ag-cli.md). Not a verb: no exec bit.
 
 Session references (every verb that takes one): a pi session id, or a unique prefix/suffix of one; a session
-file path; an ag-dash link (http://ag:7376/<sid> or …/t/<tab>); a tab id (t8, or older w1:tCW) or pane id (p4, w1:pCX); or a
+file path; an ag-dash link (http://ag:7376/<sid> or …/t/<tab>) or a T3 thread id / URL; a tab id (t8, or older w1:tCW) or pane id (p4, w1:pCX); or a
 label match (case-insensitive: exact first, then substring; ambiguous → error listing the candidates).
 "me", "self" or "." (and the default) is the calling session, found by $PI_SESSION_ID / $PI_SESSION_FILE,
 else by $TMUX_PANE; never $AG_TAB_ID, which goes stale when a pane moves to another tab. Everything is resolved fresh from
@@ -131,20 +131,101 @@ def board_post(path, body):
     return http("POST", f"{BOARD}{path}", body)
 
 
+# ---------- T3 threads (docs/t3.md) ----------
+T3_DB = HOME / ".t3/userdata/statev2.sqlite"
+T3_ENV_ID = HOME / ".t3/userdata/environment-id"
+_t3_threads = None
+
+
+def t3_threads():
+    """{pi session file: (thread id, title)} from T3's projection, read once per process. {} when T3 isn't here."""
+    global _t3_threads
+    if _t3_threads is None:
+        _t3_threads = {}
+        if T3_DB.exists():
+            import sqlite3
+            try:
+                db = sqlite3.connect(f"file:{T3_DB}?mode=ro", uri=True)
+                rows = db.execute("""
+                    SELECT p.thread_id, t.title, json_extract(p.payload_json, '$.nativeThreadRef.nativeId')
+                    FROM orchestration_v2_projection_provider_threads p
+                    JOIN orchestration_v2_projection_threads t ON t.thread_id = p.thread_id
+                    WHERE p.driver = 'pi' AND t.deleted_at IS NULL ORDER BY p.updated_at""").fetchall()
+                db.close()
+                _t3_threads = {f: (tid, title) for tid, title, f in rows if f}
+            except Exception:
+                pass
+    return _t3_threads
+
+
+def t3_thread_for_sid(sid):
+    """The T3 thread id bound to a Pi session, or None."""
+    f = file_for_sid(sid) if sid else None
+    hit = t3_threads().get(f) if f else None
+    return hit[0] if hit else None
+
+
+def t3_file_for_thread(ref):
+    """The Pi session file of the T3 thread whose id appears in ref (a thread id or a T3 URL), or None."""
+    files = {tid: f for f, (tid, _) in t3_threads().items()}
+    for u in SID_RE.findall(ref or ""):
+        if u in files:
+            return files[u]
+    if re.fullmatch(r"[0-9a-f-]{8,35}", ref or ""):  # a unique thread-id prefix
+        hits = [f for tid, f in files.items() if tid.startswith(ref)]
+        if len(hits) == 1:
+            return hits[0]
+    return None
+
+
+def t3_public():
+    suffix = personal_env("AG_TAILNET") or tailnet_suffix()
+    return os.environ.get("AG_T3_PUBLIC") or (f"https://ag.{suffix}" if suffix else "https://ag")
+
+
+def t3_link(thread_id):
+    """The thread's web URL: https://ag.<tailnet>/<environment id>/<thread id> (opens in a browser or the apps)."""
+    try:
+        env_id = T3_ENV_ID.read_text().strip()
+    except OSError:
+        env_id = ""
+    return f"{t3_public()}/{env_id}/{thread_id}"
+
+
+def app_link(sid):
+    """The in-app form, [title](t3-thread://v1/<thread id>): pasted in a T3 reply it opens the thread right there.
+    None when the session has no T3 thread."""
+    f = file_for_sid(sid) if sid else None
+    hit = t3_threads().get(f) if f else None
+    return f"[{hit[1]}](t3-thread://v1/{hit[0]})" if hit else None
+
+
 def link(sid):
+    """A session's link for people: its T3 thread's URL when T3 is the UI and the session has a thread, else ag-dash's."""
+    if t3_ui():
+        tid = t3_thread_for_sid(sid)
+        if tid:
+            return t3_link(tid)
     return f"{BOARD_PUBLIC}/{sid}"
 
 
-def phone_link(sid):
-    suffix = None
+def tailnet_suffix():
     for ts in ("/usr/local/bin/tailscale", "/usr/bin/tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"):
         if os.path.exists(ts):
             try:
-                suffix = json.loads(subprocess.run([ts, "status", "--json"], capture_output=True, text=True, timeout=10).stdout)["MagicDNSSuffix"]
+                return json.loads(subprocess.run([ts, "status", "--json"], capture_output=True, text=True, timeout=10).stdout)["MagicDNSSuffix"]
             except Exception:
-                pass
-            break
-    suffix = suffix or os.environ.get("AG_TAILNET")  # e.g. tail1234.ts.net, when tailscale isn't reachable
+                return None
+    return None
+
+
+def phone_link(sid):
+    """The https link for the phone: the T3 thread's URL when it has one, else ag-dash's https port."""
+    if t3_ui():
+        tid = t3_thread_for_sid(sid)
+        if tid:
+            return t3_link(tid)
+    suffix = tailnet_suffix() or personal_env("AG_TAILNET")  # e.g. tail1234.ts.net, when tailscale isn't reachable
     if not suffix:
         return link(sid)  # no tailnet name known: the MagicDNS short-name link still works on the tailnet
     return f"https://ag.{suffix}:7377/{sid}"
@@ -324,6 +405,7 @@ class Session:
     def as_dict(self):
         d = {k: v for k, v in self.__dict__.items() if k != "card"}
         d["link"] = self.link
+        d["app_link"] = app_link(self.sid) if self.sid else None
         if self.card:
             d.update(pinned=self.card.get("pinned"), needs_you=self.card.get("needsYou"), waiting=bool(self.card.get("waiting")), status=self.card.get("status"))
         return d
@@ -379,6 +461,9 @@ def resolve(ref=None, ix=None, allow_closed=True):
         return s
     if re.fullmatch(r"w\w+:[tp]\w+", ref):
         raise AgError(f"no open {'tab' if ref.split(':')[1][0] == 't' else 'pane'} {ref}")
+    t3f = t3_file_for_thread(ref)  # a T3 thread id or URL (https://ag.<tailnet>/<env>/<thread>, t3-thread://v1/<thread>)
+    if t3f:
+        ref = t3f
     s = sid_of(ref)
     if s:
         if s in ix.by_sid:

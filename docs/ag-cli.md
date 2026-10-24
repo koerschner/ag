@@ -54,7 +54,7 @@ found by `$PI_SESSION_FILE`, not the pane's tab env var. JSON with `--json`.
 | `ag search <description>` | fuzzy: an LLM picks the sessions a plain-words description means (ag-dash: Cmd+K) |
 | `ag read <s> [--user\|--assistant] [--last N]` | transcript `jq`/python (incl. hibernated/closed) |
 | `ag peek <s> [--lines N]` | `pane list \| jq` + `pane read` |
-| `ag link [s]` | the old link helper / `ag-session-link` (`--phone`) |
+| `ag link [s] [--app\|--url\|--phone]` | the old link helper / `ag-session-link`; under T3 the thread's URL, `--app` its `[title](t3-thread://v1/<id>)` in-app form |
 | `ag spawn [-f file \| "prompt"] [--cwd D]` | inbox curl; appends the report-back instruction naming the caller |
 | `ag report "msg"` | report back to the session that spawned me (inbox fallback) |
 | `ag send <s> "msg" [--interrupt]` | pane lookup + `agent prompt` |

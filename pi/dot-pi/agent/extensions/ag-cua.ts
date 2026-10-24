@@ -1,11 +1,20 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 
 const bin = path.join(os.homedir(), ".local", "bin", "ag-cua");
+
+// The caller's link for the screen queue: `ag link --url` (the T3 thread under T3, else ag-dash); fallback to ag-dash.
+function sessionLink(sessionId: string): string {
+	try {
+		const out = execFileSync(path.join(os.homedir(), ".local", "bin", "ag"), ["link", sessionId, "--url"], { encoding: "utf8", timeout: 10_000 }).trim();
+		if (out) return out;
+	} catch {}
+	return `http://ag:7376/${sessionId}`;
+}
 
 export default function (pi: ExtensionAPI) {
 	pi.registerTool({
@@ -39,7 +48,7 @@ export default function (pi: ExtensionAPI) {
 			const sm = ctx?.sessionManager;
 			const sessionId = sm?.getSessionId?.() ?? "";
 			const jobId = `${new Date().toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-")}-${randomBytes(3).toString("hex")}`;
-			const caller = [sm?.getSessionName?.() || "pi session", sessionId && `http://ag:7376/${sessionId}`]
+			const caller = [sm?.getSessionName?.() || "pi session", sessionId && sessionLink(sessionId)]
 				.filter(Boolean)
 				.join(" ");
 			const env: NodeJS.ProcessEnv = { ...process.env, CUA_JOB_ID: jobId, CUA_CALLER: caller };

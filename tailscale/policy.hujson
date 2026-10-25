@@ -12,11 +12,22 @@
 		"tag:ag-worker": ["autogroup:admin", "tag:ag-engine", "tag:ag-worker"],
 	},
 
+	// The owner's untagged machines the engine drives. ag-ts-apply-policy fills in their Tailscale IPs from the
+	// devices API at apply time (MAC_IP = ag-mac, CLIENT_IP = ag-client), so no IPs live in this repo.
+	"hosts": {
+		"ag-mac":    "MAC_IP",
+		"ag-client": "CLIENT_IP",
+	},
+
 	"grants": [
 		// The owner's own devices (ag-mac, the client Mac, the phone) reach everything.
 		{"src": ["autogroup:member"], "dst": ["*"], "ip": ["*"]},
-		// The engine drives everything too: ag-mac for computer use, workers, the owner's devices.
-		{"src": ["tag:ag-engine"], "dst": ["*"], "ip": ["*"]},
+		// The engine is the most exposed machine (cloud, runs agents), so it gets only what it uses:
+		// ag-mac on any port (SSH, computer use, dev servers it opens there), the client Mac on SSH only
+		// (ag-show, ag-shot, client computer use all go over SSH), Ag's own machines, and svc:ag (its own
+		// scripts call http://ag:…). Never the phones.
+		{"src": ["tag:ag-engine"], "dst": ["ag-mac", "tag:ag-engine", "tag:ag-worker", "svc:ag"], "ip": ["*"]},
+		{"src": ["tag:ag-engine"], "dst": ["ag-client"], "ip": ["tcp:22"]},
 		// Workers only talk to the engine and each other, never to the owner's personal devices.
 		{"src": ["tag:ag-worker"], "dst": ["tag:ag-engine", "tag:ag-worker"], "ip": ["*"]},
 	],
@@ -55,17 +66,9 @@
 		},
 	},
 
-	"nodeAttrs": [
-		{
-			// Funnel for the owner's own devices.
-			"target": ["autogroup:member"],
-			"attr":   ["funnel"],
-		},
-	],
-
 	"tests": [
 		{"src": "OWNER_EMAIL", "accept": ["tag:ag-engine:22", "tag:ag-worker:22"]},
-		{"src": "tag:ag-engine", "accept": ["tag:ag-worker:22", "OWNER_EMAIL:22"]},
+		{"src": "tag:ag-engine", "accept": ["tag:ag-worker:22", "ag-mac:22", "ag-mac:7376", "ag-client:22", "svc:ag:7373"], "deny": ["ag-client:5900", "ag-client:35385"]},
 		{"src": "tag:ag-worker", "accept": ["tag:ag-engine:22"], "deny": ["OWNER_EMAIL:22"]},
 	],
 	"sshTests": [

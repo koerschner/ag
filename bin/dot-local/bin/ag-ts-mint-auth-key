@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Mint a fresh reusable, ephemeral, pre-authorized auth key (tag:ag-engine + tag:ag-worker, 90 days)
+# Mint a fresh reusable, ephemeral, pre-authorized worker auth key (tag:ag-worker only, 90 days; the engine
+# gets its own single-use key from ag-infra, so a leaked worker key can never join a machine as the engine)
 # and store it in ag-vault as "Tailscale ag auth key" (field credential), replacing the old value.
 # The key never touches stdout or any command line (op can't edit from a template on stdin, so it
-# goes through a private temp file that's deleted on exit). The previous key stays valid until it expires.
+# goes through a private temp file that's deleted on exit). Then revokes the previous key.
 set -euo pipefail
 vault=ag-vault item="Tailscale ag auth key"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT; chmod 700 "$tmp"
-body='{"description":"ag machines","expirySeconds":7776000,"capabilities":{"devices":{"create":{"reusable":true,"ephemeral":true,"preauthorized":true,"tags":["tag:ag-engine","tag:ag-worker"]}}}}'
+body='{"description":"ag machines","expirySeconds":7776000,"capabilities":{"devices":{"create":{"reusable":true,"ephemeral":true,"preauthorized":true,"tags":["tag:ag-worker"]}}}}'
+old=$(op-work item get "$item" --vault "$vault" --fields username --reveal | sed -n 's/^key id //p')
 ag-ts-api POST tailnet/-/keys -H 'Content-Type: application/json' -d "$body" >"$tmp/resp.json"
 op-work item get "$item" --vault "$vault" --format json --reveal |
 	jq --slurpfile r "$tmp/resp.json" '.fields |= map(
@@ -15,3 +17,4 @@ op-work item get "$item" --vault "$vault" --format json --reveal |
 		elif .id=="expires" then .value=$r[0].expires[0:10] else . end)' >"$tmp/item.json"
 op-work item edit "$item" --vault "$vault" --template="$tmp/item.json" >/dev/null
 jq -r '"minted \(.id), expires \(.expires); stored in ag-vault \"Tailscale ag auth key\""' "$tmp/resp.json"
+if [ -n "$old" ]; then ag-ts-api DELETE "tailnet/-/keys/$old" >/dev/null && echo "revoked previous key $old"; fi

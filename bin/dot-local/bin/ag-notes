@@ -97,9 +97,10 @@ def op(name, **args):
 def local(ts):
     if not ts:
         return ""
-    r = subprocess.run(["date", "-d", ts, "+%Y-%m-%d %H:%M"], capture_output=True, text=True,
-                       env={**os.environ, "TZ": "America/Chicago"})
-    return r.stdout.strip() or ts[:16].replace("T", " ")
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    t = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    return t.astimezone(ZoneInfo("America/Chicago")).strftime("%Y-%m-%d %H:%M")
 
 
 class ToMarkdown(HTMLParser):

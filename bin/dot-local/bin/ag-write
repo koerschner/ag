@@ -1,0 +1,117 @@
+#!/usr/bin/env python3
+"""ag-write: write or rewrite prose people will read with Gemini through TrueFoundry.
+
+  ag write "brief: what to write, for whom, the facts" [-k "PR description"] [-c context.md ...]
+  ag write --rewrite -k "issue" < draft.md          # plain rewrite that keeps every fact
+  ag write --rewrite -k "PR description" --instruction "<a skill's exact rewrite instruction>" < draft.md
+  echo "brief" | ag write -o out.md
+
+  -k/--kind         what the text is ("UI copy", "Slack message", "PR description", "doc section")
+  -c/--context      file(s) with facts, code, the diff, the old copy, the template (repeatable)
+  --rewrite         stdin/brief is a finished draft: restate it plainly, keep every fact
+  --instruction     replace the default rewrite/write instruction (e.g. arcade-plain-rewrite's text)
+  -n                variants to return (separated by a line "-----")
+  --model           default $AG_WRITE_MODEL or gemini-4-argon (any TrueFoundry chat model id)
+  -o/--out          write the result to a file as well as stdout
+
+Prints only the text. It never adds the AI attribution line: the agent adds that when publishing.
+Uses $TFY_TOKEN (from ~/.zshenv.local) and $AG_AI_GATEWAY (default https://tfy.promptlens.trilogy.com),
+the same gateway as ag-image; the OpenAI-style /chat/completions endpoint works for Gemini text models.
+"""
+import argparse, concurrent.futures as cf, json, os, sys, urllib.error, urllib.request
+from pathlib import Path
+
+STYLE = (
+    "You write text that real people will read: product and UI copy, messages, pull request and issue "
+    "text, docs. Write like one thoughtful human talking to another: plain words, short sentences, one idea "
+    "per sentence, concrete over abstract, no jargon, buzzwords, hype or filler, no semicolons, no em dashes. "
+    "Name code only when the reader must open or run it. Never invent facts, names, numbers or links: use only "
+    "what the brief and context give you, and keep every link and identifier exactly as given. Match the "
+    "requested kind and any template or format exactly (headings, bold leads, lists, Markdown). Reply with only "
+    "the finished text, one version, with no preamble, notes, alternatives, or surrounding code fence."
+)
+REWRITE = (
+    "Restate this {kind}. Stop using jargon and speak coherently. State it more simply and concisely, like one "
+    "human talking to another. In paragraphs, use one idea per sentence. Use no semicolons. Keep every fact, "
+    "link, heading and format (bold stays bold, lists stay lists). Reply with only the rewritten {kind}."
+)
+
+
+def token():
+    t = os.environ.get("TFY_TOKEN") or os.environ.get("TFY_API_KEY")
+    f = Path.home() / ".zshenv.local"
+    if not t and f.exists():
+        for line in f.read_text().splitlines():
+            line = line.strip().removeprefix("export ")
+            if line.startswith("TFY_TOKEN="):
+                t = line.split("=", 1)[1].strip().strip("'\"")
+    if not t:
+        sys.exit("ag-write: TFY_TOKEN is not set (see ~/.zshenv.local)")
+    return t
+
+
+def complete(base, tok, model, messages):
+    body = json.dumps({"model": model, "messages": messages}).encode()
+    req = urllib.request.Request(f"{base}/chat/completions", body,
+                                 {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=300) as r:
+            res = json.load(r)
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"HTTP {e.code}: {e.read()[:500].decode(errors='replace')}")
+    text = (res.get("choices") or [{}])[0].get("message", {}).get("content")
+    if not text:
+        raise RuntimeError(f"no text returned: {json.dumps(res)[:500]}")
+    return text.strip()
+
+
+def main():
+    p = argparse.ArgumentParser(prog="ag-write", description=__doc__.split("\n")[0])
+    p.add_argument("brief", nargs="?")
+    p.add_argument("-k", "--kind", default="text")
+    p.add_argument("-c", "--context", action="append", default=[])
+    p.add_argument("--rewrite", action="store_true")
+    p.add_argument("--instruction")
+    p.add_argument("-n", type=int, default=1)
+    p.add_argument("--model", default=os.environ.get("AG_WRITE_MODEL", "gemini-4-argon"))
+    p.add_argument("-o", "--out")
+    a = p.parse_args()
+    stdin = sys.stdin.read().strip() if not sys.stdin.isatty() else ""
+    if a.rewrite:
+        draft = stdin or a.brief or ""
+        note = a.brief if stdin and a.brief else ""
+    else:
+        draft, note = "", "\n\n".join(x for x in (a.brief, stdin) if x)
+    if not (draft or note):
+        p.error("a brief or draft is required (argument or stdin)")
+    parts = []
+    if a.rewrite:
+        parts.append((a.instruction or REWRITE).replace("{kind}", a.kind))
+        if note:
+            parts.append(f"Extra guidance: {note}")
+        parts.append(f"<draft>\n{draft}\n</draft>")
+    else:
+        parts.append(a.instruction or f"Write the {a.kind} described in the brief.")
+        parts.append(f"<brief>\n{note}\n</brief>")
+    for f in a.context:
+        path = Path(f)
+        if not path.is_file():
+            p.error(f"no such context file: {f}")
+        parts.append(f'<context file="{path.name}">\n{path.read_text(errors="replace")}\n</context>')
+    messages = [{"role": "system", "content": STYLE}, {"role": "user", "content": "\n\n".join(parts)}]
+    base = os.environ.get("AG_AI_GATEWAY", "https://tfy.promptlens.trilogy.com").rstrip("/")
+    tok = token()
+    with cf.ThreadPoolExecutor(max(1, a.n)) as ex:
+        futs = [ex.submit(complete, base, tok, a.model, messages) for _ in range(max(1, a.n))]
+        try:
+            outs = [f.result() for f in futs]
+        except Exception as e:
+            sys.exit(f"ag-write: {e}")
+    out = "\n\n-----\n\n".join(outs)
+    if a.out:
+        Path(a.out).write_text(out + "\n")
+    print(out)
+
+
+if __name__ == "__main__":
+    main()

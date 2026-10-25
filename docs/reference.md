@@ -598,6 +598,17 @@ JSON body, and reference images go to multipart `/images/edits` with `aspect_rat
 fields. OpenAI's `size` is ignored (you get 1K). Tip: models misspell less when the prompt spells the
 word out and asks for "no other text"; check every variant's text before handing it over.
 
+## Prose with Gemini (ag-write)
+
+`ag write "<brief>" [-k kind] [-c context.md ...] [-n 3] [-o out.md]` writes prose people will read
+with Gemini (default `gemini-4-argon`, or `--model` / `$AG_WRITE_MODEL`) through TrueFoundry
+(`TFY_TOKEN`, `AG_AI_GATEWAY`; same gateway as ag-image). `--rewrite` takes a draft on stdin and restates
+it plainly, keeping every fact; `--instruction` swaps in a skill's own rewrite text. It prints only the
+text and never adds an attribution line. Unlike the image model, Gemini text models accept the
+OpenAI-style `/chat/completions`; list what the gateway exposes with `GET /models` (ids also come
+prefixed, e.g. `gemini-primary/...`; `gemini-3.1-pro` is listed but refused for our user). Whether
+agents must use it is a per-user rule in their agents.md layer.
+
 ## Screen recordings (QA video)
 
 Agents hand the user QA walkthroughs as video, not just screenshots. Both helpers write H.264/yuv420p

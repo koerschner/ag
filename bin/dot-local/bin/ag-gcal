@@ -1,0 +1,302 @@
+#!/usr/bin/env python3
+"""ag-gcal: read and write the user's Google Calendar (personal account) through the Google Calendar
+API, from any ag machine. "Actual" is the account's primary calendar (the default). OAuth client and
+refresh token live in op-shared (item "ag-gcal Google Calendar OAuth", vault machine-shared); off ag-mac
+they're read through `ag-mac run op-shared`, and the short-lived access token is cached in
+~/.cache/ag-gcal/ (0600). Times are America/Chicago unless they carry an offset.
+
+  ag-gcal calendars                              calendars: id, access, name ("primary" = Actual)
+  ag-gcal events [FROM] [TO] [--cal C] [-q TEXT] [-n N]
+                                                 events, oldest first (default: today through +7 days)
+  ag-gcal get <event id> [--cal C]               one event as JSON
+  ag-gcal create <title> <start> [<end>] [--cal C] [--desc D] [--where W] [--all-day]
+                                                 new event (default 1 hour; all-day: dates); prints id + link
+  ag-gcal update <event id> [--title T] [--start S] [--end E] [--desc D] [--where W] [--cal C]
+  ag-gcal delete <event id> [--cal C]
+  ag-gcal auth <client_secret.json>              (on ag-mac) one-time consent; stores the refresh token
+
+FROM/TO/START/END: "2026-10-26", "2026-10-26 14:00", ISO with offset, today, tomorrow, now, +3d, -2d,
+or anything GNU date -d understands (on Linux). --cal takes a calendar id or a name ("Plan", "Focused").
+Create, update and delete only what the user asked for.
+"""
+import json, os, platform, re, shlex, subprocess, sys, time, urllib.parse, urllib.request
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
+
+TZ = ZoneInfo("America/Chicago")
+ITEM, VAULT = "ag-gcal Google Calendar OAuth", "machine-shared"
+API = "https://www.googleapis.com/calendar/v3"
+SCOPE = "https://www.googleapis.com/auth/calendar"
+CACHE = os.path.expanduser("~/.cache/ag-gcal/token.json")
+ON_MAC = platform.system() == "Darwin"
+
+
+def die(msg, code=1):
+    print(f"ag-gcal: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+# ---------- credentials ----------
+
+def creds():
+    cmd = ["op-shared", "item", "get", ITEM, "--vault", VAULT, "--reveal", "--format", "json"]
+    if not ON_MAC:
+        cmd = ["ag-mac", "run", " ".join(map(shlex.quote, cmd)) + " </dev/null"]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode:
+        die(f"can't read the OAuth item from op-shared: {r.stderr.strip()} (run ag-gcal auth on ag-mac?)")
+    f = {x.get("label"): x.get("value") for x in json.loads(r.stdout)["fields"]}
+    return f["client_id"], f["client_secret"], f["refresh_token"]
+
+
+def post_form(url, data):
+    req = urllib.request.Request(url, urllib.parse.urlencode(data).encode())
+    try:
+        return json.load(urllib.request.urlopen(req, timeout=30))
+    except urllib.error.HTTPError as e:
+        die(f"{url}: {e.code} {e.read().decode()[:400]}")
+
+
+def access_token(force=False):
+    if not force and os.path.exists(CACHE):
+        c = json.load(open(CACHE))
+        if c.get("exp", 0) > time.time() + 60:
+            return c["token"]
+    cid, secret, refresh = creds()
+    t = post_form("https://oauth2.googleapis.com/token", {"client_id": cid, "client_secret": secret,
+                  "refresh_token": refresh, "grant_type": "refresh_token"})
+    os.makedirs(os.path.dirname(CACHE), mode=0o700, exist_ok=True)
+    fd = os.open(CACHE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        json.dump({"token": t["access_token"], "exp": time.time() + t.get("expires_in", 3600)}, fh)
+    return t["access_token"]
+
+
+def api(method, path, params=None, body=None, retry=True):
+    url = API + path + ("?" + urllib.parse.urlencode(params, doseq=True) if params else "")
+    req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Authorization": "Bearer " + access_token(force=not retry),
+                                          "Content-Type": "application/json"})
+    try:
+        r = urllib.request.urlopen(req, timeout=30)
+        data = r.read()
+        return json.loads(data) if data else {}
+    except urllib.error.HTTPError as e:
+        if e.code == 401 and retry:
+            return api(method, path, params, body, retry=False)
+        die(f"{method} {path}: {e.code} {e.read().decode()[:600]}")
+
+
+# ---------- helpers ----------
+
+def parse_time(s, end_of_day=False):
+    """-> (datetime aware | None, date | None)"""
+    s = s.strip()
+    low = s.lower()
+    now = datetime.now(TZ)
+    m = re.fullmatch(r"([+-]\d+)d", low)
+    if low in ("today", "tomorrow", "yesterday") or m:
+        off = {"today": 0, "tomorrow": 1, "yesterday": -1}.get(low) if not m else int(m.group(1))
+        return None, (now + timedelta(days=off)).date()
+    if low == "now":
+        return now, None
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        return None, date.fromisoformat(s)
+    try:
+        d = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return (d if d.tzinfo else d.replace(tzinfo=TZ)), None
+    except ValueError:
+        pass
+    if not ON_MAC:
+        r = subprocess.run(["date", "-d", s, "+%Y-%m-%dT%H:%M:%S%z"], capture_output=True, text=True,
+                           env={**os.environ, "TZ": "America/Chicago"})
+        if r.returncode == 0:
+            return datetime.strptime(r.stdout.strip(), "%Y-%m-%dT%H:%M:%S%z"), None
+    die(f"can't read the time {s!r}", 2)
+
+
+def as_dt(s):
+    d, day = parse_time(s)
+    return d or datetime.combine(day, datetime.min.time(), TZ)
+
+
+_cals = None
+
+
+def cal_id(name):
+    global _cals
+    if not name or name.lower() in ("primary", "actual"):
+        return "primary"
+    if "@" in name:
+        return name
+    _cals = _cals or api("GET", "/users/me/calendarList")["items"]
+    hits = [c for c in _cals if c.get("summary", "").lower() == name.lower()] or \
+           [c for c in _cals if name.lower() in c.get("summary", "").lower()]
+    if len(hits) != 1:
+        die(f"calendar {name!r}: " + ("no match" if not hits else "several: " + ", ".join(c["summary"] for c in hits)))
+    return hits[0]["id"]
+
+
+def q(cal):
+    return urllib.parse.quote(cal, safe="@.")
+
+
+def fmt_when(ev):
+    s, e = ev["start"], ev["end"]
+    if "date" in s:
+        last = date.fromisoformat(e["date"]) - timedelta(days=1)
+        return s["date"] + " (all day)" + ("" if last.isoformat() == s["date"] else f" → {last}")
+    a = datetime.fromisoformat(s["dateTime"]).astimezone(TZ)
+    b = datetime.fromisoformat(e["dateTime"]).astimezone(TZ)
+    return a.strftime("%a %Y-%m-%d %H:%M") + "–" + (b.strftime("%H:%M") if a.date() == b.date() else b.strftime("%a %m-%d %H:%M"))
+
+
+def flags(args, spec):
+    """spec: {'--cal': True(value) / False(bool)}; returns dict, mutates args to positional."""
+    out, pos, i = {}, [], 0
+    while i < len(args):
+        a = args[i]
+        if a in spec:
+            if spec[a]:
+                if i + 1 >= len(args):
+                    die(f"{a} needs a value", 2)
+                out[a] = args[i + 1]; i += 2; continue
+            out[a] = True
+        else:
+            pos.append(a)
+        i += 1
+    args[:] = pos
+    return out
+
+
+def when_body(start, end, all_day):
+    sd, sday = parse_time(start)
+    if all_day or (sd is None and (end is None or parse_time(end)[0] is None)):
+        sday = sday or sd.date()
+        eday = (parse_time(end)[1] or parse_time(end)[0].date()) if end else sday
+        return {"start": {"date": sday.isoformat()}, "end": {"date": (eday + timedelta(days=1)).isoformat()}}
+    sd = sd or datetime.combine(sday, datetime.min.time(), TZ)
+    ed = as_dt(end) if end else sd + timedelta(hours=1)
+    return {"start": {"dateTime": sd.isoformat(), "timeZone": "America/Chicago"},
+            "end": {"dateTime": ed.isoformat(), "timeZone": "America/Chicago"}}
+
+
+# ---------- auth (on ag-mac, once) ----------
+
+def auth(path):
+    import http.server, secrets
+    if not ON_MAC:
+        die("run auth on ag-mac (its Chrome is signed in to the account)")
+    c = json.load(open(os.path.expanduser(path)))
+    c = c.get("installed") or c.get("web")
+    port, state = 8765, secrets.token_urlsafe(16)
+    redirect = f"http://127.0.0.1:{port}/"
+    url = "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode({
+        "client_id": c["client_id"], "redirect_uri": redirect, "response_type": "code", "scope": SCOPE,
+        "access_type": "offline", "prompt": "consent", "state": state, "login_hint": "nathankoerschner@gmail.com"})
+    got = {}
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if qs.get("state", [""])[0] == state and "code" in qs:
+                got["code"] = qs["code"][0]
+            self.send_response(200); self.end_headers()
+            self.wfile.write(b"ag-gcal: done, you can close this tab." if got else b"ag-gcal: no code")
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", port), H)
+    print("open this URL in Chrome on ag-mac and allow access:\n" + url, flush=True)
+    srv.timeout = 900
+    while "code" not in got:
+        srv.handle_request()
+    t = post_form("https://oauth2.googleapis.com/token", {"client_id": c["client_id"], "client_secret": c["client_secret"],
+                  "code": got["code"], "redirect_uri": redirect, "grant_type": "authorization_code"})
+    if "refresh_token" not in t:
+        die("no refresh token returned")
+    item = {"title": ITEM, "category": "API_CREDENTIAL", "fields": [
+        {"id": "client_id", "label": "client_id", "type": "STRING", "value": c["client_id"]},
+        {"id": "client_secret", "label": "client_secret", "type": "CONCEALED", "value": c["client_secret"]},
+        {"id": "refresh_token", "label": "refresh_token", "type": "CONCEALED", "value": t["refresh_token"]},
+        {"id": "notesPlain", "label": "notesPlain", "type": "STRING", "purpose": "NOTES",
+         "value": "Used by ag-gcal (ag repo). Google Cloud project ag-calendar-nk, Desktop OAuth client ag-gcal, scope calendar."}]}
+    subprocess.run(["op-shared", "item", "delete", ITEM, "--vault", VAULT], capture_output=True)
+    r = subprocess.run(["op-shared", "item", "create", "--vault", VAULT, "-"], input=json.dumps(item), text=True, capture_output=True)
+    if r.returncode:
+        die("storing in op-shared failed: " + r.stderr)
+    print("stored refresh token in op-shared:", ITEM)
+
+
+# ---------- main ----------
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(__doc__.strip()); return
+    cmd, args = argv[0], list(argv[1:])
+    if cmd == "auth":
+        auth(args[0] if args else die("usage: ag-gcal auth <client_secret.json>", 2))
+    elif cmd == "calendars":
+        for c in api("GET", "/users/me/calendarList")["items"]:
+            name = c.get("summary", "") + ("  (primary = Actual)" if c.get("primary") else "")
+            print(f"{c['id']}\t{c.get('accessRole')}\t{name}")
+    elif cmd == "events":
+        f = flags(args, {"--cal": True, "-q": True, "-n": True})
+        start = as_dt(args[0]) if args else datetime.combine(datetime.now(TZ).date(), datetime.min.time(), TZ)
+        if len(args) > 1:
+            d, day = parse_time(args[1])
+            end = d or datetime.combine(day + timedelta(days=1), datetime.min.time(), TZ)
+        else:
+            end = start + timedelta(days=7) if not args or parse_time(args[0])[0] else start + timedelta(days=1)
+        params = {"timeMin": start.isoformat(), "timeMax": end.isoformat(), "singleEvents": "true",
+                  "orderBy": "startTime", "maxResults": f.get("-n", 250)}
+        if "-q" in f:
+            params["q"] = f["-q"]
+        for ev in api("GET", f"/calendars/{q(cal_id(f.get('--cal')))}/events", params).get("items", []):
+            extra = f"  @ {ev['location']}" if ev.get("location") else ""
+            print(f"{fmt_when(ev)}\t{ev.get('summary', '(no title)')}{extra}\t{ev['id']}")
+    elif cmd == "get":
+        f = flags(args, {"--cal": True})
+        print(json.dumps(api("GET", f"/calendars/{q(cal_id(f.get('--cal')))}/events/{args[0]}"), indent=2))
+    elif cmd == "create":
+        f = flags(args, {"--cal": True, "--desc": True, "--where": True, "--all-day": False})
+        if len(args) < 2:
+            die("usage: ag-gcal create <title> <start> [<end>] ...", 2)
+        body = {"summary": args[0], **when_body(args[1], args[2] if len(args) > 2 else None, f.get("--all-day"))}
+        if "--desc" in f: body["description"] = f["--desc"]
+        if "--where" in f: body["location"] = f["--where"]
+        ev = api("POST", f"/calendars/{q(cal_id(f.get('--cal')))}/events", body=body)
+        print(f"{ev['id']}\t{fmt_when(ev)}\t{ev['summary']}\t{ev.get('htmlLink', '')}")
+    elif cmd == "update":
+        f = flags(args, {"--cal": True, "--title": True, "--start": True, "--end": True, "--desc": True, "--where": True})
+        if not args:
+            die("usage: ag-gcal update <event id> ...", 2)
+        path = f"/calendars/{q(cal_id(f.get('--cal')))}/events/{args[0]}"
+        body = {}
+        if "--title" in f: body["summary"] = f["--title"]
+        if "--desc" in f: body["description"] = f["--desc"]
+        if "--where" in f: body["location"] = f["--where"]
+        if "--start" in f or "--end" in f:
+            cur = api("GET", path)
+            if "--start" in f:
+                s = as_dt(f["--start"])
+                old_s = datetime.fromisoformat(cur["start"].get("dateTime") or cur["start"]["date"] + "T00:00:00-06:00")
+                old_e = datetime.fromisoformat(cur["end"].get("dateTime") or cur["end"]["date"] + "T00:00:00-06:00")
+                e = as_dt(f["--end"]) if "--end" in f else s + (old_e - old_s)
+            else:
+                s = datetime.fromisoformat(cur["start"]["dateTime"]); e = as_dt(f["--end"])
+            body["start"] = {"dateTime": s.isoformat(), "timeZone": "America/Chicago"}
+            body["end"] = {"dateTime": e.isoformat(), "timeZone": "America/Chicago"}
+        ev = api("PATCH", path, body=body)
+        print(f"{ev['id']}\t{fmt_when(ev)}\t{ev.get('summary')}")
+    elif cmd == "delete":
+        f = flags(args, {"--cal": True})
+        api("DELETE", f"/calendars/{q(cal_id(f.get('--cal')))}/events/{args[0]}")
+        print("deleted", args[0])
+    else:
+        die(f"unknown command {cmd!r} (try --help)", 2)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

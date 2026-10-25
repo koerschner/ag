@@ -236,6 +236,8 @@ if "$AG/bin/dot-local/bin/ag-machine-role" host 2>/dev/null; then
   # not just whether the service started; flag expired OAuth and models the Nessie guard reroutes.
   for i in {1..10}; do [[ -f ~/.t3/caches/pi.json ]] && break; sleep 1; done
   "$AG/bin/dot-local/bin/ag-t3" setup || warn "T3 model/auth setup needs attention (ag-t3 doctor)"
+  # T3's preview browser (headless Chrome) needs an AppArmor userns profile on Ubuntu 23.10+; t3 writes it (idempotent).
+  [[ -f /etc/apparmor.d/t3-chrome-headless-shell ]] || sudo env "PATH=$PATH" "$HOME/.local/bin/t3" browser setup >/dev/null || warn "t3 browser setup"
 fi
 # The rest of the host's services (each unit's ExecCondition keeps them off non-hosts, so enabling everywhere is safe).
 for u in ag-inbox.service ag-nav.service ag-private.service ag-file-inbox.service ag-mcp-gateway.service ag-pi-hibernate.service ag-tickler.timer ag-presence.timer; do

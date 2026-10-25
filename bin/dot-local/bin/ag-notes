@@ -1,0 +1,266 @@
+#!/usr/bin/env python3
+"""ag-notes: the user's Apple Notes from any ag machine, via ag-mac (signed in to the user's Apple
+Account with Notes in iCloud, so it sees what their iPhone and iPad see within seconds). Off the Mac
+this script ships itself to ag-mac (`ag-mac run python3 -`) and drives Notes.app there with JXA
+(Automation -> Notes for sshd-keygen-wrapper; read-only, never touches the screen). Never use the client.
+
+  ag-notes folders                         folders with note counts
+  ag-notes list [N] [--folder F]           most recently edited notes (default 20): id, edited, folder, title
+  ag-notes search <text> [N]               notes whose title or text contains text (case-insensitive)
+  ag-notes read <id|title> [--dir D]       the note as Markdown; images and handwriting (Pencil drawings)
+                                           are saved as PNGs (default ~/inbox/notes/<title>/) and listed:
+                                           look at them to read handwriting, Notes doesn't export its text
+  ag-notes create <title> [--folder F] [text|-]   new note (text from the argument or stdin); prints its id
+  ag-notes append <id|title> [text|-]      add text to the end of a note (refused for notes with
+                                           drawings or attachments, which rewriting the body could damage)
+
+<id|title> = an id from list/search, or a title matching exactly one note (case-insensitive).
+Times are the user's local time (America/Chicago). Locked notes can't be read. Recently Deleted is skipped.
+"""
+import base64, html, json, os, platform, re, subprocess, sys
+from html.parser import HTMLParser
+
+ON_MAC = platform.system() == "Darwin"
+
+
+def die(msg, code=1):
+    print(f"ag-notes: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+# ---------- on the Mac: raw Notes operations as JSON ----------
+
+JXA = r"""
+function run(argv) {
+  const op = argv[0], a = JSON.parse(argv[1] || '{}');
+  const N = Application('Notes');
+  const iso = d => d ? d.toISOString() : null;
+  const folders = [];
+  N.accounts().forEach(acc => acc.folders().forEach(f => {
+    if (f.name() !== 'Recently Deleted') folders.push({acc: acc.name(), f});
+  }));
+  const find = id => N.notes.byId(id);
+  if (op === 'folders') return JSON.stringify(folders.map(x => ({account: x.acc, name: x.f.name(), count: x.f.notes.length})));
+  if (op === 'notes') {
+    const out = [];
+    folders.forEach(x => {
+      const ns = x.f.notes;
+      const ids = ns.id(), names = ns.name(), mods = ns.modificationDate();
+      const text = a.text ? ns.plaintext() : null;
+      ids.forEach((id, i) => out.push({id, title: names[i], edited: iso(mods[i]), folder: x.f.name(), account: x.acc, text: text ? text[i] : undefined}));
+    });
+    return JSON.stringify(out);
+  }
+  if (op === 'get') {
+    const n = find(a.id);
+    return JSON.stringify({id: n.id(), title: n.name(), edited: iso(n.modificationDate()), created: iso(n.creationDate()),
+      folder: n.container().name(), locked: n.passwordProtected(), attachments: n.attachments.length, body: n.body()});
+  }
+  if (op === 'create') {
+    const x = folders.find(x => !a.folder ? x.acc === 'iCloud' && x.f.name() === 'Notes' : x.f.name().toLowerCase() === a.folder.toLowerCase());
+    if (!x) throw new Error('no folder ' + (a.folder || 'iCloud/Notes'));
+    const n = N.Note({body: a.html});
+    x.f.notes.push(n);
+    return JSON.stringify({id: n.id(), title: n.name(), folder: x.f.name()});
+  }
+  if (op === 'append') {
+    const n = find(a.id);
+    n.body = n.body() + a.html;
+    return JSON.stringify({id: n.id(), title: n.name()});
+  }
+  throw new Error('unknown op ' + op);
+}
+"""
+
+
+def mac_op(op, args):
+    r = subprocess.run(["osascript", "-l", "JavaScript", "-", op, json.dumps(args)],
+                       input=JXA, capture_output=True, text=True)
+    if r.returncode:
+        die(f"Notes ({op}): {r.stderr.strip()}")
+    return json.loads(r.stdout)
+
+
+def op(name, **args):
+    if ON_MAC:
+        return mac_op(name, args)
+    payload = base64.b64encode(json.dumps(args).encode()).decode()
+    r = subprocess.run(["ag-mac", "run", "python3", "-", "_op", name, payload],
+                       input=open(__file__, "rb").read(), capture_output=True)
+    if r.returncode:
+        die(r.stderr.decode().strip() or f"ag-mac unreachable (exit {r.returncode})")
+    return json.loads(r.stdout)
+
+
+# ---------- formatting ----------
+
+def local(ts):
+    if not ts:
+        return ""
+    r = subprocess.run(["date", "-d", ts, "+%Y-%m-%d %H:%M"], capture_output=True, text=True,
+                       env={**os.environ, "TZ": "America/Chicago"})
+    return r.stdout.strip() or ts[:16].replace("T", " ")
+
+
+class ToMarkdown(HTMLParser):
+    """Notes' body HTML -> Markdown; inline images (drawings included) become numbered PNG refs."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.out, self.images, self.lists, self.href = [], [], [], None
+
+    def nl(self):
+        if self.out and not "".join(self.out[-1:]).endswith("\n"):
+            self.out.append("\n")
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag in ("div", "p", "tr"):
+            self.nl()
+        elif tag in ("h1", "h2", "h3"):
+            self.nl(); self.out.append("#" * int(tag[1]) + " ")
+        elif tag == "br":
+            self.out.append("\n")
+        elif tag in ("b", "strong"):
+            self.out.append("**")
+        elif tag in ("i", "em"):
+            self.out.append("*")
+        elif tag in ("ul", "ol"):
+            self.lists.append([tag, 0])
+        elif tag == "li":
+            self.nl()
+            kind = self.lists[-1] if self.lists else ["ul", 0]
+            kind[1] += 1
+            self.out.append("  " * (len(self.lists) - 1) + (f"{kind[1]}. " if kind[0] == "ol" else "- "))
+        elif tag == "a":
+            self.href = a.get("href"); self.out.append("[")
+        elif tag == "td":
+            self.out.append(" | ")
+        elif tag == "img":
+            m = re.match(r"data:image/(\w+);base64,(.*)", a.get("src", ""), re.S)
+            if m:
+                self.images.append((m.group(1), base64.b64decode(m.group(2))))
+                self.nl(); self.out.append(f"![image {len(self.images)}](image-{len(self.images)}.{m.group(1)})\n")
+
+    def handle_endtag(self, tag):
+        if tag in ("b", "strong"):
+            self.out.append("**")
+        elif tag in ("i", "em"):
+            self.out.append("*")
+        elif tag in ("ul", "ol") and self.lists:
+            self.lists.pop()
+        elif tag == "a":
+            self.out.append(f"]({self.href or ''})"); self.href = None
+        elif tag in ("h1", "h2", "h3", "div", "p", "li"):
+            self.nl()
+
+    def handle_data(self, data):
+        self.out.append(data)
+
+    def markdown(self):
+        text = "".join(self.out).replace("\u00a0", " ")
+        return re.sub(r"\n{3,}", "\n\n", text).strip() + "\n"
+
+
+def to_html(text):
+    return "".join(f"<div>{html.escape(line) or '<br>'}</div>" for line in text.split("\n"))
+
+
+def resolve(ref):
+    if ref.startswith("x-coredata://"):
+        return ref
+    notes = op("notes")
+    hits = [n for n in notes if n["title"].strip().lower() == ref.strip().lower()]
+    if not hits:
+        hits = [n for n in notes if ref.lower() in n["title"].lower()]
+    if len(hits) == 1:
+        return hits[0]["id"]
+    if not hits:
+        die(f"no note titled {ref!r}")
+    die("several notes match; use an id:\n" + "\n".join(f"  {n['id']}  {n['title']}" for n in hits))
+
+
+def show(notes, n):
+    notes.sort(key=lambda x: x["edited"] or "", reverse=True)
+    for x in notes[:n]:
+        print(f"{x['id']}\t{local(x['edited'])}\t{x['folder']}\t{x['title']}")
+
+
+def text_arg(rest):
+    if not rest or rest == ["-"]:
+        return sys.stdin.read()
+    return " ".join(rest)
+
+
+def flag(args, name):
+    if name in args:
+        i = args.index(name)
+        val = args[i + 1] if i + 1 < len(args) else die(f"{name} needs a value", 2)
+        del args[i:i + 2]
+        return val
+    return None
+
+
+def main(argv):
+    if argv[:1] == ["_op"]:  # forwarded from another machine
+        print(json.dumps(mac_op(argv[1], json.loads(base64.b64decode(argv[2])))))
+        return
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(__doc__.strip()); return
+    cmd, args = argv[0], list(argv[1:])
+    if cmd == "folders":
+        for f in op("folders"):
+            print(f"{f['account']}\t{f['name']}\t{f['count']}")
+    elif cmd == "list":
+        folder = flag(args, "--folder")
+        notes = [x for x in op("notes") if not folder or x["folder"].lower() == folder.lower()]
+        show(notes, int(args[0]) if args else 20)
+    elif cmd == "search":
+        if not args:
+            die("usage: ag-notes search <text> [N]", 2)
+        n = int(args.pop()) if len(args) > 1 and args[-1].isdigit() else 20
+        q = " ".join(args).lower()
+        show([x for x in op("notes", text=True) if q in x["title"].lower() or q in (x["text"] or "").lower()], n)
+    elif cmd == "read":
+        out_dir = flag(args, "--dir")
+        if not args:
+            die("usage: ag-notes read <id|title>", 2)
+        note = op("get", id=resolve(" ".join(args)))
+        if note["locked"]:
+            die("that note is locked; Notes won't share its contents")
+        md = ToMarkdown(); md.feed(note["body"])
+        print(f"# {note['title']}\n\nfolder: {note['folder']} · edited {local(note['edited'])} · id {note['id']}\n")
+        print(md.markdown())
+        if md.images:
+            slug = re.sub(r"[^\w-]+", "-", note["title"]).strip("-")[:60] or "note"
+            d = os.path.expanduser(out_dir or f"~/inbox/notes/{slug}")
+            os.makedirs(d, exist_ok=True)
+            print("images (handwriting is in these; view them to read it):")
+            for i, (ext, data) in enumerate(md.images, 1):
+                p = os.path.join(d, f"image-{i}.{ext}")
+                open(p, "wb").write(data)
+                print(f"  {p}")
+        if note["attachments"]:
+            print(f"({note['attachments']} attachment(s) such as files or scans aren't exported)")
+    elif cmd == "create":
+        folder = flag(args, "--folder")
+        if not args:
+            die("usage: ag-notes create <title> [--folder F] [text|-]", 2)
+        title, rest = args[0], args[1:]
+        body = text_arg(rest) if rest or not sys.stdin.isatty() else ""
+        r = op("create", folder=folder, html=f"<div><h1>{html.escape(title)}</h1></div>" + (to_html(body.rstrip("\n")) if body else ""))
+        print(f"{r['id']}\t{r['folder']}\t{r['title']}")
+    elif cmd == "append":
+        if not args:
+            die("usage: ag-notes append <id|title> [text|-]", 2)
+        nid = resolve(args[0])
+        note = op("get", id=nid)
+        if note["locked"] or note["attachments"] or "<img" in note["body"]:
+            die("refusing to rewrite a note with drawings, images or attachments (it could damage them); create a new note instead")
+        r = op("append", id=nid, html=to_html(text_arg(args[1:]).rstrip("\n")))
+        print(f"{r['id']}\t{r['title']}")
+    else:
+        die(f"unknown command {cmd!r} (try --help)", 2)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

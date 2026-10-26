@@ -607,7 +607,8 @@ it plainly, keeping every fact; `--instruction` swaps in a skill's own rewrite t
 text and never adds an attribution line. Unlike the image model, Gemini text models accept the
 OpenAI-style `/chat/completions`; list what the gateway exposes with `GET /models` (ids also come
 prefixed, e.g. `gemini-primary/...`; `gemini-3.1-pro` is listed but refused for our user). Whether
-agents must use it is a per-user rule in their agents.md layer.
+agents must use it is a per-user rule in their agents.md layer; the workflow (brief, check, attribute,
+when to run it again) is the `writing` skill.
 
 ## Screen recordings (QA video)
 

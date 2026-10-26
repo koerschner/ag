@@ -11,7 +11,8 @@ syncing machines, services) through the `ag` CLI instead of hand-rolling them wi
 ag-dash or the inbox, or jq over transcripts. Background and the intended command surface: ~/ag/docs/ag-cli.md.
 
 1. Measure: `ag usage --days 7 --json > ~/.local/state/routines/ag-cli-usage/usage-$(date +%Y%m%d).json`, and read
-   the previous week's file next to it (if any) for the trend.
+   the previous week's file next to it (if any) for the trend. Since 2026-10-26 the counts include shell calls made
+   inside the `codemode` tool (split out as `codemode_*`); a week before that lacks them, so compare like with like.
 2. Judge each hand-rolled pattern with ≥ 15 calls this week:
    - its `ag` verb exists (`ag help`) → agents aren't being steered to it. Find why from a few example calls'
      sessions (instructions still show the old recipe? the verb lacks an option they needed? it errors?).

@@ -105,3 +105,6 @@ forward to the existing commands, which keep their names.
   (adoption meter; patterns in `bin/dot-local/lib/ag/usage-patterns.json`). Baseline adoption, 7 days: 0.6%
   (16 `ag` calls vs 2,491 hand-rolled). The weekly `ag-cli-usage` routine tracks it in `docs/ag-cli-usage.md`.
   The session and system verbs are being built in a split-out session ("ag CLI Build").
+- 2026-10-26: `ag usage` also counts shell run inside the `codemode` tool: each literal
+  `tools.bash({command: …})` in its script is scored like a bash call (commands built from variables are skipped).
+  `--json` reports them separately as `codemode_calls`, `codemode_ag_calls` and `codemode_hand_rolled_calls`.

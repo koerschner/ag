@@ -3,7 +3,8 @@
 
 Counts, over the window: each `ag <verb>` call (calls, sessions, error rate from its tool result), and every
 hand-rolled equivalent from usage-patterns.json (the same job done with ag-mux + jq, curl to ag-dash or
-the inbox, jq over transcripts, per-machine ssh …) with the ag verb that covers or should cover it. Stdlib only.
+the inbox, jq over transcripts, per-machine ssh …) with the ag verb that covers or should cover it. Shell calls
+are bash tool calls plus each literal `tools.bash({command: …})` inside a codemode tool call. Stdlib only.
 The weekly `ag-cli-usage` routine (~/ag/routines/ag-cli-usage.md) runs it.
 
     ag usage [--days 7] [--json] [--examples 3]
@@ -32,6 +33,25 @@ def known_verbs():
         except OSError:
             pass
     return vs - {"attach"}
+
+
+# A literal command in codemode's JavaScript: tools.bash({command: `…` | String.raw`…` | '…' | "…"}).
+CODEMODE_BASH = re.compile(
+    r"tools\.bash\(\s*\{\s*command\s*:\s*(String\.raw)?(`(?:\\.|[^`\\])*`|'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\")", re.S
+)
+UNESCAPE = re.compile(r"\\([n\"'`\\])")
+
+
+def codemode_commands(code):
+    """Shell commands a codemode script runs, as far as they can be read statically. Commands built from
+    variables (tools.bash({command: cmd})) can't be pulled out and are skipped; ${…} in a template stays as text."""
+    out = []
+    for raw, lit in CODEMODE_BASH.findall(code):
+        body = lit[1:-1]
+        out.append(body if raw else UNESCAPE.sub(lambda m: "\n" if m.group(1) == "n" else m.group(1), body))
+    return out
+
+
 ERR = re.compile(r'"error"|agent_not_found|No such file|not found|command not found|^empty|Traceback', re.M)
 
 
@@ -56,7 +76,7 @@ def main(argv):
 
     verbs, vsess, verr = Counter(), defaultdict(set), Counter()
     hand, hsess, herr, hex_ = Counter(), defaultdict(set), Counter(), defaultdict(list)
-    sessions = calls = 0
+    sessions = calls = cm_calls = cm_ag = cm_hand = 0
     for f in SESSIONS.glob("*/*.jsonl"):
         try:
             if f.stat().st_mtime < since:
@@ -76,11 +96,22 @@ def main(argv):
             m = e.get("message") or {}
             if m.get("role") == "assistant":
                 for c in m.get("content") or []:
-                    if isinstance(c, dict) and c.get("type") == "toolCall" and c.get("name") == "bash":
-                        cmd = (c.get("arguments") or {}).get("command") or ""
+                    if not (isinstance(c, dict) and c.get("type") == "toolCall"):
+                        continue
+                    args = c.get("arguments") or {}
+                    if c.get("name") == "bash":
+                        cmds = [args.get("command") or ""]
+                    elif c.get("name") == "codemode":
+                        cmds = codemode_commands(args.get("code") or "")
+                        cm_calls += len(cmds)
+                    else:
+                        continue
+                    for cmd in cmds:
                         seen, calls = True, calls + 1
                         hits = sorted({v for v in AG_CALL.findall(HEREDOC.sub("", cmd)) if v in known})
                         pids = [p["id"] for p, r in rx if r.search(cmd)]
+                        if c.get("name") == "codemode":
+                            cm_ag, cm_hand = cm_ag + len(hits), cm_hand + len(pids)
                         for v in hits:
                             verbs[v] += 1
                             vsess[v].add(f.name)
@@ -90,15 +121,17 @@ def main(argv):
                             if len(hex_[p]) < nex:
                                 hex_[p].append(cmd.strip().replace("\n", " ⏎ ")[:220])
                         if hits or pids:
-                            pending[c.get("id")] = (hits, pids)
+                            # A codemode script has one toolResult for all its commands; each is judged by it.
+                            pending.setdefault(c.get("id"), []).append((hits, pids))
             elif m.get("role") == "toolResult" and m.get("toolCallId") in pending:
-                hits, pids = pending.pop(m["toolCallId"])
+                scored = pending.pop(m["toolCallId"])
                 txt = " ".join(x.get("text", "") for x in m.get("content") or [] if isinstance(x, dict))[:3000]
                 if m.get("isError") or ERR.search(txt):
-                    for v in hits:
-                        verr[v] += 1
-                    for p in pids:
-                        herr[p] += 1
+                    for hits, pids in scored:
+                        for v in hits:
+                            verr[v] += 1
+                        for p in pids:
+                            herr[p] += 1
         sessions += seen
 
     report = {
@@ -108,6 +141,9 @@ def main(argv):
         "bash_calls": calls,
         "ag_calls": sum(verbs.values()),
         "hand_rolled_calls": sum(hand.values()),
+        "codemode_calls": cm_calls,
+        "codemode_ag_calls": cm_ag,
+        "codemode_hand_rolled_calls": cm_hand,
         "verbs": [{"verb": v, "calls": n, "sessions": len(vsess[v]), "errors": verr[v]} for v, n in verbs.most_common()],
         "hand_rolled": [
             {"id": p["id"], "verb": p["verb"], "what": p["what"], "calls": hand[p["id"]], "sessions": len(hsess[p["id"]]), "errors": herr[p["id"]], "examples": hex_[p["id"]]}
@@ -120,7 +156,7 @@ def main(argv):
     if as_json:
         print(json.dumps(report, indent=1))
         return 0
-    print(f"last {days:g} days: {sessions} sessions, {calls} bash calls")
+    print(f"last {days:g} days: {sessions} sessions, {calls} shell calls ({cm_calls} inside codemode)")
     print(f"ag CLI calls {report['ag_calls']} vs hand-rolled equivalents {report['hand_rolled_calls']} → adoption {report['adoption_pct']}%\n")
     print("ag verbs:" if report["verbs"] else "ag verbs: none used yet")
     for v in report["verbs"]:

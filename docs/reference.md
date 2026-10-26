@@ -20,6 +20,7 @@ modes at `0600`:
 | `~/.zprofile.local` | machine-local profile overrides |
 | `~/.profile.local` | machine-local POSIX login-shell additions (optional; the tracked `~/.profile` puts Homebrew first for `sh -lc`, e.g. the arcade pre-push hook) |
 | `~/.config/mcp/arcade-school.headers`, `tsa-courses.headers` | `Authorization: Bearer <token>` |
+| `~/.xurl/auth.yml`, `~/.config/mcp/x.headers` | X API: rebuilt from the vault by `ag-x-auth`, then `ag-x-auth login` (see *X API*) |
 | `~/.local/share/arcade-linear-return/mcp-destination/client-metadata.json` | Linear MCP OAuth client |
 | `~/.pi/agent/auth.json` | or just run `pi` and `/login` |
 | `~/.alchemy/config.json`, `~/.alchemy/credentials/playcademy-arcade/cloudflare.json` | Alchemy `playcademy-arcade` Cloudflare profile (API token); arcade's `bun scripts/db --stage production` needs it plus `cloudflared` |
@@ -529,11 +530,11 @@ written by `ag-state sync` (`ag-state-sync.timer`, every 15 min, session host on
 
 ## Shared MCP gateway (Pi)
 
-Pi's stdio MCP bridges (`linear`, `arcade_school`, `honeycomb`, `tsa_courses`) run
+Pi's stdio MCP bridges (`linear`, `arcade_school`, `honeycomb`, `tsa_courses`, `x`) run
 **once per machine** instead of once per Pi session: `bin/dot-local/bin/ag-mcp-gateway`
 (LaunchAgent `com.ag.ag-mcp-gateway`, KeepAlive, all machines) runs each server's
 `mcp-remote` behind its own pinned `mcp-proxy` (via `uvx`) on
-`127.0.0.1:7381`–`7385/mcp`, and `pi/dot-pi/agent/mcp.json` points at those URLs
+`127.0.0.1:7381`–`7386/mcp`, and `pi/dot-pi/agent/mcp.json` points at those URLs
 (`slack` stays direct HTTP). Per-session bridges cost ~100 MB each (96 sessions used
 ~9.5 GB on ag). Server commands and ports live in the script; logs in
 `$TMPDIR/ag-mcp-gateway/<server>.log`. Check with `ag-mcp-gateway status`. After editing
@@ -567,6 +568,20 @@ public client and prints a sign-in URL; the callback is `localhost:8765` on the 
 machine's browser approves it (`ssh -N -R 8765:127.0.0.1:8765 <machine>`). Client and refresh token live in
 `~/.config/readai/` (0600, never tracked). Then `ag-readai call list_meetings '{"limit":10,"expand":["transcript"]}'`.
 Tokens must carry `resource=https://api.read.ai/mcp` only; a multi-audience token is rejected with 401.
+
+## X API (xurl + x MCP)
+
+Ag reads and searches X (Twitter) and acts on the user's own X account through the official X API. The API is pay-per-use: credits are bought in the X Developer Console (`console.x.com`), with auto-recharge on the work card and a monthly spending cap that blocks every request once reached. Agents load the `x-api` skill (`agents/dot-agents/skills/x-api/SKILL.md`) for usage, costs and rules. The app's name, the developer account and the billing setup are in the user's private personal instructions.
+
+Two pieces run on the session host:
+- `xurl`, X's official CLI (`https://github.com/xdevplatform/xurl`), installed by `bootstrap-linux` into `~/.local/bin` with its install script. Its config is `~/.xurl/auth.yml` (mode 0600, never tracked), with xurl app `ag`: OAuth 2.0 user sign-in (used by default), OAuth 1.0a (the app owner's access token, which does not expire and which `xurl` falls back to when OAuth 2.0 fails) and the app-only bearer token (`--auth app`).
+- MCP server `x` in the shared MCP gateway (`127.0.0.1:7386`), which connects to X's hosted MCP server `https://api.x.com/mcp` through `mcp-remote` using the app-only bearer token from `~/.config/mcp/x.headers` (0600). It supports public reads and full-archive search only, with no user context. It deliberately does not use OAuth 2.0 through `xurl mcp`. X keeps one OAuth 2.0 sign-in per user and app, so a second sign-in revokes the first, and a long-running bridge would also hold a refresh token that other `xurl` processes rotate.
+
+Credentials live in the work vault (`op-work`, vault `ag-vault`), item `X API - ag app`, with fields `consumer_key`, `consumer_secret`, `bearer_token`, `client_id`, `client_secret`, `access_token` and `access_token_secret`. They were saved straight from the X console during a computer-use run with `ag-clip-secret`, which stores the clipboard into a 1Password field and clears the clipboard.
+
+`ag-x-auth` (`bin/dot-local/bin`) writes `~/.xurl/auth.yml` (keeping the sign-in) and the header file from the vault. `ag-x-auth status` checks each auth mode and the MCP server. `ag-x-auth login` runs the OAuth 2.0 sign-in: it starts `xurl`'s callback listener on the host, opens an SSH reverse forward of `ag-mac`'s `localhost:8080` to it, and has `ag cua` click "Authorize app" in `ag-mac`'s Chrome, which is signed in to X. The forward uses its own SSH connection, not the ControlMaster: through a ControlMaster, `ssh -N -R` hands the forward to the master and exits at once, leaving the port forwarded (cancel with `ssh -O cancel -R 8080:127.0.0.1:8080 ag-mac`). Chrome then shows "localhost is blocked" (`ERR_BLOCKED_BY_CLIENT`) on the callback page, but the request still reaches `xurl` and the sign-in completes. Check with `ag-x-auth status`.
+
+On a new session host, run `ag-x-auth`, then `ag-x-auth login` (which revokes the old host's OAuth 2.0 sign-in), then restart the gateway (`systemctl --user restart ag-mcp-gateway`).
 
 ## arcade_school MCP
 

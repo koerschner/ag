@@ -22,6 +22,12 @@ PORT[linear]=7381
 CMD[linear]='export MCP_REMOTE_CONFIG_DIR="$HOME/.local/share/arcade-linear-return/mcp-destination"; exec npx -y mcp-remote@0.14.3 https://mcp.linear.app/mcp --transport http-only --static-oauth-client-metadata "@$HOME/.local/share/arcade-linear-return/mcp-destination/client-metadata.json"'
 PORT[honeycomb]=7383
 CMD[honeycomb]='exec "$HOME/.bun/bin/bunx" --bun mcp-remote@0.8.3 https://mcp.honeycomb.io/mcp'
+# X's hosted MCP (https://api.x.com/mcp) with the X app's app-only bearer token: public reads and
+# search, no user context (the user's own bookmarks, timeline, DMs and posting go through xurl).
+# Not OAuth 2.0: X keeps one sign-in per user and app, so a second one here would revoke xurl's.
+# Header file written by ag-x-auth; without it, the empty server.
+PORT[x]=7386
+CMD[x]='[ -s "$HOME/.config/mcp/x.headers" ] || exec "$HOME/.local/bin/ag-mcp-noop"; exec "$HOME/.bun/bin/bunx" --bun mcp-remote@0.8.3 https://api.x.com/mcp --transport http-only --header-file "$HOME/.config/mcp/x.headers" --silent'
 # Private servers (employer/partner endpoints, Slack sessions) are defined in the user's private
 # ~/ag-personal/mcp-gateway.zsh, which adds PORT[...]/CMD[...] entries the same way.
 [[ -f $HOME/ag-personal/mcp-gateway.zsh ]] && source $HOME/ag-personal/mcp-gateway.zsh

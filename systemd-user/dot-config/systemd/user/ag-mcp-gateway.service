@@ -1,6 +1,6 @@
-# Shared MCP bridges for every Pi session (127.0.0.1:7381-7385). Runs on the session host only (machines/README.md role host); ported from macos-launchagents.
+# Shared MCP bridges for every Pi session (127.0.0.1:7381-7386). Runs on the session host only (machines/README.md role host); ported from macos-launchagents.
 [Unit]
-Description=Shared MCP bridges for every Pi session (127.0.0.1:7381-7385)
+Description=Shared MCP bridges for every Pi session (127.0.0.1:7381-7386)
 After=network-online.target ag-mux.service
 
 [Service]

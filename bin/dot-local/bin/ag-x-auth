@@ -1,0 +1,110 @@
+#!/usr/bin/env zsh
+# ag-x-auth — set up xurl (X's official CLI for the X API) and the x MCP server from the vault.
+#
+#   ag-x-auth           write the X app's keys from 1Password (op-work, vault ag-vault, item
+#                       "X API - ag app") into xurl's config as app "ag" (~/.xurl/auth.yml, keeping
+#                       any sign-in) and the app-only bearer header for the gateway's x MCP server
+#                       (~/.config/mcp/x.headers); then run status
+#   ag-x-auth login     OAuth 2.0 sign-in as the user's X account: runs xurl's callback listener here,
+#                       forwards ag-mac's localhost:8080 to it over SSH, and has computer use click
+#                       "Authorize app" in ag-mac's Chrome (signed in to X)
+#   ag-x-auth status    which auth modes work (one user lookup each; X bills a user read once a day)
+#
+# X keeps one OAuth 2.0 sign-in per user and app: signing in again anywhere else with this app
+# (another machine, another tool) revokes this one. When the OAuth 2.0 token fails, xurl falls back
+# to OAuth 1.0a by itself. The X API is pay-per-use (credits in console.x.com): every call costs
+# money. See the x-api skill.
+set -uo pipefail
+ITEM=${AG_X_ITEM:-X API - ag app}
+VAULT=${AG_X_VAULT:-ag-vault}
+APP=ag
+HEADERS=$HOME/.config/mcp/x.headers
+
+provision() {
+  op-work item get "$ITEM" --vault "$VAULT" --format json </dev/null |
+  XAPP=$APP XHEADERS=$HEADERS uv run --quiet --no-project --with pyyaml python -c '
+import json, os, sys, yaml
+fields = {f.get("label"): f.get("value") for f in json.load(sys.stdin).get("fields", []) if f.get("value")}
+need = ["consumer_key", "consumer_secret", "bearer_token", "client_id", "client_secret", "access_token", "access_token_secret"]
+missing = [k for k in need if not fields.get(k)]
+if missing:
+    sys.exit("ag-x-auth: the vault item lacks " + ", ".join(missing))
+
+def write(path, text):
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as out:
+        out.write(text)
+    os.replace(path + ".tmp", path)
+
+path = os.path.expanduser("~/.xurl/auth.yml")
+cfg = (yaml.safe_load(open(path)) if os.path.exists(path) else None) or {}
+name = os.environ["XAPP"]
+cfg.setdefault("apps", {}).setdefault(name, {}).update({
+    "client_id": fields["client_id"], "client_secret": fields["client_secret"],
+    "redirect_uri": "http://localhost:8080/callback",
+    "oauth1_token": {"type": "oauth1", "oauth1": {
+        "access_token": fields["access_token"], "token_secret": fields["access_token_secret"],
+        "consumer_key": fields["consumer_key"], "consumer_secret": fields["consumer_secret"]}},
+    "bearer_token": {"type": "bearer", "bearer": fields["bearer_token"]},
+})
+cfg["default_app"] = name
+write(path, yaml.safe_dump(cfg, sort_keys=False))
+write(os.environ["XHEADERS"], "Authorization: Bearer " + fields["bearer_token"] + "\n")
+print("ag-x-auth: wrote xurl app " + name + " (~/.xurl/auth.yml) and the x MCP header (~/.config/mcp/x.headers)")
+'
+}
+
+check() {  # check <label> <xurl args...>: print ok + the handle, or the API error
+  local label=$1; shift
+  local out; out=$(xurl --app $APP "$@" 2>&1)
+  local handle; handle=$(print -r -- "$out" | jq -r '.data.username // empty' 2>/dev/null)
+  if [[ -n $handle ]]; then print "  $label: ok (@$handle)"
+  else print "  $label: FAILED $(print -r -- "$out" | tr -s '[:space:]' ' ' | head -c 300)"; fi
+}
+
+status() {
+  print "xurl app $APP:"
+  check "app-only bearer" --auth app /2/users/by/username/XDevelopers
+  check "OAuth 1.0a     " --auth oauth1 /2/users/me
+  if xurl --app $APP token >/dev/null 2>&1; then check "OAuth 2.0      " --auth oauth2 /2/users/me
+  else print "  OAuth 2.0      : not signed in (run: ag-x-auth login)"; fi
+  local n; n=$(curl -s -m 20 -X POST http://127.0.0.1:7386/mcp -H 'content-type: application/json' \
+    -H 'accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' |
+    sed -n 's/^data: //p;/^{/p' | jq -r '.result.tools | length' 2>/dev/null | head -1)
+  if [[ $n == <-> && $n -gt 0 ]]; then print "x MCP server (gateway :7386): ok, $n tools"
+  else print "x MCP server (gateway :7386): no tools (header file missing, gateway down, or not restarted)"; fi
+}
+
+login() {
+  provision || exit 1
+  local log=$(mktemp) url= i
+  xurl --app $APP auth oauth2 >$log 2>&1 </dev/null &
+  local xpid=$!
+  # Its own connection (not the ControlMaster), so the forward ends when this process does.
+  ssh -N -o ControlMaster=no -o ControlPath=none -o BatchMode=yes -o ExitOnForwardFailure=yes \
+    -o ServerAliveInterval=30 -R 8080:127.0.0.1:8080 ag-mac &
+  local tpid=$!
+  trap "kill $xpid $tpid 2>/dev/null; rm -f $log" EXIT
+  for i in {1..30}; do
+    url=$(grep -o 'https://[^[:space:]]*oauth2/authorize[^[:space:]]*' $log | head -1)
+    [[ -n $url ]] && break; sleep 1
+  done
+  [[ -n $url ]] || { print -u2 "ag-x-auth: xurl printed no authorization URL:"; cat $log >&2; exit 1; }
+  sleep 3
+  kill -0 $tpid 2>/dev/null || { print -u2 "ag-x-auth: could not forward ag-mac's localhost:8080 (in use there?)"; exit 1; }
+  ag cua "In Google Chrome, open this URL (X's sign-in page for the user's own X app): $url
+X asks whether to authorize the app; click \"Authorize app\" (if X asks you to sign in first, stop and report that). The browser then loads http://localhost:8080/callback, which answers through an SSH tunnel; wait for it and report exactly what that page says. Don't copy or report the URL of that page." || true
+  for i in {1..20}; do kill -0 $xpid 2>/dev/null || break; sleep 1; done
+  if kill -0 $xpid 2>/dev/null; then print -u2 "ag-x-auth: xurl is still waiting for the callback; sign-in didn't finish"; tail -5 $log >&2; exit 1; fi
+  wait $xpid || { print -u2 "ag-x-auth: xurl sign-in failed:"; tail -5 $log >&2; exit 1; }
+  status
+}
+
+case ${1:-} in
+  login) login ;;
+  status) status ;;
+  -h|--help) awk 'NR>1 && /^set -uo/{exit} NR>1' $0 ;;
+  '') provision && status ;;
+  *) print -u2 "usage: ag-x-auth [login|status]"; exit 2 ;;
+esac

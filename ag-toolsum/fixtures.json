@@ -3357,5 +3357,95 @@
   "hosts": [
    "mcp"
   ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "await tools.bash({command:\"cd ~/t3code && setsid nohup bash -c './ag/sync-upstream > /tmp/t3sync.log 2>&1; echo EXIT=$? >> /tmp/t3sync.log' >/dev/null 2>&1 < /dev/null & disown; echo ok\"});"
+  },
+  "sum": "Run sync-upstream",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "B=~/.local/share/t3-builds/12d71b7b9c; cd $B/apps/server && timeout 600 $B/node_modules/.bin/vp test run src/orchestration-v2/ThreadMessageIntake.test.ts 2>&1 | tail -15"
+  },
+  "sum": "Run tests (src/orchestration-v2/ThreadMessageIntake.test.ts) (vp)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/x/apps/server && ~/x/node_modules/.bin/vp exec tsc --noEmit -p . 2>&1 | tail -5"
+  },
+  "sum": "Run tsc on .",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "~/x/node_modules/.bin/foo bar"
+  },
+  "sum": "Run foo bar",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "timeout 900 ag cua \"Open Safari and check the weather\" 2>&1 | tail -30"
+  },
+  "sum": "Open Safari and check the weather",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const html = load(\"html\");\nconst r = await tools.mcp__t3_code__html_render({html, title: \"FreeTime: going viral\", height: 2913});\nreturn r;"
+  },
+  "sum": "Render HTML \"FreeTime: going viral\" in T3",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "vp i >>/tmp/t3inst.log 2>&1"
+  },
+  "sum": "Run vp install",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "dpkg -l"
+  },
+  "sum": "List installed packages (dpkg)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "swapon --show --noheadings; blkid"
+  },
+  "sum": "List swap devices, block device IDs",
+  "hosts": [
+   "ag-engine"
+  ]
  }
 ]

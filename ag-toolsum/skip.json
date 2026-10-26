@@ -50,5 +50,9 @@
  {
   "shape": "print(urllib.parse.quote(sys.argv[1]))\"",
   "reason": "Fragment of a python -c snippet nested in $( ) quoting; no clearer summary than the raw command."
+ },
+ {
+  "shape": "eval",
+  "reason": "eval of a dynamically built script (e.g. exporting credentials read over ssh); the raw command is clearer than any summary."
  }
 ]

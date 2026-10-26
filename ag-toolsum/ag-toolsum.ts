@@ -364,7 +364,7 @@ function tickSchedule(title: string, when?: string, at?: string): string {
 // ---------- shell segment rules ----------
 
 const FILTERS = new Set(["grep", "rg", "egrep", "head", "tail", "jq", "sed", "awk", "sort", "uniq", "wc", "cut", "tr", "cat", "column", "less", "tee", "fold", "nl", "fmt", "base64", "xxd", "od", "python3", "node", "paste"]);
-const NOISE = /^(?:echo|printf|sleep|date|true|false|:|set|export|umask|source|\.|wait|clear|unset|cd|pushd|popd|local|shopt|trap|exit|return|break|continue|read|done|fi|esac|else|\[\[?|\]|test|time|then|do|print|pwd|setopt|unsetopt|declare|typeset|emulate|hash|rehash)$/;
+const NOISE = /^(?:echo|printf|sleep|date|true|false|:|set|export|umask|source|\.|wait|clear|unset|cd|pushd|popd|local|shopt|trap|exit|return|break|continue|read|done|fi|esac|else|\[\[?|\]|test|time|then|do|print|pwd|setopt|unsetopt|declare|typeset|emulate|hash|rehash|disown)$/;
 
 type Rule = { id: string; cmd: RegExp; fn: (args: string[], raw: string, ctx: Ctx, seg: string) => string | SegOut | undefined };
 
@@ -527,11 +527,13 @@ const RULES: Rule[] = [
 	{ id: "hw", cmd: /^(ioreg|system_profiler|pmset|caffeinate|diskutil|sysctl|networksetup|scutil|csrutil|spctl|tccutil|codesign|xcode-select|dscacheutil)$/, fn: (_a, raw) => `macOS ${raw.split(/\s/)[0]}` },
 	{ id: "swift", cmd: /^(swift|swiftc|xcodebuild|xcrun|make|cmake|go|cargo)$/, fn: (a, raw) => `${raw.split(/\s/)[0]} ${positional(a, ["-scheme", "-project", "-destination", "-configuration", "-o"])[0] ?? ""}`.trim() },
 	{ id: "format", cmd: /^(?:\.?\/?node_modules\/\.bin\/)?(oxfmt|prettier|biome|eslint|oxlint|tsc|svelte-check)$/, fn: (a, raw) => `Run ${raw.split(/\s/)[0].replace(/^.*\//, "")}${positional(a)[0] ? ` on ${paths(positional(a), 1)}` : ""}` },
-	{ id: "vite-plus", cmd: /^vp$/, fn: (a) => {
+	{ id: "vite-plus", cmd: /^vp$/, fn: (a, _r, ctx) => {
 		// Vite+ CLI: vp lint|fmt|check|test|build|dev … [paths]
-		const [sub, ...rest] = positional(a);
+		const [sub0, ...rest] = positional(a);
+		const sub = sub0 === "i" ? "install" : sub0;
+		if (sub === "exec" && a[a.indexOf("exec") + 1]) return summarizeSegment(a.slice(a.indexOf("exec") + 1).map(shq).join(" "), ctx); // vp exec tsc …
 		if (!sub || !/^(lint|fmt|format|check|test|build|dev|preview|install|run)$/.test(sub)) return;
-		if (sub === "test") return `Run tests${rest[0] ? ` (${paths(rest, 1)})` : ""} (vp)`;
+		if (sub === "test") { if (rest[0] === "run") rest.shift(); return `Run tests${rest[0] ? ` (${paths(rest, 1)})` : ""} (vp)`; }
 		if (sub === "run") return rest[0] ? `Run ${rest[0]} (vp)` : undefined;
 		return `Run vp ${sub}${rest[0] ? ` on ${paths(rest)}` : ""}`;
 	} },
@@ -586,8 +588,10 @@ const RULES: Rule[] = [
 		const f = positional(a)[0];
 		return f ? `Run ${shortPath(f)}` : undefined;
 	} },
-	{ id: "mounts", cmd: /^(findmnt|lsblk|mount)$/, fn: (a, raw) => {
+	{ id: "mounts", cmd: /^(findmnt|lsblk|mount|blkid|swapon)$/, fn: (a, raw) => {
 		const tool = raw.split(/\s/)[0];
+		if (tool === "blkid") return "List block device IDs";
+		if (tool === "swapon") return !a.length || a.includes("--show") || a.includes("-s") ? "List swap devices" : undefined;
 		const p = positional(a, ["-o", "--output", "-t", "--types", "-S", "--source", "-T", "--target"]);
 		if (tool === "lsblk") return "List block devices";
 		if (tool === "mount" && a.length) return undefined; // mounting something: leave raw
@@ -874,6 +878,7 @@ const RULES: Rule[] = [
 		if (tool === "ffmpeg" && (out === "/dev/null" || (out === "-" && flagVal(a, "-f") === "null"))) return `Test-render ${shortPath(flagVal(a, "-i") ?? "media")} (output discarded)`;
 		return `Convert media${out ? ` → ${shortPath(out)}` : ""}`;
 	} },
+	{ id: "dpkg", cmd: /^dpkg$/, fn: (a) => (/^-l$|^--list$/.test(a[0] ?? "") ? `List installed packages${a[1] ? ` matching ${clip(a[1], 30)}` : ""} (dpkg)` : a[0] === "-L" && a[1] ? `List files of package ${a[1]}` : undefined) },
 	{ id: "pkg", cmd: /^(brew|apt|apt-get|pip3?|cargo|go|stow)$/, fn: (a, raw) => { const tool = raw.split(/\s/)[0]; const p = positional(a); return `${tool} ${p.slice(0, 2).join(" ")}`.trim(); } },
 	{ id: "which", cmd: /^(which|type|command|whereis)$/, fn: (a) => `Locate ${positional(a).filter((x) => x !== "-v").join(", ")}` },
 	{ id: "defaults", cmd: /^(defaults|plutil|PlistBuddy|\/usr\/libexec\/PlistBuddy)$/, fn: (a) => { const p = positional(a); return `${/^(write|delete)$/.test(p[0] ?? "") ? "Change" : "Read"} macOS setting ${shortPath(p[1] ?? "")}`.trim(); } },
@@ -998,7 +1003,8 @@ const RULES: Rule[] = [
 		}
 		// passthrough verbs: `ag text …` runs ag-text, so summarize it as that
 		const q1 = (x: string) => (/[\s'"$`\\;&|<>()]/.test(x) ? `'${x.replace(/'/g, "'\\''")}'` : x);
-		return summarizeShell([`ag-${v}`, ...a.slice(a.indexOf(v) + 1).map(q1)].join(" "), ctx).sum;
+		const pt = summarizeShell([`ag-${v}`, ...a.slice(a.indexOf(v) + 1).map(q1)].join(" "), ctx);
+		return pt.sum ? { sum: pt.sum, host: pt.hosts.find((h) => h !== ctx.host), rule: `ag-cli+${pt.rule}` } : undefined; // keep the machine (ag cua → ag-mac)
 	} },
 	{ id: "ag-t3", cmd: /^(?:~\/\.local\/bin\/|(?:\.\/)?(?:[\w.-]+\/)*bin\/)?ag-t3$/, fn: (a) => {
 		// Ag's bridge to the T3 Code server (docs/t3.md)
@@ -1195,7 +1201,10 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 		if (!real.length) return "noise";
 		return { sum: real.map((x) => x.sum).join(" · "), rule: `env-subst+${real[real.length - 1].rule}`, parts: real.flatMap((x) => x.parts ?? [{ sum: x.sum, host: x.host }]) };
 	}
-	const [cmd0, ...args] = w;
+	const [cmd00, ...args] = w;
+	// $B/path/tool, where an earlier B=/some/dir named the directory
+	const vp = cmd00.match(/^\$\{?([A-Za-z_]\w*)\}?(\/\S*)$/);
+	const cmd0 = vp && ctx.vars?.[vp[1]] !== undefined ? ctx.vars[vp[1]] + vp[2] : cmd00;
 	// $Q args, where an earlier Q=/path/to/tool in the same command named it
 	const v = cmd0.match(/^\$\{?([A-Za-z_]\w*)\}?$/)?.[1];
 	if (v && ctx.vars?.[v] !== undefined) return summarizeSegment([ctx.vars[v], ...args.map(shq)].join(" "), ctx);
@@ -1208,6 +1217,8 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 	const cmd = cmd0.replace(/^(?:~|\/home\/\w+|\/Users\/\w+)\/\.local\/bin\//, "").replace(/^\/(?:usr\/(?:local\/)?|opt\/homebrew\/)?s?bin\//, "")
 		// Ag's tools before they took the ag- prefix (mac, tickler, show, …), still in older traces
 		.replace(/^(?:(?:\.\/)?(?:[\w.-]+\/)*bin\/)?(mac|tickler|show|shot|presence|client-cua|chatgpt-cua|cua-queue|ts-api|session-link|pi-hibernate|toolsum|machine-role|mcp-gateway|rules|discord|shortcuts-check|moshi-hook-install|screen-record)$/, "ag-$1")
+		// ~/proj/node_modules/.bin/vp → vp when a rule knows the tool, else node_modules/.bin/vp
+		.replace(/^(?:~|\/)\S*\/(node_modules\/\.bin\/)([\w.-]+)$/, (_m, nb, t) => (RULES.some((r) => r.id !== "node-bin" && r.cmd.test(t)) ? t : nb + t))
 		.replace(/^agrec$/, "ag-rec").replace(/^ag-rule$/, "ag-rules").replace(/^herdr-shortcuts-check$/, "ag-shortcuts-check");
 	if (/^(?:echo|printf)$/.test(cmd)) {
 		// echo '…' > FILE writes a file; appends (often an exit status to a log) stay noise
@@ -1714,7 +1725,8 @@ export function summarize(name: string, args: any, ctx: Ctx = { host: "ag-engine
 			case "ship_halt":
 				return { sum: `${name === "ship_done" ? "Finish" : "Halt"} /ship${args.pr ? ` (PR #${args.pr})` : ""}`, hosts: [ctx.host], rule: "ship" };
 		}
-		if (name.startsWith("mcp__t3-code__")) { const s = t3McpSummary(name.slice(14), args); return s ? { sum: s, hosts: [ctx.host], rule: "mcp-t3" } : { hosts: [ctx.host] }; }
+		// codemode spells the T3 server t3_code
+		if (/^mcp__t3[-_]code__/.test(name)) { const s = t3McpSummary(name.slice(14), args); return s ? { sum: s, hosts: [ctx.host], rule: "mcp-t3" } : { hosts: [ctx.host] }; }
 		if (name.startsWith("mcp_")) return mcpSummary(name, args) ?? { hosts: ["mcp"] };
 	} catch {
 		// A rule that throws is a rule that didn't match.

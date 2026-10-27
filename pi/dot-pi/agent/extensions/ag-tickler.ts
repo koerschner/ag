@@ -31,7 +31,7 @@ export default function (pi: ExtensionAPI) {
 		name: "ag-tickler",
 		label: "ag-tickler",
 		description:
-			"GTD tickler: defer a task to a specific future time, to the next time the user comes online at their client Mac (when: \"online\"), or wake this session when something finishes (when: \"check\" with a shell check, or \"event\" via a webhook). At that moment a new tab opens running pi (forked from this conversation by default, so it has full context) and the task is sent to it as a prompt. Also list or cancel scheduled items.",
+			"GTD tickler: defer a task to a specific future time, to the next time the user comes online at their client Mac (when: \"online\"), or wake this session when something finishes (when: \"check\" with a shell check, or \"event\" via a webhook). At that moment the task comes back as a prompt in this same conversation (under T3, this thread; in tmux, this pane if it is ready, else a forked tab), so it has full context. Also list or cancel scheduled items.",
 		promptSnippet: "Schedule a task/reminder to come back at a future time, or when the user is next online at their Mac, as a new pi tab",
 		promptGuidelines: [
 			"When the user asks in plain text to do, check, or remind them of something at a later time (\"on Friday\", \"tomorrow at 9\", \"in two weeks\", \"defer this\", \"send this back to me later\"), call the ag-tickler tool with action \"schedule\" yourself; never ask them to run a command.",

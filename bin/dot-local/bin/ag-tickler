@@ -2,6 +2,7 @@
 // ag-tickler: a GTD tickler for Ag's sessions. Deferred tasks come back at their time as a new pi tab.
 //
 //   ag-tickler add --at <ISO time> --task <text> [--title t] [--session f] [--cwd d] [--mode fork|fresh] [--pin]
+//                            # --session defaults to $PI_SESSION_FILE (the calling Pi session) unless --mode fresh
 //   ag-tickler add --when online --task <text> ...   # fire the next time the user comes online at the client (`ag-presence`)
 //   ag-tickler add --when check --check '<sh cmd>' --task <text> [--expires ISO] ...  # fire once the check exits 0
 //   ag-tickler add --when event --task <text> [--expires ISO] ...                     # fire only via `ag-tickler trigger`
@@ -121,7 +122,10 @@ function add(f: Record<string, string>) {
 	if (due && isNaN(+due)) throw new Error(`unparseable --at: ${f.at}`);
 	const expires = wake ? (f.expires ? new Date(f.expires) : new Date(Date.now() + WAKE_DEFAULT_MS)) : undefined;
 	if (expires && isNaN(+expires)) throw new Error(`unparseable --expires: ${f.expires}`);
-	const session = f.session && existsSync(f.session) ? f.session : undefined;
+	// Default to the calling Pi session ($PI_SESSION_FILE, set in tmux and T3 alike), so an item scheduled from a
+	// shell still comes back in the session that queued it instead of a new top-level thread. --mode fresh opts out.
+	const sessionArg = f.session ?? (f.mode === "fresh" ? undefined : process.env.PI_SESSION_FILE);
+	const session = sessionArg && existsSync(sessionArg) ? sessionArg : undefined;
 	const item: Item = {
 		id: randomBytes(4).toString("hex"),
 		title: (f.title ?? f.task).slice(0, 40),
@@ -143,12 +147,13 @@ function add(f: Record<string, string>) {
 	save(item);
 	log(item.id, "added", { due: item.due, when: item.when, check: item.check });
 	const late = due && +due < Date.now() ? " (already past: fires within a minute)" : "";
+	const back = T3_UI ? " Comes back as a new message in this session's T3 thread." : " Resumes this session in place if it's still open and ready, else a forked tab.";
 	const p = item.waiting_for
-		? " Resumes this session in place if it's still open and ready, else a forked tab."
+		? back
 		: online
 		? ` ${presenceLine()} It fires on their next arrival after now.`
 		: wake
-			? ` Resumes this session in place if it's still open and ready, else a forked tab. Webhook: curl -X POST http://ag:7373/ag-tickler/${item.id} (or \`ag-tickler trigger ${item.id}\`).`
+			? `${back} Webhook: curl -X POST http://ag:7373/ag-tickler/${item.id} (or \`ag-tickler trigger ${item.id}\`).`
 			: "";
 	console.log(`Scheduled ${item.id} "${item.title}" for ${whenText(item)}${late}, mode ${item.mode}${item.pin ? ", pinned when it comes back" : ""}.${p}`);
 }

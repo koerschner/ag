@@ -16,6 +16,9 @@
 # Submitted jobs are KeepAlive, so the job removes itself when codex finishes.
 # Uses the Codex CLI bundled in ChatGPT.app on the client, via TFY (gpt-6-astra): Resources/codex-cli/bin/codex
 # since ChatGPT.app 26.10 (Resources/codex before), falling back to the client's ~/.local/bin/codex.
+# Computer use (node_repl's Sky service) starts `codex app-server` from CODEX_CLI_PATH, which ChatGPT.app writes
+# into the client's ~/.codex/config.toml and an app update can leave pointing at a binary that moved; the run
+# overrides it with the binary that exists.
 # Afterwards the client's ag-cua-cleanup closes what the run opened (see ag-chatgpt-cua);
 # CHATGPT_CUA_KEEP_OPEN=1 skips it.
 set -euo pipefail
@@ -54,7 +57,12 @@ ${keep:+# }~/.local/bin/ag-cua-cleanup snapshot $dir/snap
 codex=/Applications/ChatGPT.app/Contents/Resources/codex-cli/bin/codex
 [[ -x \$codex ]] || codex=/Applications/ChatGPT.app/Contents/Resources/codex
 [[ -x \$codex ]] || codex=~/.local/bin/codex
-\$codex exec --skip-git-repo-check \\
+cli=/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex
+[[ -x \$cli ]] || cli=/Applications/ChatGPT.app/Contents/Resources/codex
+over=()
+[[ -x \$cli ]] && grep -q '^\[mcp_servers.node_repl\]' ~/.codex/config.toml 2>/dev/null &&
+  over=(-c "mcp_servers.node_repl.env.CODEX_CLI_PATH=\"\$cli\"")
+\$codex exec --skip-git-repo-check "\${over[@]}" \\
   --dangerously-bypass-approvals-and-sandbox -c model_provider=tfy \\
   -c model_reasoning_effort=$effort -m gpt-6-astra \\
   --output-last-message $dir/out "\$(cat $dir/prompt)" </dev/null >$dir/log 2>&1

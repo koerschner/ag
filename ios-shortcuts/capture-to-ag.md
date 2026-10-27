@@ -1,10 +1,7 @@
-# iOS Shortcuts: Voice to ag (Action Button) and Capture to ag (Home Screen)
+# iOS Shortcuts: Voice to ag (Camera Control / Action Button) and Capture to ag (Home Screen)
 
 Two separate shortcuts:
-- **Voice to ag** is on the **Action Button**: it grabs a screenshot of whatever is on screen, then recording starts right away. Tap the screen
-  to finish; the recording is sent to ag, transcribed with Whisper (TrueFoundry), and the transcript
-  becomes the prompt. **Tap right away (under 1 s) to type instead:** a "Type to ag" text box opens,
-  and the typed text is sent with the same screenshot.
+- **Voice to ag** runs from the **Camera Control** on the user's iPhone Duo (which has no Action Button) via a Magnifier automation, or from the **Action Button** on phones that have one. It grabs a screenshot, then recording starts right away. Tap the screen to finish. The recording is sent to ag, transcribed with Whisper (TrueFoundry), and the transcript becomes the prompt. **Tap right away (under 1 s) to type instead:** a "Type to ag" text box opens, and the typed text is sent with the same screenshot.
 - **Capture to ag** is an icon on the **Home Screen** (page 2, top left): tap it, type in the
   "Capture" text box, tap Done. No screenshot.
 
@@ -31,7 +28,7 @@ ignores a repeated `id`, so resending an item whose response was lost is safe.
 
 ```mermaid
 flowchart TD
-    A[Action Button → Voice to ag] --> V0["Take Screenshot → JPEG"]
+    A[Camera Control or Action Button → Voice to ag] --> V0["Take Screenshot → JPEG"]
     V0 --> V4["Record Audio: Immediately, finish On Tap"]
     V4 --> V7{"Duration < 1 s?"}
     V7 -- yes --> V8["Ask for Input (Text) 'Type to ag'<br/>empty → stop"]
@@ -98,7 +95,13 @@ The flush sends every queued file as the form field `text` with type **File**: a
    → Run Shortcut **Flush ag Queue**.
 6. First run: allow microphone, connecting to `ag.<tailnet>.ts.net` → **Always Allow**, running
    other shortcuts → **Always Allow**; allow folder access and screenshots if asked.
-7. Settings → **Action Button** → **Shortcut** → *Voice to ag*.
+7. Map the hardware button to *Voice to ag*:
+   - **iPhone Duo (no Action Button):**
+     - Settings → **Camera** → **Camera Control** → **Magnifier** (Single Click).
+     - In Shortcuts, add a personal automation **When Magnifier is opened** (trigger: **App** → **Magnifier**, **Is Opened** only, run without asking, **Notify** off) with two actions: **Go to Home Screen**, then **Run Shortcut**: *Voice to ag*. One click of the Camera Control opens Magnifier, and the automation sends the phone to the Home Screen and starts *Voice to ag*.
+     - **Consequences:** *Voice to ag*'s screenshot step now captures the Home Screen, not the app that was on screen when the button was pressed. Magnifier can't be used as an app while the automation is on, because opening it always starts *Voice to ag*.
+     - **To undo:** turn the automation off, or set the Camera Control back to **Camera**.
+   - **Phones with an Action Button:** Settings → **Action Button** → **Shortcut** → *Voice to ag*.
 
 Offline, the flush step shows iOS's own "could not connect" error; the item is still
 queued. Test without the phone:
@@ -141,3 +144,4 @@ Claude (anthropic-primary/claude-opus-5-5), assisting <user>:
 - 2026-10-12: Voice to ag gained a typed path: a quick tap (<1 s) on the recording opens a "Type to ag"
   text box, sent with the screenshot. Edited on ag-mac (iCloud sync); server path verified with a dry run.
   Still to verify on the physical phone.
+- 2026-10-26: The user's phone is now an iPhone Duo (no Action Button), so *Voice to ag* was moved to the Camera Control via a Magnifier automation. Camera Control and the automation were set up through iPhone Mirroring. Mirroring can't use the phone's camera (it shows "iPhone camera is not available from Mac"), and the automation didn't fire during the mirrored test, so a physical press still has to be tested on the phone. If a press only opens Magnifier, check that the automation runs immediately rather than after confirmation.

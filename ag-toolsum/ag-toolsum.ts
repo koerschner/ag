@@ -561,6 +561,7 @@ const RULES: Rule[] = [
 	{ id: "lua", cmd: /^lua$/, fn: (a) => (a[0] === "-e" ? "Run Lua snippet" : positional(a)[0] ? `Run ${shortPath(positional(a)[0])}` : undefined) },
 	{ id: "iac", cmd: /^(tofu|terraform|hcloud)$/, fn: (a, raw) => { const tool = raw.split(/\s/)[0]; const p = positional(a, ["-o", "--output", "-var", "-var-file", "-target", "--type", "--image", "--location", "--name"]).filter((x) => /^[a-z][\w-]*$/.test(x)); return p[0] ? `Run ${tool} ${p.slice(0, tool === "hcloud" ? 2 : 1).join(" ")}` : undefined; } },
 	{ id: "clipboard", cmd: /^(pbcopy|pbpaste)$/, fn: (_a, raw) => (raw.startsWith("pbcopy") ? "Copy to clipboard" : "Read clipboard") },
+	{ id: "base64", cmd: /^base64$/, fn: (a) => { const f = positional(a, ["-w", "-b", "--wrap"])[0]; if (!f || f === "-") return "noise" as const; return `${a.includes("-d") || a.includes("--decode") || a.includes("-D") ? "Decode base64" : "Base64-encode"} ${shortPath(f)}`; } },
 	{ id: "seq", cmd: /^(seq|yes|jot|shuf|sort|uniq|base64|xxd|od|column|nl|tee|fold|expr|bc|true|mktemp|who|w|stty|tput|basename|dirname)$/, fn: () => "noise" as const },
 	{ id: "cut-tr", cmd: /^(cut|tr)$/, fn: (a, raw, _c, seg) => {
 		// a filter on its own, unless it reads a file: cut … FILE, or tr … < FILE
@@ -752,6 +753,7 @@ const RULES: Rule[] = [
 		if (!p.length || p.every(self)) return "Get link to this tab";
 		return `Get link to ${p.slice(0, 3).map((x) => clip(x, 20)).join(", ")}${p.length > 3 ? ` +${p.length - 3}` : ""}`;
 	} },
+	{ id: "osacompile", cmd: /^osacompile$/, fn: (a) => { const o = flagVal(a, "-o"); const f = positional(a, ["-o", "-l", "-e"])[0]; return o ? `Compile ${flagVal(a, "-l") === "JavaScript" ? "JXA" : "AppleScript"} ${f ? shortPath(f) : "script"} → ${shortPath(o)}` : undefined; } },
 	{ id: "osascript", cmd: /^osascript$/, fn: (a, raw) => {
 		const app = raw.match(/tell (?:application|app) (?:id )?\\?"([^"\\]+)\\?"/)?.[1];
 		if (app) return `AppleScript → ${app.replace(/^com\.google\.Chrome$/, "Chrome")}`;
@@ -1045,6 +1047,37 @@ const RULES: Rule[] = [
 			case "update": return `Update t3${flagVal(a, "--channel") ? ` (${flagVal(a, "--channel")})` : ""}`;
 			case "service": { const sv: Record<string, string> = { install: "Install", uninstall: "Uninstall", start: "Start", stop: "Stop", restart: "Restart", status: "Check" }; return w && sv[w] ? `${sv[w]} the T3 service` : undefined; }
 		}
+	} },
+	{ id: "ag-write", cmd: /^ag-write$/, fn: (a) => {
+		// prose drafted by Gemini (the writing skill)
+		if (a.includes("-h") || a.includes("--help")) return "Read help for ag write";
+		const k = flagVal(a, "-k", "--kind"), o = flagVal(a, "-o", "--out"), n = flagVal(a, "-n");
+		return `${a.includes("--rewrite") ? "Rewrite" : "Draft"} ${k ? clip(k, 36) : "prose"} with Gemini${n && n !== "1" ? ` (${n} options)` : ""}${o ? ` → ${shortPath(o)}` : ""}`;
+	} },
+	{ id: "ag-gcal", cmd: /^ag-gcal$/, fn: (a) => {
+		// Google Calendar (personal account)
+		const [sub, x, y] = positional(a, ["--cal", "-q", "-n", "--desc", "--where", "--title", "--start", "--end"]);
+		const cal = flagVal(a, "--cal");
+		const on = cal ? ` (${clip(cal.replace(/@.*$/, ""), 24)})` : "";
+		const id = (v?: string) => (v ? clip(v, 16) : "");
+		switch (sub) {
+			case "calendars": return "List Google calendars";
+			case "events": { const qq = flagVal(a, "-q"); return `${qq ? `Search calendar events for "${clip(qq, 30)}"` : "List calendar events"}${x ? ` ${x}${y ? `–${y}` : ""}` : ""}${on}`; }
+			case "get": return x ? `Read calendar event ${id(x)}${on}` : undefined;
+			case "create": return x ? `Create calendar event "${clip(x, 30)}"${y ? ` at ${y}` : ""}${on}` : undefined;
+			case "update": return x ? `Update calendar event ${id(x)}${on}` : undefined;
+			case "delete": return x ? `Delete calendar event ${id(x)}${on}` : undefined;
+			case "auth": return "Authorize Google Calendar access";
+		}
+	} },
+	{ id: "ag-notes", cmd: /^ag-notes$/, fn: (a) => {
+		// Apple Notes, read and written on ag-mac
+		const [sub, x] = positional(a, ["--folder", "--dir"]);
+		const note = (v?: string) => (!v ? "" : /^x-coredata:/.test(v) ? " (by id)" : ` "${clip(v, 36)}"`);
+		const sum = ({ folders: "List Apple Notes folders", list: `List recent Apple Notes${flagVal(a, "--folder") ? ` in ${flagVal(a, "--folder")}` : ""}`,
+			search: x ? `Search Apple Notes for "${clip(x, 36)}"` : "", read: x ? `Read Apple Note${note(x)}` : "",
+			create: x ? `Create Apple Note${note(x)}` : "", append: x ? `Append to Apple Note${note(x)}` : "" } as Record<string, string>)[sub ?? ""];
+		return sum ? { sum, host: "ag-mac", rule: "ag-notes" } : undefined;
 	} },
 	{ id: "ag-image", cmd: /^ag-image$/, fn: (a) => {
 		const p = positional(a, ["-o", "--out", "-i", "--image", "--aspect", "--size", "-n", "--model"]);
@@ -1430,6 +1463,7 @@ const MCP_SERVERS: [RegExp, string, string?][] = [
 	[/^mcp_tsa_courses_/, "Courses"],
 	[/^mcp_tapkit_/, "iPhone", "ag-phone"],
 	[/^mcp_github_/, "GitHub"],
+	[/^mcp_x_/, "X"],
 ];
 
 /** The first real table a SQL query reads: skips subqueries "from (select …)" and its own CTE names. */
@@ -1442,7 +1476,7 @@ function mcpSummary(name: string, args: any): Summary | undefined {
 	const srv = MCP_SERVERS.find(([re]) => re.test(name));
 	if (!srv) return;
 	const verb = name.replace(srv[0], "").replace(/_/g, " ");
-	const key = ["id", "issueId", "query", "search_query", "keywords", "title", "name", "table", "facility", "courseId", "moduleId", "channel_id", "text", "message", "body", "sql", "urlOrId"].find((k) => args?.[k] !== undefined && args[k] !== "");
+	const key = ["id", "ids", "issueId", "query", "search_query", "keywords", "title", "name", "table", "facility", "courseId", "moduleId", "channel_id", "text", "message", "body", "sql", "urlOrId"].find((k) => args?.[k] !== undefined && args[k] !== "");
 	let v = key ? args[key] : undefined;
 	if (Array.isArray(v)) v = v.join(" ");
 	// SQL: name the table it reads rather than the first 40 characters of the query
@@ -1501,6 +1535,9 @@ function t3McpSummary(verb: string, args: any): string | undefined {
 
 // ---------- codemode (JavaScript that calls other tools) ----------
 
+/** Consts holding base64 (const b = btoa(…)), set per codemode script: safe to splice into a shell command. */
+const B64_IDS = new Set<string>();
+
 /** Read a JS string literal ('…', "…", `…`, String.raw`…`) at src[i]; ${x} resolves only to a known const, else "…" (partial). */
 function jsString(src: string, i: number, consts: Record<string, string>): { value: string; end: number; partial: boolean } | undefined {
 	let raw = false;
@@ -1518,6 +1555,11 @@ function jsString(src: string, i: number, consts: Record<string, string>): { val
 			if (/^[A-Za-z_$][\w$]*$/.test(id) && consts[id] !== undefined) out += consts[id];
 			// ${JSON.stringify(msg)} (maybe .replace(…)'d to escape $): the const, as a double-quoted shell word
 			else if (/^JSON\.stringify\(\s*[A-Za-z_$][\w$]*\s*\)(?:\.replace\([^)]*\))*$/.test(id) && consts[id.match(/\(\s*([\w$]+)/)![1]] !== undefined) out += JSON.stringify(consts[id.match(/\(\s*([\w$]+)/)![1]]);
+			// unknown, but still one quoted shell word: JSON.stringify(x) is double-quoted; base64 (btoa(x), or a const
+			// set from it) has no shell metacharacters; a bash result's full_output_path is a temp file
+			else if (/^JSON\.stringify\(/.test(id)) { out += '"…"'; partial = true; }
+			else if (/^btoa\(/.test(id) || B64_IDS.has(id)) { out += "'…'"; partial = true; }
+			else if (/^[A-Za-z_$][\w$]*\.full_output_path$/.test(id)) { out += "'…/full-output'"; partial = true; }
 			else { out += "…"; partial = true; }
 			j = e;
 			continue;
@@ -1550,6 +1592,27 @@ function skipExpr(src: string, i: number, stop = ",}"): number {
 	return src.length;
 }
 
+/** A string expression src[i, e): a literal, a known const, or a + b + … of those. */
+function jsExpr(src: string, i: number, e: number, consts: Record<string, string>, partials: Record<string, string> = {}): { value: string; partial: boolean } | undefined {
+	let value = "";
+	let partial = false;
+	let any = false;
+	for (;;) {
+		while (/\s/.test(src[i] ?? "")) i++;
+		const s = jsString(src, i, consts);
+		const id = s ? undefined : src.slice(i, e).match(/^[A-Za-z_$][\w$]*/)?.[0];
+		if (s) { value += s.value; partial ||= s.partial; i = s.end; }
+		else if (id && consts[id] !== undefined) { value += consts[id]; i += id.length; }
+		else if (id && partials[id] !== undefined) { value += partials[id]; partial = true; i += id.length; }
+		else return;
+		any = true;
+		while (/\s/.test(src[i] ?? "")) i++;
+		if (i >= e) return any ? { value, partial } : undefined;
+		if (src[i] !== "+") return;
+		i++;
+	}
+}
+
 /** The object literal at src[i] ("{ … }"): literal properties resolved, the rest listed in `dyn`. */
 function jsObject(src: string, i: number, consts: Record<string, string>, partials: Record<string, string> = {}): { args: Record<string, unknown>; dyn: Set<string>; ids: Record<string, string> } | undefined {
 	while (/\s/.test(src[i] ?? "")) i++;
@@ -1579,8 +1642,8 @@ function jsObject(src: string, i: number, consts: Record<string, string>, partia
 		const e = skipExpr(src, i);
 		const expr = src.slice(i, e).trim();
 		if (/^[A-Za-z_$][\w$]*$/.test(expr)) ids[key] = expr;
-		const s = jsString(src, i, consts);
-		if (s && src.slice(s.end, e).trim() === "") { args[key] = s.value; if (s.partial) dyn.add(key); }
+		const s = jsExpr(src, i, e, consts, partials);
+		if (s) { args[key] = s.value; if (s.partial) dyn.add(key); }
 		else if (/^-?\d+(?:\.\d+)?$/.test(expr)) args[key] = Number(expr);
 		else if (/^(?:true|false)$/.test(expr)) args[key] = expr === "true";
 		else if (/^[A-Za-z_$][\w$]*$/.test(expr) && consts[expr] !== undefined) args[key] = consts[expr];
@@ -1593,9 +1656,80 @@ function jsObject(src: string, i: number, consts: Record<string, string>, partia
 /** The argument each tool needs as a literal for its summary to be exact. */
 const CM_REQUIRED: Record<string, string[]> = { bash: ["command"], read: ["path"], write: ["path"], edit: ["path"] };
 
+/** True when every unresolved piece ("…") of a shell command sits inside quotes or a heredoc body: data, not structure. */
+function holesQuoted(cmd: string): boolean {
+	const line = stripHeredocs(cmd);
+	let q: string | null = null;
+	for (let i = 0; i < line.length; i++) {
+		const c = line[i];
+		if (q) { if (c === "\\" && q === '"') i++; else if (c === q) q = null; }
+		else if (c === "\\") i++;
+		else if (c === "'" || c === '"') q = c;
+		else if (c === "…") return false;
+	}
+	return true;
+}
+
+const esc$ = (id: string) => id.replace(/\$/g, "\\$");
+
+/** const NAME = ["…", "…"] or { k: "…", … } with only literal strings: its [key, value] entries. */
+function jsList(code: string, name: string, consts: Record<string, string>): [string, string][] | undefined {
+	const m = code.match(new RegExp(`\\b(?:const|let|var)\\s+${esc$(name)}\\s*=\\s*(?=[[{])`));
+	if (!m) return;
+	let i = (m.index ?? 0) + m[0].length;
+	const close = code[i] === "[" ? "]" : "}";
+	const out: [string, string][] = [];
+	i++;
+	for (;;) {
+		while (/[\s,]/.test(code[i] ?? "")) i++;
+		if (i >= code.length) return;
+		if (code[i] === close) return out.length ? out : undefined;
+		let key = String(out.length);
+		if (close === "}") {
+			const ks = code[i] === "'" || code[i] === '"' ? jsString(code, i, {}) : undefined;
+			const km = ks ? undefined : code.slice(i).match(/^[A-Za-z_$][\w$]*/);
+			if (!ks && !km) return;
+			key = ks ? ks.value : km![0];
+			i = ks ? ks.end : i + km![0].length;
+			while (/\s/.test(code[i] ?? "")) i++;
+			if (code[i++] !== ":") return;
+			while (/\s/.test(code[i] ?? "")) i++;
+		}
+		const v = jsString(code, i, consts);
+		if (!v || v.partial) return;
+		const e = skipExpr(code, v.end, close === "]" ? ",]" : ",}");
+		if (code.slice(v.end, e).trim()) return;
+		out.push([key, v.value]);
+		i = e;
+	}
+}
+
+/** Loops over a literal list before `at` (for … of NAME, NAME.map(v => …), Object.entries(NAME)…): one env per item, innermost first. */
+function loopEnvs(code: string, at: number, consts: Record<string, string>): { ids: string[]; envs: Record<string, string>[] }[] {
+	const I = "([A-Za-z_$][\\w$]*)";
+	const pats: { re: RegExp; pick: (m: RegExpMatchArray) => [string, string | undefined, string] /* list, key, value */ }[] = [
+		{ re: new RegExp(`for\\s*\\(\\s*(?:const|let|var)\\s+${I}\\s+of\\s+(?:Object\\.values\\(\\s*)?${I}\\s*\\)?\\s*\\)`, "g"), pick: (m) => [m[2], undefined, m[1]] },
+		{ re: new RegExp(`(?:Object\\.values\\(\\s*)?(?<![\\w$.])${I}\\s*\\)?\\.(?:map|forEach|flatMap)\\(\\s*(?:async\\s*)?\\(?\\s*${I}\\s*\\)?\\s*=>`, "g"), pick: (m) => [m[1], undefined, m[2]] },
+		{ re: new RegExp(`for\\s*\\(\\s*(?:const|let|var)\\s+\\[\\s*${I}\\s*,\\s*${I}\\s*\\]\\s+of\\s+Object\\.entries\\(\\s*${I}\\s*\\)\\s*\\)`, "g"), pick: (m) => [m[3], m[1], m[2]] },
+		{ re: new RegExp(`Object\\.entries\\(\\s*${I}\\s*\\)\\.(?:map|forEach|flatMap)\\(\\s*(?:async\\s*)?\\(\\s*\\[\\s*${I}\\s*,\\s*${I}\\s*\\]\\s*\\)\\s*=>`, "g"), pick: (m) => [m[1], m[2], m[3]] },
+	];
+	const out: { ids: string[]; envs: Record<string, string>[]; at: number }[] = [];
+	for (const { re, pick } of pats) {
+		for (const m of code.matchAll(re)) {
+			if ((m.index ?? 0) > at) continue;
+			const [list, k, v] = pick(m);
+			const items = jsList(code, list, consts);
+			if (!items) continue;
+			out.push({ ids: k ? [k, v] : [v], envs: items.map(([key, val]) => (k ? { [k]: key, [v]: val } : { [v]: val })), at: m.index ?? 0 });
+		}
+	}
+	return out.sort((x, y) => y.at - x.at);
+}
+
 /** codemode: summarize each tools.X({ … }) call whose arguments are literals, plus searchTools/ALL_TOOLS lookups. */
 function codemodeSummary(code: string, ctx: Ctx): Summary {
 	const local = { hosts: [ctx.host] };
+	B64_IDS.clear();
 	// const NAME = "literal" (or a number): substituted into later tool arguments and ${NAME}
 	const consts: Record<string, string> = {};
 	const partials: Record<string, string> = {}; // templates with unresolved parts: usable where a partial value is fine
@@ -1606,8 +1740,9 @@ function codemodeSummary(code: string, ctx: Ctx): Summary {
 			if (!d) break;
 			at += d[0].length;
 			const e = skipExpr(code, at, ",;\n");
-			const s = jsString(code, at, consts);
-			if (s && code.slice(s.end, e).trim() === "") (s.partial ? partials : consts)[d[1]] = s.value;
+			const s = jsExpr(code, at, e, consts, partials);
+			if (s) (s.partial ? partials : consts)[d[1]] = s.value;
+			else if (/^(?:btoa\(|Buffer\.from\([^;\n]*\.toString\(\s*["']base64["']\s*\)\s*$)/.test(code.slice(at, e).trim())) B64_IDS.add(d[1]);
 			else if (/^-?\d+(?:\.\d+)?$/.test(code.slice(at, e).trim())) consts[d[1]] = code.slice(at, e).trim();
 			if (code[e] !== ",") break;
 			at = e + 1;
@@ -1618,8 +1753,12 @@ function codemodeSummary(code: string, ctx: Ctx): Summary {
 	const rules = new Set<string>(["codemode"]);
 	const hosts = new Set<string>();
 	const add = (sum: string) => { if (!outs.some((x) => x.sum === sum)) outs.push({ sum }); };
+	// A required argument may be partial when its unresolved pieces can't change what runs: quoted shell words or
+	// heredoc text, or a path's directory (the file name stays literal).
+	const partialOk = (name: string, v: string) =>
+		name === "bash" ? holesQuoted(v) : ["read", "write", "edit"].includes(name) && !(v.split("/").pop() ?? "").includes("…");
 	const call = (name: string, args: Record<string, unknown>, dyn: Set<string>): boolean => {
-		if ((CM_REQUIRED[name] ?? []).some((k) => typeof args[k] !== "string" || dyn.has(k)) || (name === "bash" && dyn.has("..."))) return false;
+		if ((CM_REQUIRED[name] ?? []).some((k) => typeof args[k] !== "string" || (dyn.has(k) && !partialOk(name, args[k] as string))) || (name === "bash" && dyn.has("..."))) return false;
 		const r = summarize(name, args, ctx);
 		if (!r.sum) return false;
 		if (r.rule) rules.add(r.rule);
@@ -1627,27 +1766,52 @@ function codemodeSummary(code: string, ctx: Ctx): Summary {
 		add(r.sum); // already merged ("Read a, b") by the tool's own rule
 		return true;
 	};
-	// const q = (s) => tools.X({ sql: s, … }); q("select …"): each q(…) call is a tools.X call with that argument
+	// every env must summarize, or none counts
+	const callEach = (name: string, at: number, envs: Record<string, string>[], ps: Record<string, string>): boolean => {
+		const n = outs.length;
+		const ok = envs.every((env) => { const e = jsObject(code, at, { ...consts, ...env }, ps); return !!e && call(name, e.args, e.dyn); });
+		if (!ok) outs.length = n;
+		return ok;
+	};
+	// tools.X({ … }) at `at`: as written, or once per item of a literal list it loops over
+	const callAt = (name: string, at: number): boolean => {
+		const body = code.slice(at, skipExpr(code, at + 1, "}"));
+		const l = loopEnvs(code, at, consts).find((x) => x.ids.some((id) => new RegExp(`(?<![\\w$.])${esc$(id)}(?![\\w$])`).test(body)));
+		if (l && callEach(name, at, l.envs, partials)) return true;
+		const o = jsObject(code, at, consts, partials);
+		return !!o && call(name, o.args, o.dyn);
+	};
+	// const q = (s, t = 60) => tools.X({ sql: s, … }); q("select …"): each q(…) call is a tools.X call with that argument
 	const helperAt = new Set<number>();
-	for (const h of code.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?\(?\s*([A-Za-z_$][\w$]*)\s*\)?\s*=>\s*(?:\{\s*return\s+)?(?:await\s+)?tools\.([A-Za-z_$][\w$]*)\s*\(/g)) {
-		const o = jsObject(code, (h.index ?? 0) + h[0].length, consts, partials);
-		const key = o && Object.keys(o.ids).find((k) => o.ids[k] === h[2]);
-		if (!o || !key) return local;
+	const HELPER = /\b(?:(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\(\s*([A-Za-z_$][\w$]*)\s*(?:=\s*[^,()]*)?(?:,[^()]*)?\)|([A-Za-z_$][\w$]*))\s*=>|(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(\s*([A-Za-z_$][\w$]*)[^()]*\))\s*(?:\{\s*(?:try\s*\{\s*)?(?:return\s+|const\s+[A-Za-z_$][\w$]*\s*=\s*)?)?\(?\s*(?:await\s+)?\(?\s*(?:await\s+)?tools\.([A-Za-z_$][\w$]*)\s*\(/g;
+	for (const h of code.matchAll(HELPER)) {
+		const [fn, param, tool] = [h[1] ?? h[4], h[2] ?? h[3] ?? h[5], h[6]];
+		const objAt = (h.index ?? 0) + h[0].length;
+		if (!jsObject(code, objAt, consts, partials)) return local;
 		helperAt.add((h.index ?? 0) + h[0].lastIndexOf("tools."));
-		const uses = [...code.matchAll(new RegExp(String.raw`(?<![\w$.])${h[1]}\s*\(`, "g"))].filter((u) => (u.index ?? 0) > (h.index ?? 0) + h[0].length);
+		const def = (h.index ?? 0) + h[0].indexOf(fn);
+		const uses = [...code.matchAll(new RegExp(`(?<![\\w$.])${esc$(fn)}\\s*\\(`, "g"))].filter((u) => u.index !== def);
 		for (const u of uses) {
-			const s = jsString(code, (u.index ?? 0) + u[0].length, consts);
-			const args = { ...o.args };
-			const dyn = new Set([...o.dyn].filter((k) => k !== key));
-			if (s) { args[key] = s.value; if (s.partial) dyn.add(key); }
-			else dyn.add(key);
-			if (!call(h[3], args, dyn)) return local;
+			const argAt = (u.index ?? 0) + u[0].length;
+			const argEnd = skipExpr(code, argAt, ",)");
+			const s = jsExpr(code, argAt, argEnd, consts, partials);
+			const ps = { ...partials };
+			delete ps[param];
+			if (s && !s.partial) { if (!callEach(tool, objAt, [{ [param]: s.value }], ps)) return local; continue; }
+			if (s) { // a template with unresolved parts: usable where a partial value is fine
+				const o = jsObject(code, objAt, Object.fromEntries(Object.entries(consts).filter(([k]) => k !== param)), { ...ps, [param]: s.value });
+				if (!o || !call(tool, o.args, o.dyn)) return local;
+				continue;
+			}
+			// sh(c) inside a loop over a literal list: one call per item
+			const id = code.slice(argAt).match(/^\s*([A-Za-z_$][\w$]*)\s*[,)]/)?.[1];
+			const l = id ? loopEnvs(code, argAt, consts).find((x) => x.ids.includes(id)) : undefined;
+			if (!l || !callEach(tool, objAt, l.envs.map((env) => ({ [param]: env[id!] })), ps)) return local;
 		}
 	}
 	for (const m of code.matchAll(/\btools\.([A-Za-z_$][\w$]*)\s*\(/g)) {
 		if (helperAt.has(m.index ?? -1)) continue;
-		const o = jsObject(code, (m.index ?? 0) + m[0].length, consts, partials);
-		if (!o || !call(m[1], o.args, o.dyn)) return local;
+		if (!callAt(m[1], (m.index ?? 0) + m[0].length)) return local;
 	}
 	// the sandbox's own tool catalogue
 	for (const m of code.matchAll(/\bsearchTools\s*\(/g)) {
@@ -1695,6 +1859,7 @@ export function summarize(name: string, args: any, ctx: Ctx = { host: "ag-engine
 				return { sum: s, hosts: [host], rule: s ? "cua" : undefined };
 			}
 			case "tickler": // the tool's pre-rename name
+			case "ag_tickler": // codemode's spelling
 			case "ag-tickler": {
 				const a = args.action;
 				if (a === "list") return { sum: "List ag-tickler items", hosts: [ctx.host], rule: "ag-tickler" };

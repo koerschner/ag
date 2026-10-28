@@ -3447,5 +3447,244 @@
   "hosts": [
    "ag-engine"
   ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const sh = (c, t=90) => tools.bash({command: c, timeout: t}).then(r => r.output).catch(e => \"ERR \" + e.message);\nconst res = await Promise.allSettled([\n  sh(\"ag find flirt 2>&1 | head -40\"),\n  sh(\"cd ~/arcade.school && git status -sb\", 30),\n]);\nreturn res;"
+  },
+  "sum": "Find sessions matching \"flirt\" · Git status",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const cmds = [\n  \"ls -la ~/trailers/ 2>&1 | head -60\",\n  \"cd ~ && timeout 60 ag find trailer 2>&1 | head -60\",\n];\nconst out = [];\nfor (const c of cmds) {\n  const r = await tools.bash({ command: c });\n  out.push(r.output);\n}\nreturn out.join(\"\\n\");"
+  },
+  "sum": "List ~/trailers/ · Find sessions matching \"trailer\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const cmds = {\n  me: `ag me 2>&1 | head -20`,\n  logs: 'ag logs ag-dash 2>&1 | tail -20',\n};\nconst out = {};\nawait Promise.all(Object.entries(cmds).map(async ([k, c]) => { out[k] = (await tools.bash({ command: c, timeout: 60 })).output; }));\nreturn out;"
+  },
+  "sum": "Find this session (tab, pane, link) · Read logs of ag-dash",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const targets = { hps: \"https://example.org/a/\", tx: \"https://example.org/b/\" };\nfor (const [k, u] of Object.entries(targets)) {\n  await tools.bash({ command: `curl -sL '${u}' -o /tmp/wb_${k}.html` });\n}"
+  },
+  "sum": "GET example.org/a/ · GET example.org/b/",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const c = await tools.bash({command:\"cat ~/state/cursor.json\"});\nconst since = JSON.parse(c.output).last_until;\nreturn (await tools.bash({command:`python3 ~/tools/voices.py collect --since '${since}' > /tmp/voices.json`})).output;"
+  },
+  "sum": "Read ~/state/cursor.json · Run ~/tools/voices.py",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const dir = pick();\nreturn (await tools.bash({command:`cd ${dir} && ls`})).output;"
+  },
+  "sum": null,
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const proj = '/home/nathan/trailers/tbh';\nawait tools.write({path: proj + '/lib.ts', content: 'export const x = 1'});\nreturn 'ok';"
+  },
+  "sum": "Write ~/trailers/tbh/lib.ts",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const py = \"print('hi')\";\nconst r = await tools.bash({command:`cd /tmp/pwrun && echo ${btoa(py)} | base64 -d > /tmp/m.py && python3 /tmp/m.py`});\nreturn r.output;"
+  },
+  "sum": "Run /tmp/m.py",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const r = await tools.bash({command: \"cd ~/x && rg -n foo src\"});\nconst out = r.full_output_path ? (await tools.bash({command: `cat ${r.full_output_path}`})).output : r.output;\nreturn out;"
+  },
+  "sum": "Search \"foo\" in src · Read …/full-output",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const q = async s => (await tools.bash({command:`cd ~/arcade.school && timeout 90 bun scripts/db query --stage production arcade \"${s}\" 2>&1 | tail -30`})).output;\nreturn await q(\"select count(*) from play_sessions\");"
+  },
+  "sum": "Query production arcade DB: play_sessions",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const sql = `select id from users where created_at > now() - interval '1 day'`;\nconst q = async (s) => (await tools.mcp_arcade_school_query_readonly({sql: s, contextId: \"r\"}));\nreturn await q(sql);"
+  },
+  "sum": "School data: query readonly users",
+  "hosts": [
+   "mcp"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "return await tools.ag_tickler({action: \"list\"});"
+  },
+  "sum": "List ag-tickler items",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd /tmp/tbh && timeout 200 ag write -k \"UI copy options\" -c /tmp/tbh/brief.md -n 3 -o /tmp/tbh/out.md \"Options for the toast\""
+  },
+  "sum": "Draft UI copy options with Gemini (3 options) → /tmp/tbh/out.md",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag write --rewrite -k \"Discord message\" --instruction \"Tighten it\" \"draft text\""
+  },
+  "sum": "Rewrite Discord message with Gemini",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag gcal events 2026-10-28 2026-10-30 --cal work@example.com 2>&1"
+  },
+  "sum": "List calendar events 2026-10-28–2026-10-30 (work)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-gcal create \"Dentist\" \"2026-11-02 14:00\""
+  },
+  "sum": "Create calendar event \"Dentist\" at 2026-11-02 14:00",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-notes read \"Friend requests more than doubled this week\" --dir /tmp/pu-note2"
+  },
+  "sum": "Read Apple Note \"Friend requests more than doubled t…\"",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag notes list 15"
+  },
+  "sum": "List recent Apple Notes",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-notes search \"trailer\""
+  },
+  "sum": "Search Apple Notes for \"trailer\"",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "base64 -w0 /home/nathan/inbox/discord/shot.png"
+  },
+  "sum": "Base64-encode ~/inbox/discord/shot.png",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "osacompile -l JavaScript -o /tmp/tbh-x.scpt /tmp/tbh-read.js && echo ok"
+  },
+  "sum": "Compile JXA /tmp/tbh-read.js → /tmp/tbh-x.scpt",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "mcp_x_get_usage_credits",
+  "args": {},
+  "sum": "X: get usage credits",
+  "hosts": [
+   "mcp"
+  ]
+ },
+ {
+  "tool": "mcp_x_get_posts_by_ids",
+  "args": {
+   "ids": "1850000000000000000,1850000000000000001"
+  },
+  "sum": "X: get posts by ids \"1850000000000000000,1850000000000000001\"",
+  "hosts": [
+   "mcp"
+  ]
+ },
+ {
+  "tool": "mcp_x_search_posts_all",
+  "args": {
+   "query": "\"X API\" xurl",
+   "max_results": 10
+  },
+  "sum": "X: search posts all \"\"X API\" xurl\"",
+  "hosts": [
+   "mcp"
+  ]
  }
 ]

@@ -20,7 +20,10 @@ command:
 - **codemode.** Each `tools.X({ … })` call in the script is summarized as that tool call when its key argument
   is a literal (string consts, `${const}` and `${JSON.stringify(const)}` are resolved, and so are
   `const q = s => tools.X({ sql: s })` helpers); `ALL_TOOLS`, `searchTools` and `describeTool` become tool-catalogue
-  lookups. Any call it can't resolve (loops over arrays, commands built at run time) leaves the whole script raw.
+  lookups. Helpers may take extra arguments (`(c, t = 60) => tools.bash(…)`), calls inside loops over a literal
+  array or object (`for (const c of cmds)`, `cmds.map(c => …)`, `Object.entries(cmds)`) count once per item, and a
+  command may keep unresolved pieces when they sit inside shell quotes or a heredoc (data, not structure). Any other
+  call it can't resolve leaves the whole script raw.
 - **Machine chips.** `chatgpt_cua`/`mac …` → ag-mac, `ag-client-cua`/`ssh ag-client` → ag-client, TapKit →
   ag-phone, MCP tools → mcp, everything else → the session's own machine (from its working directory).
 

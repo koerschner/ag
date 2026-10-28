@@ -54,5 +54,9 @@
  {
   "shape": "eval",
   "reason": "eval of a dynamically built script (e.g. exporting credentials read over ssh); the raw command is clearer than any summary."
+ },
+ {
+  "shape": "imds_env",
+  "reason": "Shell function from a sourced env file (~/.cache/ft-imds-env.sh); its body is unknown to the summarizer."
  }
 ]

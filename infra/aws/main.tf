@@ -70,7 +70,8 @@ resource "aws_iam_role" "ag" {
   })
 }
 # The machines' AWS credentials: the engine runs ag-infra (EC2/EBS) and dev work (`bun run secrets`, SSM tunnels,
-# S3, ...) on this role, so no access key lives on any machine (~/.aws/config's profile has only a region).
+# S3, ...) on this role, so no access key lives on any machine (~/.aws/config's profiles have only a region and credential_process =
+# ag-aws-instance-role, which reads this role from instance metadata; bootstrap-linux writes it via ag-aws-config).
 # Workers share the role. Default: PowerUserAccess (everything except IAM/Organizations) + IAM read-only, plus
 # the guardrails below. The role can't change itself: edits to ag-machine need your own admin credentials.
 resource "aws_iam_role_policy_attachment" "machine" {

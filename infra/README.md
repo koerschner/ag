@@ -48,8 +48,11 @@ any other region before calling AWS.
 ## AWS specifics
 
 - Credentials: `AWS_PROFILE`, else `AG_AWS_PROFILE` in `~/ag-personal/env`. The account needs EC2, EBS and IAM rights.
-  On the engine that profile holds only a region: credentials come from the instance role `ag-machine`
-  (`machine_policy_arn`, AdministratorAccess by default), so no access key lives on any machine.
+  On the engine that profile (and `[default]`) holds only a region and `credential_process = ag-aws-instance-role`,
+  which reads the instance role `ag-machine` (`machine_policy_arn`) from instance metadata, so no access key lives on
+  any machine. bootstrap-linux writes `~/.aws/config` with `ag-aws-config`. The credential_process (rather than the
+  SDK's built-in metadata lookup) is what lets tools that set `AWS_EC2_METADATA_DISABLED=true` still sign in, such as
+  FreeTime's `bun scripts/db` and `bun run secrets` under Bun.
 - Uses the account's **default VPC** (one default subnet in `availability_zone`; shared accounts often hit the VPC
   limit). The security group `ag-tailnet-only` allows inbound UDP 41641 (Tailscale) and ICMP only.
 - The engine's data volume is a gp3 EBS volume in the same AZ (`prevent_destroy`, encrypted), mounted at /data;

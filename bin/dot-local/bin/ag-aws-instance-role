@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# credential_process for AWS profiles on EC2 Ag machines: prints the instance role's temporary
+# credentials from instance metadata (IMDSv2) in the credential_process JSON format. No secret ever
+# touches disk. Exists because some tools (e.g. FreeTime's secrets CLI under Bun) set
+# AWS_EC2_METADATA_DISABLED=true, which turns off the SDK's own instance-role lookup but not
+# credential_process. bootstrap-linux points ~/.aws/config's profiles here (ag-aws-config).
+set -euo pipefail
+imds=http://169.254.169.254/latest
+token=$(curl -fsS --max-time 2 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 300' "$imds/api/token") ||
+  { echo "ag-aws-instance-role: no EC2 instance metadata here (not an EC2 Ag machine?)" >&2; exit 1; }
+get() { curl -fsS --max-time 2 -H "X-aws-ec2-metadata-token: $token" "$imds/meta-data/iam/security-credentials/$1"; }
+role=$(get "" | head -n 1)
+[ -n "$role" ] || { echo "ag-aws-instance-role: this instance has no IAM role" >&2; exit 1; }
+get "$role" | jq -e '{Version: 1, AccessKeyId, SecretAccessKey, SessionToken: .Token, Expiration}'

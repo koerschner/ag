@@ -144,6 +144,9 @@ for pkg in "${AG_PACKAGES[@]}"; do stow_pkg "$AG" "$pkg"; done
 [[ -e ~/.codex/config.toml || ! -f ~/ag-personal/codex-config.toml ]] || { mkdir -p ~/.codex && cp ~/ag-personal/codex-config.toml ~/.codex/config.toml && echo "  copied ~/.codex/config.toml (from ag-personal)"; }
 [[ -d $backup ]] && echo "  pre-existing files moved to $backup"
 
+step "~/.aws/config (EC2 instance role via credential_process; no keys on disk)"
+"$AG/bin/dot-local/bin/ag-aws-config" || warn "ag-aws-config"
+
 step "node (mise, Linux-only untracked conf.d so the tracked mise config stays Mac-compatible)"
 mkdir -p ~/.config/mise/conf.d
 [[ -f ~/.config/mise/conf.d/linux.toml ]] || printf '[tools]\nnode = "lts"\n' > ~/.config/mise/conf.d/linux.toml

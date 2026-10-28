@@ -1,7 +1,7 @@
-# iOS Shortcuts: Voice to ag (Action Button, Siri or Back Tap) and Capture to ag (Home Screen)
+# iOS Shortcuts: Voice to ag (Back Tap or Action Button) and Capture to ag (Home Screen)
 
 Two separate shortcuts:
-- **Voice to ag** is started by the **Action Button** on phones that have one, and on the user's iPhone Duo (which has no Action Button) by **Siri** (hold the side button and say "Voice to ag") or **Back Tap**. It grabs a screenshot, then recording starts right away. Tap the screen to finish. The recording is sent to ag, transcribed with Whisper (TrueFoundry), and the transcript becomes the prompt. **Tap right away (under 1 s) to type instead:** a "Type to ag" text box opens, and the typed text is sent with the same screenshot.
+- **Voice to ag** is started by **Back Tap** on the user's iPhone Duo (which has no Action Button), or by the **Action Button** on phones that have one. It grabs a screenshot, then recording starts right away. Tap the screen to finish. The recording is sent to ag, transcribed with Whisper (TrueFoundry), and the transcript becomes the prompt. **Tap right away (under 1 s) to type instead:** a "Type to ag" text box opens, and the typed text is sent with the same screenshot.
 - **Capture to ag** is an icon on the **Home Screen** (page 2, top left): tap it, type in the
   "Capture" text box, tap Done. No screenshot.
 
@@ -28,7 +28,7 @@ ignores a repeated `id`, so resending an item whose response was lost is safe.
 
 ```mermaid
 flowchart TD
-    A[Action Button, Siri or Back Tap → Voice to ag] --> V0["Take Screenshot → JPEG"]
+    A[Back Tap or Action Button → Voice to ag] --> V0["Take Screenshot → JPEG"]
     V0 --> V4["Record Audio: Immediately, finish On Tap"]
     V4 --> V7{"Duration < 1 s?"}
     V7 -- yes --> V8["Ask for Input (Text) 'Type to ag'<br/>empty → stop"]
@@ -96,12 +96,10 @@ The flush sends every queued file as the form field `text` with type **File**: a
 6. First run: allow microphone, connecting to `ag.<tailnet>.ts.net` → **Always Allow**, running
    other shortcuts → **Always Allow**; allow folder access and screenshots if asked.
 7. Set up a way to start *Voice to ag*:
+   - **iPhone Duo (no Action Button):** The user chose **Back Tap** and reports it working so far. Set Settings → **Accessibility** → **Touch** → **Back Tap** → **Double Tap** (or **Triple Tap**) → *Voice to ag* (listed under Shortcuts). It runs the shortcut in place, so the screenshot shows the app that was on screen.
    - **Phones with an Action Button:** Settings → **Action Button** → **Shortcut** → *Voice to ag*.
-   - **iPhone Duo (no Action Button):** The user is choosing between two options (record the user's choice in this doc once the user picks one):
-     - **Siri:** Hold the side button and say "Voice to ag". Siri runs shortcuts by name, so there is nothing to set up. It is not yet tested whether the shortcut's Record Audio step works when Siri starts it.
-     - **Back Tap:** Settings → **Accessibility** → **Touch** → **Back Tap** → **Double Tap** (or **Triple Tap**) → *Voice to ag*. It runs the shortcut in place, so the screenshot shows the app that was on screen.
    - **Side button note:** The iPhone's side (power) button cannot be remapped in the US. Press-and-hold always opens Siri. Apple lets another voice assistant take over the side button only when the iPhone is located in Japan and the Apple Account region is Japan (iOS 26.2+). X posts about holding the "side button" to talk to Grok Bot refer to Android phones or to the Action Button, which the iPhone Duo does not have.
-   - **Dropped Camera Control setup:** The user tried mapping the Camera Control to open Magnifier and using a "When Magnifier is opened" automation to go to the Home Screen and run *Voice to ag*. The user found it clunky and is removing it by hand: the automation gets deleted and the Camera Control goes back to opening Camera.
+   - **Dropped Camera Control setup:** The user tried mapping Camera Control to open Magnifier and using a "When Magnifier is opened" automation to go to the Home Screen and run *Voice to ag*, then dropped it as clunky. To revert it, delete the automation in Shortcuts → **Automation** and set Settings → **Camera** → **Camera Control** back to **Camera**.
 
 Offline, the flush step shows iOS's own "could not connect" error; the item is still
 queued. Test without the phone:
@@ -146,3 +144,4 @@ Claude (anthropic-primary/claude-opus-5-5), assisting <user>:
   Still to verify on the physical phone.
 - 2026-10-26: The user's phone is now an iPhone Duo (no Action Button), so *Voice to ag* was moved to the Camera Control via a Magnifier automation. Camera Control and the automation were set up through iPhone Mirroring. Mirroring can't use the phone's camera (it shows "iPhone camera is not available from Mac"), and the automation didn't fire during the mirrored test, so a physical press still has to be tested on the phone. If a press only opens Magnifier, check that the automation runs immediately rather than after confirmation.
 - 2026-10-27: The user tried the Camera Control + Magnifier automation setup and found it clunky. The user is removing the automation by hand and setting the Camera Control back to opening Camera. On the iPhone Duo, the user is now choosing between Siri (hold the side button and say "Voice to ag", with the shortcut's Record Audio step not yet tested under Siri) and Back Tap (Settings → Accessibility → Touch → Back Tap → Double Tap or Triple Tap → Voice to ag). Record the user's choice in this doc once the user picks one.
+- 2026-10-27 (later): The user chose Back Tap (Settings → Accessibility → Touch → Back Tap → Double Tap or Triple Tap → Voice to ag, listed under Shortcuts) to start Voice to ag on the iPhone Duo and reports it working so far. It runs the shortcut in place, so the screenshot shows the app that was on screen. The Camera Control + Magnifier automation setup was dropped as clunky (revert by deleting the automation in Shortcuts → Automation and setting Settings → Camera → Camera Control back to Camera).

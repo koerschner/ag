@@ -11,7 +11,8 @@
   },
   "hideThinkingBlock": true,
   "packages": [
-    "npm:pi-mcp-extension"
+    "npm:pi-mcp-extension",
+    "npm:pi-schedule-prompt@0.4.1"
   ],
   "skills": [
     "~/.agents/skills",

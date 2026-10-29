@@ -3220,7 +3220,7 @@
   "args": {
    "code": "const out={};\nfor (const x of [\"echo\", \"mic test\"]) { out[x] = (await tools.bash({command:`ag find ${x} 2>&1 | head -24`})).output; }\nreturn out;"
   },
-  "sum": null,
+  "sum": "Find sessions matching \"echo\" · Find sessions matching \"mic test\"",
   "hosts": [
    "ag-engine"
   ]
@@ -3230,7 +3230,7 @@
   "args": {
    "code": "const rows = [1,2,3]; return rows.map(x=>x*2);"
   },
-  "sum": null,
+  "sum": "Compute in the JS sandbox (no tool calls)",
   "hosts": [
    "ag-engine"
   ]
@@ -3685,6 +3685,403 @@
   "sum": "X: search posts all \"\"X API\" xurl\"",
   "hosts": [
    "mcp"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "true"
+  },
+  "sum": "Run a no-op (true)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "printf %s \"$PI_MODEL\""
+  },
+  "sum": "Print PI_MODEL",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "echo \"MODEL=$PI_MODEL AG_UI=$AG_UI\"; TZ=America/Chicago date \"+%H:%M\""
+  },
+  "sum": "Print PI_MODEL, AG_UI · Show the time in Chicago",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "echo \"- 2026-10-28: 1 hit, texted\" >> ~/.local/state/routines/x/notes.md"
+  },
+  "sum": "Append to ~/…/x/notes.md",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "for f in a b; do echo \"$f\" >> $f; done"
+  },
+  "sum": null,
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "xurl search \"openai\" -n 10 2>&1 | head -40"
+  },
+  "sum": "Search X posts for \"openai\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "xurl /2/usage/credits 2>&1"
+  },
+  "sum": "Call X API GET /2/usage/credits",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "xurl -X POST /2/tweets -d '{\"text\":\"hi\"}'"
+  },
+  "sum": "Call X API POST /2/tweets",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "xurl auth status; xurl whoami"
+  },
+  "sum": "Check xurl sign-in status · Show the signed-in X account",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "timeout 40 ag readai call list_meetings '{\"limit\":3}' > /tmp/m.json 2>&1"
+  },
+  "sum": "Call Read AI list_meetings",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "timeout 80 ag-deepsearch search 'ROICX moderators Philippines' 2>&1 | head -20"
+  },
+  "sum": "Deep-search sessions for \"ROICX moderators Philippines\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/ten-a-day && xcodegen generate -q"
+  },
+  "sum": "Generate the Xcode project (xcodegen)",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "split -C 45000 -d /tmp/ft-rest.txt /tmp/ft-c2- && ls /tmp/ft-c2-*"
+  },
+  "sum": "Split /tmp/ft-rest.txt into chunks (/tmp/ft-c2-*) · List /tmp/ft-c2-*",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "grep -n '' .agents/skills/x/SKILL.md | sed -n 1,40p"
+  },
+  "sum": "Read .agents/skills/x/SKILL.md with line numbers",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "montage a.png b.png c.png -tile 3x1 -geometry +8+0 -background '#111' row1.png"
+  },
+  "sum": "Tile 3 images into row1.png",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ssh-keyscan -t ed25519 ag-engine 2>/dev/null"
+  },
+  "sum": "Get SSH host keys of ag-engine",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "source ~/.cache/ft-imds-env.sh && imds_env && cd ~/arcade.school && ls"
+  },
+  "sum": "List directory",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-aws-config && ag-aws-instance-role | head -c 40"
+  },
+  "sum": "Write AWS profiles (ag-aws-config) · Get AWS credentials from the instance role",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "mcp__t3-code__schedule_task",
+  "args": {
+   "title": "Hourly video-watch analysis",
+   "schedule": {
+    "type": "interval",
+    "everyMs": 3600000
+   },
+   "prompt": "x"
+  },
+  "sum": "Schedule T3 task \"Hourly video-watch analysis\" every 1h",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "mcp__t3-code__delete_scheduled_task",
+  "args": {
+   "scheduledTaskId": "scheduled-task:command:mcp:7c30:schedule-task:video-watch-hourly"
+  },
+  "sum": "Delete scheduled task video-watch-hourly",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "mcp__t3-code__t3_thread_wait",
+  "args": {
+   "threadId": "4dcf3a0d-cbfb-4922-b38f-137f3eff24f3",
+   "timeoutMs": 120000
+  },
+  "sum": "Wait for T3 thread 4dcf3a0d",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "mcp__t3-code__t3_thread_launch",
+  "args": {
+   "title": "Research: content courses",
+   "message": "x"
+  },
+  "sum": "Launch T3 thread \"Research: content courses\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const up = await tools[\"mcp__t3_code__schedule_task\"]({scheduledTaskId:\"scheduled-task:ae4f023d-4ef4-4741-b20f-76a961fef3d1\", prompt: \"# Heartbeat\"});\nreturn up;"
+  },
+  "sum": "Update prompt of scheduled task ae4f023d",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const tab=\"tab_3\";\nconst N=tools[\"mcp__t3-code__t3_thread_wait\"];\nawait N({threadId:\"4dcf3a0d-cbfb\"});\nreturn await tools.mcp__t3_code__orchestrator_capabilities({});"
+  },
+  "sum": "Wait for T3 thread 4dcf3a0d · List T3 orchestrator capabilities",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const run = tools.bash;\nrun({command:\"ls\"});\nconst xs = [run];"
+  },
+  "sum": null,
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "// fixtures: tools.bash({command: c}) in a string is data\nconst fx = \"await tools.bash({command: cmd})\";\nawait tools.write({path:\"/tmp/fx.json\", content: fx});"
+  },
+  "sum": "Write /tmp/fx.json",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const r = await tools.bash({command:\"ls /tmp\"}); // ALL_TOOLS is mentioned only here\nreturn r.output;"
+  },
+  "sum": "List /tmp",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "for (const s of ['before-poll', 'after-poll']) {\n  const r = await tools.read({ path: `/tmp/shots/${s}.png` });\n}"
+  },
+  "sum": "View image before-poll.png · View image after-poll.png",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "for (const i of [2,3]) { const b=(await tools.bash({command:`base64 -w0 /tmp/crop${i}.png`})).output.trim(); image(\"data:image/png;base64,\"+b); }"
+  },
+  "sum": "Base64-encode /tmp/crop2.png · Base64-encode /tmp/crop3.png",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const cmds = [\n  // html files mentioning timeback\n  `cd ~ && ls docs`,\n];\nconst res = await Promise.all(cmds.map(c => tools.bash({command: c, timeout: 120})));"
+  },
+  "sum": "List docs",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const cmds = {\n  st: `cd ~/arcade.school && git status -sb`,\n  log: `cd ~/arcade.school && git log --oneline -3`,\n};\nconst entries = Object.entries(cmds);\nconst res = await Promise.allSettled(entries.map(([k, c]) => tools.bash({ command: c, timeout: 60 })));"
+  },
+  "sum": "Git status · Git log",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const msg = `Students: 1 msg. \"can't open it\"`;\nconst esc = s => \"'\" + s.replace(/'/g, \"'\\\\''\") + \"'\";\nconst t = await tools.bash({command: `ag-text ${esc(msg)}; echo EXIT=$?`});"
+  },
+  "sum": "Text the user \"Students: 1 msg. \"can't open it\"\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const esc=s=>\"'\"+s.replace(/'/g,\"'\\\\''\")+\"'\";\nfor (const s of [sql1]) { const r=await tools.bash({command:`cd ~/r && ./q.sh ${esc(s)}`}); }"
+  },
+  "sum": "Run q.sh",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const q = (sql)=>tools.bash({command: `cd ~/arcade.school && timeout 90 bun scripts/db query --stage production arcade \"${sql.replace(/\"/g,'\\\\\"')}\" 2>&1 | tail -40`});\nconst a = await q(`select faction, count(*) from faction_memberships group by 1`);"
+  },
+  "sum": "Query production arcade DB",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "return load(\"pgs\") ?? \"none\""
+  },
+  "sum": "Load stored pgs",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const links = load(\"links\");\nlinks.x = 1;\nstore(\"bodyFull\", JSON.stringify(links));"
+  },
+  "sum": "Load stored links · Store bodyFull",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "const run = eval(\"(\" + load(\"helperSrc\") + \")\");\nawait run(\"x\");"
+  },
+  "sum": null,
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "gh label list --search 'ask for review' --json name"
+  },
+  "sum": "List GitHub labels matching \"ask for review\"",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "gh label create hotfix --color FF0000"
+  },
+  "sum": "Create GitHub label \"hotfix\"",
+  "hosts": [
+   "ag-engine"
   ]
  }
 ]

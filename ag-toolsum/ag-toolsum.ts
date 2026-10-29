@@ -364,7 +364,7 @@ function tickSchedule(title: string, when?: string, at?: string): string {
 // ---------- shell segment rules ----------
 
 const FILTERS = new Set(["grep", "rg", "egrep", "head", "tail", "jq", "sed", "awk", "sort", "uniq", "wc", "cut", "tr", "cat", "column", "less", "tee", "fold", "nl", "fmt", "base64", "xxd", "od", "python3", "node", "paste"]);
-const NOISE = /^(?:echo|printf|sleep|date|true|false|:|set|export|umask|source|\.|wait|clear|unset|cd|pushd|popd|local|shopt|trap|exit|return|break|continue|read|done|fi|esac|else|\[\[?|\]|test|time|then|do|print|pwd|setopt|unsetopt|declare|typeset|emulate|hash|rehash|disown)$/;
+const NOISE = /^(?:echo|printf|sleep|date|true|false|:|set|export|umask|source|\.|imds_env|wait|clear|unset|cd|pushd|popd|local|shopt|trap|exit|return|break|continue|read|done|fi|esac|else|\[\[?|\]|test|time|then|do|print|pwd|setopt|unsetopt|declare|typeset|emulate|hash|rehash|disown)$/;
 
 type Rule = { id: string; cmd: RegExp; fn: (args: string[], raw: string, ctx: Ctx, seg: string) => string | SegOut | undefined };
 
@@ -503,6 +503,7 @@ const RULES: Rule[] = [
 		const pat = flagVal(a, "-e") ?? p.shift();
 		if (pat === undefined) return;
 		if (pat === "" && a.includes("-c") && p.length) return `Count lines in ${paths(p)}`;
+		if (pat === "" && p.length && !a.some((x) => /^-[A-Za-z]*[vlLoq]/.test(x))) return `Read ${paths(p)}${a.includes("-n") ? " with line numbers" : ""}`; // grep '' FILE prints every line
 		if (!pat) return;
 		const where = paths(p.filter((x) => x !== "."));
 		return `Search "${clip(pat.replace(/\\\|/g, "|"), 40)}"${where ? ` in ${where}` : ""}`;
@@ -557,6 +558,54 @@ const RULES: Rule[] = [
 	} },
 	{ id: "ag-moshi-hook-install", cmd: /^ag-moshi-hook-install$/, fn: () => "Install moshi-hook" },
 	{ id: "ag-shortcuts-check", cmd: /^ag-shortcuts-check$/, fn: () => "Check keyboard shortcuts" },
+	{ id: "ag-aws", cmd: /^ag-aws-(config|instance-role)$/, fn: (_a, raw) => (raw.startsWith("ag-aws-config") ? "Write AWS profiles (ag-aws-config)" : "Get AWS credentials from the instance role") },
+	{ id: "ag-readai", cmd: /^ag-readai$/, fn: (a) => {
+		// ag-readai auth | tools | call <tool> [json]
+		const [v, tool] = positional(a);
+		if (v === "call") return tool ? `Call Read AI ${clip(tool, 40)}` : undefined;
+		if (v === "tools") return "List Read AI tools";
+		if (v === "auth") return "Sign in to Read AI";
+	} },
+	{ id: "ag-deepsearch", cmd: /^ag-deepsearch$/, fn: (a) => {
+		// semantic search over open T3 threads and Ag tabs
+		const [v, ...r] = positional(a, ["-n", "--limit"]);
+		if (v === "search") return r.length ? `Deep-search sessions for "${clip(r.join(" ").replace(/\s+/g, " "), 40)}"` : undefined;
+		if (v === "status") return "Check the deep-search index";
+		if (v === "setup") return "Set up deep search (llama.cpp + model)";
+		if (v === "serve") return "Serve deep search";
+	} },
+	{ id: "xurl", cmd: /^xurl$/, fn: (a) => {
+		// the X API CLI: xurl [flags] /2/path, or xurl <verb> …
+		const p = positional(a, ["-X", "--method", "-d", "--data", "-H", "--header", "-n", "--max-results", "--app", "-u", "--username", "--auth", "-F", "--file"]);
+		const [v, ...r] = p;
+		if (!v) return;
+		if (/^(?:\/|https?:)/.test(v)) return `Call X API ${(flagVal(a, "-X", "--method") ?? (flagVal(a, "-d", "--data") ? "POST" : "GET")).toUpperCase()} ${clip(v.replace(/^https?:\/\/api\.(?:x|twitter)\.com/, "").split("?")[0], 45)}`;
+		const arg = r[0] !== undefined ? ` "${clip(r[0].replace(/\s+/g, " "), 40)}"` : "";
+		switch (v) {
+			case "search": return arg ? `Search X posts for${arg}` : undefined;
+			case "whoami": return "Show the signed-in X account";
+			case "post": return arg ? `Post to X:${arg}` : undefined;
+			case "reply": return r[0] ? `Reply on X to post ${clip(r[0], 30)}` : undefined;
+			case "read": return r[0] ? `Read X post ${clip(r[0], 30)}` : undefined;
+			case "user": return r[0] ? `Look up X user ${clip(r[0], 30)}` : undefined;
+			case "timeline": return "Read the X home timeline";
+			case "mentions": return "Read X mentions";
+			case "auth": { const sub = r.filter((x) => /^[a-z][\w-]*$/.test(x)).slice(0, 2).join(" "); return sub === "status" ? "Check xurl sign-in status" : `Run xurl auth${sub ? ` ${sub}` : ""}`; }
+		}
+	} },
+	{ id: "xcodegen", cmd: /^xcodegen$/, fn: (a) => (!a.length || positional(a, ["-s", "--spec", "-p", "--project"])[0] === "generate" ? `Generate the Xcode project${flagVal(a, "-s", "--spec") ? ` from ${shortPath(flagVal(a, "-s", "--spec")!)}` : ""} (xcodegen)` : undefined) },
+	{ id: "split", cmd: /^split$/, fn: (a) => {
+		const [file, prefix] = positional(a, ["-C", "-b", "-l", "-n", "-a", "--additional-suffix", "--line-bytes", "--bytes", "--lines", "--number", "--suffix-length"]);
+		return file && file !== "-" ? `Split ${shortPath(file)} into chunks${prefix ? ` (${shortPath(prefix)}*)` : ""}` : undefined;
+	} },
+	{ id: "montage", cmd: /^montage$/, fn: (a) => {
+		// ImageMagick montage IN… [opts] OUT: options take one value each
+		const p: string[] = [];
+		for (let i = 0; i < a.length; i++) { if (/^[-+][a-z]/.test(a[i])) i++; else p.push(a[i]); }
+		const out = p.pop();
+		return out && p.length ? `Tile ${p.length} images into ${shortPath(out)}` : undefined;
+	} },
+	{ id: "ssh-keyscan", cmd: /^ssh-keyscan$/, fn: (a) => { const h = positional(a, ["-t", "-p", "-T", "-f"]); return h.length ? `Get SSH host keys of ${h.map(normHost).join(", ")}` : undefined; } },
 	{ id: "mdfind", cmd: /^mdfind$/, fn: (a) => { const q = positional(a, ["-onlyin", "-name", "-attr"]).join(" ") || flagVal(a, "-name"); return q ? `Spotlight search "${clip(q, 45)}"` : undefined; } },
 	{ id: "lua", cmd: /^lua$/, fn: (a) => (a[0] === "-e" ? "Run Lua snippet" : positional(a)[0] ? `Run ${shortPath(positional(a)[0])}` : undefined) },
 	{ id: "iac", cmd: /^(tofu|terraform|hcloud)$/, fn: (a, raw) => { const tool = raw.split(/\s/)[0]; const p = positional(a, ["-o", "--output", "-var", "-var-file", "-target", "--type", "--image", "--location", "--name"]).filter((x) => /^[a-z][\w-]*$/.test(x)); return p[0] ? `Run ${tool} ${p.slice(0, tool === "hcloud" ? 2 : 1).join(" ")}` : undefined; } },
@@ -649,6 +698,7 @@ const RULES: Rule[] = [
 		if (group === "workflow") return sub === "run" && n ? `Trigger workflow ${clip(n, 40)}` : sub === "list" ? "List workflows" : sub === "view" && n ? `View workflow ${clip(n, 40)}` : `Workflow ${sub ?? ""}`.trim();
 		if ((group === "variable" || group === "secret") && sub) return `${sub === "list" ? "List" : sub === "set" ? "Set" : sub === "delete" ? "Delete" : "Read"} GitHub Actions ${group}${sub === "list" ? "s" : n ? ` ${n}` : ""}`;
 		if (group === "release") return `${cap(sub ?? "")} release`;
+		if (group === "label") { const s = flagVal(a, "--search", "-S"); return sub === "list" ? `List GitHub labels${s ? ` matching "${clip(s, 30)}"` : ""}` : sub && n ? `${cap(sub)} GitHub label "${clip(n, 30)}"` : undefined; }
 		if (group === "search") return `Search GitHub ${sub ?? ""}`.trim();
 		if (a.includes("--version")) return "Check gh version";
 	} },
@@ -1254,9 +1304,11 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 		.replace(/^(?:~|\/)\S*\/(node_modules\/\.bin\/)([\w.-]+)$/, (_m, nb, t) => (RULES.some((r) => r.id !== "node-bin" && r.cmd.test(t)) ? t : nb + t))
 		.replace(/^agrec$/, "ag-rec").replace(/^ag-rule$/, "ag-rules").replace(/^herdr-shortcuts-check$/, "ag-shortcuts-check");
 	if (/^(?:echo|printf)$/.test(cmd)) {
-		// echo '…' > FILE writes a file; appends (often an exit status to a log) stay noise
+		// echo '…' > FILE writes a file; echo '…' >> FILE appends (unless the file is a log: often an exit status)
 		const out = s.match(/[^>&\d]>\s*([^\s&|;<>()]+)\s*$/)?.[1];
 		if (out && !/^\/dev\/|\.log$/.test(out) && !substitutions(s).length) return { sum: `Write ${shortPath(out)}`, rule: "echo-write" };
+		const app = s.match(/[^>&\d]>>\s*([^\s&|;<>()]+)\s*$/)?.[1];
+		if (app && !/^\/dev\/|\.log$|\$/.test(app) && !substitutions(s).length) return { sum: `Append to ${shortPath(app)}`, rule: "echo-write" };
 		// echo "x: $(cmd)" runs cmd; summarise the substitutions when they are all understood
 		const subs = substitutions(s).map((x) => summarizeOne(x, { ...ctx, miss: undefined }));
 		const real = subs.filter((x): x is Exclude<SegOut, "noise" | null> => !!x && x !== "noise");
@@ -1310,6 +1362,7 @@ function quietSum(segs: { seg: string }[]): string | undefined {
 	if (segs.length === 1) {
 		const lit = segs[0].seg.trim().match(/^echo(?:\s+([\w.:-]+(?:\s+[\w.:-]+)*))?$/);
 		if (lit) return lit[1] ? `Echo "${clip(lit[1], 40)}"` : "Echo an empty line";
+		if (/^(?:true|:)$/.test(segs[0].seg.trim())) return "Run a no-op (true)";
 	}
 	const checked = fileChecks(segs);
 	if (checked) return checked;
@@ -1319,6 +1372,9 @@ function quietSum(segs: { seg: string }[]): string | undefined {
 		const s = seg.trim();
 		const vars = s.match(/^echo((?:\s+"?\$\{?[A-Za-z_]\w*\}?"?)+)$/);
 		if (vars) { if (!printed.length) out.push("PRINT"); printed.push(...vars[1].replace(/["{}]/g, "").trim().split(/\s+/)); continue; }
+		// echo "MODEL=$PI_MODEL", printf %s "$X": text around plain variables (no command substitution, no redirect)
+		const refs = /^(?:echo|printf)\s/.test(s) && !/\$\(|`|[<>|]/.test(s) ? [...s.matchAll(/\$\{?([A-Za-z_]\w*)\}?/g)].map((m) => m[1]) : [];
+		if (refs.length) { if (!printed.length) out.push("PRINT"); printed.push(...refs); continue; }
 		const d = s.match(/^(?:TZ=(\S+)\s+)?date(?:\s+(?:-[uR]|-I\w*|-v[+-]?\w+|-d\s*(?:'[^']*'|"[^"]*"|\S+)|\+?(?:'[^']*'|"[^"]*")|\+[^\s'"]*(?:'[^']*'|"[^"]*")?))*$/);
 		if (d) { out.push(`Show the time${d[1] ? ` in ${d[1].replace(/^.*\//, "").replace(/_/g, " ")}` : ""}`); continue; }
 		if (/^(?:cd|pushd|popd)(?:\s|$)/.test(s)) continue;
@@ -1493,6 +1549,8 @@ function t3McpSummary(verb: string, args: any): string | undefined {
 	const q = (x: unknown, n = 40) => `"${clip(String(x ?? "").replace(/\s+/g, " "), n)}"`;
 	const task = (x?: string) => { const d = (() => { try { return decodeURIComponent(String(x ?? "")); } catch { return String(x ?? ""); } })(); return clip(d.split(":").pop() ?? d, 40); };
 	const pr = (u?: string) => { const m = String(u ?? "").match(/github\.com\/[^/]+\/([^/]+)\/pull\/(\d+)/); return m ? `${m[1]}#${m[2]}` : shortUrl(String(u ?? "")); };
+	// scheduled-task:<uuid> → first 8 of the uuid; scheduled-task:command:…:<name> → the name
+	const sched = (x: string) => { const t = String(x).split(":").pop() ?? ""; return /^[0-9a-f]{8}-/.test(t) ? t.slice(0, 8) : clip(t, 40); };
 	const a = args ?? {};
 	switch (verb) {
 		case "task_status": return `Check delegated task ${task(a.taskId)}`;
@@ -1530,6 +1588,15 @@ function t3McpSummary(verb: string, args: any): string | undefined {
 			return v ? `${v} ${a.threadId ? th(a.threadId) : "this T3 thread"}${a.action === "snooze" && a.snoozedUntil ? ` until ${clip(String(a.snoozedUntil), 20)}` : ""}` : undefined;
 		}
 		case "t3_thread_update": return a.threadId && a.action === "rename" && a.title ? `Rename ${th(a.threadId)} → ${q(a.title)}` : undefined;
+		case "t3_thread_wait": return a.threadId ? `Wait for ${th(a.threadId)}` : undefined;
+		case "t3_thread_launch": return a.title ? `Launch T3 thread ${q(a.title)}` : undefined;
+		case "schedule_task": {
+			const every = a.schedule?.type === "interval" && Number(a.schedule.everyMs) > 0 ? ` every ${Number(a.schedule.everyMs) % 3_600_000 ? `${Math.round(Number(a.schedule.everyMs) / 60_000)} min` : `${Number(a.schedule.everyMs) / 3_600_000}h`}` : "";
+			if (a.title) return `Schedule T3 task ${q(a.title)}${every}`;
+			return a.scheduledTaskId ? `Update ${a.prompt ? "prompt of " : ""}scheduled task ${sched(a.scheduledTaskId)}${every}` : undefined;
+		}
+		case "delete_scheduled_task": return a.scheduledTaskId ? `Delete scheduled task ${sched(a.scheduledTaskId)}` : undefined;
+		case "list_scheduled_tasks": return "List scheduled tasks";
 	}
 }
 
@@ -1537,6 +1604,9 @@ function t3McpSummary(verb: string, args: any): string | undefined {
 
 /** Consts holding base64 (const b = btoa(…)), set per codemode script: safe to splice into a shell command. */
 const B64_IDS = new Set<string>();
+/** Shell-quoting helpers (const esc = s => "'" + s.replace(/'/g, "'\\''") + "'"), set per codemode script: ${esc(x)} is one quoted word. */
+const SHQ_FNS = new Set<string>();
+const shellQuote = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
 
 /** Read a JS string literal ('…', "…", `…`, String.raw`…`) at src[i]; ${x} resolves only to a known const, else "…" (partial). */
 function jsString(src: string, i: number, consts: Record<string, string>): { value: string; end: number; partial: boolean } | undefined {
@@ -1552,7 +1622,9 @@ function jsString(src: string, i: number, consts: Record<string, string>): { val
 		if (q === "`" && c === "$" && src[j + 1] === "{") {
 			const e = skipExpr(src, j + 2, "}");
 			const id = src.slice(j + 2, e).trim();
+			const shq = id.match(/^([A-Za-z_$][\w$]*)\(\s*([A-Za-z_$][\w$]*)\s*\)$/);
 			if (/^[A-Za-z_$][\w$]*$/.test(id) && consts[id] !== undefined) out += consts[id];
+			else if (shq && SHQ_FNS.has(shq[1])) { if (consts[shq[2]] !== undefined) out += shellQuote(consts[shq[2]]); else { out += "'…'"; partial = true; } }
 			// ${JSON.stringify(msg)} (maybe .replace(…)'d to escape $): the const, as a double-quoted shell word
 			else if (/^JSON\.stringify\(\s*[A-Za-z_$][\w$]*\s*\)(?:\.replace\([^)]*\))*$/.test(id) && consts[id.match(/\(\s*([\w$]+)/)![1]] !== undefined) out += JSON.stringify(consts[id.match(/\(\s*([\w$]+)/)![1]]);
 			// unknown, but still one quoted shell word: JSON.stringify(x) is double-quoted; base64 (btoa(x), or a const
@@ -1581,10 +1653,24 @@ function jsString(src: string, i: number, consts: Record<string, string>): { val
 /** Index of the first top-level `stop` char (or an unmatched closing bracket) from i, skipping strings and nested brackets. */
 function skipExpr(src: string, i: number, stop = ",}"): number {
 	let depth = 0;
+	let prev = "("; // last significant char: a "/" after an operator or bracket starts a regex literal, not a division
 	for (let j = i; j < src.length; j++) {
 		const c = src[j];
-		if (c === "'" || c === '"' || c === "`") { const s = jsString(src, j, {}); j = (s?.end ?? j + 1) - 1; continue; }
+		if (c === "'" || c === '"' || c === "`") { const s = jsString(src, j, {}); j = (s?.end ?? j + 1) - 1; prev = "a"; continue; }
 		if (c === "/" && src[j + 1] === "/") { const e = src.indexOf("\n", j); j = e < 0 ? src.length : e; continue; }
+		if (c === "/" && src[j + 1] === "*") { const e = src.indexOf("*/", j + 2); j = e < 0 ? src.length : e + 1; continue; }
+		if (c === "/" && "(,=:[!&|?{};+-*%<>~^".includes(prev)) { // /"/g: skip to the closing slash
+			let cls = false;
+			for (j++; j < src.length && src[j] !== "\n"; j++) {
+				if (src[j] === "\\") j++;
+				else if (src[j] === "[") cls = true;
+				else if (src[j] === "]") cls = false;
+				else if (src[j] === "/" && !cls) break;
+			}
+			prev = "a";
+			continue;
+		}
+		if (!/\s/.test(c)) prev = c;
 		if ("([{".includes(c)) depth++;
 		else if (")]}".includes(c)) { if (depth === 0) return j; depth--; }
 		else if (depth === 0 && stop.includes(c)) return j;
@@ -1675,13 +1761,21 @@ const esc$ = (id: string) => id.replace(/\$/g, "\\$");
 /** const NAME = ["…", "…"] or { k: "…", … } with only literal strings: its [key, value] entries. */
 function jsList(code: string, name: string, consts: Record<string, string>): [string, string][] | undefined {
 	const m = code.match(new RegExp(`\\b(?:const|let|var)\\s+${esc$(name)}\\s*=\\s*(?=[[{])`));
-	if (!m) return;
-	let i = (m.index ?? 0) + m[0].length;
+	return m ? jsListAt(code, (m.index ?? 0) + m[0].length, consts) : undefined;
+}
+
+/** The literal list or object at code[i] ("[" or "{"): strings (or numbers, in a list) only, comments allowed. */
+function jsListAt(code: string, i: number, consts: Record<string, string>): [string, string][] | undefined {
 	const close = code[i] === "[" ? "]" : "}";
 	const out: [string, string][] = [];
 	i++;
 	for (;;) {
-		while (/[\s,]/.test(code[i] ?? "")) i++;
+		for (;;) { // separators and comments
+			while (/[\s,]/.test(code[i] ?? "")) i++;
+			if (code.startsWith("//", i)) { const e = code.indexOf("\n", i); i = e < 0 ? code.length : e; continue; }
+			if (code.startsWith("/*", i)) { const e = code.indexOf("*/", i + 2); i = e < 0 ? code.length : e + 2; continue; }
+			break;
+		}
 		if (i >= code.length) return;
 		if (code[i] === close) return out.length ? out : undefined;
 		let key = String(out.length);
@@ -1695,7 +1789,8 @@ function jsList(code: string, name: string, consts: Record<string, string>): [st
 			if (code[i++] !== ":") return;
 			while (/\s/.test(code[i] ?? "")) i++;
 		}
-		const v = jsString(code, i, consts);
+		const num = close === "]" ? code.slice(i).match(/^-?\d+(?:\.\d+)?(?![\w$.])/)?.[0] : undefined;
+		const v = num ? { value: num, end: i + num.length, partial: false } : jsString(code, i, consts);
 		if (!v || v.partial) return;
 		const e = skipExpr(code, v.end, close === "]" ? ",]" : ",}");
 		if (code.slice(v.end, e).trim()) return;
@@ -1714,6 +1809,20 @@ function loopEnvs(code: string, at: number, consts: Record<string, string>): { i
 		{ re: new RegExp(`Object\\.entries\\(\\s*${I}\\s*\\)\\.(?:map|forEach|flatMap)\\(\\s*(?:async\\s*)?\\(\\s*\\[\\s*${I}\\s*,\\s*${I}\\s*\\]\\s*\\)\\s*=>`, "g"), pick: (m) => [m[1], m[2], m[3]] },
 	];
 	const out: { ids: string[]; envs: Record<string, string>[]; at: number }[] = [];
+	// for (const x of ["a", "b"]): the list written inline
+	for (const m of code.matchAll(new RegExp(`for\\s*\\(\\s*(?:const|let|var)\\s+${I}\\s+of\\s+(?=\\[)`, "g"))) {
+		if ((m.index ?? 0) > at) continue;
+		const items = jsListAt(code, (m.index ?? 0) + m[0].length, consts);
+		if (items) out.push({ ids: [m[1]], envs: items.map(([, val]) => ({ [m[1]]: val })), at: m.index ?? 0 });
+	}
+	// const entries = Object.entries(cmds); entries.map(([k, c]) => …): an alias of Object.entries(cmds)
+	for (const a of code.matchAll(new RegExp(`\\b(?:const|let|var)\\s+${I}\\s*=\\s*Object\\.entries\\(\\s*${I}\\s*\\)\\s*[;\\n]`, "g"))) {
+		for (const m of code.matchAll(new RegExp(`(?<![\\w$.])${esc$(a[1])}\\.(?:map|forEach|flatMap)\\(\\s*(?:async\\s*)?\\(\\s*\\[\\s*${I}\\s*,\\s*${I}\\s*\\]\\s*\\)\\s*=>`, "g"))) {
+			if ((m.index ?? 0) > at) continue;
+			const items = jsList(code, a[2], consts);
+			if (items) out.push({ ids: [m[1], m[2]], envs: items.map(([key, val]) => ({ [m[1]]: key, [m[2]]: val })), at: m.index ?? 0 });
+		}
+	}
 	for (const { re, pick } of pats) {
 		for (const m of code.matchAll(re)) {
 			if ((m.index ?? 0) > at) continue;
@@ -1726,10 +1835,62 @@ function loopEnvs(code: string, at: number, consts: Record<string, string>): { i
 	return out.sort((x, y) => y.at - x.at);
 }
 
+/** Marks (1) each index of `code` that sits in string text, a comment or a regex literal: `tools.bash(` there is data, not a call. */
+function jsTextMask(code: string): Uint8Array {
+	const mask = new Uint8Array(code.length);
+	const stack: string[] = []; // open template literals (`) and ${ … } expressions inside them ("{"), plus plain braces ("b") inside those
+	let prev = ""; // last significant char outside strings, to tell a regex from a division
+	let word = ""; // last identifier, for `return /re/`
+	const fill = (a: number, b: number) => mask.fill(1, a, Math.min(b, code.length));
+	for (let i = 0; i < code.length; i++) {
+		const c = code[i];
+		if (stack[stack.length - 1] === "`") { // inside template text
+			const s = i;
+			for (; i < code.length && code[i] !== "`" && !(code[i] === "$" && code[i + 1] === "{"); i++) if (code[i] === "\\") i++;
+			fill(s, i);
+			if (code[i] === "`") { mask[i] = 1; stack.pop(); prev = "a"; }
+			else if (i < code.length) { fill(i, i + 2); i++; stack.push("{"); prev = "("; }
+			continue;
+		}
+		if (c === "'" || c === '"') {
+			const s = i;
+			for (i++; i < code.length && code[i] !== c && code[i] !== "\n"; i++) if (code[i] === "\\") i++;
+			fill(s, i + 1);
+			prev = "a";
+			continue;
+		}
+		if (c === "`") { mask[i] = 1; stack.push("`"); continue; }
+		if (c === "/" && code[i + 1] === "/") { const e = code.indexOf("\n", i); fill(i, e < 0 ? code.length : e); i = e < 0 ? code.length : e - 1; continue; }
+		if (c === "/" && code[i + 1] === "*") { const e = code.indexOf("*/", i + 2); fill(i, e < 0 ? code.length : e + 2); i = e < 0 ? code.length : e + 1; continue; }
+		if (c === "/" && (prev === "" || "(,=:[!&|?{};+-*%<>~^".includes(prev) || /^(?:return|typeof|case|in|of|void|delete|throw)$/.test(word))) {
+			const s = i;
+			let cls = false;
+			for (i++; i < code.length && code[i] !== "\n"; i++) {
+				if (code[i] === "\\") i++;
+				else if (code[i] === "[") cls = true;
+				else if (code[i] === "]") cls = false;
+				else if (code[i] === "/" && !cls) break;
+			}
+			fill(s, i + 1);
+			prev = "a"; word = "";
+			continue;
+		}
+		if (c === "{") stack.push("b");
+		else if (c === "}") { const t = stack.pop(); if (t === "{") { mask[i] = 1; continue; } }
+		if (/[A-Za-z_$0-9]/.test(c)) { word = /[A-Za-z_$0-9]/.test(prev) ? word + c : c; prev = c; }
+		else if (!/\s/.test(c)) { prev = c; word = ""; }
+	}
+	return mask;
+}
+
 /** codemode: summarize each tools.X({ … }) call whose arguments are literals, plus searchTools/ALL_TOOLS lookups. */
 function codemodeSummary(code: string, ctx: Ctx): Summary {
 	const local = { hosts: [ctx.host] };
 	B64_IDS.clear();
+	SHQ_FNS.clear();
+	for (const m of code.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\(?\s*([A-Za-z_$][\w$]*)\s*\)?\s*=>\s*(["'`])'\3\s*\+\s*(?:String\(\s*\2\s*\)|\2)\.replace(?:All)?\(\s*(?:\/'\/g|"'"|`'`)\s*,\s*(["'`])'\\\\''\4\s*\)\s*\+\s*(["'`])'\5/g)) SHQ_FNS.add(m[1]);
+	const text = jsTextMask(code);
+	const live = (m: RegExpMatchArray) => !text[m.index ?? 0];
 	// const NAME = "literal" (or a number): substituted into later tool arguments and ${NAME}
 	const consts: Record<string, string> = {};
 	const partials: Record<string, string> = {}; // templates with unresolved parts: usable where a partial value is fine
@@ -1784,13 +1945,13 @@ function codemodeSummary(code: string, ctx: Ctx): Summary {
 	// const q = (s, t = 60) => tools.X({ sql: s, … }); q("select …"): each q(…) call is a tools.X call with that argument
 	const helperAt = new Set<number>();
 	const HELPER = /\b(?:(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\(\s*([A-Za-z_$][\w$]*)\s*(?:=\s*[^,()]*)?(?:,[^()]*)?\)|([A-Za-z_$][\w$]*))\s*=>|(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(\s*([A-Za-z_$][\w$]*)[^()]*\))\s*(?:\{\s*(?:try\s*\{\s*)?(?:return\s+|const\s+[A-Za-z_$][\w$]*\s*=\s*)?)?\(?\s*(?:await\s+)?\(?\s*(?:await\s+)?tools\.([A-Za-z_$][\w$]*)\s*\(/g;
-	for (const h of code.matchAll(HELPER)) {
+	for (const h of [...code.matchAll(HELPER)].filter(live)) {
 		const [fn, param, tool] = [h[1] ?? h[4], h[2] ?? h[3] ?? h[5], h[6]];
 		const objAt = (h.index ?? 0) + h[0].length;
 		if (!jsObject(code, objAt, consts, partials)) return local;
 		helperAt.add((h.index ?? 0) + h[0].lastIndexOf("tools."));
 		const def = (h.index ?? 0) + h[0].indexOf(fn);
-		const uses = [...code.matchAll(new RegExp(`(?<![\\w$.])${esc$(fn)}\\s*\\(`, "g"))].filter((u) => u.index !== def);
+		const uses = [...code.matchAll(new RegExp(`(?<![\\w$.])${esc$(fn)}\\s*\\(`, "g"))].filter((u) => u.index !== def && live(u));
 		for (const u of uses) {
 			const argAt = (u.index ?? 0) + u[0].length;
 			const argEnd = skipExpr(code, argAt, ",)");
@@ -1809,20 +1970,38 @@ function codemodeSummary(code: string, ctx: Ctx): Summary {
 			if (!l || !callEach(tool, objAt, l.envs.map((env) => ({ [param]: env[id!] })), ps)) return local;
 		}
 	}
-	for (const m of code.matchAll(/\btools\.([A-Za-z_$][\w$]*)\s*\(/g)) {
-		if (helperAt.has(m.index ?? -1)) continue;
-		if (!callAt(m[1], (m.index ?? 0) + m[0].length)) return local;
+	// tools.X( and tools["X"]( calls, plus calls through an alias (const S = tools["mcp__t3-code__schedule_task"]; S({ … }))
+	const sites: [string, number][] = [];
+	for (const m of [...code.matchAll(/\btools(?:\.([A-Za-z_$][\w$]*)|\[\s*(["'])([\w$.-]+)\2\s*\])\s*\(/g)].filter(live)) if (!helperAt.has(m.index ?? -1)) sites.push([m[1] ?? m[3], (m.index ?? 0) + m[0].length]);
+	for (const a of [...code.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*tools(?:\.([A-Za-z_$][\w$]*)|\[\s*(["'])([\w$.-]+)\3\s*\])\s*(?=[;\n])/g)].filter(live)) {
+		const [d0, d1] = [a.index ?? 0, (a.index ?? 0) + a[0].length];
+		const uses = [...code.matchAll(new RegExp(`(?<![\\w$.])${esc$(a[1])}(?![\\w$])`, "g"))].filter((u) => live(u) && ((u.index ?? 0) < d0 || (u.index ?? 0) >= d1));
+		const calls = uses.filter((u) => /^\s*\(/.test(code.slice((u.index ?? 0) + a[1].length)));
+		if (calls.length !== uses.length) return local; // passed around: its calls can't be seen
+		for (const u of calls) sites.push([a[2] ?? a[4], code.indexOf("(", (u.index ?? 0) + a[1].length) + 1]);
 	}
+	for (const [name, at] of sites.sort((x, y) => x[1] - y[1])) if (!callAt(name, at)) return local;
 	// the sandbox's own tool catalogue
-	for (const m of code.matchAll(/\bsearchTools\s*\(/g)) {
+	for (const m of [...code.matchAll(/\bsearchTools\s*\(/g)].filter(live)) {
 		const s = jsString(code, (m.index ?? 0) + m[0].length, consts);
 		add(s?.value && !s.partial ? `Search tools for "${clip(s.value, 40)}"` : "Search tools");
 	}
-	for (const m of code.matchAll(/\bdescribe(Tool|Namespace)\s*\(/g)) {
+	for (const m of [...code.matchAll(/\bdescribe(Tool|Namespace)\s*\(/g)].filter(live)) {
 		const s = jsString(code, (m.index ?? 0) + m[0].length, consts);
 		add(`Describe ${m[1] === "Tool" ? "tool" : "namespace"}${s?.value && !s.partial ? ` ${s.value}` : ""}`);
 	}
-	if (/\bALL_TOOLS\b/.test(code)) add("List available tools");
+	if ([...code.matchAll(/\bALL_TOOLS\b/g)].some(live)) add("List available tools");
+	// no tool calls at all (and nothing that could hide one): plain computation over literals or stored values
+	if (!outs.length && !sites.length && !/\b(?:tools|eval|Function|import|require|models|globalThis)\b/.test(code)) {
+		const keys = (fn: string) => [...code.matchAll(new RegExp(`\\b${fn}\\s*\\(`, "g"))].filter(live).map((m) => jsString(code, (m.index ?? 0) + m[0].length, consts)).map((s) => (s && !s.partial ? s.value : "…"));
+		const loads = [...new Set(keys("load"))];
+		const stores = [...new Set(keys("store"))];
+		if (loads.length) add(`Load stored ${loads.join(", ")}`);
+		if (stores.length) add(`Store ${stores.join(", ")}`);
+		if ([...code.matchAll(/\bimage\s*\(/g)].some(live)) add("Show an image");
+		if (!outs.length) add("Compute in the JS sandbox (no tool calls)");
+		return { sum: outs.map((o) => o.sum).join(" · "), hosts: [ctx.host], rule: "codemode-js", parts: outs };
+	}
 	if (!outs.length) return local;
 	let sum = outs.slice(0, 3).map((o) => o.sum).join(" · ");
 	if (outs.length > 3) sum += ` +${outs.length - 3}`;

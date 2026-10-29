@@ -56,7 +56,7 @@
   "reason": "eval of a dynamically built script (e.g. exporting credentials read over ssh); the raw command is clearer than any summary."
  },
  {
-  "shape": "imds_env",
-  "reason": "Shell function from a sourced env file (~/.cache/ft-imds-env.sh); its body is unknown to the summarizer."
+  "shape": "import",
+  "reason": "A Python import statement run in the shell by mistake (it would run ImageMagick's import); there is nothing to summarize."
  }
 ]

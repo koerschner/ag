@@ -792,8 +792,9 @@ The user sits at a client machine; agents run on a host (ag). Every machine stow
 - **Secrets into fields: `ag-type-secret`.** To enter a password or card number, the CUA task itself
   runs `ag-type-secret [--app "Google Chrome"] [--host <domain>] op://<vault>/<item>/<field>` after
   focusing the field: it refuses outside a screen job, checks the frontmost app (with `--host`, also
-  that Chrome's front tab is on that domain or a subdomain, so a password can't land in another site's
-  field when the wrong window is in front; pass it for every password), reads via op-shared (machine-shared),
+  that the focused element is a field in a Chrome page on that domain or a subdomain, read through the
+  Accessibility API by `bin/dot-local/share/ag-type-secret/axfocus.swift`, so a password can't land in
+  another site's field, a second Chrome instance or the address bar; pass it for every password), reads via op-shared (machine-shared),
   op-work (ag-vault) or op-ag, and keystrokes it with the value in the environment (never argv,
   output, or the prompt). Never screenshot a filled secret field to check it; ask the CUA run whether
   the field is filled, without digits.

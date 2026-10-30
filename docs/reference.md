@@ -528,6 +528,21 @@ written by `ag-state sync` (`ag-state-sync.timer`, every 15 min, session host on
   short, and so does state written since the last 15-minute snapshot. Uncommitted work in repo checkouts and
   worktrees isn't covered: push it.
 
+## Rex (remote server on the engine)
+
+[Rex](https://www.superlogical.com/rex) runs on ag-engine as systemd user unit `rex-server.service`
+(`systemd-user/`), binary `~/.local/bin/rex`, state in `~/.local/state/rex`. `ag-rex-install` installs or
+updates it from the official preview-channel Linux tarball (sha256 checked against the release API, as the
+official `install.sh --tarball` does) and enables the unit; `bootstrap-linux` runs it on the host. It never
+restarts a running server: after an update, `systemctl --user restart rex-server`.
+
+- **Tailnet-only on port 7297.** Besides the local unix socket, its only listener is `--extra-listen
+  tailnet://:7297`, bound to the engine's Tailscale addresses through tailscaled. Never add
+  `--allow-anonymous`, a plain `host:port` listener, or Funnel.
+- **`--tailnet-allow-identified`** is needed because ag-engine is a tagged node (no owner), so Rex can't match
+  callers to an owner; it admits identified tailnet callers only.
+- **Mac clients:** `rex hosts add engine http://ag-engine.<tailnet>.ts.net:7297`.
+
 ## Shared MCP gateway (Pi)
 
 Pi's stdio MCP bridges (`linear`, `arcade_school`, `honeycomb`, `tsa_courses`, `x`) run

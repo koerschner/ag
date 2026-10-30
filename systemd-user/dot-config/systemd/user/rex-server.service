@@ -1,0 +1,18 @@
+# Rex server (superlogical.com/rex), tailnet-only. Session host only: installed and enabled by ag-rex-install (bootstrap-linux, host role); docs/reference.md "Rex".
+[Unit]
+Description=Rex server (personal, tailnet-only)
+Documentation=https://www.superlogical.com/rex/docs/linux/remote-access
+
+[Service]
+Type=simple
+# Default --listen is the local unix socket ($XDG_RUNTIME_DIR/rex/server.sock, mode 0600).
+# The only network listener is tailnet:// on the host tailscaled (binds tailnet addresses
+# only; callers identified via LocalAPI whois). ag-engine is a tagged node (no owner), so
+# --tailnet-allow-identified is required; it admits identified tailnet callers only, never
+# anonymous ones. Never add --allow-anonymous or a plain host:port listener.
+ExecStart=%h/.local/bin/rex server run --state-dir %h/.local/state/rex --log-format text --extra-listen tailnet://:7297 --tailnet-allow-identified
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=default.target

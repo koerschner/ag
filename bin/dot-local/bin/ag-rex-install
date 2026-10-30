@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# ag-rex-install: install or update the Rex server (superlogical.com/rex) on the session host and enable
+# rex-server.service (systemd-user/; tailnet-only on :7297, see docs/reference.md "Rex").
+#
+#   ag-rex-install [--channel preview|snapshot|stable]   (default: preview; REX_CHANNEL also works)
+#
+# Mirrors the official installer's --tarball path (https://pkgs.superlogical.com/rex/install.sh) but installs into
+# ~/.local/bin without sudo or a package repo: reads the channel's release from blob.superlogical.com, downloads
+# rex-linux-<arch>.tar.gz, and refuses to install unless its sha256 matches the one the release publishes.
+# Idempotent: does nothing when ~/.local/bin/rex already reports the release's commit. Never restarts a running
+# server; a replaced binary takes effect on the next `systemctl --user restart rex-server`.
+set -euo pipefail
+
+CHANNEL=${REX_CHANNEL:-preview}
+[[ ${1:-} == --channel && -n ${2:-} ]] && CHANNEL=$2
+RELEASES=https://blob.superlogical.com
+BIN=$HOME/.local/bin/rex
+
+case $(uname -m) in x86_64|amd64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; *) echo "ag-rex-install: unsupported arch $(uname -m)" >&2; exit 1 ;; esac
+FILE=rex-linux-$ARCH.tar.gz
+
+release=$(curl -fsSL "$RELEASES/api/releases/rex/$CHANNEL")
+commit=$(jq -r .commit <<<"$release")
+want=$(jq -r --arg f "$FILE" '.artifacts[] | select(.filename == $f) | .sha256' <<<"$release")
+[[ $commit =~ ^[0-9a-f]{40}$ && $want =~ ^[0-9a-f]{64}$ ]] || { echo "ag-rex-install: no $FILE in the $CHANNEL release" >&2; exit 1; }
+
+if [[ -x $BIN ]] && "$BIN" version 2>/dev/null | grep -qx "commit: $commit"; then
+  echo "rex $CHANNEL ${commit:0:12} already installed"
+else
+  dir=$(mktemp -d); trap 'rm -rf "$dir"' EXIT
+  curl -fsSL "$RELEASES/download/rex/$CHANNEL/$commit/$FILE" -o "$dir/$FILE"
+  printf '%s  %s\n' "$want" "$dir/$FILE" | sha256sum -c - >/dev/null || { echo "ag-rex-install: $FILE sha256 mismatch" >&2; exit 1; }
+  tar -xzf "$dir/$FILE" -C "$dir"
+  mkdir -p "$(dirname "$BIN")"
+  install -m 0755 "$dir/rex" "$BIN"
+  echo "installed rex $CHANNEL ${commit:0:12} into $BIN"
+  systemctl --user is-active --quiet rex-server.service &&
+    echo "rex-server keeps the old binary until: systemctl --user restart rex-server"
+fi
+
+# enable --now starts the server if it isn't running; it never restarts a running one.
+systemctl --user daemon-reload
+systemctl --user enable --now rex-server.service >/dev/null 2>&1
+systemctl --user is-active --quiet rex-server.service && echo "rex-server on (tailnet :7297)"

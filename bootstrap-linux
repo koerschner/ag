@@ -224,6 +224,9 @@ if ~/.local/bin/ag-machine-role host; then  # EmbeddingGemma 2 search for T3's â
   ~/.local/bin/ag-deepsearch setup >/dev/null 2>&1 && systemctl --user enable --now ag-deepsearch.service >/dev/null 2>&1 &&
     echo "  ag-deepsearch on" || warn "ag-deepsearch (run ag-deepsearch setup)"
 fi
+if ~/.local/bin/ag-machine-role host; then  # Rex server, tailnet-only on :7297 (docs/reference.md "Rex")
+  ~/.local/bin/ag-rex-install >/dev/null 2>&1 && echo "  rex-server (tailnet :7297) on" || warn "ag-rex-install"
+fi
 systemctl --user enable --now ag-nessie.service >/dev/null 2>&1 && echo "  nessie (trace sync) on" || warn "ag-nessie.service"
 systemctl --user enable --now ag-telegram.service >/dev/null 2>&1 && echo "  ag-telegram (Telegram replies) on" || warn "ag-telegram.service"
 systemctl --user enable --now ag-discord.service >/dev/null 2>&1 && echo "  ag-discord (Discord feedback buttons) on" || warn "ag-discord.service"

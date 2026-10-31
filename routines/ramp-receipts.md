@@ -1,6 +1,6 @@
 ---
-description: Weekly: attach receipts and memos to the user's Ramp card charges before Ramp locks the card
-schedule: weekly Mon 09:37
+description: Daily: attach receipts and memos to the user's Ramp card charges before Ramp locks the card
+schedule: daily 23:30
 kind: prompt
 cwd: ~
 timeout: 60min
@@ -33,9 +33,10 @@ signed in to the user's work Google account, their personal Gmail, and Ramp (app
    memo, accept it as is. Don't touch category, accounting fields, or approvals.
 4. Verify with a final `ag cua` read: reload each transaction (receipt attached, memo saved) and re-check the
    Missing items filter and the lock warning.
-5. Tell the user only when it matters, with `ag-text` (one or two lines): what was fixed, and anything still
-   missing with the reason (merchant needs a login, no invoice found, ag-mac down, session expired) and the
-   lock date. If nothing was missing, don't text.
+5. Always finish by notifying the user on Telegram with `ag-text` (one or two lines), every run, even when
+   nothing was missing: that the run finished, what was fixed, and anything still missing with the reason
+   (merchant needs a login, no invoice found, ag-mac down, session expired) and the lock date. If nothing was
+   missing, say so ("✅ Ramp receipts: all caught up").
 
 Ramp's to-do list is the source of truth; don't act on old Ramp emails (e.g. a purchase verification that no
 longer appears in Ramp). Times in Central.

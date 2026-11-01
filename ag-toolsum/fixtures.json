@@ -4083,5 +4083,125 @@
   "hosts": [
    "ag-engine"
   ]
+ },
+ {
+  "tool": "codemode",
+  "args": {
+   "code": "return (await tools.bash({command:\"cd ~/t3code && git rev-parse --short HEAD origin/main && setsid bash -c 'cd ~/t3code; ag/sync-upstream > /tmp/t3sync.log 2>&1; echo \\\"EXIT $?\\\" >> /tmp/t3sync.log' < /dev/null > /dev/null 2>&1 & sleep 2; cat /tmp/t3sync.log\"})).output"
+  },
+  "sum": "Resolve git ref · Run ag/sync-upstream · Read /tmp/t3sync.log",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd ~/t3code && (nohup ag/sync-upstream > /tmp/t.log 2>&1; echo \"EXIT $?\" >> /tmp/t.log) > /dev/null 2>&1 & echo started"
+  },
+  "sum": "Run ag/sync-upstream",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "timeout 30 ssh ag-client 'export PATH=/opt/homebrew/bin:$PATH; ykman list; echo ---; ykman info; echo ---; ykman fido info' 2>&1"
+  },
+  "sum": "List connected YubiKeys · Show YubiKey info · Show YubiKey FIDO info",
+  "hosts": [
+   "ag-client"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ssh ag-client 'ykman config nfc --disable OTP -f'"
+  },
+  "sum": "Disable OTP over YubiKey NFC",
+  "hosts": [
+   "ag-client"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "cd /tmp && xurl following -n 1000 > xf.json 2>&1; jq '.data|length' xf.json"
+  },
+  "sum": "List X accounts you follow · Query JSON in xf.json",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "xurl following --of elonmusk -n 50"
+  },
+  "sum": "List X accounts @elonmusk follows",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "xurl posts @XDevelopers -n 50"
+  },
+  "sum": "Read recent X posts by @XDevelopers",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "xurl like 1850000000000000000"
+  },
+  "sum": "Like X post 1850000000000000000",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "xurl follow @XDevelopers"
+  },
+  "sum": "Follow @XDevelopers on X",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "xurl bookmarks -n 5"
+  },
+  "sum": "Read X bookmarks",
+  "hosts": [
+   "ag-engine"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "ag-mac run 'ag-screen-approvals --list | grep sshd'"
+  },
+  "sum": "List macOS screen-capture approval dates",
+  "hosts": [
+   "ag-mac"
+  ]
+ },
+ {
+  "tool": "bash",
+  "args": {
+   "command": "/home/nathan/.agents/skills/brave-search/search.js \"Alpha School 1550 SAT average\" -n 3 --freshness pm"
+  },
+  "sum": "Web search \"Alpha School 1550 SAT average\"",
+  "hosts": [
+   "ag-engine"
+  ]
  }
 ]

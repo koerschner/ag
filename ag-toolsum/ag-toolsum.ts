@@ -576,7 +576,7 @@ const RULES: Rule[] = [
 	} },
 	{ id: "xurl", cmd: /^xurl$/, fn: (a) => {
 		// the X API CLI: xurl [flags] /2/path, or xurl <verb> …
-		const p = positional(a, ["-X", "--method", "-d", "--data", "-H", "--header", "-n", "--max-results", "--app", "-u", "--username", "--auth", "-F", "--file"]);
+		const p = positional(a, ["-X", "--method", "-d", "--data", "-H", "--header", "-n", "--max-results", "--app", "-u", "--username", "--auth", "-F", "--file", "--of"]);
 		const [v, ...r] = p;
 		if (!v) return;
 		if (/^(?:\/|https?:)/.test(v)) return `Call X API ${(flagVal(a, "-X", "--method") ?? (flagVal(a, "-d", "--data") ? "POST" : "GET")).toUpperCase()} ${clip(v.replace(/^https?:\/\/api\.(?:x|twitter)\.com/, "").split("?")[0], 45)}`;
@@ -590,9 +590,30 @@ const RULES: Rule[] = [
 			case "user": return r[0] ? `Look up X user ${clip(r[0], 30)}` : undefined;
 			case "timeline": return "Read the X home timeline";
 			case "mentions": return "Read X mentions";
+			case "following": case "followers": { const of = flagVal(a, "--of")?.replace(/^@/, ""); return v === "following" ? `List X accounts ${of ? `@${of} follows` : "you follow"}` : `List X followers${of ? ` of @${of}` : ""}`; }
+			case "bookmarks": return "Read X bookmarks";
+			case "likes": return "Read liked X posts";
+			case "dms": return "Read recent X DMs";
+			case "posts": return r[0] ? `Read recent X posts by @${clip(r[0].replace(/^@/, ""), 30)}` : undefined;
+			case "like": case "unlike": case "repost": case "unrepost": case "bookmark": case "unbookmark": case "delete":
+				return r[0] ? `${cap(v)} X post ${clip(r[0], 30)}` : undefined;
+			case "follow": case "unfollow": case "block": case "unblock": case "mute": case "unmute":
+				return r[0] ? `${cap(v)} @${clip(r[0].replace(/^@/, ""), 30)} on X` : undefined;
 			case "auth": { const sub = r.filter((x) => /^[a-z][\w-]*$/.test(x)).slice(0, 2).join(" "); return sub === "status" ? "Check xurl sign-in status" : `Run xurl auth${sub ? ` ${sub}` : ""}`; }
 		}
 	} },
+	{ id: "ykman", cmd: /^ykman$/, fn: (a) => {
+		// YubiKey Manager CLI: ykman [--device SERIAL] <app> <cmd> …
+		const [app, sub] = positional(a, ["-d", "--device", "-r", "--reader", "-l", "--log-level", "--log-file", "-e", "--enable", "--disable"]);
+		if (app === "list") return "List connected YubiKeys";
+		if (app === "info") return "Show YubiKey info";
+		if (app && sub === "info") return `Show YubiKey ${app.toUpperCase()} info`;
+		if (app === "config" && /^(?:nfc|usb)$/.test(sub ?? "")) {
+			const en = flagVal(a, "-e", "--enable"), dis = flagVal(a, "--disable");
+			if (en || dis) return `${en ? `Enable ${en}` : `Disable ${dis}`} over YubiKey ${sub!.toUpperCase()}`;
+		}
+	} },
+	{ id: "ag-screen-approvals", cmd: /^ag-screen-approvals$/, fn: (a) => (a[0] === "--list" ? "List macOS screen-capture approval dates" : !a.length ? "Push macOS screen-capture re-prompts to 2100" : undefined) },
 	{ id: "xcodegen", cmd: /^xcodegen$/, fn: (a) => (!a.length || positional(a, ["-s", "--spec", "-p", "--project"])[0] === "generate" ? `Generate the Xcode project${flagVal(a, "-s", "--spec") ? ` from ${shortPath(flagVal(a, "-s", "--spec")!)}` : ""} (xcodegen)` : undefined) },
 	{ id: "split", cmd: /^split$/, fn: (a) => {
 		const [file, prefix] = positional(a, ["-C", "-b", "-l", "-n", "-a", "--additional-suffix", "--line-bytes", "--bytes", "--lines", "--number", "--suffix-length"]);
@@ -914,7 +935,7 @@ const RULES: Rule[] = [
 	} },
 	{ id: "browser-tools", cmd: /^(?:\.\/|.*\/)?(browser-[\w-]+|content|search)\.js$/, fn: (a, raw) => {
 		const tool = raw.match(/(browser-[\w-]+|content|search)\.js/)![1];
-		const p = positional(a);
+		const p = positional(a, tool === "search" ? ["-n", "--country", "--freshness"] : []);
 		if (tool === "search") return `Web search "${clip(p.join(" "), 40)}"`;
 		if (tool === "content") return `Read web page ${shortUrl(p[0] ?? "")}`;
 		if (tool === "browser-nav") return `Browser: go to ${shortUrl(p[0] ?? "")}`;
@@ -1346,6 +1367,8 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 		return out;
 	}
 	if ((/^(?:\.{0,2}\/|~\/|\$HOME\/)\S*$/.test(cmd) || /^[\w.-]+(?:\/[\w.-]+)+\.(?:sh|py|ts|js|mjs|rb)$/.test(cmd)) && !cmd.includes("$(")) return { sum: `Run ${cmd.split("/").pop()}`, rule: "script" };
+	// a repo-relative script with no extension (ag/sync-upstream, bin/setup): keep its directory, the bare name reads like a command
+	if (/^(?:ag|bin|scripts?|tools|dev|hack|ci)\/[\w.-]+$/.test(cmd)) return { sum: `Run ${cmd}`, rule: "script" };
 	return null;
 }
 

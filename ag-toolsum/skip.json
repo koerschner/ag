@@ -58,5 +58,9 @@
  {
   "shape": "import",
   "reason": "A Python import statement run in the shell by mistake (it would run ImageMagick's import); there is nothing to summarize."
+ },
+ {
+  "shape": "codemode",
+  "reason": "Residual codemode misses (2026-11-01 review: ~147 left after adding ykman, xurl verbs, repo-relative scripts) are scripts whose tool arguments are computed at runtime (MCP results, load(), eval, .map over non-literal data, generated files) or one-off inline programs; no deterministic summary beats the raw code."
  }
 ]

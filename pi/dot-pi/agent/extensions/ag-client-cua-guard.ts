@@ -21,7 +21,8 @@ const CUA = /(?:^|[;&|(\n`'"]|\$\(|\b(?:then|do|else|exec|env|time|nohup|timeout
 // Extra names the client answers to (old hostnames, its IP): $AG_CLIENT_ALIASES, else its line in ~/ag-personal/env.
 const CLIENT_ALIASES = (process.env.AG_CLIENT_ALIASES || (() => { try { return readFileSync(`${homedir()}/ag-personal/env`, "utf8").match(/^AG_CLIENT_ALIASES=(.*)$/m)?.[1] ?? ""; } catch { return ""; } })())
 	.split(/[\s,]+/).filter(Boolean).map((a) => a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-const CLIENT = new RegExp(String.raw`\bssh\b[^\n;|&]*?\b(${["ag-client", ...CLIENT_ALIASES].join("|")})\b`, "i");
+// `ssh <client> …`, or `ag-client run …` (the ssh wrapper).
+const CLIENT = new RegExp(String.raw`\bssh\b[^\n;|&]*?\b(${["ag-client", ...CLIENT_ALIASES].join("|")})\b|(?:^|[\s;&|(/])ag-client\s+run\b`, "i");
 const UI = /\bosascript\b|System Events|\bcliclick\b|\bhs\b[^\n]*\b(eventtap|keyStroke|application|window|mouse|axuielement)/i;
 
 // Text that is data, not code, must not trip the guard: heredoc bodies fed to non-shell commands
@@ -49,7 +50,7 @@ function stripQuotedData(cmd: string): string {
 	// Placeholder is not a quote: a leftover `''` followed by a space looked like command position,
 	// so `sed -i '' … bin/ag-client-cua` or `grep 'x' …/ag-client-cua` (editing the script) got blocked.
 	// Only a shell's (or Hammerspoon's) `-c` runs its string; `grep -c`/`jq -c` patterns are data.
-	return cmd.replace(/(\b(?:(?:ba|z|da)?sh|hs)\s+-\w*c\s+|\bssh\b[^'"\n]*)?('[^']*'|"(?:[^"\\]|\\.)*")/g, (all, exec) => (exec ? all : "_"));
+	return cmd.replace(/(\b(?:(?:ba|z|da)?sh|hs)\s+-\w*c\s+|\bssh\b[^'"\n]*|\bag-client\s+run\s+)?('[^']*'|"(?:[^"\\]|\\.)*")/g, (all, exec) => (exec ? all : "_"));
 }
 
 // The session's goal: its first prompt (the task) plus the latest one, if different. The latest alone

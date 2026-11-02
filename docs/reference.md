@@ -729,6 +729,11 @@ The user sits at a client machine; agents run on a host (ag). Every machine stow
 - **SSH**: `ssh/dot-ssh/config` defines an alias per machine (Tailscale IPs). Each machine needs an
   `~/.ssh/id_ed25519` authorized on the machines it talks to (manual, per device), and Remote Login on.
   Machine-only hosts go in untracked `~/.ssh/config.local`.
+- **CLI on the client: `ag-client`** (`bin/dot-local/bin/ag-client`, the twin of `ag-mac`; `ag client` works too):
+  `ag-client run <cmd…>` runs in the client's login shell (Homebrew on PATH) with ConnectTimeout/BatchMode,
+  passing exit code and stdin through; `push <local> [remote]` / `pull <remote> [local]` (rsync),
+  `status` (reachable + `ag-presence`). `CLIENT_HOST` (else `CLIENT_CUA_HOST`) picks another client.
+  Not for the screen: UI automation through it is judged by the client-CUA guard, like raw ssh.
 - **Screenshots → ag**: CleanShot X on the client saves to `~/Screenshots` (Settings → General →
   Export location; after-capture actions include *Save*). Set by hand/CUA; CleanShot stores it as
   `exportPath` in `pl.maketheweb.cleanshotx` and needs a restart to apply. `ag-shot [n]` on ag pulls

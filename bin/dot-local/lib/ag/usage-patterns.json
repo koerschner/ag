@@ -24,6 +24,6 @@
   {"id": "dev-tab", "verb": "dev", "re": "ag-mux tab create|tmux -L ag new-window", "what": "open a labeled dev-process tab (server, watcher) by hand"},
   {"id": "pane-run", "verb": "dev", "what": "type a command into a dev pane (ag-mux pane run/send-text, tmux send-keys)", "re": "ag-mux pane (run|send-text|send-keys)|tmux -L ag send-keys"},
   {"id": "mac-ssh", "verb": "mac", "re": "(?m)\\b(ssh|scp) [^|;&\\n]*\\bag-mac(?![\\w.-])", "what": "run a command or copy a file on ag-mac with raw ssh/scp instead of ag-mac run/push/pull"},
-  {"id": "client-ssh", "verb": "(none: status for reachability)", "what": "run a command or copy a file on the client Mac with raw ssh/scp (no ag verb covers it; ag status covers reachability)", "re": "(?m)\\b(ssh|scp) [^|;&\\n]*\\bag-client(?![\\w.-])"},
+  {"id": "client-ssh", "verb": "client", "what": "run a command or copy a file on the client Mac with raw ssh/scp instead of ag-client run/push/pull", "re": "(?m)\\b(ssh|scp) [^|;&\\n]*\\bag-client(?![\\w.-])"},
   {"id": "transcript-grep", "verb": "read --tools", "re": "\\.pi/agent/sessions/[^\\s'\\\"]*\\.jsonl[\\s\\S]{0,200}?(grep -\\w*o|python3 -)|(grep|rg) -\\w*o[^|;\\n]*\\.pi/agent/sessions/", "what": "dig commands/tool calls out of one session file with grep -o or python"}
 ]

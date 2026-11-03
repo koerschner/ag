@@ -183,6 +183,19 @@ def when_body(start, end, all_day):
 
 # ---------- auth (on ag-mac, once) ----------
 
+def personal_account():
+    """The Google account to sign in as: $AG_PERSONAL_GOOGLE_ACCOUNT, else that line in ~/ag-personal/env."""
+    a = os.environ.get("AG_PERSONAL_GOOGLE_ACCOUNT")
+    if not a:
+        try:
+            for line in open(os.path.expanduser("~/ag-personal/env")):
+                if line.startswith("AG_PERSONAL_GOOGLE_ACCOUNT="):
+                    a = line.split("=", 1)[1].strip().strip("'\"")
+        except OSError:
+            pass
+    return a or ""
+
+
 def auth(path):
     import http.server, secrets
     if not ON_MAC:
@@ -193,7 +206,7 @@ def auth(path):
     redirect = f"http://127.0.0.1:{port}/"
     url = "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode({
         "client_id": c["client_id"], "redirect_uri": redirect, "response_type": "code", "scope": SCOPE,
-        "access_type": "offline", "prompt": "consent", "state": state, "login_hint": "nathankoerschner@gmail.com"})
+        "access_type": "offline", "prompt": "consent", "state": state, "login_hint": personal_account()})
     got = {}
 
     class H(http.server.BaseHTTPRequestHandler):

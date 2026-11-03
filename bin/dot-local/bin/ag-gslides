@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""ag-gslides: read and edit Google Slides decks through the Google Slides API, from any ag machine,
+as the user's work Google account. OAuth client: the Desktop client "ag-gcal" in Google Cloud project
+ag-calendar-nk (Slides API enabled there). Client and refresh token live in op-work (item
+"ag-gslides Google Slides OAuth", vault ag-vault); the short-lived access token is cached in
+~/.cache/ag-gslides/ (0600).
+
+  ag-gslides get <deck> [--json]      title, then every slide: object id, layout, shapes and their text
+  ag-gslides layouts <deck>           the deck's layouts: object id, name, placeholders
+  ag-gslides batch <deck> <file|->    presentations.batchUpdate; input is {"requests": [...]} or a bare list
+  ag-gslides thumbs <deck> [DIR]      a PNG of every slide (default /tmp/ag-gslides-<deck id>/)
+  ag-gslides auth                     (on ag-mac) one-time consent in its Chrome; stores the refresh token
+
+<deck> is a presentation id or a docs.google.com/presentation URL. The account is
+$AG_WORK_GOOGLE_ACCOUNT, else that line in ~/ag-personal/env. Edit only decks the user asked about.
+"""
+import json, os, platform, re, subprocess, sys, time, urllib.error, urllib.parse, urllib.request
+
+ITEM, VAULT = "ag-gslides Google Slides OAuth", "ag-vault"
+CLIENT_ITEM, CLIENT_VAULT = "ag-gcal Google Calendar OAuth", "machine-shared"  # same OAuth client
+API = "https://slides.googleapis.com/v1/presentations"
+SCOPE = "https://www.googleapis.com/auth/presentations"
+CACHE_DIR = os.path.expanduser("~/.cache/ag-gslides")
+CACHE = os.path.join(CACHE_DIR, "token.json")
+PORT = 8766
+
+
+def die(msg, code=1):
+    print(f"ag-gslides: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def account():
+    a = os.environ.get("AG_WORK_GOOGLE_ACCOUNT")
+    if not a:
+        try:
+            for line in open(os.path.expanduser("~/ag-personal/env")):
+                if line.startswith("AG_WORK_GOOGLE_ACCOUNT="):
+                    a = line.split("=", 1)[1].strip().strip("'\"")
+        except OSError:
+            pass
+    return a or ""
+
+
+def deck_id(s):
+    m = re.search(r"/presentation/d/([A-Za-z0-9_-]+)", s)
+    return m.group(1) if m else s
+
+
+# ---------- credentials ----------
+
+def op_fields(wrapper, item, vault):
+    r = subprocess.run([wrapper, "item", "get", item, "--vault", vault, "--reveal", "--format", "json"],
+                       capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    if r.returncode:
+        die(f"can't read {item!r} from {wrapper}: {r.stderr.strip()} (run ag-gslides auth on ag-mac?)")
+    return {f.get("label"): f.get("value") for f in json.loads(r.stdout)["fields"]}
+
+
+def post_form(url, data):
+    req = urllib.request.Request(url, urllib.parse.urlencode(data).encode())
+    try:
+        return json.load(urllib.request.urlopen(req, timeout=30))
+    except urllib.error.HTTPError as e:
+        die(f"{url}: {e.code} {e.read().decode()[:400]}")
+
+
+def access_token(force=False):
+    if not force and os.path.exists(CACHE):
+        c = json.load(open(CACHE))
+        if c.get("exp", 0) > time.time() + 60:
+            return c["token"]
+    f = op_fields("op-work", ITEM, VAULT)
+    t = post_form("https://oauth2.googleapis.com/token", {"client_id": f["client_id"], "client_secret": f["client_secret"],
+                  "refresh_token": f["refresh_token"], "grant_type": "refresh_token"})
+    os.makedirs(CACHE_DIR, mode=0o700, exist_ok=True)
+    fd = os.open(CACHE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        json.dump({"token": t["access_token"], "exp": time.time() + t.get("expires_in", 3600)}, fh)
+    return t["access_token"]
+
+
+def api(method, url, body=None, retry=True):
+    req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"Authorization": "Bearer " + access_token(force=not retry),
+                                          "Content-Type": "application/json"})
+    try:
+        return json.load(urllib.request.urlopen(req, timeout=60))
+    except urllib.error.HTTPError as e:
+        if e.code == 401 and retry:
+            return api(method, url, body, retry=False)
+        die(f"{method} {url}: {e.code} {e.read().decode()[:1500]}")
+
+
+# ---------- commands ----------
+
+def text_of(el):
+    runs = (el.get("shape") or {}).get("text", {}).get("textElements", [])
+    return "".join(r.get("textRun", {}).get("content", "") for r in runs).rstrip("\n")
+
+
+def describe(el):
+    sh = el.get("shape")
+    if sh:
+        ph = sh.get("placeholder")
+        return ph["type"] if ph else sh.get("shapeType", "SHAPE")
+    return next((k for k in ("image", "table", "line", "video", "sheetsChart", "elementGroup") if k in el), "ELEMENT").upper()
+
+
+def get(deck, as_json=False):
+    p = api("GET", f"{API}/{deck}")
+    if as_json:
+        print(json.dumps(p, indent=1)); return
+    layouts = {l["objectId"]: l["layoutProperties"].get("name", "") for l in p.get("layouts", [])}
+    print(p.get("title", ""), f"({len(p.get('slides', []))} slides)")
+    for i, s in enumerate(p.get("slides", []), 1):
+        print(f"{i}. {s['objectId']}  {layouts.get(s.get('slideProperties', {}).get('layoutObjectId'), '')}")
+        for el in s.get("pageElements", []):
+            t = text_of(el)
+            print(f"     {el['objectId']}  {describe(el)}" + (": " + t.replace("\n", " / ") if t else ""))
+
+
+def show_layouts(deck):
+    p = api("GET", f"{API}/{deck}")
+    for l in p.get("layouts", []):
+        lp = l["layoutProperties"]
+        phs = [f"{e['shape']['placeholder']['type']}#{e['shape']['placeholder'].get('index', 0)}"
+               for e in l.get("pageElements", []) if (e.get("shape") or {}).get("placeholder")]
+        print(f"{l['objectId']}  {lp.get('name', '')}  ({lp.get('displayName', '')})  {' '.join(phs)}")
+
+
+def batch(deck, src):
+    data = json.load(sys.stdin if src == "-" else open(src))
+    reqs = data if isinstance(data, list) else data.get("requests", [])
+    if not reqs:
+        die("no requests")
+    r = api("POST", f"{API}/{deck}:batchUpdate", {"requests": reqs})
+    print(json.dumps(r.get("replies", []), separators=(",", ":")))
+
+
+def thumbs(deck, out=None):
+    out = out or f"/tmp/ag-gslides-{deck}"
+    os.makedirs(out, exist_ok=True)
+    p = api("GET", f"{API}/{deck}")
+    for i, s in enumerate(p.get("slides", []), 1):
+        t = api("GET", f"{API}/{deck}/pages/{s['objectId']}/thumbnail?thumbnailProperties.mimeType=PNG"
+                       "&thumbnailProperties.thumbnailSize=LARGE")
+        path = os.path.join(out, f"slide-{i:02d}.png")
+        with urllib.request.urlopen(t["contentUrl"], timeout=60) as r, open(path, "wb") as fh:
+            fh.write(r.read())
+        print(path)
+
+
+# ---------- auth (on ag-mac, once) ----------
+
+def auth():
+    import http.server, secrets
+    if platform.system() != "Darwin":
+        die("run auth on ag-mac (its Chrome is signed in to the account)")
+    c = op_fields("op-shared", CLIENT_ITEM, CLIENT_VAULT)
+    state, redirect = secrets.token_urlsafe(16), f"http://127.0.0.1:{PORT}/"
+    q = {"client_id": c["client_id"], "redirect_uri": redirect, "response_type": "code", "scope": SCOPE,
+         "access_type": "offline", "prompt": "consent", "state": state}
+    if account():
+        q["login_hint"] = account()
+    url = "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode(q)
+    got = {}
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            if qs.get("state", [""])[0] == state and "code" in qs:
+                got["code"] = qs["code"][0]
+            self.send_response(200); self.end_headers()
+            self.wfile.write(b"ag-gslides: done, you can close this tab." if got else b"ag-gslides: no code")
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", PORT), H)
+    print("open this URL in Chrome on ag-mac and allow access:\n" + url, flush=True)
+    srv.timeout = 900
+    while "code" not in got:
+        srv.handle_request()
+    t = post_form("https://oauth2.googleapis.com/token", {"client_id": c["client_id"], "client_secret": c["client_secret"],
+                  "code": got["code"], "redirect_uri": redirect, "grant_type": "authorization_code"})
+    if "refresh_token" not in t:
+        die("no refresh token returned")
+    item = {"title": ITEM, "category": "API_CREDENTIAL", "fields": [
+        {"id": "client_id", "label": "client_id", "type": "STRING", "value": c["client_id"]},
+        {"id": "client_secret", "label": "client_secret", "type": "CONCEALED", "value": c["client_secret"]},
+        {"id": "refresh_token", "label": "refresh_token", "type": "CONCEALED", "value": t["refresh_token"]},
+        {"id": "notesPlain", "label": "notesPlain", "type": "STRING", "purpose": "NOTES",
+         "value": "Used by ag-gslides (ag repo). Google Cloud project ag-calendar-nk, Desktop OAuth client ag-gcal, "
+                  "scope presentations, consented by the work Google account."}]}
+    subprocess.run(["op-work", "item", "delete", ITEM, "--vault", VAULT], capture_output=True, stdin=subprocess.DEVNULL)
+    r = subprocess.run(["op-work", "item", "create", "--vault", VAULT, "-"], input=json.dumps(item), text=True, capture_output=True)
+    if r.returncode:
+        die("storing in op-work failed: " + r.stderr)
+    print("stored refresh token in op-work:", ITEM)
+
+
+# ---------- main ----------
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(__doc__.strip()); return
+    cmd, args = argv[0], argv[1:]
+    if cmd == "auth":
+        return auth()
+    if not args:
+        die(f"usage: ag-gslides {cmd} <deck> ...", 2)
+    deck = deck_id(args[0])
+    if cmd == "get":
+        get(deck, "--json" in args[1:])
+    elif cmd == "layouts":
+        show_layouts(deck)
+    elif cmd == "batch":
+        batch(deck, args[1] if len(args) > 1 else "-")
+    elif cmd == "thumbs":
+        thumbs(deck, args[1] if len(args) > 1 else None)
+    else:
+        die(f"unknown command {cmd!r} (see ag-gslides --help)", 2)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

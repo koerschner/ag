@@ -16,7 +16,10 @@ signed in to the user's work Google account, their personal Gmail, and Ramp (app
 2. One `ag cua` run, read-only: open Ramp, filter expenses to "Submission policy status → Missing items", and
    list each transaction (date, merchant, amount, link, what is missing). Note any lock warning and its date.
    If Ramp or work Gmail says "Session expired" or asks for a password, stop: never type a Google password;
-   text the user that they need to sign back in on ag-mac. If nothing is missing, go to step 5.
+   text the user that they need to sign back in on ag-mac. If Ramp asks for an authenticator code
+   ("Verify your account", /sign-in/mfa), that's expected: click the code field and run
+   `ag-type-secret --host ramp.com 'op://ag-vault/Ramp TOTP/one-time password?attribute=otp'` inside the
+   run (the "ag 1Password" authenticator enrolled in Ramp), then continue. If nothing is missing, go to step 5.
 3. For each transaction missing a receipt, one `ag cua` run per merchant (or a few together):
    a. Look for the receipt email in work Gmail, then personal Gmail (merchant name, amount, a few days around
       the date). If found, forward it to receipts@ramp.com from that mailbox (both addresses are verified

@@ -62,7 +62,7 @@ apply() {
   case "$name:$os" in
     ag:Darwin) echo "$changed" | grep -qE '^(install|macos-launchagents/|macos-apps/)' && run=./install ;;
     ag:*) echo "$changed" | grep -qE '^(bootstrap-linux|systemd-user/)' && run=./bootstrap-linux ;;
-    dotfiles:Darwin) echo "$changed" | grep -qE '^(bootstrap|Brewfile)$' && run=./bootstrap ;;
+    dotfiles:Darwin) echo "$changed" | grep -qE '^(bootstrap|Brewfile)$' && run="env DOTFILES=$dir ./bootstrap" ;;  # this checkout, never a default path
   esac
   if [ -n "$run" ]; then
     out=$($run </dev/null 2>&1); rc=$?

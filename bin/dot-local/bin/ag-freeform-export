@@ -4,8 +4,8 @@
 #   ag-freeform-export "<board name>" <out.pdf>
 #
 # Freeform has no API or AppleScript dictionary, so this drives its own File > Export Board as PDF… on
-# ag-mac (one ag-screen-queue exec job: open the board, export, go back to All Boards), keeps the export in
-# ~/Documents/Freeform Exports/ on ag-mac and copies it to <out.pdf> here. The PDF is the whole board on one
+# ag-mac (one ag-screen-queue exec job: open the board, export, go back to All Boards) into
+# ~/Documents/Freeform Exports/ there, then moves it to <out.pdf> here. The PDF is the whole board on one
 # page, with its text as real text (pymupdf/pdftotext can read it).
 #
 # ag-mac needs Freeform's iCloud sync on (System Settings > Apple Account > iCloud > Freeform); with it off
@@ -27,8 +27,9 @@ run "mkdir -p \"$dir\""
   f=\"$dir/$name.pdf\"; for i in \$(seq 60); do [ -s \"\$f\" ] && s=\$(stat -f %z \"\$f\") && sleep 1 && [ \"\$s\" = \"\$(stat -f %z \"\$f\")\" ] && exit 0; sleep 1; done; echo 'ag-freeform-export: no PDF appeared' >&2; exit 1"
 mkdir -p "$(dirname "$out")"
 if [[ $(uname) == Darwin ]] && "$bin/ag-machine-role" extremity 2>/dev/null; then
-  cp "$HOME/Documents/Freeform Exports/$name.pdf" "$out"
+  mv "$HOME/Documents/Freeform Exports/$name.pdf" "$out"
 else
   scp -q -o BatchMode=yes "ag-mac:Documents/Freeform Exports/$name.pdf" "$out"
+  ag-mac run "rm -f \"$dir/$name.pdf\""
 fi
 echo "$out"

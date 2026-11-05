@@ -109,16 +109,21 @@ class Gmail:
 
     def api(self, method, path, params=None, body=None, retry=True):
         url = API + path + ("?" + urllib.parse.urlencode(params, doseq=True) if params else "")
-        req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body is not None else None,
-                                     headers={"Authorization": "Bearer " + self.token(force=not retry),
-                                              "Content-Type": "application/json"})
-        try:
-            data = urllib.request.urlopen(req, timeout=60).read()
-            return json.loads(data) if data else {}
-        except urllib.error.HTTPError as e:
-            if e.code == 401 and retry:
-                return self.api(method, path, params, body, retry=False)
-            raise RuntimeError(f"{method} {path}: {e.code} {e.read().decode()[:600]}")
+        for attempt in range(6):
+            req = urllib.request.Request(url, method=method, data=json.dumps(body).encode() if body is not None else None,
+                                         headers={"Authorization": "Bearer " + self.token(force=not retry),
+                                                  "Content-Type": "application/json"})
+            try:
+                data = urllib.request.urlopen(req, timeout=60).read()
+                return json.loads(data) if data else {}
+            except urllib.error.HTTPError as e:
+                err = e.read().decode()
+                if e.code == 401 and retry:
+                    return self.api(method, path, params, body, retry=False)
+                if (e.code == 429 or "rateLimitExceeded" in err) and attempt < 5:
+                    time.sleep(15 * (attempt + 1))  # per-user Gmail quota is per minute
+                    continue
+                raise RuntimeError(f"{method} {path}: {e.code} {err[:600]}")
 
     def search(self, q=None, label_ids=None, limit=500):
         ids, page = [], None
@@ -138,8 +143,13 @@ class Gmail:
         return ids
 
     def headers(self, mid):
-        m = self.api("GET", f"/messages/{mid}", {"format": "metadata", "metadataHeaders":
-                     ["From", "List-Unsubscribe", "List-Unsubscribe-Post", "List-Id"]})
+        try:
+            m = self.api("GET", f"/messages/{mid}", {"format": "metadata", "metadataHeaders":
+                         ["From", "List-Unsubscribe", "List-Unsubscribe-Post", "List-Id"]})
+        except RuntimeError as e:
+            if "failedPrecondition" in str(e):  # e.g. chat items Gmail can't return as messages
+                return {"_date": 0}
+            raise
         h = {x["name"].lower(): x["value"] for x in m.get("payload", {}).get("headers", [])}
         h["_date"] = int(m.get("internalDate", 0))
         return h
@@ -253,6 +263,7 @@ def sweep_account(name, dry):
     for mid in g.search(label_ids=[tag_id]):
         tagged.setdefault(sender(g.headers(mid)), []).append(mid)
     tagged.pop("", None)
+    tagged.pop(me.lower(), None)  # never filter the user's own address
 
     for addr, mids in tagged.items():
         stats["senders"] += 1

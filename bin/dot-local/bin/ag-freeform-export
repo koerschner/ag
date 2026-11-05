@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# ag-freeform-export — export a Freeform board as a PDF, from any Ag machine.
+#
+#   ag-freeform-export "<board name>" <out.pdf>
+#
+# Freeform has no API or AppleScript dictionary, so this drives its own File > Export Board as PDF… on
+# ag-mac (one ag-screen-queue exec job: open the board, export, go back to All Boards), keeps the export in
+# ~/Documents/Freeform Exports/ on ag-mac and copies it to <out.pdf> here. The PDF is the whole board on one
+# page, with its text as real text (pymupdf/pdftotext can read it).
+#
+# ag-mac needs Freeform's iCloud sync on (System Settings > Apple Account > iCloud > Freeform); with it off
+# Freeform shows no boards. Freeform is left running so iCloud keeps the boards current between runs.
+# AppleScript: lib/ag/freeform-export.applescript (synced to ag-mac with the repo).
+set -euo pipefail
+(($# == 2)) || { sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+board=$1 out=$2
+bin=$(dirname "$(readlink -f "$0")")
+name="$(printf '%s' "$board" | tr -c 'A-Za-z0-9._-' '-')-$(date +%Y%m%d-%H%M%S)"
+dir='$HOME/Documents/Freeform Exports'
+script='$HOME/ag/bin/dot-local/lib/ag/freeform-export.applescript'
+q() { printf '%q' "$1"; }
+
+if [[ $(uname) == Darwin ]] && "$bin/ag-machine-role" extremity 2>/dev/null; then run() { bash -c "$1"; }; else run() { ag-mac run "$1"; }; fi
+run "mkdir -p \"$dir\""
+# One screen job: export, then wait for the file to land and stop growing.
+"$bin/ag-screen" exec "osascript \"$script\" $(q "$board") \"$dir\" $(q "$name") &&
+  f=\"$dir/$name.pdf\"; for i in \$(seq 60); do [ -s \"\$f\" ] && s=\$(stat -f %z \"\$f\") && sleep 1 && [ \"\$s\" = \"\$(stat -f %z \"\$f\")\" ] && exit 0; sleep 1; done; echo 'ag-freeform-export: no PDF appeared' >&2; exit 1"
+mkdir -p "$(dirname "$out")"
+if [[ $(uname) == Darwin ]] && "$bin/ag-machine-role" extremity 2>/dev/null; then
+  cp "$HOME/Documents/Freeform Exports/$name.pdf" "$out"
+else
+  scp -q -o BatchMode=yes "ag-mac:Documents/Freeform Exports/$name.pdf" "$out"
+fi
+echo "$out"

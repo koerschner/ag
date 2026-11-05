@@ -1,0 +1,22 @@
+#!/usr/bin/env zsh
+# ag-readwise-auth — give Ag access to the user's Readwise (highlights + Reader).
+#
+#   ag-readwise-auth    write the Readwise access token from 1Password (op-shared, vault
+#                       machine-shared, item "Readwise API token", field credential) into
+#                       ~/.config/mcp/readwise.headers for the gateway's readwise MCP server,
+#                       log the readwise CLI (@readwise/cli) in with it if installed, and check it
+#
+# The token comes from https://readwise.io/access_token (saved there by computer use with
+# ag-clip-secret). Where op-shared isn't set up (the engine), it reads it through ag-mac run.
+set -euo pipefail
+REF='op://machine-shared/Readwise API token/credential'
+HEADERS=$HOME/.config/mcp/readwise.headers
+T=$(op-shared read "$REF" </dev/null 2>/dev/null) || T=$(ag-mac run "op-shared read '$REF' </dev/null")
+T=${T//[$'\r\n']/}
+[[ -n $T ]] || { echo "ag-readwise-auth: empty token" >&2; exit 1; }
+umask 077; mkdir -p ${HEADERS:h}
+print -r -- "Authorization: Token $T" > $HEADERS.tmp && mv $HEADERS.tmp $HEADERS
+code=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Token $T" https://readwise.io/api/v2/auth/)
+[[ $code == 204 ]] || { echo "ag-readwise-auth: token check returned $code" >&2; exit 1; }
+echo "ag-readwise-auth: token ok; wrote $HEADERS"
+if command -v readwise >/dev/null; then readwise login-with-token "$T" >/dev/null && echo "ag-readwise-auth: readwise CLI logged in"; fi

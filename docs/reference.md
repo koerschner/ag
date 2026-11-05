@@ -547,11 +547,11 @@ restarts a running server: after an update, `systemctl --user restart rex-server
 
 ## Shared MCP gateway (Pi)
 
-Pi's stdio MCP bridges (`linear`, `arcade_school`, `honeycomb`, `tsa_courses`, `x`) run
+Pi's stdio MCP bridges (`linear`, `arcade_school`, `honeycomb`, `tsa_courses`, `x`, `readwise`) run
 **once per machine** instead of once per Pi session: `bin/dot-local/bin/ag-mcp-gateway`
 (LaunchAgent `com.ag.ag-mcp-gateway`, KeepAlive, all machines) runs each server's
 `mcp-remote` behind its own pinned `mcp-proxy` (via `uvx`) on
-`127.0.0.1:7381`–`7386/mcp`, and `pi/dot-pi/agent/mcp.json` points at those URLs
+`127.0.0.1:7381`–`7387/mcp`, and `pi/dot-pi/agent/mcp.json` points at those URLs
 (`slack` stays direct HTTP). Per-session bridges cost ~100 MB each (96 sessions used
 ~9.5 GB on ag). Server commands and ports live in the script; logs in
 `$TMPDIR/ag-mcp-gateway/<server>.log`. Check with `ag-mcp-gateway status`. After editing
@@ -599,6 +599,10 @@ Credentials live in the work vault (`op-work`, vault `ag-vault`), item `X API - 
 `ag-x-auth` (`bin/dot-local/bin`) writes `~/.xurl/auth.yml` (keeping the sign-in) and the header file from the vault. `ag-x-auth status` checks each auth mode and the MCP server. `ag-x-auth login` runs the OAuth 2.0 sign-in: it starts `xurl`'s callback listener on the host, opens an SSH reverse forward of `ag-mac`'s `localhost:8080` to it, and has `ag cua` click "Authorize app" in `ag-mac`'s Chrome, which is signed in to X. The forward uses its own SSH connection, not the ControlMaster: through a ControlMaster, `ssh -N -R` hands the forward to the master and exits at once, leaving the port forwarded (cancel with `ssh -O cancel -R 8080:127.0.0.1:8080 ag-mac`). Chrome then shows "localhost is blocked" (`ERR_BLOCKED_BY_CLIENT`) on the callback page, but the request still reaches `xurl` and the sign-in completes. Check with `ag-x-auth status`.
 
 On a new session host, run `ag-x-auth`, then `ag-x-auth login` (which revokes the old host's OAuth 2.0 sign-in), then restart the gateway (`systemctl --user restart ag-mcp-gateway`).
+
+## Readwise
+
+The user's Readwise account (highlights and Reader) is MCP server `readwise` in the shared MCP gateway (`127.0.0.1:7387`): `mcp-remote` to Readwise's hosted MCP `https://mcp2.readwise.io/mcp` with an `Authorization: Token …` header from `~/.config/mcp/readwise.headers` (0600). Its tools search highlights and Reader documents, read documents, save URLs to Reader, tag, move and highlight. The access token (from https://readwise.io/access_token) is in `op-shared`, vault machine-shared, item `Readwise API token` (field `credential`); `ag-readwise-auth` writes the header file from it (through `ag-mac run` where `op-shared` isn't set up). On a new session host run `ag-readwise-auth`, then restart the gateway.
 
 ## arcade_school MCP
 

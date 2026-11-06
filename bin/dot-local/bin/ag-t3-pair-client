@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# ag-t3-pair-client: re-pair a Mac's T3 Code (Ag) app with the T3 server on this host, without driving its screen.
+#
+#   ag-t3-pair-client [client|mac] [--wait SECONDS]
+#
+# Mints a one-time pairing credential (20 min) into a mode-600 temp file, wraps it in the app's
+# t3code://pair link and opens that link on the Mac through `ag-client run` / `ag-mac run` (the link
+# travels over stdin, never in ssh arguments or output). The app then asks "Add the backend at …?";
+# that click is the only step on the Mac. Re-pairing a saved server updates its existing connection
+# (same environment id and origin), so chats, projects, settings and drafts stay. Waits for the
+# credential to be consumed, then revokes it if it never was and deletes the temp file.
+set -euo pipefail
+target=client wait=300
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    client|mac) target=$1 ;;
+    --wait) wait=${2:?}; shift ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "ag-t3-pair-client: unknown argument $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+# shellcheck disable=SC1090
+[[ -f ~/ag-personal/env ]] && . ~/ag-personal/env
+tailnet=${AG_TAILNET:-$(tailscale status --json 2>/dev/null | jq -r '.MagicDNSSuffix // empty')}
+[[ -n $tailnet ]] || { echo "ag-t3-pair-client: can't find the tailnet name" >&2; exit 1; }
+base=https://ag.$tailnet
+label="$target T3 Code (Ag) re-pair"
+
+f=$(mktemp); chmod 600 "$f"
+trap 'rm -f "$f"' EXIT
+t3 auth pairing create --label "$label" --ttl 20m --base-url "$base" --json >"$f"
+id=$(jq -r .id "$f")
+echo "pairing credential $id ($label), expires in 20 min"
+jq -rj '"t3code://pair?pairingUrl=" + (.pairUrl | @uri)' "$f" | "ag-$target" run 'open "$(cat)"'
+echo "opened the pair link in T3 Code (Ag) on ag-$target: click Add in its \"Add the backend at $base?\" dialog"
+
+for ((i = 0; i < wait; i += 5)); do
+  if ! t3 auth pairing list --json | jq -e --arg id "$id" 'any(.[]; .id == $id)' >/dev/null; then
+    echo "paired: credential consumed"
+    exit 0
+  fi
+  sleep 5
+done
+t3 auth pairing revoke "$id" >/dev/null && echo "not paired within ${wait}s; revoked credential $id" >&2
+exit 1

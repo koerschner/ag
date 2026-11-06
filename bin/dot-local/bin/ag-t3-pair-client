@@ -20,8 +20,6 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
-# shellcheck disable=SC1090
-[[ -f ~/ag-personal/env ]] && . ~/ag-personal/env
 tailnet=${AG_TAILNET:-$(tailscale status --json 2>/dev/null | jq -r '.MagicDNSSuffix // empty')}
 [[ -n $tailnet ]] || { echo "ag-t3-pair-client: can't find the tailnet name" >&2; exit 1; }
 base=https://ag.$tailnet

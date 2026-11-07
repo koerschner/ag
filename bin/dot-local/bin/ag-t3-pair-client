@@ -30,7 +30,11 @@ trap 'rm -f "$f"' EXIT
 t3 auth pairing create --label "$label" --ttl 20m --base-url "$base" --json >"$f"
 id=$(jq -r .id "$f")
 echo "pairing credential $id ($label), expires in 20 min"
-jq -rj '"t3code://pair?pairingUrl=" + (.pairUrl | @uri)' "$f" | "ag-$target" run 'open "$(cat)"'
+if ! jq -rj '"t3code://pair?pairingUrl=" + (.pairUrl | @uri)' "$f" | "ag-$target" run 'open "$(cat)"'; then
+  t3 auth pairing revoke "$id" >/dev/null || true
+  echo "ag-t3-pair-client: couldn't reach ag-$target (asleep or offline?); revoked credential $id" >&2
+  exit 1
+fi
 echo "opened the pair link in T3 Code (Ag) on ag-$target: click Add in its \"Add the backend at $base?\" dialog"
 
 for ((i = 0; i < wait; i += 5)); do

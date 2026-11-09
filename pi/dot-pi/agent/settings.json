@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.87.1",
+  "lastChangelogVersion": "1.3.0",
   "defaultProvider": "truefoundry",
   "defaultModel": "anthropic-primary/claude-opus-5-5",
   "defaultThinkingLevel": "medium",
@@ -12,7 +12,8 @@
   "hideThinkingBlock": true,
   "packages": [
     "npm:pi-mcp-extension",
-    "npm:pi-schedule-prompt@0.4.1"
+    "npm:pi-schedule-prompt@0.4.1",
+    "npm:@plannotator/pi-extension"
   ],
   "skills": [
     "~/.agents/skills",

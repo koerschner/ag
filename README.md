@@ -54,7 +54,7 @@ Ag's behavior on top of the basics is made of **ag-rules**: each is a rule in pl
 boils down to, one folder per rule (`rule.md` + `rule.ts` / `keys.json` / `rule.lua`). Your own go in
 **`~/.ag/ag-rules/<name>/`** (keep that folder in your dotfiles; this repo's author keeps theirs in the stow package
 `dotfiles/ag/dot-ag/ag-rules`). Keyboard shortcuts (ag-dash, the Mac app's quick entry, the session keys) and
-standing behaviors like "spin out [bracketed notes]" are rules. Ag ships default rules for the judgments it
+standing behaviors like "keep this session off the record" are rules. Ag ships default rules for the judgments it
 makes with Jev (is an archived chat done, where does an inbox capture go, may an agent drive your laptop, does a
 tab need renaming) in [`ag-rules/`](ag-rules/), so you can read them, and `ag-rules eject
 <name>` copies one into `~/.ag/ag-rules` to change or turn it off. `ag-rules list` shows them all; how they work:

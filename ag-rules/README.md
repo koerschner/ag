@@ -17,7 +17,7 @@ that folder and stow links it into place.
 
 ```
 ~/.ag/ag-rules/
-  square-brackets/
+  off-the-record/
     rule.md       # front matter + the rule in plain English (the spec)
     rule.ts       # the code it names
   quick-entry/

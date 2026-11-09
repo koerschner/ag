@@ -189,8 +189,10 @@ function presenceLine(): string {
 }
 
 function checkPasses(cmd: string): boolean {
+	/* The login PATH and mise's shims stay on it, so a check that calls bun (or another mise or Homebrew tool) runs as it does in a shell. */
+	const path = [`${HOME}/.local/bin`, `${HOME}/.local/share/mise/shims`, "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin", process.env.PATH ?? ""].join(":");
 	try {
-		execFileSync("/bin/sh", ["-c", cmd], { stdio: "ignore", timeout: 20_000, env: { ...process.env, PATH: `${HOME}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin` } });
+		execFileSync("/bin/sh", ["-c", cmd], { stdio: "ignore", timeout: 20_000, env: { ...process.env, PATH: path } });
 		return true;
 	} catch {
 		return false;

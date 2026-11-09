@@ -85,6 +85,7 @@ started, so `wait` and `read --new` only see that run's output).
 | `ag sync [ag\|dotfiles\|all]` | build AGENTS.md if stale, commit-check, push, then pull + restow + `install` + Hammerspoon reload on every machine in `machines/README.md`; reports unreachable ones |
 | `ag status` | machines reachable, inbox/board/gateway/ag-presence/hibernate services, CUA queue, engine memory |
 | `ag logs <service> [-f]`, `ag restart <service>` | `journalctl --user` / `systemctl --user` / `launchctl kickstart` on whichever machine runs it |
+| `ag herdr [args]` | `ssh -t <session host> herdr`: attach this terminal to the Herdr session there (docs/reference.md, "Herdr") |
 
 ### Passthroughs (discoverability only)
 

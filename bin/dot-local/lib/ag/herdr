@@ -1,0 +1,4 @@
+#!/bin/sh
+# ag herdr — attach this terminal to the persistent Herdr session on the session host (docs/reference.md, "Herdr").
+#   ag herdr [herdr args…]   from a client, `ag` runs it there over SSH (ssh -t <host>); Ctrl+B, then q, detaches.
+exec "$HOME/.local/bin/herdr" "$@"

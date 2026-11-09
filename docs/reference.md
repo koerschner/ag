@@ -436,6 +436,21 @@ Moshi on the iPhone connects to the session host over Tailscale and attaches to 
   as plain Enter). Set in `pi/dot-pi/agent/keybindings.json`, so it applies on every
   client; thinking-level cycling moved from Shift+Tab to Alt+T. Open Pi sessions need `/reload`.
 
+## Herdr
+
+[Herdr](https://herdr.dev/), an agent-aware terminal multiplexer (Ag's session layer before tmux), also runs on the
+session host, beside Ag's tmux and separate from `ag-mux`: one persistent default session.
+
+- **Server**: `herdr.service` (systemd user unit, session host only) runs `herdr server`, so its panes survive SSH
+  logouts, T3 and agent restarts, and reboots. `herdr server stop` ends the session until the next boot or
+  `systemctl --user start herdr`. `bootstrap-linux` installs `~/.local/bin/herdr`; after `herdr update`, run
+  `systemctl --user restart herdr` to load the new server (its panes restart and the layout comes back).
+- **From a client**: `ag herdr` (`ssh -t <session host> herdr`) attaches a terminal to it; `Ctrl+B`, then `q`,
+  detaches. Run it in its own terminal window, not inside `ag`'s tmux, since both use the `Ctrl+B` prefix.
+- **From the phone**: Moshi connects to the session host over Tailscale with the phone's own key (in the engine's
+  `authorized_keys`, and in `extra_ssh_public_keys` of the infra tfvars for rebuilds), detects Herdr, and lists
+  its workspaces in the session picker under **Herdr**; tap one to attach.
+
 ## Session config
 
 Tab names stay accurate on their own (`pi/dot-pi/agent/extensions/ag-tab-name.ts`). On every prompt, in the background: a default numeric tab gets named by a fast LLM; otherwise Jev scores whether the label still fits the last 3 prompts, and if P(accurate) < 0.6 the LLM renames it. Renaming a tab by hand pins it for that session. Decisions are logged to `~/.local/state/ag-tab-name/log.jsonl` (label, `p_accurate`, keep/rename) for tuning the threshold. Open pi sessions need `/reload` to pick up changes.

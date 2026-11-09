@@ -9,8 +9,9 @@
 #   ag-mac cua "<task>"           computer use on ag-mac's desktop (ag-chatgpt-cua, on the screen queue); prints its report
 #                              (CUA_URGENT=1: jump the queue, pausing a running non-urgent job)
 #   ag-mac cua --status           the running computer-use job and the queue on ag-mac (ag-screen-queue list)
-#   ag-mac push <local> [remote]  copy a file/dir to ag-mac (default: ~/inbox/from-engine/)
-#   ag-mac pull <remote> [local]  copy a file/dir from ag-mac (default: ./)
+#   ag-mac push <local> [remote]  copy a file/dir to ag-mac. remote ending in / or an existing dir: into it
+#                              (default ~/inbox/from-engine/); otherwise exactly that path (parent created)
+#   ag-mac pull <remote> [local]  copy a file/dir from ag-mac, same rules (default: into ./)
 #   ag-mac show <file|url>        open it on the user's screen via ag-mac's `ag-show` (pushes local files first)
 #   ag-mac status                 is ag-mac reachable, and is the user at their client?
 #
@@ -18,9 +19,13 @@
 set -euo pipefail
 HOST=${MAC_HOST:-ag-mac}
 ssh_() { ssh -o ConnectTimeout=10 -o BatchMode=yes "$HOST" "$@"; }
+rsync_() { rsync -az -e 'ssh -o ConnectTimeout=10 -o BatchMode=yes' "$@"; }
 q() { printf '%q ' "$@"; }
+usage() { sed -n '2,18p' "$0"; }
+source "$(dirname "$(readlink -f "$0")")/../lib/ag-remote-copy.sh" # remote_push, remote_pull
 
 cmd=${1:-help}; shift || true
+[[ ${1:-} == -h || ${1:-} == --help ]] && { usage; exit 0; }
 case $cmd in
   run)
     [[ $# -gt 0 ]] || { echo "usage: ag-mac run <cmd...>" >&2; exit 2; }
@@ -29,7 +34,6 @@ case $cmd in
   cua)
     [[ $# -ge 1 ]] || { echo 'usage: ag-mac cua "<task>" | --status' >&2; exit 2; }
     if [[ $1 == --status || $1 == --list ]]; then ssh_ 'ag-screen-queue list'; exit; fi
-    if [[ $1 == -h || $1 == --help ]]; then sed -n '2,17p' "$0"; exit 0; fi
     # Queued on ag-mac (ag-screen-queue). The task travels base64-encoded so quoting can't mangle it.
     id=${CUA_JOB_ID:-$(date +%Y%m%d-%H%M%S)-$(hostname -s)-$$}
     caller=${CUA_CALLER:-$(hostname -s) pid $PPID}
@@ -40,11 +44,8 @@ case $cmd in
     trap 'echo "ag-mac cua: stopped, cancelling job $id on ag-mac" >&2; ssh_ "ag-screen-queue cancel $(q "$id")" >&2; kill $pid 2>/dev/null; exit 130' TERM INT HUP
     rc=0; wait $pid || rc=$?
     exit $rc ;;
-  push)
-    src=${1:?usage: ag-mac push <local> [remote]}; dst=${2:-inbox/from-engine/}
-    ssh_ "mkdir -p $(q "$(dirname "$dst/x")")" && rsync -az "$src" "$HOST:$dst" && echo "$HOST:$dst" ;;
-  pull)
-    src=${1:?usage: ag-mac pull <remote> [local]}; rsync -az "$HOST:$src" "${2:-./}" ;;
+  push) remote_push "$@" ;;
+  pull) remote_pull "$@" ;;
   show)
     t=${1:?usage: ag-mac show <file|url>}
     if [[ -e $t ]]; then
@@ -55,5 +56,5 @@ case $cmd in
   status)
     if ssh_ true 2>/dev/null; then echo "ag-mac: reachable"; ag-presence 2>/dev/null | tail -1 || true # ag-presence polls from the host
     else echo "ag-mac: UNREACHABLE"; exit 1; fi ;;
-  *) sed -n '2,17p' "$0"; [[ $cmd == help ]] || exit 2 ;;
+  *) usage; [[ $cmd == help || $cmd == -h || $cmd == --help ]] || exit 2 ;;
 esac

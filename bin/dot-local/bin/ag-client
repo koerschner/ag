@@ -7,8 +7,9 @@
 #                                    exit code and stdin pass through). One argument = a shell snippet;
 #                                    several = argv, quoted for the remote shell.
 #                                    Never for driving the screen: that's `ag cua --client --why "…"`.
-#   ag-client push <local> [remote]  copy a file/dir to the client (default: ~/inbox/from-engine/)
-#   ag-client pull <remote> [local]  copy a file/dir from the client (default: ./)
+#   ag-client push <local> [remote]  copy a file/dir to the client. remote ending in / or an existing dir:
+#                                    into it (default ~/inbox/from-engine/); otherwise exactly that path
+#   ag-client pull <remote> [local]  copy a file/dir from the client, same rules (default: into ./)
 #   ag-client status                 is the client reachable, and is the user at it (ag-presence)?
 #
 # Host: SSH alias `ag-client`; set CLIENT_HOST (or CLIENT_CUA_HOST, as ag cua does) for another client.
@@ -19,21 +20,21 @@ q() { printf '%q ' "$@"; }
 # Plain ssh gets no login env on macOS (no Homebrew on PATH), so run everything in the user's login shell.
 ssh_() { "${SSH[@]}" "$HOST" "exec \"\${SHELL:-/bin/zsh}\" -lc $(q "$1")"; }
 rsync_() { rsync -az -e "${SSH[*]}" "$@"; }
+usage() { sed -n '2,15p' "$0"; }
+source "$(dirname "$(readlink -f "$0")")/../lib/ag-remote-copy.sh" # remote_push, remote_pull
 
 cmd=${1:-help}; shift || true
+[[ ${1:-} == -h || ${1:-} == --help ]] && { usage; exit 0; }
 case $cmd in
   run)
     [[ $# -gt 0 ]] || { echo "usage: ag-client run <cmd...>" >&2; exit 2; }
     if [[ $# -eq 1 ]]; then ssh_ "$1"; else ssh_ "$(q "$@")"; fi ;;
-  push)
-    src=${1:?usage: ag-client push <local> [remote]}; dst=${2:-inbox/from-engine/}
-    ssh_ "mkdir -p $(q "$(dirname "$dst/x")")" && rsync_ "$src" "$HOST:$dst" && echo "$HOST:$dst" ;;
-  pull)
-    src=${1:?usage: ag-client pull <remote> [local]}; rsync_ "$HOST:$src" "${2:-./}" ;;
+  push) remote_push "$@" ;;
+  pull) remote_pull "$@" ;;
   status)
     if "${SSH[@]}" "$HOST" true 2>/dev/null; then echo "$HOST: reachable"
     else echo "$HOST: UNREACHABLE"; rc=1; fi
     ag-presence 2>/dev/null | tail -1 || true
     exit ${rc:-0} ;;
-  *) sed -n '2,14p' "$0"; [[ $cmd == help || $cmd == -h || $cmd == --help ]] || exit 2 ;;
+  *) usage; [[ $cmd == help || $cmd == -h || $cmd == --help ]] || exit 2 ;;
 esac

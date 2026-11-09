@@ -5,7 +5,7 @@ description: Run a self-editing heartbeat loop - a recurring T3 scheduled task t
 
 # Heartbeat scratchpad loop
 
-The **thread** is the execution surface, **tools** are the action surface, and the **scheduled task's prompt is the scratchpad**. A recurring heartbeat wakes the same thread; each wake does one focused, bespoke step, then rewrites the task's own prompt so the next wake starts from fresher, more compact state. Ported from a Codex pattern ("self-editing heartbeats with seeds", which used `automation_update`).
+The **thread** is the execution surface, **tools** are the action surface, and the **scheduled task's prompt is the scratchpad**. A recurring heartbeat wakes the same thread; each wake does one focused, bespoke step, then rewrites the task's own prompt so the next wake starts from fresher, more compact state. Ported from a Codex pattern, "Alpha generation p1: self-editing heartbeats with seeds" (source: https://docs.google.com/document/d/14qXSLPBZENOTmYJMJPQ7xFRtMzm00qCF9foTKqque70/edit?tab=t.yanuzg92m04x), which used `automation_update`.
 
 Every wake:
 1. **Scope** the next step from the scratchpad (top of *Next actions*).
@@ -13,6 +13,8 @@ Every wake:
 3. **Save** results to the dataroom and commit.
 4. **Rewrite** the scratchpad (ranked, compact, absolute dates) and update the task's prompt with it.
 5. **Stop** if the stop condition is met: delete the task and report.
+
+**Every loop has an end time.** Unless the user gives one, it ends **24 hours after setup** (and at most 50 iterations). Write the end time as an absolute date and time in the Stop condition, and back it with a server-side watchdog (Setup step 5) so the loop ends even if a run forgets to check.
 
 ## The heartbeat: T3 `schedule_task`
 
@@ -27,11 +29,12 @@ Use T3's scheduled tasks (in codemode: `tools["mcp__t3-code__schedule_task"]`, p
 
 ### Setup (once, by the agent the user asked)
 
-1. Agree the objective, seeds, cadence and stop condition with the user (or take them from the request).
+1. Agree the objective, seeds, cadence and stop condition with the user (or take them from the request). No end time given: default to 24 hours from now (absolute, e.g. `2026-11-10 12:00 CST`) and max 50 iterations; say so when you report the setup.
 2. Create the dataroom (below) and write `scratchpad.md` from [references/prompt-template.md](references/prompt-template.md).
 3. `schedule_task` with the prompt, interval and a short title. Note the returned `scheduledTaskId`.
 4. **Immediately update it** (`scheduledTaskId` + `prompt`) so the prompt contains its own id: "Your scheduledTaskId is `<id>`; at the end of this run call schedule_task with scheduledTaskId=`<id>` and the rewritten prompt." A scheduled run must **never** call `list_scheduled_tasks` to find itself.
-5. Optionally `run_scheduled_task_now` for the first step, then tell the user the title, id, cadence, stop condition and dataroom path.
+5. **Watchdog (the end time, enforced):** T3 schedules have no end date, so create a second, one-shot task in the same thread: `schedule_task` with `title: "Heartbeat end: <title>"`, `schedule: { type: "once", runAt: "<end time, ISO UTC>" }`, `bindToCurrentThread: true`, and a prompt like "End time reached for heartbeat <id>: call delete_scheduled_task with scheduledTaskId=<id> (fine if already gone), make a final dataroom commit, and post a short summary." If the user extends the loop, update the watchdog's `runAt` too; if the loop stops early, delete the watchdog.
+6. Optionally `run_scheduled_task_now` for the first step, then tell the user the title, id, cadence, end time, stop condition and dataroom path.
 
 ### Each run
 
@@ -90,7 +93,7 @@ Split into several tasks (scout / validator / monitor / coordinator) only when t
 ## Cost guardrails
 
 - Cadence: default 2-5 min (`everyMs` 120000-300000). 1 min only when each step is cheap.
-- Always an explicit stop condition: max iterations and/or a target count and/or an expiry date (absolute). The iteration counter lives in the scratchpad.
+- Always an explicit stop condition, and always an end time (default 24 hours after setup, enforced by the watchdog task), plus max iterations (default 50) and optionally a target count. The iteration counter lives in the scratchpad. Longer runs only when the user asks for them.
 - At stop: `delete_scheduled_task`, final commit, short summary in the thread.
 - Notify the user (`ag-text`, or just a message in the thread) only past a stated threshold (e.g. a candidate scoring above X), not every run.
 

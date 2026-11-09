@@ -8,12 +8,12 @@ Fill this in at setup, create the task, then update it with the real `scheduledT
 You are one wake of a self-editing heartbeat loop (skill: heartbeat-scratchpad-loop).
 Your scheduledTaskId is <id>. Do NOT call list_scheduled_tasks.
 Dataroom: ~/datarooms/<slug>/ (git repo; commit locally, never push).
-Iteration: <n> of max <N>. Last run: <YYYY-MM-DD HH:MM TZ>.
+Iteration: <n> of max <N> (default 50). Ends: <YYYY-MM-DD HH:MM TZ> (default 24h after setup; watchdog task <watchdog id>). Last run: <YYYY-MM-DD HH:MM TZ>.
 
 ## This run
 1. Take the top item in Next actions. Do that one thing well with real tools.
 2. Save results: sources/<date>-<slug>.md, update findings.md and index.md, commit "iter <n+1>: <what>".
-3. Check the Stop condition. If met: call delete_scheduled_task with scheduledTaskId=<id>, commit, post a short summary, and stop.
+3. Check the Stop condition (including the end time). If met: call delete_scheduled_task with scheduledTaskId=<id> and with the watchdog's id, commit, post a short summary, and stop.
 4. Otherwise rewrite this whole prompt (iteration +1, fresh ranked state, absolute dates, < 4k chars), write it to scratchpad.md, commit, then call schedule_task with scheduledTaskId=<id> and prompt=<the rewritten prompt> (no other fields).
 5. Notify the user only if: <threshold, e.g. a lead scores >= 8/10>.
 
@@ -47,7 +47,7 @@ Iteration: <n> of max <N>. Last run: <YYYY-MM-DD HH:MM TZ>.
 - Conclusions here, details in the dataroom.
 
 ## Stop condition
-Stop at the first of: iteration <N>; <target count> qualified findings; <YYYY-MM-DD>.
+Stop at the first of: iteration <N> (default 50); <target count> qualified findings; <YYYY-MM-DD HH:MM TZ> end time (default 24h after setup).
 ```
 
 ## Setup sketch (codemode)
@@ -58,4 +58,9 @@ const created = await st({ title: "Heartbeat: <title>", prompt: draft,
   schedule: { type: "interval", everyMs: 180000 }, bindToCurrentThread: true });
 // read the id from the result, then embed it:
 await st({ scheduledTaskId: id, prompt: draft.replaceAll("<id>", id) });
+// the end time, enforced server-side (default: 24h after setup):
+const endAt = new Date(Date.now() + 24 * 3600e3).toISOString();
+await st({ title: "Heartbeat end: <title>", schedule: { type: "once", runAt: endAt }, bindToCurrentThread: true,
+  prompt: `End time reached for heartbeat ${id}: call delete_scheduled_task with scheduledTaskId=${id} (fine if already gone), make a final dataroom commit, and post a short summary.` });
+// put the watchdog's id in the scratchpad so an early stop can delete it
 ```

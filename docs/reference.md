@@ -198,6 +198,7 @@ plist); they write the same state file. ag-dash → **Routines** lists all of th
 | `ag-state-sync` | engine, every 15 min | snapshots Ag state (layout, ag-tickler, ag-dash, inbox…) to GitHub |
 | `ag-toolsum-review` | engine, daily 9am Central | extends ag-dash's tool-call summary rules (`ag-toolsum/README.md`) |
 | `t3-upstream-sync` | engine, daily 4:07 AM Central (`routines/`) | merges pingdotgg/t3code main into the T3 fork and ships it to the T3 server (`~/t3code/ag/sync-upstream`), fixing conflicts or failing gates |
+| `t3-mac-app-install` | engine, every 5 min (`routines/`) | installs the T3 Mac app build waiting for the client Mac (`~/t3code/ag/build-mac --install-pending`) once it's online and idle for 10 minutes |
 | `vision-board-snapshot` | engine, daily 11:07 PM Central (`routines/`) | exports a Freeform board with `ag-freeform-export` (Freeform on ag-mac via the screen queue), keeps a dated snapshot when it changed and rebuilds its timeline page (private code in ag-personal) |
 | `ag-cli-usage` | engine, Mondays 9:07 Central (`routines/`) | audits `ag` CLI adoption vs hand-rolled equivalents (`ag usage`), writes `docs/ag-cli-usage.md`, spins out one fix |
 | `gmail-unsubscribe` | engine, nightly 3:17 Central (`routines/`) | `ag-gmail-unsub sweep`: senders tagged "Unsubscribe" in the user's Gmail accounts get unsubscribed (one-click/mailto, whole service) or filtered out; mail moves to "Unsubscribed" |

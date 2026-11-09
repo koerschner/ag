@@ -8,9 +8,10 @@
 //
 // Rules are re-read when the list or a rule file changes, so long-running services pick up edits without a restart.
 import { execFileSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, extname, join } from "node:path";
 
 const HOME = homedir();
 const AG_RULES = join(process.env.AG_DIR || join(HOME, "ag"), "bin/dot-local/bin/ag-rules"); // this checkout's CLI
@@ -39,15 +40,20 @@ export function listRules(): RuleInfo[] {
 /** The enabled rules of one hook, in `ag-rules list` order. */
 export const rulesFor = (hook: string) => listRules().filter((r) => r.enabled && r.on === hook && r.path);
 
-/** Import a rule's code; re-imported when the file changes. */
+/** Import a rule's code; re-imported when the file changes. Imports a snapshot named after the file's content, because
+ *  jiti (Pi's extension loader) ignores `?v=` queries and would keep the first version for the life of the session.
+ *  Relative imports in the snapshot are rewritten to absolute paths from the rule's real folder. */
 export async function loadRule(r: RuleInfo): Promise<Function | null> {
 	try {
-		const v = statSync(r.path!).mtimeMs;
-		try {
-			return (await import(`${r.path}?v=${v}`)).default;
-		} catch {
-			return (await import(r.path!)).default; // runtimes whose loader doesn't take a query
+		const code = readFileSync(r.path!, "utf8");
+		const hash = createHash("sha1").update(code).digest("hex").slice(0, 12);
+		const dir = join(HOME, ".cache/ag-rules", r.name);
+		const snap = join(dir, `${hash}${extname(r.path!) || ".ts"}`);
+		if (!existsSync(snap)) {
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(snap, code.replace(/(from\s+["'])(\.\.?\/)/g, (_, a, rel) => `${a}${dirname(realpathSync(r.path!))}/${rel}`));
 		}
+		return (await import(snap)).default;
 	} catch (e) {
 		console.error(`ag-rules: ${r.name}: ${e}`);
 		return null;

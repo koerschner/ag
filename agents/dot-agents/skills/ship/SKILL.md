@@ -1,8 +1,8 @@
 ---
 name: ship
-description: Straight-through SC-10 autopilot for the arcade repo — Linear issue or spec → worktree → build → simplify → PR → CI and review-bot loop → merge to main, with no check-ins. Driven by the Pi `/ship` command; do not invoke on your own.
+description: Straight-through autopilot for the arcade repo — Linear issue or spec → worktree → build → simplify → PR → CI and review-bot loop → merge to main, with no check-ins. Driven by the Pi `/ship` command; do not invoke on your own.
 disable-model-invocation: true
-argument-hint: <FT-123 | Linear URL | "one-paragraph spec"> [SC-N]
+argument-hint: <FT-123 | Linear URL | "one-paragraph spec">
 ---
 
 # Ship
@@ -38,7 +38,6 @@ Parse the argument:
 
 - `FT-123` or a Linear URL: an existing issue.
 - Free text: a spec. Create the issue from it.
-- `SC-N` anywhere: the PR's Slop Continuum rating. Otherwise self-rate by prior architecture discussion in this session, per the harness's "Run it" rule: none → **SC-10**; one exchange where the user updated on something you said → **SC-9**; more → lower.
 
 Empty argument: ask for the issue or spec and stop.
 
@@ -68,7 +67,7 @@ Apply the `simplify` skill to what you touched, then the step-3 arcade audits th
 
 Follow `arcade-create-pull-request` for the title and body (Summary, How to Test, Risk, Issue Link `Closes FT-…`), but create it without showing a draft.
 
-- Title ends with the rating from kickoff (e.g. `(SC-10)`), under 70 characters.
+- Title under 70 characters.
 - Add `## Judgment calls` if you made any.
 - Base `main`, not a draft.
 - The body opens with the attribution line required for messages written on the user's behalf.

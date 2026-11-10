@@ -1,12 +1,12 @@
 /**
- * /ship — straight-through SC-10 autopilot for the arcade repo.
+ * /ship — straight-through autopilot for the arcade repo.
  *
  * The process lives in the local skill `~/.agents/skills/ship/SKILL.md`
  * (issue → worktree → build → simplify → PR → CI/bot loop → merge to main).
  * This extension keeps it moving without a human typing "go":
  *
  *   /ship FT-123            ship an existing Linear issue
- *   /ship "spec…" SC-10      create the issue from a spec, then ship it
+ *   /ship "spec…"            create the issue from a spec, then ship it
  *   /ship stop               abandon the active run (nothing is undone)
  *
  * - Sends the skill as the kickoff message.
@@ -177,11 +177,11 @@ export default function shipExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("ship", {
-		description: "SC-10 autopilot: ship an arcade Linear issue or spec straight through to a merge on dev",
+		description: "Autopilot: ship an arcade Linear issue or spec straight through to a merge on dev",
 		handler: async (args, ctx) => {
 			const argument = args.trim();
 			if (!argument) {
-				ctx.ui.notify('Usage: /ship <FT-123 | Linear URL | "spec"> [SC-N]   ·   /ship stop', "warning");
+				ctx.ui.notify('Usage: /ship <FT-123 | Linear URL | "spec">   ·   /ship stop', "warning");
 				return;
 			}
 			if (argument === "stop") {

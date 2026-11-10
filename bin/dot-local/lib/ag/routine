@@ -235,10 +235,11 @@ def run(name, text=None, trigger="Run now"):
     day = dt.datetime.now().strftime("%Y%m%d-%H%M")
     log = STATE / name / f"run-{day}.log"
     cwd = os.path.expanduser(r["cwd"])
+    # AG_TEXT_ORIGIN: ag-text records it, so a Telegram reply to this run's message names the routine.
+    env = {**os.environ, "AG_TEXT_ORIGIN": f"Routine: {name}", **({"AG_ROUTINE_TEXT": text} if text else {})}
     if r["kind"] == "command":
         if not r.get("command"):
             die(f"'{name}' is kind: command but has no command")
-        env = {**os.environ, **({"AG_ROUTINE_TEXT": text} if text else {})}
         with open(log, "w") as out:
             p = subprocess.run(["zsh", "-lc", r["command"]], cwd=cwd, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env)
         lines = [l for l in log.read_text().splitlines() if l.strip()]
@@ -259,7 +260,7 @@ def run(name, text=None, trigger="Run now"):
         cmd += ["--model", r["model"]]
     print(f"ag routine: {name} → session {sid} (log {log})", flush=True)
     with open(log, "w") as out:
-        p = subprocess.run([*cmd, prompt], cwd=cwd, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+        p = subprocess.run([*cmd, prompt], cwd=cwd, stdout=out, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env)
     out_text = log.read_text()
     m = re.findall(r"RESULT:\s*(ok|fail)\s*[—–-]*\s*(.*)", out_text, re.I)
     if m:

@@ -1,107 +1,444 @@
 #!/usr/bin/env python3
-"""ag-telegram: the user's Telegram follow-ups to the ag bot, routed back to sessions.
+"""ag-telegram: two-way Telegram between the user and Ag (bot "ag"; docs/reference.md, "Telegram").
 
-  ag telegram done <message_id>             react 👌 on their message: that thread is completed
-  ag telegram more <message_id> "context"   react ✍ on their message and reply to it (threaded) with more
-  ag telegram reply <message_id> "text"     threaded reply, no reaction
+  ag telegram send [--kind K] [--origin O] [--session S] "text"   send to the feed and record it (ag-text uses this)
+  ag telegram post <session> ["text"]       post into the session's Telegram topic (text or stdin; the
+                                            ag-telegram-topic pi extension posts each finished turn this way)
+  ag telegram topics                        conversations: topic → session
   ag telegram listen                        long-poll the bot (ag-telegram.service on the session host)
+  ag telegram done <message_id>             react 👌 on their message
+  ag telegram more <message_id> "context"   react ✍ on their message and reply to it (threaded)
+  ag telegram reply <message_id> "text"     threaded reply, no reaction
   ag telegram status <session> [working|done|attention]
                                             print, or set, the status of the session's latest notification
   ag telegram supersede <session> <message_id>
                                             mark the session's notifications before <message_id> ➡️
 
-Status emoji on ag-notify's own texts (edited in place, so no new notification): ✅ done,
-⚠️ attention needed, 🔄 in progress (the user came back to that session and it's working again),
-➡️ followed up (the session sent a newer notification). ag-notify drives these.
+Outbound is plain code: every send records (chat, message id, origin, session, text) in
+~/.local/state/ag-telegram/store.db and lands in one feed (the bot's chat, no topic). Nothing else runs for a
+message until the user replies, so an unanswered message costs no model call and starts no session.
 
-`ag-text` logs every message it sends with the sending session (~/.local/state/ag/telegram-sent.jsonl).
-When the user replies to one in Telegram, `listen` prompts that session (`ag send`); if that session can't
-be reached the reply goes to the ag-inbox (which routes it to the right session or opens a new one).
-A plain message (not a reply) always opens a new Inbox session (`/prompt?new=1`). Either way the prompt carries their message id and asks the agent to finish with
-`done` or `more`. Telegram only allows a fixed reaction set for bots (no ✅ or ➡️), hence 👌 and ✍.
+When the user swipe-replies to a recorded message, `listen` opens a topic for that conversation (named after the
+session or origin), reposts the original plus the reply as its first message, and routes the reply: to the
+sending session if it's open or hibernated (or has a T3 thread) as a kind="follow" prompt, else to a new session
+via the ag-inbox with the original message and context. The topic is then bound to that session: every later
+message in the topic goes there, and if the session is gone a new one opens with context and the topic is
+repointed. A plain message in the feed opens a new session and its own topic. Agent turns in a bound session
+are posted back into the topic (extension ag-telegram-topic.ts, which reads topics.json; sessions without a
+topic pay nothing). Only the owner's messages are accepted (AG_TELEGRAM_USER in ~/ag-personal/env).
+
+Topics in a private chat need the bot's Threaded Mode on (BotFather → Bot Settings → Threaded Mode). The feed can
+also be a group with Topics on (bot admin with Manage topics): put its id in `chat=`.
 Credentials: ~/.config/ag/telegram (token=…, chat=…), else Keychain "ag telegram bot"/"ag telegram chat".
 """
-import getpass, json, os, re, subprocess, sys, time, urllib.parse, urllib.request
+import getpass, html, json, os, re, sqlite3, subprocess, sys, threading, time, urllib.request
 from pathlib import Path
 
-STATE = Path.home() / ".local/state/ag"
-SENT = STATE / "telegram-sent.jsonl"
-OFFSET = STATE / "telegram-offset"
-STATUS = STATE / "telegram-status.json"
+HOME = Path.home()
+STATE = HOME / ".local/state/ag-telegram"
+DB = STATE / "store.db"
+TOPICS = STATE / "topics.json"  # {pi session id: {chat, thread}}, read by the pi extension
+LOG = STATE / "log.jsonl"
+OFFSET = STATE / "offset"
+LEGACY = HOME / ".local/state/ag"  # before 2026-11: telegram-sent.jsonl, telegram-offset, telegram-status.json
+STATUS = STATE / "status.json"
 HEADS = {"done": "✅ Done", "attention": "⚠️ Attention needed", "working": "🔄 In progress",
          "followed": "➡️ Followed up"}
-LOG = STATE / "telegram-log.jsonl"
-BIN = Path.home() / ".local/bin"
-DONE, MORE = "👌", "✍"
+BIN = HOME / ".local/bin"
+DONE, MORE, SEEN = "👌", "✍", "👀"
+MAX = 4000  # Telegram's limit is 4096
 
 
 def creds():
-    cfg = Path.home() / ".config/ag/telegram"
+    cfg = HOME / ".config/ag/telegram"
     kv = dict(l.split("=", 1) for l in cfg.read_text().splitlines() if "=" in l) if cfg.exists() else {}
     tok, chat = kv.get("token"), kv.get("chat")
     if not (tok and chat):
         kc = lambda s: subprocess.run(["security", "find-generic-password", "-a", getpass.getuser(), "-s", s, "-w"],
-                                      capture_output=True, text=True).stdout.strip()
+                                      capture_output=True, text=True).stdout.strip() if sys.platform == "darwin" else ""
         tok, chat = kc("ag telegram bot"), kc("ag telegram chat")
     if not (tok and chat):
         sys.exit("ag-telegram: no bot token/chat (~/.config/ag/telegram or Keychain)")
-    return tok, chat
+    return tok, int(chat)
 
 
 def api(method, http_timeout=30, **params):
     tok, _ = creds()
     req = urllib.request.Request(f"https://api.telegram.org/bot{tok}/{method}", json.dumps(params).encode(),
                                  {"content-type": "application/json"})
-    with urllib.request.urlopen(req, timeout=http_timeout) as r:
-        d = json.load(r)
+    try:
+        with urllib.request.urlopen(req, timeout=http_timeout) as r:
+            d = json.load(r)
+    except urllib.error.HTTPError as e:
+        d = json.loads(e.read().decode() or "{}")
     if not d.get("ok"):
-        raise RuntimeError(d)
+        raise RuntimeError(f"{method}: {d.get('description') or d}")
     return d["result"]
 
 
 def log(**d):
     STATE.mkdir(parents=True, exist_ok=True)
     with LOG.open("a") as f:
-        f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), **d}) + "\n")
+        f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), **d}, ensure_ascii=False) + "\n")
 
 
-def react(mid, emoji):
-    api("setMessageReaction", chat_id=creds()[1], message_id=int(mid), reaction=[{"type": "emoji", "emoji": emoji}])
+# ---------- store ----------
+
+def db():
+    STATE.mkdir(parents=True, exist_ok=True)
+    fresh = not DB.exists()
+    c = sqlite3.connect(DB, timeout=30, isolation_level=None)
+    c.row_factory = sqlite3.Row
+    c.executescript("""
+        CREATE TABLE IF NOT EXISTS sent (chat INTEGER, mid INTEGER, thread INTEGER, kind TEXT, origin TEXT,
+            session TEXT, text TEXT, at INTEGER, PRIMARY KEY (chat, mid));
+        CREATE TABLE IF NOT EXISTS topics (chat INTEGER, thread INTEGER, session TEXT, t3 TEXT, origin TEXT,
+            name TEXT, seed TEXT, at INTEGER, PRIMARY KEY (chat, thread));""")
+    if fresh:
+        migrate(c)
+    return c
 
 
-def reply(mid, text):
-    api("sendMessage", chat_id=creds()[1], text=text, disable_web_page_preview=True,
-        reply_parameters={"message_id": int(mid), "allow_sending_without_reply": True})
-
-
-def sent_by(mid):
-    if not SENT.exists():
-        return None
-    for line in SENT.read_text().splitlines():
+def migrate(c):
+    """Import the old jsonl log (message id → session) so replies to messages sent before the store still route."""
+    old = LEGACY / "telegram-sent.jsonl"
+    if not old.exists():
+        return
+    try:
+        _, chat = creds()
+    except SystemExit:
+        return
+    for line in old.read_text().splitlines():
         try:
             e = json.loads(line)
-        except ValueError:
+            c.execute("INSERT OR IGNORE INTO sent VALUES (?,?,?,?,?,?,?,?)",
+                      (chat, e["message_id"], None, e.get("kind"), None, e.get("session") or None, e.get("text"),
+                       e.get("at")))
+        except (ValueError, KeyError, sqlite3.Error):
             continue
-        if e.get("message_id") == mid:
-            return e
-    return None
+    for src, dst in (("telegram-status.json", STATUS), ("telegram-offset", OFFSET)):
+        if (LEGACY / src).exists() and not dst.exists():
+            dst.write_text((LEGACY / src).read_text())
+
+
+def record(chat, m, kind=None, origin=None, session=None, text=None):
+    db().execute("INSERT OR REPLACE INTO sent VALUES (?,?,?,?,?,?,?,?)",
+                 (chat, m["message_id"], m.get("message_thread_id"), kind, origin, session or None, text,
+                  int(time.time())))
+
+
+def sent_by(chat, mid):
+    return db().execute("SELECT * FROM sent WHERE chat=? AND mid=?", (chat, mid)).fetchone()
+
+
+def topic_of(chat, thread):
+    return db().execute("SELECT * FROM topics WHERE chat=? AND thread=?", (chat, thread)).fetchone()
+
+
+def save_topic(chat, thread, **f):
+    c = db()
+    if topic_of(chat, thread):
+        if f:
+            c.execute(f"UPDATE topics SET {', '.join(k + '=?' for k in f)} WHERE chat=? AND thread=?",
+                      (*f.values(), chat, thread))
+    else:
+        c.execute("INSERT INTO topics (chat, thread, session, t3, origin, name, seed, at) VALUES (?,?,?,?,?,?,?,?)",
+                  (chat, thread, f.get("session"), f.get("t3"), f.get("origin"), f.get("name"), f.get("seed"),
+                   int(time.time())))
+    write_topics()
+
+
+def write_topics():
+    """topics.json: each session's newest topic, for the pi extension (a stat and a small read per turn)."""
+    rows = db().execute("SELECT chat, thread, session FROM topics WHERE session IS NOT NULL ORDER BY at").fetchall()
+    m = {r["session"]: {"chat": r["chat"], "thread": r["thread"]} for r in rows}
+    tmp = TOPICS.with_suffix(".tmp")
+    tmp.write_text(json.dumps(m))
+    tmp.replace(TOPICS)
 
 
 def sess_id(s):
-    # Same normalization as ag-text: a session file path or id → the bare pi session id.
-    return s.rsplit("/", 1)[-1].rsplit("_", 1)[-1].removesuffix(".jsonl")
+    # A session file path or id → the bare pi session id (same as ag-text).
+    return (s or "").rsplit("/", 1)[-1].rsplit("_", 1)[-1].removesuffix(".jsonl")
 
+
+# ---------- sending ----------
+
+def chunks(text):
+    text = text.strip() or "(empty)"
+    while text:
+        if len(text) <= MAX:
+            yield text
+            return
+        cut = text.rfind("\n", 0, MAX)
+        cut = cut if cut > MAX // 2 else MAX
+        yield text[:cut]
+        text = text[cut:].lstrip()
+
+
+def send(text, kind=None, origin=None, session=None, thread=None, parse_mode=None):
+    _, chat = creds()
+    last = None
+    for part in chunks(text):
+        p = {"chat_id": chat, "text": part, "disable_web_page_preview": True}
+        if thread:
+            p["message_thread_id"] = thread
+        if parse_mode:
+            p["parse_mode"] = parse_mode
+        last = api("sendMessage", **p)
+        record(chat, last, kind, origin, session, part)
+    return last
+
+
+def cmd_send(a):
+    o, rest = {}, []
+    it = iter(a)
+    for x in it:
+        if x in ("--kind", "--origin", "--session"):
+            o[x[2:]] = next(it, "")
+        else:
+            rest.append(x)
+    text = " ".join(rest).strip() or sys.stdin.read().strip()
+    if not text:
+        sys.exit("ag-telegram send: empty message")
+    sess = sess_id(o.get("session") or os.environ.get("AG_TEXT_SESSION") or os.environ.get("PI_SESSION_ID") or "")
+    kind = o.get("kind") or os.environ.get("AG_TEXT_KIND") or None
+    origin = o.get("origin") or os.environ.get("AG_TEXT_ORIGIN") or None
+    m = send(text, kind, origin, sess)
+    print(m["message_id"])
+    # A new agent notification supersedes the session's earlier ones (their status turns ➡️).
+    if kind == "notify" and sess:
+        try:
+            supersede(sess, m["message_id"])
+        except Exception as ex:
+            log(supersede=sess, error=str(ex)[:300])
+
+
+def tldr(text):
+    """What goes back to the topic: a short reply whole, else its TL;DR (plus the link to read the rest)."""
+    text = text.strip()
+    if len(text) <= 1500:
+        return text, False
+    m = list(re.finditer(r"\*{0,2}TL;DR:?\*{0,2}:?\s*", text))
+    if m:
+        return text[m[-1].end():].strip(), True
+    return text.split("\n\n")[-1].strip()[:1500], True
+
+
+def cmd_post(a):
+    if not a:
+        sys.exit("usage: ag telegram post <session> [text]")
+    sid = sess_id(a[0])
+    text = " ".join(a[1:]).strip() or sys.stdin.read().strip()
+    t = json.loads(TOPICS.read_text()).get(sid) if TOPICS.exists() else None
+    if not t:
+        sys.exit(f"ag-telegram post: session {sid} has no Telegram topic")
+    body, cut = tldr(text)
+    body = re.sub(r"\*\*(.+?)\*\*", r"\1", body)  # Markdown bold reads as literal asterisks in Telegram
+    if cut:
+        try:
+            body += "\n\n" + subprocess.run([BIN / "ag", "link", sid, "--url"], capture_output=True, text=True,
+                                            timeout=30).stdout.strip()
+        except Exception:
+            pass
+    m = send(body, "reply", None, sid, t["thread"])
+    log(post=sid, thread=t["thread"], mid=m["message_id"], cut=cut)
+    print(m["message_id"])
+
+
+# ---------- routing replies ----------
+
+def aglib():
+    sys.path.insert(0, str(HOME / ".local/lib/ag"))
+    import aglib as A
+    return A
+
+
+def topic_name(A, rec, fallback):
+    if rec and rec["session"]:
+        try:
+            return A.clip(A.resolve(rec["session"]).title, 100)
+        except Exception:
+            pass
+    if rec and rec["origin"]:
+        return rec["origin"][:100]
+    return A.clip(re.sub(r"\s+", " ", fallback).strip() or "ag", 60)
+
+
+def follow(A, ref, note, text):
+    """Prompt an existing session (open, hibernated, or a T3 thread). Returns its sid, or None if it's gone."""
+    try:
+        s = A.resolve(ref, A.Index())
+    except Exception:
+        return None
+    if s.state == "closed" and not (A.t3_ui() and A.t3_thread_for_sid(s.sid)):
+        return None
+    try:
+        A.prompt(s, A.origin_tag("follow", "Telegram", note=note) + "\n" + text)
+        return s.sid
+    except Exception as ex:
+        log(follow=ref, error=str(ex)[:300])
+        return None
+
+
+def wait_sid(A, res, secs=120):
+    """The pi session id behind a new ag-inbox session: a T3 thread id (T3) or a tmux pane (ag-mux)."""
+    end = time.time() + secs
+    while time.time() < end:
+        try:
+            if A.t3_ui():
+                A._t3_threads = None
+                for f, (tid, _) in A.t3_threads().items():
+                    if tid == res.get("tab"):
+                        return A.sid_of(f)
+            else:
+                p = A.mux_json("pane", "get", res["pane"])["pane"]
+                s = A.sid_of((p.get("agent_session") or {}).get("value"))
+                if s:
+                    return s
+        except Exception:
+            pass
+        time.sleep(2)
+    return None
+
+
+def open_new(A, chat, thread, prompt):
+    """A new session through the ag-inbox; binds the topic to it once its pi session id is known."""
+    res = A.http("POST", A.INBOX + "?new=1", prompt, ctype="text/plain", timeout=120)
+    if not isinstance(res, dict) or not res.get("tab"):
+        raise RuntimeError(f"ag-inbox: {res}")
+    save_topic(chat, thread, t3=res["tab"] if A.t3_ui() else None, session=None)
+
+    def bind():
+        sid = wait_sid(A, res)
+        if sid:
+            save_topic(chat, thread, session=sid)
+        log(thread=thread, bound=sid, tab=res.get("tab"))
+    threading.Thread(target=bind, daemon=True).start()
+    return res
+
+
+def quote(s, n=1500):
+    return "\n".join("> " + l for l in (s or "").strip()[:n].splitlines())
+
+
+def handle(msg):
+    A = aglib()
+    _, chat = creds()
+    mid = msg["message_id"]
+    who = A.user_name()
+    text = msg.get("text") or msg.get("caption") or "[non-text message: open Telegram to see it]"
+    thread = msg.get("message_thread_id") if msg.get("is_topic_message") else None
+    t = topic_of(chat, thread) if thread else None
+
+    if t:  # a message inside a conversation's topic → that conversation's session
+        ref = t["session"] or t["t3"]
+        note = (f"{who} wrote in this session's Telegram topic. Your final reply this turn is posted back to that "
+                f"topic automatically, so keep it short.")
+        sid = follow(A, ref, note, text) if ref else None
+        if sid:
+            return log(mid=mid, thread=thread, to=sid, via="send")
+        prompt = (A.origin_tag("telegram", "Telegram", note="Continues a Telegram conversation whose session is gone. "
+                               "Your final reply each turn is posted back to its Telegram topic automatically.")
+                  + f"\n{who} wrote on Telegram, in the conversation “{t['name']}”."
+                  + (f" It started from this message from Ag:\n\n{quote(t['seed'])}\n" if t["seed"] else "")
+                  + (f"\nThe earlier session was {t['session']} (`ag read {t['session']}` shows its transcript)."
+                     if t["session"] and A.file_for_sid(t["session"]) else "")
+                  + f"\n\nTheir message:\n\n{text}")
+        res = open_new(A, chat, thread, prompt)
+        return log(mid=mid, thread=thread, via="reopen", tab=res.get("tab"))
+
+    # A reply to an Ag message. In a private chat with Threaded Mode, Telegram may put it in a new thread it made
+    # itself (message_thread_id set, unknown to us): use that thread instead of creating one.
+    orig = msg.get("reply_to_message") or {}
+    if orig.get("forum_topic_created"):
+        orig = {}
+    rec = sent_by(chat, orig["message_id"]) if orig.get("message_id") else None
+    if orig.get("message_id") and (rec or orig.get("text") or orig.get("caption")):
+        orig_text = (rec["text"] if rec and rec["text"] else None) or orig.get("text") or orig.get("caption") or ""
+        name = topic_name(A, rec, orig_text)
+        if thread:
+            for _ in range(3):  # the thread Telegram just made can take a moment to accept edits
+                try:
+                    api("editForumTopic", chat_id=chat, message_thread_id=thread, name=name)
+                    break
+                except Exception as ex:
+                    log(thread=thread, rename=name, error=str(ex)[:200])
+                    time.sleep(1)
+        else:  # we open the topic, so repost the original and the reply as its first message
+            thread = api("createForumTopic", chat_id=chat, name=name)["message_thread_id"]
+            send(f"<blockquote>{html.escape(orig_text[:3000])}</blockquote>\n{html.escape(text)}", "seed",
+                 thread=thread, parse_mode="HTML")
+        save_topic(chat, thread, origin=rec["origin"] if rec else None, name=name, seed=orig_text[:3000],
+                   session=None)
+        try:
+            api("setMessageReaction", chat_id=chat, message_id=mid, reaction=[{"type": "emoji", "emoji": SEEN}])
+        except Exception:
+            pass
+        sess = rec["session"] if rec else None
+        note = (f"{who} replied on Telegram to a message this session sent:\n{quote(orig_text, 500)}\n"
+                f"Your final reply this turn is posted back to that Telegram conversation automatically, so keep it short.")
+        sid = follow(A, sess, note, text) if sess else None
+        if sid:
+            save_topic(chat, thread, session=sid)
+            return log(mid=mid, thread=thread, to=sid, via="send")
+        src = (rec["origin"] if rec and rec["origin"] else None) or ("an earlier session" if sess else "Ag")
+        prompt = (A.origin_tag("telegram", "Telegram reply", note="Started from a Telegram reply. Your final reply "
+                               "each turn is posted back to its Telegram topic automatically, so keep it short.")
+                  + f"\n{who} replied on Telegram to this message from {src}:\n\n{quote(orig_text)}\n"
+                  + (f"\nIt was sent by session {sess} (closed; `ag read {sess}` shows its transcript)."
+                     if sess and A.file_for_sid(sess) else "")
+                  + f"\n\nTheir reply:\n\n{text}")
+        res = open_new(A, chat, thread, prompt)
+        return log(mid=mid, thread=thread, via="new", tab=res.get("tab"), origin_session=sess)
+
+    # A plain message (feed, or a topic we don't know): a new session with its own topic.
+    if not thread:
+        thread = api("createForumTopic", chat_id=chat, name=topic_name(A, None, text))["message_thread_id"]
+        send(f"<blockquote>{html.escape(text[:3000])}</blockquote>", "seed", thread=thread, parse_mode="HTML")
+    save_topic(chat, thread, name=topic_name(A, None, text), seed=None, session=None)
+    prompt = (A.origin_tag("telegram", "Telegram", note="Sent on Telegram. Your final reply each turn is posted back "
+                           "to its Telegram topic automatically, so keep it short.") + "\n" + text)
+    res = open_new(A, chat, thread, prompt)
+    log(mid=mid, thread=thread, via="new", tab=res.get("tab"))
+
+
+def owner(chat):
+    u = aglib().personal_env("AG_TELEGRAM_USER")
+    return int(u) if u else (chat if chat > 0 else None)  # a private chat's id is the user's id
+
+
+def listen():
+    _, chat = creds()
+    db().close()
+    me = owner(chat)
+    off = int(OFFSET.read_text()) if OFFSET.exists() else 0
+    while True:
+        try:
+            ups = api("getUpdates", http_timeout=70, offset=off, timeout=50, allowed_updates=["message"])
+        except Exception as ex:
+            log(error=str(ex)[:300]); time.sleep(10); continue
+        for u in ups:
+            off = u["update_id"] + 1
+            m = u.get("message")
+            ok = m and m["chat"]["id"] == chat and (m.get("from") or {}).get("id") == me
+            if ok and not (m.get("text") or "").startswith("/start") and not m.get("forum_topic_created"):
+                log(update=m["message_id"], thread=m.get("message_thread_id"), topic=m.get("is_topic_message"),
+                    reply_to=(m.get("reply_to_message") or {}).get("message_id"))
+                try:
+                    handle(m)
+                except Exception as ex:
+                    log(mid=m.get("message_id"), error=str(ex)[:300])
+            elif m and not ok:
+                log(ignored=m.get("message_id"), chat=m["chat"]["id"], sender=(m.get("from") or {}).get("id"))
+            OFFSET.write_text(str(off))
+
+
+# ---------- notification status (ag-notify) ----------
 
 def notifies(session):
-    sid, out = sess_id(session), []
-    for line in SENT.read_text().splitlines() if SENT.exists() else []:
-        try:
-            e = json.loads(line)
-        except ValueError:
-            continue
-        if e.get("kind") == "notify" and e.get("text") and e.get("session") == sid:
-            out.append(e)
-    return out
+    return db().execute("SELECT mid, text FROM sent WHERE kind='notify' AND session=? AND text IS NOT NULL "
+                        "ORDER BY mid", (sess_id(session),)).fetchall()
 
 
 def statuses():
@@ -112,8 +449,8 @@ def statuses():
 
 
 def current(e, st):
-    if str(e["message_id"]) in st:
-        return st[str(e["message_id"])]
+    if str(e["mid"]) in st:
+        return st[str(e["mid"])]
     return next((k for k, h in HEADS.items() if e["text"].startswith(h)), "done")
 
 
@@ -124,59 +461,21 @@ def set_status(e, state, st):
     tab = first.split(" · ", 1)[1] if " · " in first else ""
     text = f"{HEADS[state]} · {tab}" + (f"\n{rest}" if rest else "")
     try:
-        api("editMessageText", chat_id=creds()[1], message_id=e["message_id"], text=text,
-            disable_web_page_preview=True)
+        api("editMessageText", chat_id=creds()[1], message_id=e["mid"], text=text, disable_web_page_preview=True)
     except Exception as ex:
         if "not modified" not in str(ex):
-            log(mid=e["message_id"], status=state, error=str(ex)[:300])
+            log(mid=e["mid"], status=state, error=str(ex)[:300])
             return
-    st[str(e["message_id"])] = state
+    st[str(e["mid"])] = state
     STATE.mkdir(parents=True, exist_ok=True)
     STATUS.write_text(json.dumps(st))
 
 
-def handle(msg):
-    mid = msg["message_id"]
-    text = msg.get("text") or msg.get("caption") or "[non-text message: open Telegram to see it]"
-    orig = msg.get("reply_to_message") or {}
-    e = sent_by(orig.get("message_id")) if orig else None
-    quoted = (orig.get("text") or "")[:500]
-    ctx = f' replying to the ag text "{quoted}"' if quoted else ""
-    kind = "follow-up" if orig else "message"
-    prompt = (f"Telegram {kind} from the user (Telegram message {mid}){ctx}:\n\n{text}\n\n"
-              f"Handle it. Then mark their Telegram message: if it's completed, run `ag telegram done {mid}` (👌); "
-              f"if there's more to it, run `ag telegram more {mid} \"<short context: what's next or what you need>\"` "
-              f"(✍ plus a threaded reply).")
-    if e and e.get("session"):
-        r = subprocess.run([BIN / "ag", "send", e["session"], prompt], capture_output=True, text=True, timeout=120)
-        if r.returncode == 0:
-            return log(mid=mid, to=e["session"], via="send")
-        log(mid=mid, to=e["session"], via="send", error=(r.stderr or r.stdout).strip()[-300:])
-    # Plain message → always a new session; an orphaned reply → let the inbox route it.
-    url = "http://ag:7373/prompt" + ("" if orig else "?new=1")
-    r = subprocess.run(["curl", "-fsS", "-m", "120", "--data-binary", "@-", url],
-                       input=prompt, capture_output=True, text=True)
-    log(mid=mid, via="inbox" if orig else "new", ok=r.returncode == 0, out=(r.stdout or r.stderr).strip()[-300:])
-
-
-def listen():
-    _, chat = creds()
-    off = int(OFFSET.read_text()) if OFFSET.exists() else 0
-    while True:
-        try:
-            ups = api("getUpdates", http_timeout=70, offset=off, timeout=50, allowed_updates=["message"])
-        except Exception as ex:
-            log(error=str(ex)[:300]); time.sleep(10); continue
-        for u in ups:
-            off = u["update_id"] + 1
-            m = u.get("message")
-            if m and str(m["chat"]["id"]) == str(chat) and not (m.get("text") or "").startswith("/start"):
-                try:
-                    handle(m)
-                except Exception as ex:
-                    log(mid=m.get("message_id"), error=str(ex)[:300])
-            STATE.mkdir(parents=True, exist_ok=True)
-            OFFSET.write_text(str(off))
+def supersede(session, mid):
+    st = statuses()
+    for e in notifies(session):
+        if e["mid"] < int(mid):
+            set_status(e, "followed", st)
 
 
 def main(a):
@@ -185,6 +484,14 @@ def main(a):
     cmd = a[0]
     if cmd == "listen":
         return listen()
+    if cmd == "send":
+        return cmd_send(a[1:])
+    if cmd == "post":
+        return cmd_post(a[1:])
+    if cmd == "topics":
+        for r in db().execute("SELECT * FROM topics ORDER BY at"):
+            print(f"{r['thread']:>7}  {r['session'] or r['t3'] or '-':<40}  {r['name']}")
+        return
     if cmd == "status" and len(a) >= 2:
         es, st = notifies(a[1]), statuses()
         if len(a) == 2:
@@ -195,24 +502,28 @@ def main(a):
             set_status(es[-1], a[2], st)
         return
     if cmd == "supersede" and len(a) >= 3 and a[2].isdigit():
-        st = statuses()
-        for e in notifies(a[1]):
-            if e["message_id"] < int(a[2]):
-                set_status(e, "followed", st)
-        return
+        return supersede(a[1], a[2])
     if cmd in ("done", "more", "reply") and len(a) >= 2 and a[1].isdigit():
+        chat = creds()[1]
         if cmd == "done":
-            react(a[1], DONE)
+            api("setMessageReaction", chat_id=chat, message_id=int(a[1]), reaction=[{"type": "emoji", "emoji": DONE}])
         else:
             text = " ".join(a[2:]).strip() or sys.stdin.read().strip()
             if not text:
                 sys.exit(f"ag-telegram {cmd}: needs the reply text")
             if cmd == "more":
-                react(a[1], MORE)
-            reply(a[1], text)
+                api("setMessageReaction", chat_id=chat, message_id=int(a[1]),
+                    reaction=[{"type": "emoji", "emoji": MORE}])
+            orig = sent_by(chat, int(a[1]))
+            p = {"chat_id": chat, "text": text, "disable_web_page_preview": True,
+                 "reply_parameters": {"message_id": int(a[1]), "allow_sending_without_reply": True}}
+            if orig and orig["thread"]:
+                p["message_thread_id"] = orig["thread"]
+            api("sendMessage", **p)
         print(f"ok: {cmd} on Telegram message {a[1]}"); return
-    sys.exit("usage: ag telegram done|more|reply <message_id> [text] | status <session> [state]"
-             " | supersede <session> <message_id> | listen")
+    sys.exit("usage: ag telegram send|post|topics|listen | done|more|reply <message_id> [text]"
+             " | status <session> [state] | supersede <session> <message_id>")
 
 
-main(sys.argv[1:])
+if __name__ == "__main__":
+    main(sys.argv[1:])

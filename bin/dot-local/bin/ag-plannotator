@@ -1,18 +1,16 @@
 #!/usr/bin/env bash
 # ag-plannotator: the Plannotator Inbox (https://plannotator.ai/inbox/) on the session host, Ag's trial of an
-# agent inbox: Pi agents leave questions, blockers, files and guided reviews there; the user answers from any
-# device on the tailnet, and the reply arrives as the session's next turn.
+# agent inbox. Agents are no longer prompted to use it (2026-11-09): the Pi inbox tool and its reminder are off.
 #
 #   ag-plannotator setup     install plannotator + the Pi extension, write its config, publish over the tailnet
 #   ag-plannotator start     start the Inbox in the background (agents also start it on demand)
 #   ag-plannotator url       the tailnet URL of the running Inbox (or its local one)
 #   ag-plannotator status    plannotator inbox status
 #
-# Config written by setup (~/.plannotator/config.json): the Pi inbox tool on (off by default upstream; it adds
-# ~3k tokens to every request of sessions that have it), publish over the tailnet at every start, let in the
+# Config written by setup (~/.plannotator/config.json): the Pi inbox tool and its session reminder off (no
+# Inbox instructions in agents' prompts), publish over the tailnet at every start, let in the
 # tailnet owner (AG_TAILNET_OWNER in ~/ag-personal/env: this machine is a tagged device, so it has no owner of
-# its own), and no managed note in agents' instruction files (ours is agents.md/sections/097-plannotator-inbox.md;
-# ~/.pi/agent/AGENTS.md is generated and would lose it). The Inbox binds 127.0.0.1 on a port it picks; the
+# its own), and no managed note in agents' instruction files. The Inbox binds 127.0.0.1 on a port it picks; the
 # tailnet address is https://<this host>.<tailnet>.ts.net:<port>, via tailscale serve (needs this user as the
 # Tailscale operator: setup sets it).
 set -euo pipefail
@@ -31,7 +29,8 @@ setup)
 	import json, sys
 	path, owner = sys.argv[1], sys.argv[2]
 	c = json.load(open(path))
-	c["inboxTool"] = {**(c.get("inboxTool") if isinstance(c.get("inboxTool"), dict) else {}), "pi": True}
+	c["inboxTool"] = {**(c.get("inboxTool") if isinstance(c.get("inboxTool"), dict) else {}), "pi": False}
+	c["inboxReminder"] = False
 	c["inboxTailscale"] = True
 	if owner: c["inboxTailscaleAllow"] = sorted(set(c.get("inboxTailscaleAllow", []) + [owner]))
 	c["inboxNotes"] = False

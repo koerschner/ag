@@ -53,7 +53,11 @@ ag's login user), so agents answer ag's admin/password prompts (e.g. adding an a
 Security) on ag without touching the client. The user stores or refreshes it once with
 `ag-login-password set` (hidden prompt, verified with `dscl -authonly`); agents run
 `ag-login-password type` with the prompt's password field focused, and `ag-login-password check`
-to see if it's there. The client's Keychain copy can't be read over SSH (its Keychain is locked
+to see if it's there. The CUA model refuses to type into macOS password sheets, so drive these
+with System Events inside one `ag screen exec` job (focus `text field "Password" of sheet 1`, then
+`ag-login-password type`); see the ag-machine-ops skill for the Privacy & Security recipe. ag's
+Hammerspoon has Screen Recording (granted 2026-11-11), so Hammerspoon features that snapshot
+windows can be built and tested on ag before they sync to the client. The client's Keychain copy can't be read over SSH (its Keychain is locked
 to non-GUI sessions), and fetching it from the client is blocked by the client-CUA guard anyway.
 
 `op-shared` and `op-work` are symlinks to `op-ag`; the script picks the Keychain item by the

@@ -1,10 +1,10 @@
 ---
-description: Daily: attach receipts and memos to the user's Ramp card charges before Ramp locks the card
-schedule: daily 23:30
+description: Tuesdays and Fridays: attach receipts and memos to the user's Ramp card charges before Ramp locks the card
+schedule: weekly Tue,Fri 23:30
 kind: prompt
 cwd: ~
 timeout: 60min
-enabled: false
+enabled: true
 ---
 Goal: the user's Ramp card (the work card; account details are in ~/AGENTS.md, "About the user") has no
 transactions with missing items, so Ramp never locks it. Ramp requires a receipt and a memo on every charge and

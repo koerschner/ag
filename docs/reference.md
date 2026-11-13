@@ -391,38 +391,15 @@ Moshi on the iPhone connects to the session host over Tailscale and attaches to 
   `ag telegram bot` (token + chat id). Telegram tasks (BotFather, reading chats) run in
   **Telegram.app on ag-mac**, which must stay signed in to the user's account; if it shows the
   QR login screen, the user scans it once from their phone (Telegram → Settings → Devices →
-  Link Desktop Device). Never drive the client's Telegram or iPhone Mirroring for this. `ag cua` clicks fail in
-  Telegram.app (`AXError.notImplemented`); drive it with `ag screen exec` and `cliclick` (double-click a
-  message's bubble margin to reply to it) plus `screencapture` to check.
+  Link Desktop Device). Never drive the client's Telegram or iPhone Mirroring for this.
   Log: `~/.local/state/ag-notify/log.jsonl`.
-- **Telegram conversations**: Outbound is plain code with no model. `ag-text` calls `ag-telegram send`, which
-  posts to one feed (the bot's private chat with the user, no topic) and records the chat id, message id,
-  origin, kind, and text in `~/.local/state/ag-telegram/store.db` (sqlite). Origin takes the pi session id from
-  `$AG_TEXT_SESSION` or `$PI_SESSION_ID`. `$AG_TEXT_ORIGIN` names a routine or alert (`ag routine` sets it to
-  `Routine: <name>`). An unanswered message costs nothing more: no model call and no session.
-  `ag-telegram listen` (`ag-telegram.service` on the session host, long-polls `getUpdates`, no webhook, no
-  model) accepts only the owner's updates (`AG_TELEGRAM_USER` in `~/ag-personal/env`). A swipe-reply to a
-  recorded message becomes a conversation in a forum topic named after the session or origin. If Telegram puts
-  the reply in a new thread of its own, the bot uses and renames that thread. Otherwise, the bot creates one
-  with `createForumTopic` and reposts the original plus the reply as its first message. If the session is open,
-  hibernated, or has a T3 thread, the reply routes as an `ag send`-style prompt with a `kind="follow"` origin
-  tag (`aglib` `origin_tag`). If the session is closed or there was no session (routine, alert), it
-  opens a new session through `ag-inbox` (`/prompt?new=1`). That prompt quotes the original message, names the
-  old session (`ag read`), and carries the reply. The topic binds to that session in the `topics` table
-  (`ag telegram topics` lists them). Every later message in the topic goes to the same session without a
-  swipe-reply. If the session is gone, the next message opens a new one with context and repoints the topic. A
-  plain message in the feed opens a new session in its own topic. For replies back, the pi extension
-  `ag-telegram-topic.ts` reads `~/.local/state/ag-telegram/topics.json` on each settled turn. Only bound
-  sessions act: `ag telegram post <session>` posts the final reply into the topic (whole if ≤1500 chars, else
-  its TL;DR plus the session link). Topics in the private chat need the bot's Threaded Mode (BotFather → Bot
-  Settings → Threaded Mode, turned on 2026-11-10, `getMe` shows `has_topics_enabled`). A group with Topics on
-  and the bot as admin with Manage topics also works if you put its id in `chat=`. Still available:
-  `ag telegram done|more|reply <id>` (👌 and ✍ reactions and threaded replies, since bots cannot react with ✅
-  or ➡️) and `ag-notify` status emoji edited in place (🔄 when the user returns to that session and a turn
-  starts, ✅ or ⚠️ when it ends, ➡️ once the session sends a newer text, via `ag telegram status|supersede`
-  with state in `~/.local/state/ag-telegram/status.json`). Logs go to `~/.local/state/ag-telegram/log.jsonl`.
-  The old `~/.local/state/ag/telegram-sent.jsonl` was imported into the store on first run, so replies to older
-  messages still route.
+- **Telegram follow-ups**: when the user replies to an ag text in Telegram, `ag-telegram listen`
+  (`ag-telegram.service`, session host) prompts the session that sent it (`ag-text` logs
+  message id → session in `~/.local/state/ag/telegram-sent.jsonl`); a reply whose session is
+  unreachable goes to the ag-inbox (routed). A plain message (not a reply) always opens a new
+  Inbox session (`/prompt?new=1`). The agent then marks their message: `ag telegram done <id>` (👌,
+  completed) or `ag telegram more <id> "context"` (✍ plus a threaded reply). Bots can't react
+  with ✅/➡️ (Telegram's fixed reaction set). Log: `~/.local/state/ag/telegram-log.jsonl`.
 - **Discord feedback buttons**: every `ag discord post` carries two buttons, "thanks!" and
   "bro..." (`--no-buttons` leaves them off), whose ids name the posting session.
   `ag discord listen` (`ag-discord.service`, session host; a gateway connection, run under uv
@@ -430,6 +407,11 @@ Moshi on the iPhone connects to the session host over Tailscale and attaches to 
   message) prompts that session (`ag send`, `ag resume` first if closed, else the ag-inbox)
   that its reply missed, and texts the user (`ag-text`, so a Telegram reply routes back to it).
   Log: `~/.local/state/ag/discord-feedback.jsonl`.
+- **Telegram status emoji**: ag-notify's own texts carry a status that is edited in place (no new
+  ping, since reactions can't be ✅/🔄/➡️): 🔄 when the user comes back to that session and a turn
+  starts, ✅ or ⚠️ when it ends, ➡️ once the session sends a newer text. `ag-text` with
+  `AG_TEXT_KIND=notify` logs the text so `ag telegram status|supersede` can rewrite the header;
+  state in `~/.local/state/ag/telegram-status.json`.
 - **Shortcuts**: the same prefix chords as the Mac, per
   [`tmux/SHORTCUTS.md`](../tmux/SHORTCUTS.md): `Ctrl+B` + key (terminals don't send Cmd to tmux).
 - **Line breaks**: Shift+Tab inserts a newline in Pi (Moshi's Shift+Enter arrives

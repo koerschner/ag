@@ -31,7 +31,7 @@ The user's own prompts (same window) ask for these Ag-level actions: put in wait
 merge 31, close tab 25, give me the link 22, pin (then "hotpath") 21, report back 16, split out 11, archive/park 11.
 
 Already well served (not targets): `ag-mac run/push/pull` (one tool, 9% err mostly remote-command errors),
-`ag_cua` tool (`ag cua`), `ag-tickler` tool, `op-*`, `ag-show`, `ag-shot`, `gh pr checks` polling (`pr-watch` + github relay).
+`ag_cua` tool (`ag cua`), `op-*`, `ag-show`, `ag-shot`, `gh pr checks` polling (`pr-watch` + github relay).
 
 ## Proposed surface
 
@@ -89,7 +89,7 @@ started, so `wait` and `read --new` only see that run's output).
 
 ### Passthroughs (discoverability only)
 
-`ag help` lists every Ag tool with one line each; `ag mac|show|shot|text|cua|presence|tickler|access|discord …`
+`ag help` lists every Ag tool with one line each; `ag mac|show|shot|text|cua|presence|access|discord …`
 forward to the existing commands, which keep their names.
 
 ## Notes for building it

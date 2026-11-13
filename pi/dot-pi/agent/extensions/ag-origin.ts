@@ -1,7 +1,7 @@
 /**
  * ag-origin: where a prompt came from, kept out of the text the user reads.
  *
- * Ag's injectors (ag-inbox follow-ons and hints, ag spawn / ag report, the ag-tickler, ag-rules, phone review
+ * Ag's injectors (ag-inbox follow-ons and hints, ag spawn / ag report, ag-rules, phone review
  * comments) don't write their routing preamble into the prompt as prose. They wrap it in one tag:
  *
  *   <ag-origin kind="report" label="Report from" title="Fix Ag Inbox" sid="01a1…">terse note for the model</ag-origin>
@@ -9,7 +9,7 @@
  * The model reads the tag as is (the note says what it needs to know: who sent it, what to do with it). The UIs
  * hide it and show a small chip instead: AG Dash (server strips tags from user text and sends `origins`), and
  * Pi's own transcript (the markdown transformer below swaps each tag for a dim one-line chip). `label` is the
- * chip text; `title` + `sid` make it a link to that session. Helpers are exported for ag-inbox, the ag-tickler,
+ * chip text; `title` + `sid` make it a link to that session. Helpers are exported for ag-inbox,
  * ag-file-inbox and ag-rules (Python: aglib.origin_tag / strip_origins). Docs: docs/reference.md, "Prompt origins".
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

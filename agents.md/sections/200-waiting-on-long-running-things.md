@@ -2,7 +2,7 @@
 
 Never block on one long wait (`gh run watch`, `gh pr checks --watch`, `sleep`, `wait-output`) with a big timeout. Poll in short bounded checks instead: a non-blocking status query (`gh run view <id> --json status,conclusion,jobs`, `gh pr checks <pr> --json name,state,bucket`) every ~30–60s, each tool call capped at ~2 minutes (e.g. `timeout 90 gh run watch <id> --exit-status`, then re-check). Act the moment a job fails (read `--log-failed` and fix it immediately, don't wait for the rest of the run) or everything succeeds.
 
-**After you push, keep polling CI in the same turn.** Check the PR's checks and review-bot threads every ~30–60s and report progress as it comes in, until everything is green and the bots have posted; fix failures and findings as they land. Don't end the turn or hand off to an ag-tickler wake-up while CI is still running. Use a wake-up only when what's left waits on a human (an approval) or will clearly take far longer than the run (e.g. a nightly job).
+**After you push, keep polling CI in the same turn.** Check the PR's checks and review-bot threads every ~30–60s and report progress as it comes in, until everything is green and the bots have posted; fix failures and findings as they land. Don't end the turn or hand off to a scheduled wake-up while CI is still running. Use a wake-up only when what's left waits on a human (an approval) or will clearly take far longer than the run (e.g. a nightly job).
 
 Never sit idle while CI runs. `sleep N` longer than ~60s is banned, including inside a poll loop. Between status checks, do the next useful thing:
 
@@ -16,7 +16,6 @@ Check back on the pending PR every few minutes between those steps. Only wait pa
 
 When the wait is long (minutes to days) or open-ended, such as a machine coming back online, a slow deploy, a long job, or someone's reply, and you have nothing else useful to do, don't keep a turn open with sleeps or repeated polls. Set a wake-up and end your turn:
 
-- Use the `ag-tickler` tool with `when: "check"` and a cheap shell `check` that exits 0 once the thing is ready (e.g. `ag-client run true`, `gh run view <id> --json status -q '.status=="completed"' | grep -q true`). The ag-tickler's LaunchAgent runs it every minute without a model, so waiting costs no tokens or context.
-- Use `when: "event"` when something else can tell you it's done: pass it the printed webhook (`curl -X POST http://ag:7373/ag-tickler/<id>`, optional body = note) or have it run `ag-tickler trigger <id>`.
-- When it fires, it resumes **this** session: under T3, as a new message in this thread; in tmux, in place if its pane is ready, else a forked tab. Use the `ag-tickler` tool (it records the session); from a shell, `ag-tickler add` defaults to `$PI_SESSION_FILE`. An item with no session opens a new top-level thread, so never pass `--mode fresh` for a wake-up. After `expires` (default 7 days) it fires anyway and tells you the condition never came true.
-- Use `when: "online"` only when the user is needed in person at their Mac. When the task just needs a machine reachable, use a `check` for that machine instead. Say in your reply what you're waiting for and how it will wake you.
+- Use T3's `schedule_task` with `{type: "once", runAt}` bound to this thread, at the time it's worth re-checking. When it fires, check; if it isn't ready, schedule the next one with a longer gap, and give up (tell the user) after a sensible deadline.
+- Use `{type: "webhook"}` when something else can tell you it's done: hand it the returned `webhookUrl`.
+- Say in your reply what you're waiting for and when it will wake you.

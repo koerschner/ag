@@ -1,6 +1,6 @@
 import type { Card } from "./types";
 
-// No emoji anywhere in the app: ag-tickler/wake-up icons become plain text glyphs, every other emoji is dropped.
+// No emoji anywhere in the app: old wake-up icons become plain text glyphs, every other emoji is dropped.
 const EMOJI_RE = /(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F|[\u{1F000}-\u{1FAFF}])(?:\u200D(?:\p{Emoji_Presentation}|\p{Extended_Pictographic}\uFE0F?|[\u{1F000}-\u{1FAFF}]))*[\u{1F3FB}-\u{1F3FF}]?\uFE0F?( ?)/gu;
 const EMOJI_TEXT: Record<string, string> = { "⏰": "◷", "🔔": "↺", "🟢": "●", "⏳": "⧖", "⌛": "⧖", "✅": "✓", "❌": "✗", "⚠": "!", "🔄": "↻", "💤": "z" };
 export const noEmoji = (s: unknown) =>

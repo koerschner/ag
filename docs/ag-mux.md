@@ -3,7 +3,7 @@
 Every Ag session (a Pi, Claude or Codex agent, a dev server, a shell) lives in **tmux** on the session host
 (ag-engine), on a dedicated server `tmux -L ag`. A small daemon, **agd** (`ag-mux daemon`), adds what Ag
 needs on top of plain tmux: stable tab/pane IDs, agent lifecycle states, snapshots, events,
-notifications, and layout persistence. Everything else (ag-dash, the ag-inbox, the ag-tickler, ag-pi-hibernate,
+notifications, and layout persistence. Everything else (ag-dash, the ag-inbox, ag-pi-hibernate,
 ag-nav, the `ag` CLI, the agent hooks) talks to agd through the **`ag-mux` CLI** or agd's JSON-lines socket.
 
 Code: `bin/dot-local/bin/ag-mux` (sh launcher), `bin/dot-local/lib/ag-mux/ag-mux.ts` (agd + CLI, Bun),
@@ -24,7 +24,7 @@ Code: `bin/dot-local/bin/ag-mux` (sh launcher), `bin/dot-local/lib/ag-mux/ag-mux
  │   · ID registry, agent state machine, seen/done tracking   │
  │   · snapshot cache, events.subscribe, layout persistence   │
  │ ag-mux CLI → agd socket                                    │
- │ ag-dash · ag-inbox · ag-tickler · ag-pi-hibernate · ag-nav       │
+ │ ag-dash · ag-inbox · ag-pi-hibernate · ag-nav                    │
  └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -53,7 +53,7 @@ Code: `bin/dot-local/bin/ag-mux` (sh launcher), `bin/dot-local/lib/ag-mux/ag-mux
 - Agents push their own state: `pi/dot-pi/agent/extensions/ag-agent-state.ts` (Pi) and the shell hooks
   `claude/dot-claude/hooks/ag-agent-state.sh` / `codex/dot-codex/ag-agent-state.sh` call
   `pane.report_agent` and `pane.report_agent_session` (state + session file). The session file is the key ag-dash,
-  `ag link`, the ag-tickler and ag-file-inbox use to find a session.
+  `ag link` and ag-file-inbox use to find a session.
 - `agent start` requires a pane at a shell prompt and waits for the agent's first report (`agent_not_ready` on
   timeout). `agent prompt` pastes (bracketed) and sends Enter; `--wait` requires `working` within 5 s (else
   `agent_prompt_stalled`), then waits for a settled state. Names follow `[a-z][a-z0-9_-]{0,31}`.
@@ -138,7 +138,7 @@ machine hosts sessions (today ag-engine, `ag-svc local`):
 
 | URL | What |
 |---|---|
-| `http://ag:7373` | ag-inbox (and the ag-tickler webhook) |
+| `http://ag:7373` | ag-inbox |
 | `http://ag:7374` | ag-show / phone review / file inbox (`http://ag.<tailnet>.ts.net:7374/r/<name>/` for the phone) |
 | `http://ag:7375` | private chat |
 | `http://ag:7376/<pi session id>` | ag-dash deep links |
@@ -151,7 +151,7 @@ Defined in `tailscale/policy.hujson` (autoApprover: `tag:ag-engine`) and via the
 ## Where services run
 
 Every Ag service runs on the session host as a systemd user unit: `ag-mux` (agd), `ag-dash` (ag-dash),
-`ag-inbox`, `ag-file-inbox`, `ag-private`, `ag-tickler`, `ag-presence`, `ag-pi-hibernate` (memory pressure from
+`ag-inbox`, `ag-file-inbox`, `ag-private`, `ag-presence`, `ag-pi-hibernate` (memory pressure from
 `/proc/pressure/memory`), `ag-nav`, `ag-mcp-gateway`, `ag-pi-sessions-sync`, `nessie`, `ag-telegram`. ag-mac keeps only
 the extremity role: computer use, Mac-only apps and CLIs, plus `ag-mem-watch`, `ag-headless-display`,
 `ag-chrome-tab-reaper`, `ag-tfy-env` and the Nessie app as LaunchAgents.

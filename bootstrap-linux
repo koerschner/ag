@@ -110,7 +110,7 @@ have mise || curl -fsSL https://mise.run | sh || warn "mise"
 
 step "Standalone CLIs (vendor installers)"
 [[ -x ~/.bun/bin/bun ]] || curl -fsSL https://bun.sh/install | bash >/dev/null || warn "bun"
-# Sessions, ag-tickler items and state moved from a Mac still name paths under its old home (e.g. /Users/<you>/...);
+# Sessions and state moved from a Mac still name paths under its old home (e.g. /Users/<you>/...);
 # keep them valid by linking that home here. AG_LEGACY_HOME in ~/ag-personal/env; unset = nothing to keep.
 legacy_home=$(penv AG_LEGACY_HOME)
 [[ -z $legacy_home || -e $legacy_home ]] || { sudo mkdir -p "$(dirname "$legacy_home")" && sudo ln -sfn "$HOME" "$legacy_home"; }
@@ -209,7 +209,7 @@ else
   systemctl --user enable --now ag-mcp-tunnel.service >/dev/null 2>&1 && echo "  ag-mcp-tunnel on" || warn "ag-mcp-tunnel (needs ~/.ssh/ag-mac)"
 fi
 # A fresh session host (no ag-mux layout yet) pulls its state and Pi transcripts back from GitHub before agd
-# starts, so tabs, ag-tickler items and ag-dash come back as they were (docs/reference.md "Ag state archive").
+# starts, so tabs and ag-dash come back as they were (docs/reference.md "Ag state archive").
 if ~/.local/bin/ag-machine-role host && [[ ! -f ~/.local/state/ag-mux/layout.json && -f ~/.config/ag/op-work.token ]] &&
    gh repo view "$(gh_owner)/ag-state" >/dev/null 2>&1; then
   ~/.local/bin/ag-state restore 2>&1 | sed 's/^/  /' || warn "ag-state restore"
@@ -250,7 +250,7 @@ if "$AG/bin/dot-local/bin/ag-machine-role" host 2>/dev/null; then
   [[ -f /etc/apparmor.d/t3-chrome-headless-shell ]] || sudo env "PATH=$PATH" "$HOME/.local/bin/t3" browser setup >/dev/null || warn "t3 browser setup"
 fi
 # The rest of the host's services (each unit's ExecCondition keeps them off non-hosts, so enabling everywhere is safe).
-for u in ag-inbox.service ag-nav.service ag-private.service ag-file-inbox.service ag-mcp-gateway.service ag-pi-hibernate.service ag-tickler.timer ag-presence.timer herdr.service; do
+for u in ag-inbox.service ag-nav.service ag-private.service ag-file-inbox.service ag-mcp-gateway.service ag-pi-hibernate.service ag-presence.timer herdr.service; do
   systemctl --user enable --now "$u" >/dev/null 2>&1 && echo "  $u on" || warn "$u"
 done
 # Advertise svc:ag (http://ag:7373-7377) from the session host, once; needs the tailnet up and svc:ag in the admin console.

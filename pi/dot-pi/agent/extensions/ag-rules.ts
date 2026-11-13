@@ -1,7 +1,7 @@
 /**
  * ag-rules, the prompt hook: plain-English rules that boil down to code (~/ag/ag-rules/README.md).
  * Runs every enabled `on: prompt` rule (found by `ag-rules list`: ag's defaults, then ~/.ag/ag-rules)
- * on each prompt before the agent sees it: typed, from the ag-inbox, ag send/spawn, the ag-tickler. Headless runs
+ * on each prompt before the agent sees it: typed, from the ag-inbox, ag send/spawn. Headless runs
  * (routines, pi -p) only get rules with `sessions: all`. Docs: docs/reference.md → "ag-rules".
  */
 import { spawn } from "node:child_process";

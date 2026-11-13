@@ -55,8 +55,8 @@ There are two roles. Work out which one you are:
    one task. Keep fixes small; don't build a framework. Follow the machine-setup
    rules (`dotfiles-change` skill): commit, push, and sync every machine.
 4. **If the fix needs the user** (a login, a grant, a secret, a decision on a broad
-   permission), ask them clearly and kindly, once, explaining why, and wait with a
-   `needsUser: true` ag-tickler `check` so you resume when they're done. Ask before
+   permission), ask them clearly and kindly, once, explaining why, and wait for
+   them to finish. Ask before
    granting anything broader than the friction needs.
 5. **Verify** it's fixed: reproduce what failed and show it now works without
    the user.

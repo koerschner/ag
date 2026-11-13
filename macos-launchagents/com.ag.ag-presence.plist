@@ -4,7 +4,7 @@
 <dict>
   <key>Label</key>
   <string>com.ag.ag-presence</string>
-  <!-- Presence: every 30s, check whether the owner is at the client Mac; on arrival, fire "when online" ag-tickler items. Host only (ag-mac). -->
+  <!-- Presence: every 30s, check whether the owner is at the client Mac. Host only (ag-mac). -->
   <key>ProgramArguments</key>
   <array>
     <string>/bin/zsh</string>

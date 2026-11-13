@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // ag-t3: Ag's bridge to the T3 Code server on the session host (ag-t3.service, https://ag.<tailnet>.ts.net).
 // T3 runs Pi with the real ~/.pi/agent, so a T3 thread is a Pi session file plus T3's view of it. ag's capture
-// (ag-inbox), `ag send`/`ag report` and the ag-tickler deliver through here when T3 is the UI (AG_UI=t3 in
+// (ag-inbox), `ag send`/`ag report` deliver through here when T3 is the UI (AG_UI=t3 in
 // ~/ag-personal/env). Design: docs/t3.md.
 //
 //   ag-t3 new [--title T] [--pin] [--model M] [--project DIR] <text>   start a thread and send it <text>; prints id + link

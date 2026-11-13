@@ -12,7 +12,7 @@ export interface AgBase {
 
 // ---- prompt: every prompt to a Pi session, before the agent sees it (Pi extension ag-rules.ts) ----
 
-/** A prompt the user (or the ag-inbox / ag-tickler, on their behalf) is about to send to this session. */
+/** A prompt the user (or the ag-inbox, on their behalf) is about to send to this session. */
 export interface Prompt {
 	text: string;
 	source: string; // pi's input source: "interactive" | "rpc" | "extension"
@@ -46,7 +46,7 @@ export type PromptRule = (prompt: Prompt, ag: PromptAg) => void | { text: string
 export interface LaneMessage {
 	text: string;
 	source: string; // T3's creationSource: "web" | "mobile" | "mcp" | "provider" | "server"
-	createdBy: string; // "user" (incl. ag-t3: the inbox, ag spawn, the tickler) | "agent" | "system"
+	createdBy: string; // "user" (incl. ag-t3: the inbox, ag spawn) | "agent" | "system"
 	first: boolean; // the thread's first message: nothing has run in it yet
 }
 /** private = this message, and the thread from then on, runs in the private lane (Pi sessions outside Nessie:

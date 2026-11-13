@@ -9,7 +9,7 @@ Ag is the user's whole agent system, not one computer. Names: the **engine** (`a
 
 | Part | What it is | Runs |
 |---|---|---|
-| **Engine** | Rented Linux machine(s), built from zero by IaC | Ag's tmux server (ag-mux), every Pi session, repos and worktrees, builds, tests, Docker, MCP servers, inbox, ag-tickler, `show`, and phone review |
+| **Engine** | Rented Linux machine(s), built from zero by IaC | Ag's tmux server (ag-mux), every Pi session, repos and worktrees, builds, tests, Docker, MCP servers, inbox, `show`, and phone review |
 | **Workers** | More rented Linux machines, created and destroyed on demand | Heavy or parallel jobs sent from the engine (big test suites, many agents at once) |
 | **ag-mac** | The 2024 MacBook (formerly `ag`) | Only what needs macOS: computer use, Mac-only apps (the ChatGPT app; the Discord app only as a fallback to the `ag discord` CLI), Xcode and macOS/iOS builds, native UI renders, Roblox Studio, Keychain items, macOS permission prompts |
 | **Client** | `ag-client` (renamed from an older hostname) and `ag-phone` (the iPhone) | Where the user sits. It attaches to the engine's tmux (`ag`) and runs Hammerspoon, CleanShot, and the client side of the bridge. Unchanged. |
@@ -43,7 +43,7 @@ Nothing important may live only on a machine's local disk.
 | Pi session transcripts | A persistent volume on the engine for speed, plus the **pi-sessions GitHub archive** (below) as the durable off-site copy |
 | Code | Git remotes. Worktrees push WIP branches often, so a rebuilt engine can recreate them. |
 | ag-mux layout (tabs, and which session each tab resumes) | Saved by agd on every change (`~/.local/state/ag-mux/layout.json`) and restored on a new engine, so tabs come back and resume their Pi sessions |
-| Tickler items, inbox and ag-tickler logs, `~/inbox` files | The engine's persistent volume, also backed up to the archive |
+| Inbox logs, `~/inbox` files | The engine's persistent volume, also backed up to the archive |
 | Secrets | The 1Password service account only (never in a repo or image) |
 | Machine setup | The ag repo (agent system + IaC) plus dotfiles (personal config) |
 

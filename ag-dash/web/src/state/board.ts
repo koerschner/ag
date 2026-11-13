@@ -74,7 +74,7 @@ setInterval(() => {
 }, 5000);
 
 // ---------- the view: server ⊕ ops ----------
-const MANUAL_WAIT: Waiting = { title: "Marked waiting", kind: "manual", detail: "asked the session to schedule its wake-up" };
+const MANUAL_WAIT: Waiting = { title: "Marked waiting", kind: "manual", detail: "marked by hand" };
 const patched = new WeakMap<Card, { key: string; out: Card }>();
 function patch(c: Card, p: Patch): Card {
 	const key = JSON.stringify(p);

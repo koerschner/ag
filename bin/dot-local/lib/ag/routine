@@ -21,7 +21,7 @@ routine in ~/ag/routines/<name>.md:
 Triggers (like Claude's): the schedule; Run now (ag-dash, or `ag routine run`); and fire, which starts a run with
 extra text (`ag routine fire <name> --text …`, or POST http://ag:7376/api/routines/fire {name, text}). Fire text
 reaches the session wrapped in a <routine-fire-payload> block marked untrusted; the routine's prompt must opt in
-to acting on it. One-off "do this later" items belong to the ag-tickler, not here.
+to acting on it. One-off "do this later" items belong to T3's scheduled tasks, not here.
 
 Each run is a new Pi session (`pi -p`, named "Routine: <name> <date>"), visible and resumable on ag-dash; it
 writes ~/.local/state/routines/<name>.json ({at, ok, summary, session}) and appends to <name>/runs.jsonl.

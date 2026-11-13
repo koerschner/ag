@@ -1,6 +1,6 @@
 // Activity log for the time review: one JSON line per prompt this session receives, metadata only (no text;
 // the session file has it). Appends to ~/.local/state/activity/prompts.jsonl:
-//   origin   typed | ag-inbox | ag-tickler | ag-file-inbox | rpc | extension. Injecting scripts log a hash of what
+//   origin   typed | ag-inbox | ag-file-inbox | rpc | extension. Injecting scripts log a hash of what
 //            they send (injections.jsonl); a matching hash means it wasn't typed.
 //   devices  which devices had Ag's tmux attached at that moment (from presence's poll, ≤30s old)
 //   client   presence state and HID idle seconds on the client, to tell the user's typing from agent-sent prompts

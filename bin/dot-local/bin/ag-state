@@ -9,7 +9,7 @@ Together with the ag, dotfiles and ag-personal repos (code and config) and the p
   ag-state restore [--force]         pull state + Pi transcripts back onto this machine
 
 What a snapshot holds (under machines/<machine>/home/, mirroring $HOME):
-  .local/state/   every service's state: ag-mux layout (workspaces, tabs, agents), ag-tickler items, ag-dash
+  .local/state/   every service's state: ag-mux layout (workspaces, tabs, agents), ag-dash
                   (pins, waiting, archive), inbox, presence, routines, logs. Not pi-sessions (its own archive),
                   sockets, locks, pids.
   inbox/ review/  pasted screenshots, phone uploads, review pages.

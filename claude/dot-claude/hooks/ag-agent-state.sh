@@ -1,6 +1,6 @@
 #!/bin/sh
 # Reports this Claude session (its transcript/session id) to agd (ag-mux) on SessionStart, so ag-dash
-# and the ag-tickler can find it. Twin of pi/dot-pi/agent/extensions/ag-agent-state.ts. Design: docs/ag-mux.md.
+# can find it. Twin of pi/dot-pi/agent/extensions/ag-agent-state.ts. Design: docs/ag-mux.md.
 
 set -eu
 

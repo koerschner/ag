@@ -3,7 +3,7 @@
 
     ag logs                        list the services
     ag logs <service> [-n N] [-f]  last N lines (default 60), -f follows
-<service>: a systemd user unit on the session host (ag-dash, ag-inbox, ag-tickler, …), else ag-mac's LaunchAgent
+<service>: a systemd user unit on the session host (ag-dash, ag-inbox, ag-presence, …), else ag-mac's LaunchAgent
 com.ag.<service> (its StandardOutPath/StandardErrorPath); mac:<service> forces ag-mac.
 """
 import os, subprocess, sys

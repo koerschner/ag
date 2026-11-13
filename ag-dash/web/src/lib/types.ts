@@ -10,7 +10,7 @@ export type Tool = { name: string; detail: string; sum?: string; hosts?: string[
 
 export type Activity = { kind: "thinking" | "tool" | "idle" | "error"; since: number; tool?: string; detail?: string; sum?: string; hosts?: string[]; error?: string };
 
-export type Waiting = { id?: string; title: string; kind: "check" | "event" | "online" | "at" | "person" | "manual"; detail: string; since?: number; due?: number };
+export type Waiting = { id?: string; title: string; kind: "manual"; detail: string; since?: number; due?: number };
 
 export type Card = {
 	tab: string;
@@ -26,7 +26,6 @@ export type Card = {
 	throb: boolean;
 	ping: boolean;
 	waiting: Waiting[];
-	noWake?: { askedAt?: number; asks: number };
 	focused: boolean;
 	model?: string;
 	thinkingLevel?: string;

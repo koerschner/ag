@@ -1,5 +1,5 @@
 // Reports this Pi's agent state (idle/working/blocked/done) and session file to agd (ag-mux), which
-// ag-dash, the ag-tickler, ag-pi-hibernate and the status bar read. Claude and Codex have shell twins
+// ag-dash, ag-pi-hibernate and the status bar read. Claude and Codex have shell twins
 // (claude/dot-claude/hooks/ag-agent-state.sh, codex/dot-codex/ag-agent-state.sh). Design: docs/ag-mux.md.
 // @ts-nocheck
 

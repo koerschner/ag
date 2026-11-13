@@ -55,7 +55,7 @@ Two roles. Work out which one you are:
    Follow the `dotfiles-change` skill: commit, push, and sync every machine.
    Keep the fix small and scoped to the issue.
 4. **If the fix needs the user** (a login, a grant, a decision), ask once, clearly
-   and kindly, and wait with a `needsUser: true` ag-tickler `check`.
+   and kindly, and wait for their answer.
 5. **Verify** on the real path that it's fixed.
 6. **Report back** to the originating session (see "Split out" in AGENTS.md for
    finding its pane by session file): cause and fix in two or three sentences,

@@ -69,7 +69,7 @@ Work in a project dir, e.g. `~/trailers/<yyyy-mm-dd>-<topic>/` with `clips/`, `a
    (`showwavespic`): one loud sound effect squashes everything else after normalising.
 8. **Show it**: one review page with every cut (video, contact sheet, what each variant is, and
    the judgment calls), opened with `ag-show`; copy the mp4s to the client's `~/Movies/`. If the
-   client is asleep, queue the copy with an `ag-tickler` `when: "online"` item.
+   client is asleep, say so and leave the copy for later.
 9. **Publish** when asked: upload to the video host the product embeds (verify the link plays and
    its visibility), book it where the product announces things, and post a short note for the
    audience (the link, one line per feature, the CTA). Read every post back; markdown conversion

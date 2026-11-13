@@ -15,8 +15,8 @@ through one command, **`ag`**. This repo is the whole system as code, so any mac
 **Sessions are the unit of work.** Each task is one Pi agent session in its own tab, all in one flat list. A
 new session sits in the **Inbox** until you first reply to it. An open tab is an open item; closing it means
 it's done. Things you're waiting on sit in
-**Waiting for** with a wake-up scheduled, and anything deferred goes in the **ag-tickler**, which reopens it
-later as a new session.
+**Waiting for** with a wake-up scheduled, and anything deferred is a T3 scheduled task, which brings it back
+in its thread later.
 
 **The machines**, joined by one Tailscale tailnet (inventory: [`machines/README.md`](machines/README.md)):
 
@@ -82,7 +82,7 @@ in. Session verbs run on the host (other machines forward them over SSH). Most t
 | `ag-rules list\|show\|eject` | your rules (`~/.ag/ag-rules`) and ag's defaults: plain-English rules that boil down to code |
 
 Every Ag tool is named `ag-<name>` and also runs as `ag <name>`: `ag-mac` (run things or computer use on ag-mac),
-`ag-show` (open a file or page on your screen), `ag-shot` (pull your latest screenshots), `ag-tickler`; plus `op-ag` /
+`ag-show` (open a file or page on your screen), `ag-shot` (pull your latest screenshots); plus `op-ag` /
 `op-work` (1Password). They live in [`bin/dot-local/bin/`](bin/dot-local/bin/).
 
 ## Working on ag
@@ -119,7 +119,7 @@ it in `agents.md/` and run `agents.md/build` (the generated file is untracked; `
 | Doc | What |
 |---|---|
 | [docs/onboarding.md](docs/onboarding.md) | build your own Ag from nothing: accounts, tailnet, VPS, ag-mac |
-| [docs/reference.md](docs/reference.md) | every component in depth: ag-dash, ag-tickler, ag-presence, ag-mcp-gateway, secrets, … |
+| [docs/reference.md](docs/reference.md) | every component in depth: ag-dash, ag-presence, ag-mcp-gateway, secrets, … |
 | [docs/ag.md](docs/ag.md) | design and roadmap |
 | [docs/ag-mux.md](docs/ag-mux.md) | the session layer |
 | [infra/README.md](infra/README.md) | building machines with OpenTofu |

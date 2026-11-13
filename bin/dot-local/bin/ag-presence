@@ -12,12 +12,10 @@
 //   online   the client has had input within the last minute, unlocked, for ≥ 90s straight
 //   offline  locked, asleep/unreachable for 3 polls in a row (~90s), or no input for 15 min
 //   held     while an ag-client-cua job is driving the client (its synthetic input isn't the user), nothing changes
-// On every offline→online arrival it runs `ag-tickler fire`, which launches ag-tickler items queued with
-// `--when online` ("resume this next time I'm on the client"). Each item fires once.
 // State: ~/.local/state/ag-presence/state.json. Transitions: log.jsonl beside it. Client: $PRESENCE_CLIENT
 // (default ag-client, the client in machines/README.md).
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 
@@ -212,14 +210,6 @@ function poll() {
 		}
 	}
 	writeFileSync(STATE, JSON.stringify(next, null, 2) + "\n");
-	if (s.state !== "online" && next.state === "online") {
-		// Arrival: launch items queued for "next time the user is online". ag-tickler fire also runs every minute on its own.
-		try {
-			execFileSync(`${HOME}/.local/bin/ag-tickler`, ["fire"], { stdio: "inherit", timeout: 300_000 });
-		} catch (e) {
-			log("tickler_fire_failed", { error: String(e) });
-		}
-	}
 }
 
 // Current state, with "unknown" when the poller hasn't written recently.

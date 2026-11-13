@@ -46,7 +46,6 @@ Use T3's scheduled tasks (in codemode: `tools["mcp__t3-code__schedule_task"]`, p
 
 - **Short in-session loops only:** Pi's `schedule_prompt` tool (pi-schedule-prompt; `action: "update"` by `jobId`). It dies with the Pi process and can't create jobs from inside a scheduled run.
 - **Detached cron** (each run a fresh session, no shared thread): an ag routine (`ag routine new`), with the scratchpad in the dataroom file instead of the prompt.
-- **Not ag-tickler**: it's one-shot.
 
 ## Dataroom (durable memory)
 

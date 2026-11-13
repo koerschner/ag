@@ -27,15 +27,9 @@
 // sent), pasted files (POST /api/upload → ~/inbox/clipboard), new items (POST /api/new: text and/or a recording,
 // handed to the ag-inbox, which opens it in Inbox and names it), renaming tabs (POST /api/rename). Served on the Tailscale IP (http://ag:7376), on
 // 127.0.0.1 (for tailscale serve), and at https://ag.<tailnet>.ts.net:7377 (set up at startup), where voice works.
-// Waiting for: a session with a live ag-tickler item (a wake-up on CI / a condition / an event, a presence item, a
-// scheduled time, or a GTD waiting-for on a person; ~/.local/state/ag-tickler/*.json, matched by session file), or
-// marked by hand (POST /api/card {waiting}). Waiting cards sit in their own column, aren't "needs you", never ping
-// or get the red siren; they get a blue orbit instead.
-// "Waiting always wakes up" (AGENTS.md → GTD model): nothing may sit in Waiting for without an ag-tickler item that will
-// wake it. A hand-set wait prompts the session (once it's at its prompt) to schedule its own wake-up at an interval
-// it chooses; until the item exists the card is flagged "no wake-up" (noWake) and re-asked up to WAKE_MAX times,
-// WAKE_EVERY_MS apart. When the ag-tickler item appears it takes over and the hand-set flag drops; the flag also clears
-// if the session is given new work (a prompt that isn't ours).
+// Waiting for: a session marked by hand (POST /api/card {waiting}, `ag wait`). Waiting cards sit in their own column,
+// aren't "needs you", never ping or get the red siren; they get a blue orbit instead. The mark clears when the
+// session is given new work.
 // Control (Pi semantics): a prompt sent while the agent works is queued as steering (delivered after the
 // current step). Interrupt = Esc twice (this Pi setup asks for a second Esc); Pi puts any queued steering
 // back in its editor. Interrupt & send = interrupt, wait until ready, clear the editor (Ctrl+U), then send.
@@ -56,7 +50,7 @@
 // Coherence: the board carries rev (bumped on every change) and boot; every action answers with the rev that
 // includes it, so the page shows its change at once and holds it until a board that new arrives (ag-dash/web,
 // state/board.ts). Transcript items carry stable keys (k) and an ETag, so refreshes redraw only what changed.
-// Changes arrive as they happen: agd's events, Pi appending to a session file and the ag-tickler's items kick a
+// Changes arrive as they happen: agd's events, Pi appending to a session file kick a
 // poll within ~50 ms (watchChanges); POLL_MS is the fallback.
 // Page: the React app in <ag>/ag-dash/web (built into its dist/, committed; served from this checkout).
 // AG_DASH_PORT / AG_DASH_STATE_DIR / AG_DASH_PASSIVE=1 run a second, passive instance for testing a branch.
@@ -67,7 +61,7 @@ import { createConnection } from "node:net";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, statSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname } from "node:path";
-import { originTag, parseOrigins, stripOrigins } from "../../../pi/dot-pi/agent/extensions/ag-origin.ts";
+import { parseOrigins, stripOrigins } from "../../../pi/dot-pi/agent/extensions/ag-origin.ts";
 import { constants as zc, createGzip } from "node:zlib";
 // Deterministic one-line summaries of tool calls + the machine each runs on (~/ag/ag-toolsum; `ag-toolsum` CLI).
 import { sessionHost, summarize } from "../../../ag-toolsum/ag-toolsum.ts";
@@ -119,21 +113,12 @@ const STT_MODELS = ["whisper-1", "openai-esw/whisper-1"]; // second is the fallb
 const STT_HINT = "tmux, ag, pi, Arcade, arcade.school, Jev, TrueFoundry, Linear, Honeycomb, Hammerspoon, dotfiles, Roblox, pinned.";
 const FAST_LANE_GAP_MS = 60_000; // at most one fast-lane ping per card per minute
 const READY = new Set(["idle", "done", "blocked"]);
-const WAKE_EVERY_MS = 15 * 60_000;
-const WAKE_MAX = 3;
 // The user's display name: $AG_USER_NAME, else its line in the private ~/ag-personal/env, else "the user".
 const USER_NAME = process.env.AG_USER_NAME || (() => { try { return readFileSync(`${HOME}/ag-personal/env`, "utf8").match(/^AG_USER_NAME=(.*)$/m)?.[1].trim() ?? ""; } catch { return ""; } })() || "the user";
-// A tickler item "waiting for" the user themselves (their first name, "me", "the user") belongs in Needs you.
-const USER_RE = new RegExp(`^(${[...(USER_NAME === "the user" ? [] : [USER_NAME.split(/\s+/)[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")]), "me", "you", "the user"].join("|")})\\b`, "i");
-const waitingOnUser = (who: string) => USER_RE.test(who.trim());
-const WAKE_PREFIX = "[ag-dash] The user moved this session to Waiting for.";
-const WAKE_NOTE = `${WAKE_PREFIX} Per "Waiting always wakes up" (AGENTS.md → GTD model), schedule your own wake-up with the ag-tickler now, at an interval you choose: a waitingFor item if you're waiting on a person, or when: "check" with a cheap shell check plus expires for a machine or programmatic signal (if it can't be checked programmatically, the woken session checks by computer use). Don't follow up with outside parties without the user's OK; draft it for them instead. Then reply in one or two lines: what you're waiting on and when you'll next check. The card stays flagged "no wake-up" on the board until the ag-tickler item exists.`;
-// The visible text is the action; the why and how ride in an origin tag (a chip in the UIs).
-const WAKE_PROMPT = `${originTag({ kind: "dash", label: "You moved this to Waiting for", note: WAKE_NOTE })}\nSchedule your wake-up.`;
 const BIG_LINE = 256 * 1024; // tool results this big (screenshots) are summarised by regex, not parsed
 const KEYS = new Set(["esc", "enter", "up", "down", "left", "right", "tab", "backspace", "ctrl+u", "y", "n", "1", "2", "3"]);
 
-type CardState = { judged?: { ts: number; done: boolean } /* Jev's verdict on the answer at ts */; archived?: number /* archived while working: hidden, closes when it finishes cleanly */; goneAt?: number /* tab missing since; forgotten after GONE_KEEP_MS */; waiting?: boolean /* marked by hand */; wakeAskedAt?: number; wakeAsks?: number; pinned?: boolean; pinnedAt?: number /* when pinned: ag-dash chat's Pinned order */; hot?: boolean; red?: boolean /* older names of pinned */; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
+type CardState = { judged?: { ts: number; done: boolean } /* Jev's verdict on the answer at ts */; archived?: number /* archived while working: hidden, closes when it finishes cleanly */; goneAt?: number /* tab missing since; forgotten after GONE_KEEP_MS */; waiting?: boolean /* marked by hand */; waitingAt?: number; pinned?: boolean; pinnedAt?: number /* when pinned: ag-dash chat's Pinned order */; hot?: boolean; red?: boolean /* older names of pinned */; list?: string; seenAt: number; status?: string; statusSince: number; pingedAt?: number; wasNeedsYou?: boolean };
 type List = { id: string; name: string };
 type State = { cards: Record<string, CardState>; lists: List[]; pinnedModels?: string[] /* models pinned to the top of its model picker */ };
 type Msg = { role: "user" | "assistant"; text: string; ts: number; raw?: string /* user text with origin tags, for media paths */ };
@@ -324,7 +309,7 @@ function nameSession(file: string, name: string) {
 // bytes appended since (Pi appends). A file that shrank was rewritten, so it's rescanned.
 const sessions = new Map<string, Session>();
 // The Inbox is a state, not a place: a session sits there until the user replies to it (any prompt after its first).
-// Prompts Ag injects (spawn, report, the ag-tickler, restarts, ag-dash's wake-up ask…) carry an origin tag and
+// Prompts Ag injects (spawn, report, restarts…) carry an origin tag and
 // don't count; ones the user sends with a tag (a forwarded capture, a phone comment, a screenshot) do.
 const USER_ORIGINS = new Set(["follow", "comment", "review-comment", "screenshot", "share"]);
 const byUser = (raw: string) => [...raw.matchAll(/<ag-origin\b[^>]*\bkind="([^"]+)"/g)].every((m) => USER_ORIGINS.has(m[1]));
@@ -558,49 +543,7 @@ function transcript(file: string, ref: string, limit = 150, from?: number) {
 	return { items: out.reverse(), more };
 }
 
-// ---------- waiting for (ag-tickler) ----------
-const TICKLER_DIR = `${HOME}/.local/state/ag-tickler`;
-type Waiting = { id?: string; title: string; kind: "check" | "event" | "online" | "at" | "person" | "manual"; detail: string; since?: number; due?: number };
-// Re-read only when the ag-tickler's directory changed (watchChanges marks it), not on every poll.
-let ticklerCache: Map<string, Waiting[]> | null = null;
-let watchingTickler = false;
-function ticklerWaits(): Map<string, Waiting[]> {
-	if (!ticklerCache || !watchingTickler) ticklerCache = readTicklerWaits();
-	return ticklerCache;
-}
-function readTicklerWaits(): Map<string, Waiting[]> {
-	const out = new Map<string, Waiting[]>();
-	let files: string[] = [];
-	try {
-		files = readdirSync(TICKLER_DIR).filter((f) => f.endsWith(".json"));
-	} catch {
-		return out;
-	}
-	for (const f of files) {
-		let i: any;
-		try {
-			i = JSON.parse(readFileSync(`${TICKLER_DIR}/${f}`, "utf8"));
-		} catch {
-			continue;
-		}
-		const sid = sidOf(i.session);
-		if (i.status !== "waiting" || !sid) continue;
-		if (i.needs_user || i.needs_nathan || waitingOnUser(i.waiting_for ?? "")) continue; // waiting on the user = Needs you, not Waiting for
-		const due = i.due ? Date.parse(i.due) : undefined;
-		const w: Waiting = i.waiting_for
-			? { id: i.id, title: i.title, kind: "person", detail: `on ${i.waiting_for}${i.attempt > 1 ? ` (check-in ${i.attempt})` : ""}`, due }
-			: i.when === "check"
-				? { id: i.id, title: i.title, kind: "check", detail: oneLine(i.check ?? "", 90), due: i.expires ? Date.parse(i.expires) : undefined }
-				: i.when === "event"
-					? { id: i.id, title: i.title, kind: "event", detail: "webhook / another session", due: i.expires ? Date.parse(i.expires) : undefined }
-					: i.when === "online"
-						? { id: i.id, title: i.title, kind: "online", detail: "until you're back at your Mac" }
-						: { id: i.id, title: i.title, kind: "at", detail: "scheduled", due };
-		w.since = Date.parse(i.created_at) || undefined;
-		out.set(sid, [...(out.get(sid) ?? []), w]);
-	}
-	return out;
-}
+type Waiting = { title: string; kind: "manual"; detail: string };
 
 // ---------- board ----------
 type Card = {
@@ -618,7 +561,6 @@ type Card = {
 	throb: boolean; // pinned, not working, not waiting: the red siren runs
 	ping: boolean; // pinned and needs you (not waiting): fast lane + page beep
 	waiting: Waiting[]; // non-empty: waiting for something (blue orbit, Waiting for column)
-	noWake?: { askedAt?: number; asks: number }; // waiting only by hand: no ag-tickler item will wake it yet
 	focused: boolean;
 	model?: string;
 	thinkingLevel?: string;
@@ -827,9 +769,9 @@ function fastLane(card: Card, prefix = "Pinned") {
 
 // Archive while working (ag-dash chat / ag-dash archive on a working chat): the tab stays open and the agent keeps
 // going, but the card is hidden (off board.cards; Archived chats lists it as running). Once the agent stops
-// (SETTLE_MS at its prompt, not waiting on an ag-tickler item, and judged by judgeDone), a resolved card (done,
+// (SETTLE_MS at its prompt, not marked waiting, and judged by judgeDone), a resolved card (done,
 // nothing left for the user) closes the tab for real; a failure, blocker or question un-archives it, pinned (top of
-// the list, siren) with a fast-lane notification. A hidden card waiting on an ag-tickler wake-up stays hidden.
+// the list, siren) with a fast-lane notification. A hidden card marked waiting stays hidden.
 const SETTLE_MS = 5000;
 const settling = new Set<string>();
 let hiddenCards: Card[] = [];
@@ -899,7 +841,6 @@ async function pollOnce() {
 	const cards: Card[] = [];
 	const seenTabs = new Set<string>();
 	const keys = new Set<string>(); // state keys still alive this poll
-	const waits = ticklerWaits();
 	// Sleeping panes have no agent yet: ones ag-mux restored asleep (`ag-mux _sleep`) and ones ag-pi-hibernate put to
 	// sleep (its sleep screen tags the pane @ag_sleep). Show them as idle cards for their session, so a restore, a host
 	// move or hibernation doesn't drop chats off the board; pi starts when the tab is viewed or prompted.
@@ -934,23 +875,12 @@ async function pollOnce() {
 			cs.seenAt = now; // he's looking at it in tmux
 			dirty = true;
 		}
-		const sid = sidOf(a.agent_session?.value);
-		const tick = (sid && waits.get(sid)) || [];
-		if (cs.waiting) {
-			// The ag-tickler item takes over from a hand-set wait; new work (a prompt that isn't our wake-up ask) ends it.
-			const lu = s?.lastUser;
-			const newWork = lu && lu.ts > (cs.wakeAskedAt ?? 0) + 2000 && !/^\[(ag-dash|ag board)\] .{1,40} moved this session to Waiting for\./.test(lu.text) && !(lu.raw ?? "").includes('<ag-origin kind="dash"') && cs.wakeAskedAt;
-			if (tick.length || newWork) {
-				delete cs.waiting, delete cs.wakeAskedAt, delete cs.wakeAsks;
-				dirty = true;
-			} else if (!PASSIVE && ready && a.agent_status !== "blocked" && (cs.wakeAsks ?? 0) < WAKE_MAX && now - (cs.wakeAskedAt ?? 0) > WAKE_EVERY_MS) {
-				cs.wakeAskedAt = now;
-				cs.wakeAsks = (cs.wakeAsks ?? 0) + 1;
-				dirty = true;
-				void mux("agent", "prompt", a.pane_id, WAKE_PROMPT).then((r) => console.log(new Date().toISOString(), "wake-up ask", a.tab_id, r.code === 0 ? "sent" : r.err.trim()));
-			}
+		if (cs.waiting && cs.waitingAt && s?.lastUser && s.lastUser.ts > cs.waitingAt + 2000) {
+			// New work ends a hand-set wait.
+			delete cs.waiting, delete cs.waitingAt;
+			dirty = true;
 		}
-		const waiting: Waiting[] = a.agent_status === "working" ? [] : [...tick, ...(cs.waiting ? [{ title: "Marked waiting", kind: "manual" as const, detail: "asked the session to schedule its wake-up" }] : [])];
+		const waiting: Waiting[] = a.agent_status === "working" || !cs.waiting ? [] : [{ title: "Marked waiting", kind: "manual", detail: "marked by hand" }];
 		const isWaiting = waiting.length > 0 && a.agent_status !== "blocked";
 		// Asleep: no badge or ping (hibernation retires an unseen answer's badge; waking it brings the badge back).
 		const needsYou = !a.asleep && (a.agent_status === "blocked" || (!isWaiting && ready && (s?.lastAssistant?.ts ?? 0) > cs.seenAt));
@@ -978,7 +908,6 @@ async function pollOnce() {
 			throb: !!cs.pinned && a.agent_status !== "working" && !isWaiting,
 			ping: !!cs.pinned && needsYou,
 			waiting: isWaiting ? waiting : [],
-			noWake: cs.waiting && !tick.length ? { askedAt: cs.wakeAskedAt, asks: cs.wakeAsks ?? 0 } : undefined,
 			focused,
 			model: s?.model,
 			thinkingLevel: s?.thinkingLevel,
@@ -1062,7 +991,7 @@ function poll(): Promise<void> {
 	return queued;
 }
 // The board follows changes as they happen: agd's events (an agent starting or stopping, tabs opening, closing,
-// renamed), Pi appending to a session file, and the ag-tickler's items each kick a poll within ~50 ms. POLL_MS is
+// renamed), and Pi appending to a session file each kick a poll within ~50 ms. POLL_MS is
 // only the fallback for anything none of them report (memory, the screen queue).
 // Kicks are coalesced: at most one poll per MIN_GAP_MS however busy the sessions are.
 const MIN_GAP_MS = 200;
@@ -1105,10 +1034,6 @@ function watchChanges() {
 		} catch {}
 	};
 	watchSessions();
-	try {
-		watch(TICKLER_DIR, () => ((ticklerCache = null), kick()));
-		watchingTickler = true;
-	} catch {}
 	const sock = process.env.AG_MUX_SOCKET ?? `${HOME}/.local/state/ag-mux/agd.sock`;
 	const types = ["pane_agent_detected", "pane_agent_status_changed", "pane_closed", "pane_created", "pane_focused", "pane_moved", "tab_closed", "tab_created", "tab_focused", "tab_renamed"];
 	const connect = () => {
@@ -1605,8 +1530,8 @@ async function handle(req: Request): Promise<Response> {
 					cs.pinned = pin;
 				}
 				if (typeof body.waiting === "boolean") {
-					if (body.waiting) cs.waiting = true; // the next poll asks the session to schedule its wake-up
-					else delete cs.waiting, delete cs.wakeAskedAt, delete cs.wakeAsks;
+					if (body.waiting) (cs.waiting = true), (cs.waitingAt = Date.now());
+					else delete cs.waiting, delete cs.waitingAt;
 				}
 				if ("list" in body) cs.list = body.list || undefined;
 				if (body.seen === true) cs.seenAt = Date.now();

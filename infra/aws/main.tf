@@ -128,7 +128,7 @@ resource "aws_key_pair" "ag_mac" {
   public_key = var.ssh_public_key
 }
 
-# Survives `ag-infra down`: Pi sessions, ~/inbox, ~/.local/state (ag-tickler, logs), ag-mux layout snapshots.
+# Survives `ag-infra down`: Pi sessions, ~/inbox, ~/.local/state (logs), ag-mux layout snapshots.
 resource "aws_ebs_volume" "engine_data" {
   availability_zone = var.availability_zone
   size              = var.engine_volume_gb

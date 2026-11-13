@@ -485,7 +485,7 @@ function flushEvents() {
 const resolve = <T,>(m: Map<string, T>, id: string | undefined | null) => (id ? (m.get(id) ?? m.get(byTmux.get(id) ?? "")) : undefined);
 const paneOf = (id?: string | null) => resolve(PANES, id) ?? fail("pane_not_found", `pane ${id} not found`);
 const tabOf = (id?: string | null) => resolve(TABS, id) ?? fail("tab_not_found", `tab ${id} not found`);
-// A pane restored asleep has no agent until pi starts. Prompting it (ag-dash, the inbox, the ag-tickler) wakes it
+// A pane restored asleep has no agent until pi starts. Prompting it (ag-dash, the inbox) wakes it
 // and waits for pi to report ready, so senders don't hit agent_not_found on a sleeping session.
 async function wakeAgent(target: string): Promise<Pane> {
 	const p = resolve(PANES, target);

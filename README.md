@@ -78,7 +78,6 @@ in. Session verbs run on the host (other machines forward them over SSH). Most t
 | `ag spawn "prompt"`, `ag report "msg"` | open a helper session that reports back; report back to the one that spawned you |
 | `ag send <s> "msg"`, `ag merge <A…>` | prompt another session; absorb other sessions into this one |
 | `ag close [s]`, `ag resume <s>`, `ag rename`, `ag pin`, `ag wait` | manage tabs: close/reopen, rename, pin, mark waiting |
-| `ag routine list\|new\|apply\|run\|log` | recurring jobs: a saved prompt or command on a schedule, one file per job in [`routines/`](routines/) |
 | `ag-rules list\|show\|eject` | your rules (`~/.ag/ag-rules`) and ag's defaults: plain-English rules that boil down to code |
 
 Every Ag tool is named `ag-<name>` and also runs as `ag <name>`: `ag-mac` (run things or computer use on ag-mac),

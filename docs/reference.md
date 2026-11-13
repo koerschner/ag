@@ -171,28 +171,16 @@ Intentionally not tracked in git:
 
 ## Routines
 
-A **routine** is an ag job that repeats on its own, without anyone asking (as opposed to a T3 scheduled task, which
-wakes one thread once). Modeled on [Claude Code routines](https://code.claude.com/docs/en/routines): a saved,
-self-contained prompt (or an `ag` command) plus triggers, where each run is a fresh, unattended session.
+A **routine** is a job that repeats on its own. New routines are **T3 scheduled tasks** (`schedule_task` with an
+`interval` or `fixed_time` schedule, `bindToCurrentThread: false`, `freshSession: true`, project Ag): each run is
+a fresh session in that routine's one thread, listed in T3 → Settings → Scheduled tasks. `fixed_time` is in the
+server's zone (UTC), so convert from Central (and adjust at DST changes). Write prompts that are self-contained and
+say what success looks like, since nobody answers questions mid-run. The `ag routine` definitions in `routines/`
+were migrated to T3 tasks named `Routine: <name>` on 2026-11-13 and removed.
 
-- **Define** one per file in `routines/<name>.md`: front matter `description`, `schedule` (`hourly`,
-  `daily HH:MM`, `weekdays HH:MM`, `weekly Mon[,Thu] HH:MM`, `every 30min`, or `calendar <OnCalendar>[; <OnCalendar>…]` (several expressions, one timer); Central
-  time), `kind` (`prompt`, default, or `command` with `command:`), `cwd`, `model`, `timeout`, `enabled`; the body
-  is the prompt. `ag routine new <name> --schedule … < prompt.md` scaffolds one. Commit it.
-- **Schedule:** `ag routine apply` writes `<name>.timer`/`.service` into `~/.config/systemd/user` on the session
-  host (marked generated; removed when the definition goes); `bootstrap-linux` runs it.
-- **Triggers:** the schedule; Run now (`ag routine run <name>`, or ag-dash → Routines); fire with run-specific
-  text (`ag routine fire <name> --text …`), delivered in a `<routine-fire-payload>` block marked untrusted, so a
-  prompt must opt in to acting on it (Claude's API-trigger rule). One-off "later" jobs are T3 scheduled tasks.
-- **Runs:** prompt routines run `pi -p` as a new session named `Routine: <name> <date>` (open it from the AG
-  Dash card) with a preamble (unattended, AGENTS.md applies, spin out an Inbox session if the user is needed, end
-  with `RESULT: ok|fail — summary`). Each run writes `~/.local/state/routines/<name>.json`
-  (`{at, ok, summary, session?}`) and appends `<name>/runs.jsonl`; one run at a time per routine.
-- **Inspect:** `ag routine list | show <name> | log <name>`.
-
-Older routines are hand-written systemd timers in `systemd-user/` or ag-mac LaunchAgents with
+Infra jobs stay as hand-written systemd timers in `systemd-user/` or ag-mac LaunchAgents with
 `StartInterval`/`StartCalendarInterval` in `macos-launchagents/` (one-line `<!-- … -->` description in the
-plist); they write the same state file. ag-dash → **Routines** lists all of them.
+plist); they write `~/.local/state/routines/<name>.json`, and ag-dash → **Routines** lists them.
 
 | routine | where | what |
 |---|---|---|
@@ -200,13 +188,8 @@ plist); they write the same state file. ag-dash → **Routines** lists all of th
 | `ag-pi-sessions-sync` | engine, hourly | archives Pi sessions to GitHub |
 | `ag-state-sync` | engine, every 15 min | snapshots Ag state (layout, ag-dash, inbox…) to GitHub |
 | `ag-toolsum-review` | engine, daily 9am Central | extends ag-dash's tool-call summary rules (`ag-toolsum/README.md`) |
-| `t3-upstream-sync` | engine, daily 4:07 AM Central (`routines/`) | merges pingdotgg/t3code main into the T3 fork and ships it to the T3 server (`~/t3code/ag/sync-upstream`), fixing conflicts or failing gates |
-| `t3-mac-app-install` | engine, every 5 min (`routines/`) | installs the T3 Mac app build waiting for the client Mac (`~/t3code/ag/build-mac --install-pending`) once it's online and idle for 10 minutes |
-| `vision-board-snapshot` | engine, daily 11:07 PM Central (`routines/`) | exports a Freeform board with `ag-freeform-export` (Freeform on ag-mac via the screen queue), keeps a dated snapshot when it changed and rebuilds its timeline page (private code in ag-personal) |
-| `ag-cli-usage` | engine, Mondays 9:07 Central (`routines/`) | audits `ag` CLI adoption vs hand-rolled equivalents (`ag usage`), writes `docs/ag-cli-usage.md`, spins out one fix |
-| `dashboard-proposals` | engine, every 2 days 9:07 Central (`routines/`) | turns data questions the user liked into dashboard proposals with HTML mocks and builds the top one as a PR (private instructions in ag-personal) |
-| `freetime-strata-sync` | engine, hourly (`routines/`) | deterministic (no LLM): matches a partner app's guide-hosted breakout events to its staffing schedule (private code in ag-personal) |
 | `ag-mem-watch`, `nessie`, `ag-chrome-tab-reaper` | ag-mac | memory alerts, Nessie trace sync, closing stale Chrome tabs |
+| `Routine: <name>` | T3 scheduled tasks | the former `ag routine` jobs (ramp-receipts, alpha-slack-watch, freetime-strata-sync, and the paused ones) |
 
 ## ag-rules
 

@@ -205,6 +205,7 @@ plist); they write the same state file. ag-dash → **Routines** lists all of th
 | `vision-board-snapshot` | engine, daily 11:07 PM Central (`routines/`) | exports a Freeform board with `ag-freeform-export` (Freeform on ag-mac via the screen queue), keeps a dated snapshot when it changed and rebuilds its timeline page (private code in ag-personal) |
 | `ag-cli-usage` | engine, Mondays 9:07 Central (`routines/`) | audits `ag` CLI adoption vs hand-rolled equivalents (`ag usage`), writes `docs/ag-cli-usage.md`, spins out one fix |
 | `dashboard-proposals` | engine, every 2 days 9:07 Central (`routines/`) | turns data questions the user liked into dashboard proposals with HTML mocks and builds the top one as a PR (private instructions in ag-personal) |
+| `freetime-strata-sync` | engine, hourly (`routines/`) | deterministic (no LLM): matches a partner app's guide-hosted breakout events to its staffing schedule (private code in ag-personal) |
 | `ag-mem-watch`, `nessie`, `ag-chrome-tab-reaper` | ag-mac | memory alerts, Nessie trace sync, closing stale Chrome tabs |
 
 ## ag-rules

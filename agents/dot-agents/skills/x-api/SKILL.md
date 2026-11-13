@@ -11,7 +11,7 @@ Ag has X access set up on the session host (`ag-engine`). Never scrape `x.com` o
 
 You have two ways to reach X:
 
-1. **MCP server `x` (`mcp_x_<tool>` in Pi):** X's hosted MCP server (`https://api.x.com/mcp`), run once per machine by `ag-mcp-gateway` (`127.0.0.1:7386`) with the X app's app-only bearer token. App-only means public data and no user context.
+1. **MCP server `x` (`mcp__x__<tool>` in Pi):** X's hosted MCP server (`https://api.x.com/mcp`), run once per machine by `ag-mcp-gateway` (`127.0.0.1:7386`) with the X app's app-only bearer token. App-only means public data and no user context.
    - **Works here:** `search_posts_all` (full-archive search back to 2006), `get_posts_by_id` / `get_posts_by_ids`, `get_posts_counts_recent`, `get_posts_liking_users`, `get_posts_quoted_posts`, `get_posts_reposted_by`, `get_users_by_username` / `get_users_by_usernames` / `get_users_by_id`, `search_users`, `get_users_posts`, `get_users_mentions`, `get_users_liked_posts` (public), `get_users_owned_lists`, `search_news` / `get_news`, `get_trends_by_woeid` (WOEID `1` = worldwide, `23424977` = United States), `search_spaces` / `get_spaces_*`, `get_lists_*`, `search_communities`, `get_usage_credits` (credit balance).
    - **Fails here (use `xurl` instead):** anything about "me" (`get_users_me*`, bookmarks, bookmark folders), chat/DMs, broadcasts, and every write (create, update, delete, follow, pin, article drafts).
 2. **The `xurl` CLI:** X's official CLI (`https://github.com/xdevplatform/xurl`), installed on the session host (config `~/.xurl/auth.yml`, default app `ag`). Signed in as the user's own X account with OAuth 2.0 (all scopes, including DMs and writes). It falls back to OAuth 1.0a on its own when the OAuth 2.0 token fails, or uses the app-only bearer token with `--auth app`. Covers the whole X API v2.
@@ -77,7 +77,7 @@ To keep costs down:
 
 - **Operators:** `from:handle`, `to:handle`, `@handle`, `#tag`, `"exact phrase"`, `OR`, `-word`, `-is:retweet`, `is:reply`, `-is:reply`, `is:quote`, `has:links`, `has:media`, `has:images`, `url:example.com`, `lang:en`, `conversation_id:<id>`.
 - **Time range and sorting:** pass `start_time` and `end_time` (ISO 8601) parameters, and `sort_order=relevancy` or `recency`.
-- **Recent vs full archive:** recent search (`xurl search`, `/2/tweets/search/recent`) covers the last 7 days. Full-archive search (`/2/tweets/search/all` or `mcp_x_search_posts_all`) goes back to 2006 and allows `max_results` up to 500.
+- **Recent vs full archive:** recent search (`xurl search`, `/2/tweets/search/recent`) covers the last 7 days. Full-archive search (`/2/tweets/search/all` or `mcp__x__search_posts_all`) goes back to 2006 and allows `max_results` up to 500.
 - MCP search results include a `url` deeplink for each post.
 
 ## Acting on the user's account

@@ -1524,15 +1524,16 @@ export function summarizeShell(command: string, ctx: Ctx, top = false): Summary 
 
 // ---------- non-shell tools ----------
 
+// Pi's built-in MCP names tools mcp__<server>__<tool>; older transcripts (pi-mcp-extension) use mcp_<server>_<tool>.
 const MCP_SERVERS: [RegExp, string, string?][] = [
-	[/^mcp_linear_/, "Linear"],
-	[/^mcp_slack_alpha_|^mcp_slack_slack_|^mcp_slack_/, "Slack"],
-	[/^mcp_honeycomb_/, "Honeycomb"],
-	[/^mcp_arcade_school_/, "School data"],
-	[/^mcp_tsa_courses_/, "Courses"],
-	[/^mcp_tapkit_/, "iPhone", "ag-phone"],
-	[/^mcp_github_/, "GitHub"],
-	[/^mcp_x_/, "X"],
+	[/^mcp__?linear__?/, "Linear"],
+	[/^mcp__?slack_alpha__?|^mcp__?slack__?slack_|^mcp__?slack__?/, "Slack"],
+	[/^mcp__?honeycomb__?/, "Honeycomb"],
+	[/^mcp__?arcade_school__?/, "School data"],
+	[/^mcp__?tsa_courses__?/, "Courses"],
+	[/^mcp__?tapkit__?/, "iPhone", "ag-phone"],
+	[/^mcp__?github__?/, "GitHub"],
+	[/^mcp__?x__?/, "X"],
 ];
 
 /** The first real table a SQL query reads: skips subqueries "from (select …)" and its own CTE names. */

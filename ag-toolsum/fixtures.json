@@ -605,6 +605,37 @@
   ]
  },
  {
+  "tool": "mcp__linear__get_issue",
+  "args": {
+   "id": "FT-944"
+  },
+  "sum": "Linear: get issue \"FT-944\"",
+  "hosts": [
+   "mcp"
+  ]
+ },
+ {
+  "tool": "mcp__slack_alpha__conversations_search_messages",
+  "args": {
+   "search_query": "\"motivational model\"",
+   "limit": 30
+  },
+  "sum": "Slack: conversations search messages \"motivational model\"",
+  "hosts": [
+   "mcp"
+  ]
+ },
+ {
+  "tool": "mcp__arcade_school__query_readonly",
+  "args": {
+   "sql": "select m.id from student_portal.conversation_messages m limit 5"
+  },
+  "sum": "School data: query readonly student_portal.conversation_messages",
+  "hosts": [
+   "mcp"
+  ]
+ },
+ {
   "tool": "subagent",
   "args": {
    "agent": "scout",

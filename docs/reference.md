@@ -189,6 +189,7 @@ plist); some write `~/.local/state/routines/<name>.json` with their last result.
 | `ag-state-sync` | engine, every 15 min | snapshots Ag state (layout, ag-dash, inbox…) to GitHub |
 | `ag-toolsum-review` | engine, daily 9am Central | extends ag-dash's tool-call summary rules (`ag-toolsum/README.md`) |
 | `ag-mem-watch`, `nessie`, `ag-chrome-tab-reaper` | ag-mac | memory alerts, Nessie trace sync, closing stale Chrome tabs |
+| `ag-sms-watch` | ag-mac, every 5 min | texts the user when SMS reach chat.db late (Text Message Forwarding off) |
 | `Routine: <name>` | T3 scheduled tasks | the former `ag routine` jobs (the `ag routine` CLI and ag-dash's Routines page are gone) (ramp-receipts, alpha-slack-watch, freetime-strata-sync, and the paused ones) |
 
 ## ag-rules

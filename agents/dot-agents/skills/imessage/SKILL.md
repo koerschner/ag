@@ -6,7 +6,10 @@ description: Read and send the user's iMessage/SMS from any ag machine with `ag-
 # iMessage (`ag-messages`)
 
 ag-mac is signed in to iMessage with the user's personal Apple ID, with Messages in iCloud (and SMS
-forwarding from their iPhone), so it sees what their phone sees. `ag-messages` works from ag-engine or
+forwarding from their iPhone), so it sees what their phone sees. SMS (verification codes) arrive within
+seconds only through the iPhone's **Text Message Forwarding** to ag-mac; without it they trickle in through
+Messages in iCloud hours later. `ag-sms-watch` (LaunchAgent on ag-mac) texts the user when SMS start arriving
+late; `ag-mac run ag-sms-watch` shows the last on-time and late SMS. `ag-messages` works from ag-engine or
 any ag machine: off the Mac it ships itself to ag-mac (`ag-mac run python3 -`) and runs there, reading
 `chat.db` directly and sending through Messages.app with AppleScript.
 
@@ -29,6 +32,10 @@ ag-messages cat <attachment path>       # attachment bytes on stdout
   cached on ag-mac for an hour and used from cache when the client is offline.
 - To look at a photo someone sent: `ag-messages get <path> /tmp` then read the JPEG.
 - `--file` takes a path on the machine you run it from (it's copied to ag-mac first).
+- **A code never shows up?** Run `ag-mac run ag-sms-watch`. Late SMS mean forwarding is off: on the iPhone,
+  Settings > Apps > Messages > Text Message Forwarding > ag-mac on (`ag cua --phone`). System Settings >
+  Apple Account > iCloud > Messages > Sync Now on ag-mac pulls what iCloud already has (a restart of
+  `imagent` alone doesn't).
 - Exit 255 = ag-mac unreachable (`ag-mac status`). A chat.db error = Full Disk Access lost (`ag-access`).
   A send that reports `FAILED (error N)` did not go out; a new number that isn't on iMessage is retried
   as SMS automatically.

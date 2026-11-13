@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+"""ag-sms-watch: notice when ag-mac stops getting the user's SMS in real time.
+
+  ag-sms-watch check    one pass (LaunchAgent com.ag.ag-sms-watch runs it every 5 min; ag-mac only)
+  ag-sms-watch          status: last on-time and last late SMS, last alert
+
+Agents read verification codes from ag-mac's ~/Library/Messages/chat.db. SMS reach it two ways:
+Text Message Forwarding (the iPhone relays each SMS within seconds) and Messages in iCloud (the
+iPhone uploads, the Mac pulls on its own schedule; that can lag by hours). An incoming SMS that
+first shows up in chat.db long after it was received therefore means forwarding missed it: usually
+the iPhone's Settings > Apps > Messages > Text Message Forwarding > ag-mac toggle is off.
+Each pass looks at rows added since the last pass; an incoming SMS dated more than LATE_MIN minutes
+before this pass saw it is "late". Late SMS alert the user (ag-text), at most once per ALERT_HOURS.
+State: ~/.local/state/ag-sms-watch.json. Never logs message text or numbers.
+"""
+import json, os, sqlite3, subprocess, sys, time
+
+DB = os.path.expanduser("~/Library/Messages/chat.db")
+STATE = os.path.expanduser("~/.local/state/ag-sms-watch.json")
+LATE_MIN = int(os.environ.get("SMS_WATCH_LATE_MIN", "20"))
+ALERT_HOURS = float(os.environ.get("SMS_WATCH_ALERT_HOURS", "12"))
+APPLE_EPOCH = 978307200
+
+
+def load() -> dict:
+    try:
+        return json.load(open(STATE))
+    except (OSError, ValueError):
+        return {}
+
+
+def save(st: dict) -> None:
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    tmp = STATE + ".tmp"
+    json.dump(st, open(tmp, "w"), indent=1)
+    os.replace(tmp, STATE)
+
+
+def stamp(t) -> str:
+    return time.strftime("%a %b %d %-I:%M %p %Z", time.localtime(t)) if t else "never"
+
+
+def check() -> None:
+    if subprocess.run([os.path.expanduser("~/.local/bin/ag-machine-role"), "extremity"]).returncode:
+        return  # only ag-mac reads codes from chat.db
+    st = load()
+    con = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+    top = con.execute("select max(ROWID) from message").fetchone()[0] or 0
+    last = st.get("last_rowid")
+    st["last_rowid"] = top
+    st["last_check"] = now = time.time()
+    if last is None:  # first run: just remember where we are
+        save(st)
+        return
+    rows = con.execute(
+        "select date from message where ROWID > ? and service = 'SMS' and is_from_me = 0", (last,)).fetchall()
+    late = []
+    for (d,) in rows:
+        t = d / 1e9 + APPLE_EPOCH if d > 1e12 else d + APPLE_EPOCH
+        if now - t > LATE_MIN * 60:
+            late.append(t)
+        else:
+            st["last_ontime"] = max(st.get("last_ontime", 0), t)
+    if late:
+        st["last_late"] = max(late)
+        st["late_total"] = st.get("late_total", 0) + len(late)
+        if now - st.get("last_alert", 0) > ALERT_HOURS * 3600:
+            lag = int((now - max(late)) / 60)
+            msg = (f"⚠️ ag-mac got {len(late)} SMS late (newest {lag} min after it reached your iPhone), so agents can't "
+                   "read verification codes in time. On the iPhone: Settings > Apps > Messages > Text Message "
+                   "Forwarding > turn ag-mac on.")
+            if subprocess.run([os.path.expanduser("~/.local/bin/ag-text"), msg]).returncode == 0:
+                st["last_alert"] = now
+        print(f"{time.strftime('%F %T')} late SMS: {len(late)}", flush=True)
+    save(st)
+
+
+def status() -> None:
+    st = load()
+    print(f"last check:       {stamp(st.get('last_check'))}")
+    print(f"last on-time SMS: {stamp(st.get('last_ontime'))}")
+    print(f"last late SMS:    {stamp(st.get('last_late'))}  (late total {st.get('late_total', 0)})")
+    print(f"last alert:       {stamp(st.get('last_alert'))}")
+
+
+if __name__ == "__main__":
+    {"check": check}.get(sys.argv[1] if len(sys.argv) > 1 else "", status)()

@@ -778,8 +778,7 @@ const RULES: Rule[] = [
 		const s = task ? cuaSummary(task) : undefined;
 		return s ? { sum: s, host, rule: "cua" } : null;
 	} },
-	{ id: "ag-mux", cmd: /^(ag-mux|herdr)$/, fn: (a, raw) => {
-		// herdr is ag-mux's predecessor with the same CLI; old traces still use it
+	{ id: "ag-mux", cmd: /^ag-mux$/, fn: (a, raw) => {
 		const tool = raw.split(/\s/)[0];
 		const p = positional(a, ["--label", "--cwd", "--direction", "--source", "--lines", "--timeout", "--regex", "--body", "--sound", "--tab", "--pane", "--source-pane", "--target-pane"]);
 		const [g, sub, t0] = p;
@@ -815,15 +814,6 @@ const RULES: Rule[] = [
 		return s?.trim();
 	} },
 	{ id: "ag-session-link", cmd: /^ag-session-link$/, fn: () => "Get session link" },
-	{ id: "herdr-link", cmd: /^herdr-link$/, fn: (a) => {
-		// herdr-link (predecessor of `ag link`): tabs by id, --grep PATTERN, or --session [file|id]
-		if (a.includes("--grep")) { const g = a.slice(a.indexOf("--grep") + 1).find((x) => !x.startsWith("-")); return g ? `Get links to tabs matching "${clip(g, 30)}"` : undefined; }
-		const self = (x: string) => /^"?\$\{?(?:HERDR_TAB_ID|PI_SESSION_FILE|PI_SESSION_ID)\}?"?$/.test(x);
-		const p = positional(a).filter((x) => x !== "-i");
-		if (a.includes("--session")) return !p.length || self(p[0]) ? "Get link to this session" : `Get link to session ${shortPath(p[0].replace(/^.*\//, ""))}`;
-		if (!p.length || p.every(self)) return "Get link to this tab";
-		return `Get link to ${p.slice(0, 3).map((x) => clip(x, 20)).join(", ")}${p.length > 3 ? ` +${p.length - 3}` : ""}`;
-	} },
 	{ id: "osacompile", cmd: /^osacompile$/, fn: (a) => { const o = flagVal(a, "-o"); const f = positional(a, ["-o", "-l", "-e"])[0]; return o ? `Compile ${flagVal(a, "-l") === "JavaScript" ? "JXA" : "AppleScript"} ${f ? shortPath(f) : "script"} → ${shortPath(o)}` : undefined; } },
 	{ id: "osascript", cmd: /^osascript$/, fn: (a, raw) => {
 		const app = raw.match(/tell (?:application|app) (?:id )?\\?"([^"\\]+)\\?"/)?.[1];
@@ -1235,11 +1225,11 @@ const RULES: Rule[] = [
 		if (p[0] === "version") return "Check moshi-hook version";
 		if (p[0] === "probe") return "Probe moshi-hook";
 	} },
-	{ id: "ag-script", cmd: /^(?:~|\$HOME)?\/?(?:\.local\/bin\/)?(ag-mcp-gateway|ag-dash|ag-mux-smoke\.sh|ag-nav|herdr-nav|ag-tickler|agd)$/, fn: (a, raw) => {
+	{ id: "ag-script", cmd: /^(?:~|\$HOME)?\/?(?:\.local\/bin\/)?(ag-mcp-gateway|ag-dash|ag-mux-smoke\.sh|ag-nav|ag-tickler|agd)$/, fn: (a, raw) => {
 		const tool = raw.split(/\s/)[0].replace(/^.*\//, "");
 		const sub = positional(a)[0];
 		if (tool === "ag-mcp-gateway" && sub === "status") return "Check the MCP gateway status";
-		if (/^(?:ag|herdr)-nav$/.test(tool)) {
+		if (tool === "ag-nav") {
 			const m: Record<string, string> = { status: "Print pane focus history", reopen: "Reopen the last closed pane", back: "Focus the previous pane", forward: "Focus the next pane", daemon: `Run the ${tool} daemon` };
 			if (sub && m[sub]) return `${m[sub]} (${tool})`;
 		}
@@ -1323,7 +1313,7 @@ function summarizeSegment(seg: string, ctx: Ctx): SegOut {
 		.replace(/^(?:(?:\.\/)?(?:[\w.-]+\/)*bin\/)?(mac|tickler|show|shot|presence|client-cua|chatgpt-cua|cua-queue|ts-api|session-link|pi-hibernate|toolsum|machine-role|mcp-gateway|rules|discord|shortcuts-check|moshi-hook-install|screen-record)$/, "ag-$1")
 		// ~/proj/node_modules/.bin/vp → vp when a rule knows the tool, else node_modules/.bin/vp
 		.replace(/^(?:~|\/)\S*\/(node_modules\/\.bin\/)([\w.-]+)$/, (_m, nb, t) => (RULES.some((r) => r.id !== "node-bin" && r.cmd.test(t)) ? t : nb + t))
-		.replace(/^agrec$/, "ag-rec").replace(/^ag-rule$/, "ag-rules").replace(/^herdr-shortcuts-check$/, "ag-shortcuts-check");
+		.replace(/^agrec$/, "ag-rec").replace(/^ag-rule$/, "ag-rules");
 	if (/^(?:echo|printf)$/.test(cmd)) {
 		// echo '…' > FILE writes a file; echo '…' >> FILE appends (unless the file is a log: often an exit status)
 		const out = s.match(/[^>&\d]>\s*([^\s&|;<>()]+)\s*$/)?.[1];

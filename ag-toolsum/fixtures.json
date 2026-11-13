@@ -1239,116 +1239,6 @@
  {
   "tool": "bash",
   "args": {
-   "command": "herdr tab get wN:tM"
-  },
-  "sum": "Inspect tab wN:tM",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr tab create --cwd /tmp --no-focus"
-  },
-  "sum": "Open tab",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr status 2>&1"
-  },
-  "sum": "Check herdr status",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr server reload-config"
-  },
-  "sum": "Reload herdr config",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr --skill 2>/dev/null"
-  },
-  "sum": "Read the herdr skill",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr worktree list --cwd ~/arcade.school 2>&1"
-  },
-  "sum": "List worktrees",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr-link --session \"$f\""
-  },
-  "sum": "Get link to session $f",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr-link --url --session"
-  },
-  "sum": "Get link to this session",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr-link w1:tCW wB:t7"
-  },
-  "sum": "Get link to w1:tCW, wB:t7",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr-link --grep -i Nessie"
-  },
-  "sum": "Get links to tabs matching \"Nessie\"",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "for w in wF wM; do echo \"$w: $(herdr pane process-info --pane $w:p1 2>/dev/null | jq -c .result | head -c 150)\"; done"
-  },
-  "sum": "Inspect pane $w:p1",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
    "command": "tmux -L ag list-keys -T prefix"
   },
   "sum": "List tmux key bindings",
@@ -1589,86 +1479,6 @@
  {
   "tool": "bash",
   "args": {
-   "command": "herdr --default-config 2>/dev/null"
-  },
-  "sum": "Print herdr's default config",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr pane 2>&1"
-  },
-  "sum": "Read herdr pane usage",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr config show-keys 2>/dev/null"
-  },
-  "sum": "List herdr key bindings",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr agent explain zzmove 2>&1"
-  },
-  "sum": "Explain agent detection in zzmove",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr pane swap --source-pane $P --target-pane $N >/dev/null"
-  },
-  "sum": "Swap panes $P ↔ $N",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr plugin log user.pin-inbox 2>&1"
-  },
-  "sum": "Read herdr plugin log user.pin-inbox",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr-nav reopen >/dev/null"
-  },
-  "sum": "Reopen the last closed pane (herdr-nav)",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr-nav status"
-  },
-  "sum": "Print pane focus history (herdr-nav)",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
    "command": "uvx --from markdown python -c \"import markdown;print(1)\""
   },
   "sum": "Run Python snippet (uvx, markdown)",
@@ -1889,26 +1699,6 @@
  {
   "tool": "bash",
   "args": {
-   "command": "herdr workspace list"
-  },
-  "sum": "List workspaces",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr workspace get $(herdr pane get $HERDR_PANE_ID | jq -r .result.pane.workspace_id)"
-  },
-  "sum": "Inspect workspace",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
    "command": "ag-mux workspace create --cwd /home/nathan --label \"ZZ Test Area\" --no-focus"
   },
   "sum": "Create workspace \"ZZ Test Area\"",
@@ -2102,16 +1892,6 @@
    "command": "lua -e \"assert(loadfile('x.lua'))\""
   },
   "sum": "Run Lua snippet",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
-   "command": "herdr-shortcuts-check 2>&1"
-  },
-  "sum": "Check keyboard shortcuts",
   "hosts": [
    "ag-engine"
   ]

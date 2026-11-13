@@ -1,0 +1,49 @@
+#!/bin/sh
+# ag-distress: an agent that is stuck texts the user now, mid-task (via ag-text, so their Telegram
+# reply routes back to this session). Any agent, interactive or background, can raise its hand
+# instead of looping or silently giving up.
+#   ag-distress "<what's wrong>" "<what you need from the user>"
+# Sends:  🆘 Stuck · <session title>
+#         <what's wrong>
+#         Needs: <what you need>
+#         <session link>
+# Sends whether or not the user is at the desk. At most one text per session per $AG_DISTRESS_GAP
+# seconds (default 600) so a looping agent can't flood the phone; a refused call exits 3 and says when
+# to retry. Session: $AG_TEXT_SESSION, else $PI_SESSION_FILE / $PI_SESSION_ID (Pi sets these).
+# Log: ~/.local/state/ag/distress.jsonl.
+set -eu
+reason=${1:-}; need=${2:-}
+[ -n "$reason" ] || { echo 'usage: ag-distress "<what is wrong>" "<what you need from the user>"' >&2; exit 2; }
+bin=$(dirname "$0")
+sess=${AG_TEXT_SESSION:-${PI_SESSION_FILE:-${PI_SESSION_ID:-}}}
+sid=$(basename "${sess:-unknown}" .jsonl); sid=${sid##*_}
+state=$HOME/.local/state/ag; mkdir -p "$state/distress"
+gap=${AG_DISTRESS_GAP:-600}
+stamp=$state/distress/$sid
+now=$(date +%s)
+if [ -f "$stamp" ]; then
+  last=$(cat "$stamp" 2>/dev/null || echo 0)
+  wait=$((last + gap - now))
+  if [ "$wait" -gt 0 ]; then
+    echo "ag-distress: not sent; this session already texted the user $((now - last))s ago. Retry in ${wait}s if still stuck, or wait for their reply." >&2
+    exit 3
+  fi
+fi
+
+title= url=
+if [ -n "$sess" ] && line=$("$bin/ag" link "$sid" --phone 2>/dev/null | head -n 1) && [ -n "$line" ]; then
+  url=${line##* }; title=$(printf '%s' "${line% *}" | sed 's/[[:space:]]*$//')
+fi
+[ -n "$title" ] || title=$(basename "$PWD")
+
+msg="🆘 Stuck · $title
+$reason${need:+
+Needs: $need}${url:+
+$url}"
+if AG_TEXT_SESSION=${sess:-} "$bin/ag-text" "$msg"; then ok=true; echo "$now" >"$stamp"; else ok=false; fi
+SID=$sid OK=$ok R=$reason N=$need python3 -c '
+import json, os, time
+print(json.dumps({"at": int(time.time()), "session": os.environ["SID"], "sent": os.environ["OK"] == "true",
+                  "reason": os.environ["R"], "need": os.environ["N"]}, ensure_ascii=False))' >>"$state/distress.jsonl"
+[ "$ok" = true ] || { echo "ag-distress: ag-text failed" >&2; exit 1; }
+echo "ag-distress: texted the user. Their Telegram reply comes back to this session as a new prompt."

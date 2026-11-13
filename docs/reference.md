@@ -377,6 +377,12 @@ Moshi on the iPhone connects to the session host over Tailscale and attaches to 
   QR login screen, the user scans it once from their phone (Telegram → Settings → Devices →
   Link Desktop Device). Never drive the client's Telegram or iPhone Mirroring for this.
   Log: `~/.local/state/ag-notify/log.jsonl`.
+- **Distress texts (agent is stuck)**: `ag-distress "<what is wrong>" "<what you need>"` (Pi tool
+  `distress_call`, `pi/dot-pi/agent/extensions/ag-distress.ts`) texts `🆘 Stuck · <session title>` plus
+  the session link through `ag-text` right away, mid-task, whether or not the user is away, from any
+  session (TUI, T3, subagents, scheduled runs). One per session per 10 minutes (`AG_DISTRESS_GAP`
+  seconds); a refused call exits 3. The reply routes back like any Telegram follow-up. When to use it:
+  `agents.md/sections/030-ag.md`. Log: `~/.local/state/ag/distress.jsonl`.
 - **Telegram follow-ups**: when the user replies to an ag text in Telegram, `ag-telegram listen`
   (`ag-telegram.service`, session host) prompts the session that sent it (`ag-text` logs
   message id → session in `~/.local/state/ag/telegram-sent.jsonl`); a reply whose session is
@@ -523,15 +529,25 @@ restarts a running server: after an update, `systemctl --user restart rex-server
 ## Shared MCP gateway (Pi)
 
 Pi's stdio MCP bridges (`linear`, `arcade_school`, `honeycomb`, `tsa_courses`, `x`, `readwise`) run
-**once per machine** instead of once per Pi session: `bin/dot-local/bin/ag-mcp-gateway`
-(LaunchAgent `com.ag.ag-mcp-gateway`, KeepAlive, all machines) runs each server's
-`mcp-remote` behind its own pinned `mcp-proxy` (via `uvx`) on
-`127.0.0.1:7381`–`7387/mcp`, and `pi/dot-pi/agent/mcp.json` points at those URLs
-(`slack` stays direct HTTP). Per-session bridges cost ~100 MB each (96 sessions used
-~9.5 GB on ag). Server commands and ports live in the script; logs in
-`$TMPDIR/ag-mcp-gateway/<server>.log`. Check with `ag-mcp-gateway status`. After editing
-it, `launchctl kickstart -k gui/$UID/com.ag.ag-mcp-gateway`; open Pi sessions
+**once per machine** instead of once per Pi session. `bin/dot-local/bin/ag-mcp-gateway`
+(LaunchAgent `com.ag.ag-mcp-gateway`, KeepAlive, all machines) runs each server's `mcp-remote`
+behind its own pinned `mcp-proxy` (via `uvx`) on `127.0.0.1:7381`–`7387/mcp`. Per-session bridges
+cost ~100 MB each (96 sessions used ~9.5 GB on ag). Server commands and ports live in the script,
+and logs are in `$TMPDIR/ag-mcp-gateway/<server>.log`. Check with `ag-mcp-gateway status`. After
+editing the script, run `launchctl kickstart -k gui/$UID/com.ag.ag-mcp-gateway`. Open Pi sessions
 reconnect on their own.
+
+Since 2026-11-13, Pi connects to the gateway with its built-in MCP client (included since Pi 0.99),
+replacing the `pi-mcp-extension` package that Ag no longer installs. Pi reads servers from
+`~/.pi/agent/mcp.json`, which links to `pi-mcp.json` in the private ag-personal repo. Servers
+connect in the background at session start without delaying the first prompt, and
+`"enabled": false` keeps an entry without connecting. Run `pi mcp list` to connect to every enabled
+server and print its state and tools. Pi names tools `mcp__<server>__<tool>` (like
+`mcp__linear__get_issue`), while transcripts from before the switch show the extension's
+`mcp_<server>_<tool>` names. With Pi's default `codemode` exposure, MCP tools are not declared to
+the model or listed in the codemode tool description, so they cost no context. The system prompt
+lists each server with its `description` from `mcp.json`, and codemode scripts find tools with
+`searchTools()` or `describeNamespace()`.
 
 ## Slack MCPs (two work workspaces)
 

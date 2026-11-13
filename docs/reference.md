@@ -255,14 +255,6 @@ The ag-inbox is the top-level endpoint that starts a new session: POST a prompt 
 - Voice: a multipart `audio` field (or a queued audio file sent as `text`) is saved to `~/inbox/capture/` and transcribed with Whisper via TrueFoundry (`whisper-1`, falling back to `openai-esw/whisper-1`); the transcript is the prompt (log step `transcribed`, or `stt_failed`, in which case the agent gets the file path).
 - iPhone Action Button capture (Voice to ag on the Action Button, Capture to ag (text only) on the Home Screen; voice attaches a screenshot): `ios-shortcuts/capture-to-ag.md`. iPhone share sheet: `ios-shortcuts/share-to-ag.md`.
 
-## Plannotator Inbox (trial)
-
-A trial (from 2026-11-09) of [Plannotator's Inbox](https://plannotator.ai/inbox/) as the place where agents come back to the user: Since 2026-11-09 agents are no longer told about it: no section in `agents.md/`, the Pi `plannotator_inbox` tool and its session reminder are off, and the installer's `plannotator-inbox` skill is removed. The Inbox itself still runs.
-
-- **Code:** `bin/dot-local/bin/ag-plannotator` (`setup` | `start` | `url` | `status`); bootstrap runs `setup` on the session host. It installs `plannotator`, the Pi extension (`npm:@plannotator/pi-extension`, in `pi/dot-pi/agent/settings.json`), and writes `~/.plannotator/config.json`: the Pi inbox tool off and `inboxReminder` off (no Inbox prompt in sessions), publish over the tailnet at every start, let in the tailnet owner (`AG_TAILNET_OWNER`; the engine is a tagged device with no owner of its own), and no managed note in agents' instruction files. The installer's unrelated Codex Stop hook is not kept.
-- **Address:** `ag-plannotator url` → `https://<host>.<tailnet>.ts.net:<port>`. The Inbox picks its own port on 127.0.0.1 and publishes it with `tailscale serve` (this user is set as the Tailscale operator for that), so the address can change on a restart; it names the machine, not `svc:ag`, because Plannotator owns the serve entry. The first HTTPS request after a fresh start can take ~15 s (certificate issuance).
-- **Lifecycle:** `plannotator inbox --background` detaches; any agent call restarts a stopped Inbox. Data in `~/.plannotator/inbox` (threads by project, sent file versions). `plannotator inbox stop|restart` only when the user asks: every session shares it.
-
 ## ag-telemetry (crashes everywhere)
 
 One readout for every crash, failure and restart across Ag: **`ag telemetry`** (last 24 h of crashes and errors;

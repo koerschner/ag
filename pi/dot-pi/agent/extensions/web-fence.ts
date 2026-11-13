@@ -43,6 +43,8 @@ const shq = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 type State = { exposed: boolean; by?: string; at?: string };
 
 export default function (pi: ExtensionAPI) {
+	// ag-noaws needs systemd and an EC2 instance role to fence off: only the Linux Ag machines.
+	if (process.platform !== "linux") return;
 	let state: State = { exposed: false };
 
 	const save = (next: State) => { state = next; pi.appendEntry(ENTRY, next); };

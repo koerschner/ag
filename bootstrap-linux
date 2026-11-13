@@ -216,7 +216,6 @@ fi
 systemctl --user enable --now ag-state-sync.timer >/dev/null 2>&1 && echo "  ag-state-sync timer on" || warn "ag-state-sync timer"
 systemctl --user enable --now ag-pi-sessions-sync.timer >/dev/null 2>&1 && echo "  ag-pi-sessions-sync timer on" || warn "ag-pi-sessions-sync timer"
 systemctl --user enable --now ag-toolsum-review.timer >/dev/null 2>&1 && echo "  ag-toolsum-review routine on" || warn "ag-toolsum-review timer"
-~/.local/bin/ag routine apply 2>&1 | sed 's/^/  routines: /' || warn "ag routine apply"
 systemctl --user enable --now ag-mux.service >/dev/null 2>&1 && echo "  ag-mux (agd, tmux -L ag) on" || warn "ag-mux.service"
 systemctl --user enable --now ag-dash.service >/dev/null 2>&1 && echo "  ag-dash (http://ag:7376) on" || warn "ag-dash.service"
 ~/.local/bin/ag-shortcuts-check >/dev/null 2>&1 && echo "  shortcuts match tmux/SHORTCUTS.md" || warn "ag shortcuts drifted (run ag-shortcuts-check)"

@@ -9,7 +9,6 @@ export type Route =
 	| { kind: "new" }
 	| { kind: "chat"; sid?: string; tab?: string }
 	| { kind: "list"; view: ListView }
-	| { kind: "routines" }
 	| { kind: "rules" };
 
 export function parseRoute(loc: { pathname: string; search: string } = location): Route {
@@ -20,7 +19,7 @@ export function parseRoute(loc: { pathname: string; search: string } = location)
 	if (tab) return { kind: "chat", tab: decodeURIComponent(tab) };
 	const v = new URLSearchParams(loc.search).get("view");
 	if (v === "inbox" || v === "you" || v === "working" || v === "waiting" || v === "archived") return { kind: "list", view: v };
-	if (v === "routines" || v === "rules") return { kind: v };
+	if (v === "rules") return { kind: v };
 	return { kind: "new" };
 }
 

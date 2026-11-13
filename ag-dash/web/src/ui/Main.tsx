@@ -1,4 +1,4 @@
-// The main column: the header, and the page for the route (a chat, a new chat, a list, Routines, ag-rules).
+// The main column: the header, and the page for the route (a chat, a new chat, a list, ag-rules).
 import { useEffect, useRef, useState } from "react";
 import { ago, cleanJson, draftKeyOf, dur, isWaiting, isWorking, lastAt, needsYou, refOf, shortModel, sigOf, snippet, urlOf } from "../lib/format";
 import type { Card, SessionInfo } from "../lib/types";
@@ -21,7 +21,7 @@ export function Main() {
 		<main className="main" id="main">
 			<Header />
 			<div id="view" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
-				{route.kind === "new" ? <NewChat /> : route.kind === "chat" ? <ChatRoute /> : route.kind === "list" ? <ListPage view={route.view} /> : route.kind === "routines" ? <Routines /> : <Rules />}
+				{route.kind === "new" ? <NewChat /> : route.kind === "chat" ? <ChatRoute /> : route.kind === "list" ? <ListPage view={route.view} /> : <Rules />}
 			</div>
 		</main>
 	);
@@ -507,86 +507,7 @@ function Archived() {
 	);
 }
 
-// ---------- Routines and ag-rules ----------
-type Routine = { id: string; machine: string; name: string; description: string; schedule: string; last?: number; next?: number; result?: string; exit?: number; outcome?: { ok?: boolean; summary?: string; session?: string } };
-function Routines() {
-	const [list, setList] = useState<Routine[] | null | undefined>(undefined);
-	const [logs, setLogs] = useState<Record<string, string>>({});
-	const refresh = () =>
-		fetch("/api/routines", { cache: "no-store" })
-			.then((r) => r.json())
-			.then((j) => setList(j.routines || []))
-			.catch(() => setList(null));
-	useEffect(() => void refresh(), []);
-	return (
-		<div className="page">
-			<div className="page-in">
-				<h2>
-					<Icon name="repeat" />
-					Routines
-				</h2>
-				<p className="intro">Recurring jobs Ag runs on its own: systemd timers on the session host and interval LaunchAgents on ag-mac.</p>
-				{list === undefined ? null : !list ? (
-					<p className="intro">Couldn't load routines.</p>
-				) : !list.length ? (
-					<p className="intro">No routines.</p>
-				) : (
-					list.map((r) => {
-						const o = r.outcome, engine = r.id.startsWith("engine:");
-						const meta = [r.machine, r.schedule, r.result && (r.result === "ok" && r.exit ? `exit ${r.exit}` : r.result), r.last && `ran ${ago(r.last)} ago`, r.next && `next in ${ago(2 * Date.now() - r.next).replace(/^now$/, "<1m")}`].filter(Boolean).join(" · ");
-						return (
-							<div className="card-row" key={r.id}>
-								<div className="cr-h">
-									<b>{r.name}</b>
-									<span className="cr-m">{meta}</span>
-									{engine && (
-										<span className="cr-acts">
-											<button
-												className="pill"
-												onClick={async () => {
-													const res = await fetch("/api/routines/run", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: r.id }) });
-													toast(res.ok ? "Started" : (await res.json()).error || "Couldn't start it");
-													setTimeout(refresh, 1500);
-												}}
-											>
-												Run now
-											</button>
-											<button
-												className="pill"
-												onClick={async () => {
-													if (logs[r.id]) return setLogs(({ [r.id]: _, ...rest }) => rest);
-													const t = await (await fetch(`/api/routines/log?id=${encodeURIComponent(r.id)}`)).text();
-													setLogs((l) => ({ ...l, [r.id]: t }));
-												}}
-											>
-												{logs[r.id] ? "Hide log" : "Log"}
-											</button>
-										</span>
-									)}
-								</div>
-								<div className="cr-d">{r.description}</div>
-								{o?.summary && (
-									<div className={`cr-d${o.ok === false ? " bad" : ""}`}>
-										{o.ok === false ? "✗" : "✓"} {o.summary}
-										{o.session && (
-											<>
-												{" · "}
-												<a href={`/chat/${o.session}`} data-go={`/chat/${o.session}`}>
-													session
-												</a>
-											</>
-										)}
-									</div>
-								)}
-								{logs[r.id] && <pre>{logs[r.id]}</pre>}
-							</div>
-						);
-					})
-				)}
-			</div>
-		</div>
-	);
-}
+// ---------- ag-rules ----------
 type Rule = { name: string; on: string; app?: string; enabled: boolean; source?: string; description?: string; dir?: string; text: string };
 function Rules() {
 	const [list, setList] = useState<Rule[] | null | undefined>(undefined);

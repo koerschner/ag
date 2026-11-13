@@ -181,7 +181,6 @@ function ProfileMenu() {
 	return (
 		<>
 			<div className="hdr">Account</div>
-			{link("/chat?view=routines", "repeat", "Routines")}
 			{link("/chat?view=rules", "keyboard", "ag-rules")}
 			{link("/chat?view=archived", "archive", "Archived chats")}
 			<MI icon="keyboard" label="Keyboard shortcuts" onClick={() => useUi.setState({ pop: null, modal: "keys" })} />

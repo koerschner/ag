@@ -40,5 +40,5 @@ command:
 the last 7 days of Pi sessions. When an unmatched shape not in `skip.json` has 10+ calls, it runs a
 non-interactive Pi session in a fresh worktree to add rules (each with a fixture), skip hopeless shapes, and fix
 misleading summaries from a random sample. It merges only if the fixtures pass and coverage didn't drop, then
-pushes to ag main and restarts ag-dash. Its last result shows in ag-dash → Routines. Run it by hand with
+pushes to ag main and restarts ag-dash. Its last result is in `~/.local/state/routines/ag-toolsum-review.json`. Run it by hand with
 `ag-toolsum-review --dry-run` (measure only) or `--force` (skip the gate).

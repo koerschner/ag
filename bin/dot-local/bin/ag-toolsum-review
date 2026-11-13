@@ -9,7 +9,7 @@
 #      misleading ones.
 #   4. Verify: fixtures pass and coverage didn't drop; otherwise nothing is merged.
 #   5. Ship: commit, push to ag main, pull into ~/ag, restart ag-dash.
-#   Writes ~/.local/state/routines/ag-toolsum-review.json ({at, ok, summary, session}) for ag-dash's Routines view.
+#   Writes ~/.local/state/routines/ag-toolsum-review.json ({at, ok, summary, session})
 #
 #   ag-toolsum-review [--dry-run] [--force]     --dry-run: measure + gate only; --force: skip the gate
 setopt err_exit pipe_fail

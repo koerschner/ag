@@ -8,7 +8,7 @@ description: Read and send the user's iMessage/SMS from any ag machine with `ag-
 ag-mac is signed in to iMessage with the user's personal Apple ID, with Messages in iCloud (and SMS
 forwarding from their iPhone), so it sees what their phone sees. SMS (verification codes) arrive within
 seconds only through the iPhone's **Text Message Forwarding** to ag-mac; without it they trickle in through
-Messages in iCloud hours later. `ag-sms-watch` (LaunchAgent on ag-mac) texts the user when SMS start arriving
+Messages in iCloud hours later. `ag-sms-watch` (every 5 min from the engine) texts the user when SMS start arriving
 late; `ag-mac run ag-sms-watch` shows the last on-time and late SMS. `ag-messages` works from ag-engine or
 any ag machine: off the Mac it ships itself to ag-mac (`ag-mac run python3 -`) and runs there, reading
 `chat.db` directly and sending through Messages.app with AppleScript.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ag-sms-watch: notice when ag-mac stops getting the user's SMS in real time.
 
-  ag-sms-watch check    one pass (LaunchAgent com.ag.ag-sms-watch runs it every 5 min; ag-mac only)
+  ag-sms-watch check    one pass (the engine's ag-sms-watch.timer runs it on ag-mac every 5 min)
   ag-sms-watch          status: last on-time and last late SMS, last alert
 
 Agents read verification codes from ag-mac's ~/Library/Messages/chat.db. SMS reach it two ways:

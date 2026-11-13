@@ -1,0 +1,9 @@
+# ag-sms-watch: see bin/dot-local/bin/ag-sms-watch. Runs on ag-mac over SSH, where agents have Full Disk
+# Access for chat.db (a LaunchAgent doesn't). Session host only; ag-mac being unreachable is not an error.
+[Unit]
+Description=Alert when SMS reach ag-mac late (Text Message Forwarding off)
+
+[Service]
+Type=oneshot
+ExecCondition=%h/.local/bin/ag-machine-role host
+ExecStart=-/usr/bin/zsh -lc 'exec ag-mac run .local/bin/ag-sms-watch check'

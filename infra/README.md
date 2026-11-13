@@ -59,8 +59,17 @@ any other region before calling AWS.
   cloud-init waits for it to attach and formats it only when it has no filesystem yet.
 - **Instance role `ag-machine`** (no access keys on the machines): PowerUserAccess + IAMReadOnlyAccess, plus the
   inline `ag-guardrails` policy: it may pass only itself to EC2, and may never touch CloudTrail/GuardDuty, its own
-  alerts, Organizations/account settings, or create access keys/logins. It can't change its own permissions, so
-  edits to ag-machine (and to the alerts) need your own admin credentials (e.g. `AWS_PROFILE=<you> ag-infra up`).
+  alerts, Organizations/account settings, or create access keys/logins, and may never destroy data in the account
+  (delete databases, tables, buckets, object versions, backups, keys, secrets and SSM parameters, stacks, DNS zones; turn off bucket
+  versioning; terminate or delete instances, volumes and snapshots that aren't Ag's own, tag `Project = ag`). People
+  do those with their own credentials. It can't change its own permissions, so edits to ag-machine (and to the
+  alerts) need your own admin credentials (e.g. `AWS_PROFILE=<you> ag-infra up -target=aws_iam_role_policy.guardrails`).
+- **Web-exposed agents get no AWS at all.** Pi's `web-fence` extension (`pi/dot-pi/agent/extensions/web-fence.ts`)
+  marks a session the first time it reads the open web (Brave search/fetch, browser-tools, a preview tab on an
+  outside URL). From then on its shell commands run under `ag-noaws` (no instance metadata, so no AWS login; no
+  sudo; no Docker) and its hand-offs to unfenced sessions or machines (`ag spawn/send/cua/dev`, ag-mux/tmux input,
+  `ag-mac run`, ssh, systemd-run, T3 delegate/launch/schedule) are blocked. The user can type `/unfence`. Same Linux
+  user, so it's a speed bump against prompt injection, not a sandbox.
 - **Engine alerts** (`alerts.tf`, set `alert_email` in your tfvars): EventBridge emails you on every console shell or
   SSM command on the engine, snapshot/detach/modify of its disks, stop/terminate/modify/image/screenshot of the
   instance, any change to the ag-machine role, and any machine launched with it. Confirm the SNS email once.

@@ -115,6 +115,38 @@ resource "aws_iam_role_policy" "guardrails" {
         Action   = ["organizations:*", "account:*", "iam:CreateAccessKey", "iam:CreateLoginProfile", "iam:UpdateLoginProfile"]
         Resource = "*"
       },
+      # Cap the damage a hijacked agent can do in a shared account: never destroy data or the things that hold
+      # it (databases, buckets, backups, keys, secrets, stacks, DNS zones). Ag itself never needs these; a
+      # person does them with their own credentials. Objects (s3:DeleteObject) stay allowed; versioned buckets
+      # keep their history because versioning and lifecycle rules can't be changed either.
+      {
+        Sid    = "DenyDestroyingData"
+        Effect = "Deny"
+        Action = [
+          "rds:DeleteDBInstance", "rds:DeleteDBCluster", "rds:DeleteDBSnapshot", "rds:DeleteDBClusterSnapshot",
+          "rds:DeleteGlobalCluster", "rds:DeleteDBInstanceAutomatedBackup", "rds:DeleteDBClusterAutomatedBackup",
+          "dynamodb:DeleteTable", "dynamodb:DeleteBackup",
+          "s3:DeleteBucket", "s3:DeleteObjectVersion", "s3:PutBucketVersioning", "s3:PutLifecycleConfiguration", "s3:DeleteBucketPolicy",
+          "backup:DeleteBackupVault", "backup:DeleteRecoveryPoint", "backup:DeleteBackupPlan",
+          "kms:ScheduleKeyDeletion", "kms:DisableKey",
+          "secretsmanager:DeleteSecret", "ssm:DeleteParameter", "ssm:DeleteParameters",
+          "cloudformation:DeleteStack",
+          "route53:DeleteHostedZone",
+          "elasticache:DeleteCacheCluster", "elasticache:DeleteReplicationGroup",
+          "elasticfilesystem:DeleteFileSystem",
+          "ecr:DeleteRepository",
+          "logs:DeleteLogGroup",
+          "cognito-idp:DeleteUserPool",
+        ]
+        Resource = "*"
+      },
+      { # machines and disks: only Ag's own (default tag Project = ag), so `ag-infra workers down` / `down` still work
+        Sid       = "DenyDestroyingOthersMachines"
+        Effect    = "Deny"
+        Action    = ["ec2:TerminateInstances", "ec2:DeleteVolume", "ec2:DeleteSnapshot"]
+        Resource  = "*"
+        Condition = { StringNotEquals = { "aws:ResourceTag/Project" = "ag" } }
+      },
     ]
   })
 }

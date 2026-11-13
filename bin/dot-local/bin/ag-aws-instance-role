@@ -5,6 +5,7 @@
 # AWS_EC2_METADATA_DISABLED=true, which turns off the SDK's own instance-role lookup but not
 # credential_process. bootstrap-linux points ~/.aws/config's profiles here (ag-aws-config).
 set -euo pipefail
+[ -z "${AG_NOAWS:-}" ] || { echo "ag-aws-instance-role: AWS is off here: this command runs under ag-noaws (in Pi, the web fence: the session read the open web)" >&2; exit 1; }
 imds=http://169.254.169.254/latest
 token=$(curl -fsS --max-time 2 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 300' "$imds/api/token") ||
   { echo "ag-aws-instance-role: no EC2 instance metadata here (not an EC2 Ag machine?)" >&2; exit 1; }

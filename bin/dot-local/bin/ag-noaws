@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# ag-noaws: run a command fenced off from the machine's AWS role and from root.
+#   ag-noaws <cmd> [args...]
+# The command keeps the caller's user, environment, working directory and normal internet, but:
+#   - can't reach EC2 instance metadata (169.254.169.254, fd00:ec2::254), so it gets no AWS login
+#     from the instance role (ag-aws-instance-role, the SDKs' own lookup);
+#   - runs with no_new_privs, so sudo and setuid helpers can't raise it back to root;
+#   - drops its supplementary groups (docker, sudo), so the Docker socket (root by another name) is shut.
+# It's a speed bump against prompt injection, not a sandbox: same Linux user, same home directory.
+# Pi's web-fence extension runs every shell command of a session through this once the session has
+# read the open web. Needs passwordless sudo (only to set the fence up; the command runs as you).
+set -euo pipefail
+[ $# -gt 0 ] || { echo "usage: ag-noaws <cmd> [args...]" >&2; exit 2; }
+uid=$(id -u) gid=$(id -g)
+# sudo resets PATH (secure_path) and HOME; carry them through explicitly. -E keeps the rest.
+exec sudo -n -E systemd-run --quiet --scope --collect \
+  -p IPAddressDeny=169.254.169.254/32 -p IPAddressDeny=fd00:ec2::254/128 \
+  setpriv --reuid="$uid" --regid="$gid" --clear-groups --no-new-privs -- \
+  env HOME="$HOME" PATH="$PATH" USER="$USER" LOGNAME="$USER" AG_NOAWS=1 "$@"

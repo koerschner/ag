@@ -4,6 +4,6 @@ schedule: every 10min
 kind: prompt
 cwd: ~
 timeout: 9min
-enabled: true
+enabled: false
 ---
 Read and follow ~/ag-personal/routines/freetime-voices.md (the user's private routine instructions). If that file is missing, stop and report that the private ag-personal checkout is missing.

@@ -5,7 +5,7 @@ kind: command
 command: ~/t3code/ag/build-mac --install-pending
 cwd: ~
 timeout: 15min
-enabled: true
+enabled: false
 ---
 `ag/build-mac` (the T3 fork at `~/t3code`, FORK.md "The Mac app") marks a build pending when the client Mac is
 asleep or has had input in the last 10 minutes. This runs `ag/build-mac --install-pending` every 5 minutes and

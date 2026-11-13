@@ -4,7 +4,7 @@ schedule: daily 04:07
 kind: prompt
 cwd: ~/t3code
 timeout: 90min
-enabled: true
+enabled: false
 ---
 Goal: the T3 server on this host (`ag-t3.service`, Nathan's fork `koerschner/t3code` at `~/t3code`) runs today's upstream T3 Code, so nightly desktop and iOS clients never report it as behind. Read `~/t3code/FORK.md` first.
 

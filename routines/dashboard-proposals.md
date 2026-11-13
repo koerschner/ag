@@ -4,6 +4,6 @@ schedule: calendar *-*-1/2 09:07:00 America/Chicago
 kind: prompt
 cwd: ~
 timeout: 3h
-enabled: true
+enabled: false
 ---
 Read and follow ~/ag-personal/routines/dashboard-proposals.md (the user's private routine instructions). If that file is missing, stop and report that the private ag-personal checkout is missing.

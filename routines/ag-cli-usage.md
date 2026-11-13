@@ -4,7 +4,7 @@ schedule: weekly Mon 09:07
 kind: prompt
 cwd: ~
 timeout: 60min
-enabled: true
+enabled: false
 ---
 Goal: agents should do Ag operations (find/read/prompt/spin out/merge/close sessions, pin and waiting,
 syncing machines, services) through the `ag` CLI instead of hand-rolling them with ag-mux + jq, curl to

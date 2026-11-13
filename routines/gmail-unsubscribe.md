@@ -5,7 +5,7 @@ kind: command
 command: ag-gmail-unsub sweep
 cwd: ~
 timeout: 30min
-enabled: true
+enabled: false
 ---
 Tag any email "Unsubscribe" in Gmail (personal or work account) and that sender is gone by morning: the sweep
 unsubscribes from every mailing list the sender's service sends (one-click or mailto), filters the address out

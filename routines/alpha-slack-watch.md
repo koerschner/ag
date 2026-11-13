@@ -4,6 +4,6 @@ schedule: weekdays 09:17
 kind: prompt
 cwd: ~
 timeout: 20min
-enabled: true
+enabled: false
 ---
 Read and follow ~/ag-personal/routines/alpha-slack-watch.md (the user's private routine instructions). If that file is missing, stop and report that the private ag-personal checkout is missing.

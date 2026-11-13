@@ -5,7 +5,7 @@ kind: command
 command: uv run --quiet ~/ag-personal/vision-board/snapshot.py
 cwd: ~/ag-personal/vision-board
 timeout: 15min
-enabled: true
+enabled: false
 ---
 Private code and docs: ~/ag-personal/vision-board/README.md (the user's private repo). Exports the board with
 `ag-freeform-export` (Freeform on ag-mac, via the screen queue).

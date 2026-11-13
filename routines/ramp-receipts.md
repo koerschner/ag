@@ -4,7 +4,7 @@ schedule: daily 23:30
 kind: prompt
 cwd: ~
 timeout: 60min
-enabled: true
+enabled: false
 ---
 Goal: the user's Ramp card (the work card; account details are in ~/AGENTS.md, "About the user") has no
 transactions with missing items, so Ramp never locks it. Ramp requires a receipt and a memo on every charge and

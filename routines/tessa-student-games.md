@@ -4,6 +4,6 @@ schedule: calendar Mon..Fri *-*-* 08..17:00/5:00 America/Chicago; Mon..Fri *-*-*
 kind: prompt
 cwd: ~
 timeout: 4min
-enabled: true
+enabled: false
 ---
 Read and follow ~/ag-personal/routines/tessa-student-games.md (the user's private routine instructions). If that file is missing, stop and report that the private ag-personal checkout is missing.

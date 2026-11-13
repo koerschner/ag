@@ -95,7 +95,7 @@ ag-x-auth login    # runs OAuth 2.0 sign-in via ag-mac Chrome computer use
 
 - **How `ag-x-auth login` works:** it runs `xurl`'s callback listener on the session host, forwards `ag-mac`'s `localhost:8080` to it, and uses computer use to click "Authorize app" in `ag-mac`'s Chrome (signed in to X).
 - **Single OAuth 2.0 session:** X keeps one OAuth 2.0 sign-in per user and app. Signing in with this app anywhere else (another machine, `xurl mcp`, another tool) revokes this one. Do not run `xurl auth oauth2` or `xurl mcp` yourself.
-- **Credentials:** stored in the work vault (`op-work`, vault `ag-vault`), item `"X API - ag app"` (`consumer_key`, `consumer_secret`, `bearer_token`, `client_id`, `client_secret`, `access_token`, `access_token_secret`). The app's name, developer account, and billing details are in `~/AGENTS.md`. Manage keys, apps, and billing at `console.x.com` in `ag-mac`'s Chrome (computer use).
+- **Credentials:** stored in the work vault (`op-work`, vault `ag-vault`), item `"X API - ag app"` (`consumer_key`, `consumer_secret`, `bearer_token`, `client_id`, `client_secret`, `access_token`, `access_token_secret`). The app's name, developer account, and billing details are in `~/ag-personal/ag-private.md`. Manage keys, apps, and billing at `console.x.com` in `ag-mac`'s Chrome (computer use).
 - **Errors:**
   - `401 Unauthorized`: run `ag-x-auth status`, then `ag-x-auth login` if OAuth 2.0 failed.
   - `402` or `403` mentioning credits, spending cap, or `client-not-enrolled`: out of credits or the cap was hit. Tell the user and do not try to work around it.

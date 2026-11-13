@@ -181,7 +181,7 @@ export PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.local/share/mise/shims:$PATH
 [[ -f "$HOME/.zshenv.local" ]] && source "$HOME/.zshenv.local"   # secrets: TFY_TOKEN, OPENROUTER_API_KEY
 if [[ -n ${TFY_TOKEN:-} ]]; then
   export TFY_API_KEY="$TFY_TOKEN"
-  export ANTHROPIC_BASE_URL="$(sed -n 's/^AG_AI_GATEWAY=//p' "$HOME/ag-personal/env" 2>/dev/null)"
+  export ANTHROPIC_BASE_URL="$( { sed -n 's/^AG_ANTHROPIC_BASE_URL=//p' "$HOME/ag-personal/env"; sed -n 's/^AG_AI_GATEWAY=//p' "$HOME/ag-personal/env"; } 2>/dev/null | head -1)"
   export ANTHROPIC_AUTH_TOKEN="$TFY_TOKEN"
 fi
 ZSHENV

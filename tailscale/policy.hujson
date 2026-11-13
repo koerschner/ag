@@ -68,8 +68,9 @@
 
 	"tests": [
 		{"src": "OWNER_EMAIL", "accept": ["tag:ag-engine:22", "tag:ag-worker:22"]},
-		{"src": "tag:ag-engine", "accept": ["tag:ag-worker:22", "ag-mac:22", "ag-mac:7376", "ag-client:22", "svc:ag:7373"], "deny": ["ag-client:5900", "ag-client:35385"]},
-		{"src": "tag:ag-worker", "accept": ["tag:ag-engine:22"], "deny": ["OWNER_EMAIL:22"]},
+		{"src": "tag:ag-engine", "accept": ["tag:ag-worker:22", "ag-mac:22", "ag-mac:7376", "ag-mac:8443", "ag-mac:8444", "ag-client:22", "svc:ag:7373"], "deny": ["ag-client:5900", "ag-client:35385"]},
+		// ag-mac:8443/8444 are private tailscale-serve services (personal data): owner devices and the engine only.
+		{"src": "tag:ag-worker", "accept": ["tag:ag-engine:22"], "deny": ["OWNER_EMAIL:22", "ag-mac:8443", "ag-mac:8444"]},
 	],
 	"sshTests": [
 		{"src": "OWNER_EMAIL", "dst": ["tag:ag-engine", "tag:ag-worker"], "accept": ["root"]},

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ag-t3-pair-client: re-pair a Mac's T3 Code (Ag) app with the T3 server on this host, without driving its screen.
+# ag-t3-pair-client: re-pair a Mac's T3 Code (Nightly) app with the T3 server on this host, without driving its screen.
 #
 #   ag-t3-pair-client [client|mac] [--wait SECONDS]
 #
@@ -23,7 +23,7 @@ done
 tailnet=${AG_TAILNET:-$(tailscale status --json 2>/dev/null | jq -r '.MagicDNSSuffix // empty')}
 [[ -n $tailnet ]] || { echo "ag-t3-pair-client: can't find the tailnet name" >&2; exit 1; }
 base=https://ag.$tailnet
-label="$target T3 Code (Ag) re-pair"
+label="$target T3 Code re-pair"
 
 f=$(mktemp); chmod 600 "$f"
 trap 'rm -f "$f"' EXIT
@@ -35,7 +35,7 @@ if ! jq -rj '"t3code://pair?pairingUrl=" + (.pairUrl | @uri)' "$f" | "ag-$target
   echo "ag-t3-pair-client: couldn't reach ag-$target (asleep or offline?); revoked credential $id" >&2
   exit 1
 fi
-echo "opened the pair link in T3 Code (Ag) on ag-$target: click Add in its \"Add the backend at $base?\" dialog"
+echo "opened the pair link in T3 Code (Nightly) on ag-$target: click Add in its \"Add the backend at $base?\" dialog"
 
 for ((i = 0; i < wait; i += 5)); do
   if ! t3 auth pairing list --json | jq -e --arg id "$id" 'any(.[]; .id == $id)' >/dev/null; then

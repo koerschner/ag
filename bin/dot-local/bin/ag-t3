@@ -38,7 +38,7 @@ const PI_SETTINGS = existsSync(`${HOME}/.pi/agent/settings.json`) ? JSON.parse(r
 const DEFAULT_MODEL = process.env.AG_T3_MODEL ?? (PI_SETTINGS.defaultProvider && PI_SETTINGS.defaultModel ? `${PI_SETTINGS.defaultProvider}/${PI_SETTINGS.defaultModel}` : "truefoundry/anthropic-primary/claude-opus-5-5");
 // Two Pi lanes (docs/t3.md, "Two lanes"), both on the same TrueFoundry models. "pi": sessions under ~/.pi, synced to
 // Nessie. "piPrivate": off the record, same Pi and config but sessions stored in ~/private-chat/pi-sessions (outside
-// Nessie, like ag-pi-private). A thread's first message decides its lane (the fork's lane hook and Nathan's ag-rules).
+// Nessie, like ag-pi-private). A thread stays in the lane it starts in until it's moved (ag private, the composer, send --instance).
 const PRIVATE = "piPrivate";
 const LANE_INSTANCES = ["pi", PRIVATE];
 const PRIVATE_SESSIONS = `${HOME}/private-chat/pi-sessions`;

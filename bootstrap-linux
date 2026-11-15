@@ -231,12 +231,11 @@ systemctl --user enable --now ag-nessie.service >/dev/null 2>&1 && echo "  nessi
 systemctl --user enable --now ag-telegram.service >/dev/null 2>&1 && echo "  ag-telegram (Telegram replies) on" || warn "ag-telegram.service"
 systemctl --user enable --now ag-discord.service >/dev/null 2>&1 && echo "  ag-discord (Discord feedback buttons) on" || warn "ag-discord.service"
 systemctl --user enable --now ag-telemetry.service >/dev/null 2>&1 && echo "  ag-telemetry (crash readout, http://ag:7378) on" || warn "ag-telemetry.service"
-# T3 Code (docs/t3.md): Nathan's fork (koerschner/t3code at ~/t3code, deployed by its ag/ship), data in ~/.t3 -> /data/t3,
-# Pi enabled, then the service (host only). ~/.local/bin/t3 is ag/ship's shim for the deployed build.
+# T3 Code (docs/t3.md): upstream's nightly, installed and updated by ag-t3-update, data in ~/.t3 -> /data/t3,
+# Pi enabled, then the service (host only). ~/.local/bin/t3 is ag-t3-update's launcher for the installed runtime.
 if "$AG/bin/dot-local/bin/ag-machine-role" host 2>/dev/null; then
   [[ -d /data ]] && { sudo install -d -o "$USER" -g "$USER" /data/t3; [[ -e ~/.t3 ]] || ln -s /data/t3 ~/.t3; }
-  [[ -d ~/t3code/.git ]] || { git clone -q https://github.com/koerschner/t3code.git ~/t3code && git -C ~/t3code remote add upstream https://github.com/pingdotgg/t3code.git; } || warn "clone koerschner/t3code"
-  [[ -e ~/.local/share/t3-builds/current ]] || warn "the T3 fork isn't deployed yet: cd ~/t3code && ag/ship --no-push --no-tests"
+  grep -q '/runtime/versions/' ~/.local/bin/t3 2>/dev/null || "$AG/bin/dot-local/bin/ag-t3-update" --now || warn "ag-t3-update (T3 Code isn't installed)"
   mkdir -p ~/.t3/userdata; [[ -f ~/.t3/userdata/settings.json ]] || printf '{"providers":{"pi":{"enabled":true,"binaryPath":"%s/.local/bin/pi"},"codex":{"enabled":false},"claudeAgent":{"enabled":false},"cursor":{"enabled":false},"grok":{"enabled":false},"opencode":{"enabled":false},"antigravity":{"enabled":false}}}\n' "$HOME" > ~/.t3/userdata/settings.json
   systemctl --user enable --now ag-t3.service >/dev/null 2>&1 && echo "  ag-t3 (T3 Code, https://ag.<tailnet>.ts.net) on" || warn "ag-t3.service"
   # T3's Pi catalog is populated asynchronously on first boot. Check the actual integration,

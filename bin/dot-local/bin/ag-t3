@@ -7,7 +7,8 @@
 //   ag-t3 new [--title T] [--pin] [--model M] [--project DIR] <text>   start a thread and send it <text>; prints id + link
 //   ag-t3 send [--model M [--instance I] [--thinking L]] <thread|session id|session file> <text>
 //                                                                       queue <text> into a thread (resumes its Pi session); --model
-//                                                                       switches the thread's model (I: pi or piPrivate) when <text> starts
+//                                                                       switches the thread's model (I: pi, piPrivate or piPersonal)
+//                                                                       when <text> starts
 //   ag-t3 thread <session id|session file>                              the T3 thread bound to a Pi session (exit 1: none)
 //   ag-t3 threads [--json]                                              every thread: id, title, pinned, Pi session file
 //   ag-t3 import [--dry-run] [--title T] [--all-open | <session>…]     import closed Pi sessions into T3 (history, pin, title)
@@ -52,12 +53,44 @@ const PERSONAL_CLAUDE_HOME = `${HOME}/.claude-personal`;
 const PERSONAL_CLAUDE_MODEL = "claude-opus-5-5";
 const AG_CLAUDE = `${HOME}/ag/claude/dot-claude`; // the Claude Code config ag stows into ~/.claude
 const NO_TRUEFOUNDRY = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"].map((name) => ({ name, value: "", sensitive: false }));
-// Instances setup removes: earlier subscription lanes (pi-claude-code), which Anthropic billed as extra usage.
-const RETIRED_INSTANCES = ["piWork", "piPersonal"];
+// Instances setup removes: an earlier work subscription lane (work runs on TrueFoundry in `pi`).
+const RETIRED_INSTANCES = ["piWork"];
+// The personal Pi lane (docs/t3.md, "Personal Pi lane"): Pi on the same personal Claude plan through pi-claude-bridge,
+// which runs Claude Code through Anthropic's Agent SDK (Claude Code's own system prompt first, Pi's appended), so it
+// bills the plan. Only this instance loads the bridge (a pinned install, via launch args). AG_PI_SUBSCRIPTION tells
+// truefoundry-only to keep the lane on claude-bridge. Sessions are stored off the record, like piPrivate.
+const PERSONAL_PI = "piPersonal";
+const CLAUDE_BRIDGE = { name: "pi-claude-bridge", version: "0.12.0", dir: `${HOME}/.local/share/pi-claude-bridge` };
+const CLAUDE_BRIDGE_PATH = `${CLAUDE_BRIDGE.dir}/node_modules/${CLAUDE_BRIDGE.name}`;
+const PERSONAL_PI_MODEL = "claude-bridge/claude-opus-5-5";
+const onClaudeBridge = (slug: string) => slug.startsWith("claude-bridge/");
+const personalPiEnvironment = () => [
+	{ name: "CLAUDE_CONFIG_DIR", value: PERSONAL_CLAUDE_HOME, sensitive: false },
+	{ name: "PI_CODING_AGENT_SESSION_DIR", value: PRIVATE_SESSIONS, sensitive: false },
+	{ name: "AG_PI_SUBSCRIPTION", value: "claude-bridge", sensitive: false },
+	...NO_TRUEFOUNDRY,
+];
+const personalPiOk = (instance: any) => {
+	const want = personalPiEnvironment();
+	const have = instance?.environment ?? [];
+	return instance?.enabled === true && instance.driver === "pi" && instance.config?.launchArgs === `-e ${CLAUDE_BRIDGE_PATH}` &&
+		have.length === want.length && want.every((w) => have.some((v: any) => v.name === w.name && v.value === w.value));
+};
+const bridgeVersion = () => { try { return JSON.parse(readFileSync(`${CLAUDE_BRIDGE_PATH}/package.json`, "utf8")).version; } catch { return null; } };
+function ensureClaudeBridge() {
+	if (bridgeVersion() === CLAUDE_BRIDGE.version) return;
+	mkdirSync(CLAUDE_BRIDGE.dir, { recursive: true });
+	// Pi supplies the peer dependencies (pi-ai, pi-coding-agent) to extensions; don't install copies.
+	execFileSync("npm", ["install", "--prefix", CLAUDE_BRIDGE.dir, "--legacy-peer-deps", "--no-audit", "--no-fund", "--silent",
+		`${CLAUDE_BRIDGE.name}@${CLAUDE_BRIDGE.version}`], { stdio: ["ignore", "ignore", "inherit"] });
+	if (bridgeVersion() !== CLAUDE_BRIDGE.version) die(`couldn't install ${CLAUDE_BRIDGE.name}@${CLAUDE_BRIDGE.version}`);
+}
 const personalClaudeOk = (instance: any) =>
 	instance?.enabled === true && instance.driver === "claudeAgent" && instance.config?.homePath === PERSONAL_CLAUDE_HOME &&
 	NO_TRUEFOUNDRY.every((w) => (instance.environment ?? []).some((v: any) => v.name === w.name && v.value === ""));
-function modelProblem(model: string): string | null {
+function modelProblem(model: string, instance = "pi"): string | null {
+	if (instance === PERSONAL_PI) return onClaudeBridge(model) ? null
+		: `the ${PERSONAL_PI} lane runs only claude-bridge (personal plan) models; Pi's truefoundry-only extension switches this to ${PERSONAL_PI_MODEL}`;
 	if (model === "default" || onTrueFoundry(model)) return null;
 	return "every Pi session runs on TrueFoundry; Pi's truefoundry-only extension silently switches this to the TrueFoundry copy";
 }
@@ -179,12 +212,18 @@ function laneModelPreferences(settings: any) {
 	const providerModelPreferences = { ...settings.providerModelPreferences };
 	for (const instance of LANE_INSTANCES) providerModelPreferences[instance] = { hiddenModels, modelOrder };
 	for (const instance of RETIRED_INSTANCES) delete providerModelPreferences[instance];
-	const pinned = [{ provider: "pi", model: DEFAULT_MODEL }, { provider: PERSONAL_CLAUDE, model: PERSONAL_CLAUDE_MODEL }];
+	// The personal Pi lane's picker shows only the claude-bridge models.
+	const own = settings.providerModelPreferences?.[PERSONAL_PI]?.hiddenModels ?? [];
+	providerModelPreferences[PERSONAL_PI] = {
+		hiddenModels: [...new Set([...own, ...piCatalog(), ...piCatalog(PERSONAL_PI)])].filter((s) => s !== "default" && !onClaudeBridge(s)),
+		modelOrder: [PERSONAL_PI_MODEL],
+	};
+	const pinned = [{ provider: "pi", model: DEFAULT_MODEL }, { provider: PERSONAL_PI, model: PERSONAL_PI_MODEL }, { provider: PERSONAL_CLAUDE, model: PERSONAL_CLAUDE_MODEL }];
 	const favorites = [
 		...pinned,
 		...(settings.favorites ?? []).filter((f: any) =>
 			!pinned.some((p) => p.provider === f.provider && p.model === f.model) && !RETIRED_INSTANCES.includes(f.provider) &&
-			(!LANE_INSTANCES.includes(f.provider) || onTrueFoundry(f.model))),
+			(f.provider === PERSONAL_PI ? onClaudeBridge(f.model) : !LANE_INSTANCES.includes(f.provider) || onTrueFoundry(f.model))),
 	];
 	return { favorites, providerModelPreferences };
 }
@@ -242,11 +281,16 @@ async function setup() {
 			...instances[PERSONAL_CLAUDE], driver: "claudeAgent", displayName: "Claude \u00b7 personal", enabled: true, environment: NO_TRUEFOUNDRY,
 			config: { ...instances[PERSONAL_CLAUDE]?.config, homePath: PERSONAL_CLAUDE_HOME, binaryPath: `${HOME}/.local/bin/claude` },
 		};
+		ensureClaudeBridge();
+		const piPersonal = {
+			...instances[PERSONAL_PI], driver: "pi", displayName: "Pi \u00b7 personal", enabled: true, environment: personalPiEnvironment(),
+			config: { ...instances[PERSONAL_PI]?.config, binaryPath: `${HOME}/.local/bin/pi`, launchArgs: `-e ${CLAUDE_BRIDGE_PATH}` },
+		};
 		const textModel = settings.textGenerationModelSelection;
 		const textGenerationModelSelection = textModel?.instanceId === "pi" && textModel?.model !== "default" && !modelProblem(textModel.model)
 			? textModel : { instanceId: "pi", model: "truefoundry-chat/gemini-group/gemini-3.7-flash" };
 		const updated = await rpc.call("server.updateSettings", { patch: {
-			providerInstances: { ...instances, pi, [PRIVATE]: piPrivate, [PERSONAL_CLAUDE]: claudePersonal }, textGenerationModelSelection, ...laneModelPreferences(settings),
+			providerInstances: { ...instances, pi, [PRIVATE]: piPrivate, [PERSONAL_CLAUDE]: claudePersonal, [PERSONAL_PI]: piPersonal }, textGenerationModelSelection, ...laneModelPreferences(settings),
 		} });
 		const saved = updated.providerInstances?.pi;
 		if (!saved?.enabled || saved.config?.binaryPath !== pi.config.binaryPath)
@@ -254,8 +298,9 @@ async function setup() {
 		if (!updated.providerInstances?.[PRIVATE]?.enabled || !privateEnvOk(updated.providerInstances[PRIVATE]))
 			die("T3 did not persist the private Pi lane");
 		if (!personalClaudeOk(updated.providerInstances?.[PERSONAL_CLAUDE])) die("T3 did not persist the personal Claude instance");
+		if (!personalPiOk(updated.providerInstances?.[PERSONAL_PI])) die("T3 did not persist the personal Pi lane");
 	} finally { rpc.close(); }
-	console.log("T3 Pi work and private lanes and personal Claude configured");
+	console.log("T3 Pi work, private and personal lanes and personal Claude configured");
 }
 function doctor(): number {
 	const problems: string[] = [];
@@ -288,6 +333,15 @@ function doctor(): number {
 		else if (!login.loggedIn) warnings.push(`personal Claude isn't signed in; ${fix}`);
 		else if (!login.plan) warnings.push(`personal Claude is signed in without a Claude plan (API billing); ${fix} with a subscription account`);
 	}
+	if (!personalPiOk(settings.providerInstances?.[PERSONAL_PI]))
+		problems.push(`T3's personal Pi lane (${PERSONAL_PI}) is missing or changed; run ag-t3 setup`);
+	if (bridgeVersion() !== CLAUDE_BRIDGE.version)
+		problems.push(`${CLAUDE_BRIDGE.name}@${CLAUDE_BRIDGE.version} isn't installed in ${CLAUDE_BRIDGE.dir}; run ag-t3 setup`);
+	{
+		const hidden = new Set(settings.providerModelPreferences?.[PERSONAL_PI]?.hiddenModels ?? []);
+		const visible = [...new Set([...piCatalog(), ...piCatalog(PERSONAL_PI)])].filter((s) => s !== "default" && !onClaudeBridge(s) && !hidden.has(s));
+		if (visible.length) warnings.push(`${visible.length} models outside claude-bridge are visible in the ${PERSONAL_PI} T3 picker (e.g. ${visible[0]}); run ag-t3 setup`);
+	}
 	for (const id of RETIRED_INSTANCES) if (settings.providerInstances?.[id]) warnings.push(`retired instance ${id} is still configured; run ag-t3 setup`);
 	const authFile = `${HOME}/.pi/agent/auth.json`;
 	if (existsSync(authFile)) {
@@ -302,7 +356,8 @@ function doctor(): number {
 		try {
 			for (const row of db.query(`SELECT title, json_extract(payload_json, '$.modelSelection.instanceId') AS instance, json_extract(payload_json, '$.modelSelection.model') AS model FROM orchestration_v2_projection_threads WHERE deleted_at IS NULL`).all() as { title: string; instance: string | null; model: string | null }[]) {
 				// Only Pi lanes are pinned to TrueFoundry; personal Claude threads run Claude Code models.
-				const problem = row.model && LANE_INSTANCES.includes(row.instance ?? "pi") ? modelProblem(row.model) : null;
+				const instance = row.instance ?? "pi";
+				const problem = row.model && [...LANE_INSTANCES, PERSONAL_PI].includes(instance) ? modelProblem(row.model, instance) : null;
 				if (problem) problems.push(`thread "${row.title}" (${row.instance ?? "pi"}) selects ${row.model}: ${problem}`);
 			}
 		} finally { db.close(); }
@@ -456,7 +511,7 @@ switch (cmd) {
 	case "send": {
 		const json = bool("--json");
 		const model = flag("--model"), instance = flag("--instance") ?? "pi", thinking = flag("--thinking");
-		if (model && modelProblem(model)) die(`model ${model}: ${modelProblem(model)}`, 2);
+		if (model && modelProblem(model, instance)) die(`model ${model}: ${modelProblem(model, instance)}`, 2);
 		const ref = argv.shift() ?? die("usage: ag-t3 send [--model M [--instance I] [--thinking L]] <thread|session> <text>", 2);
 		const text = await readText(argv) || die("usage: ag-t3 send [--model M [--instance I] [--thinking L]] <thread|session> <text>", 2);
 		const selection = model ? { instanceId: instance, model, ...(thinking ? { options: [{ id: "thinking", value: thinking }] } : {}) } : undefined;

@@ -8,7 +8,7 @@
  * request. Once a fallback chain has started, any terminal error on a fallback
  * model (e.g. it is unavailable) also moves down the ladder. The session stays on
  * the model that answered; switch back with /model. Claude Code subscription models (T3's subscription lanes)
- * never fall back: that would move a work- or personal-plan thread onto TrueFoundry.
+ * never fall back: that would move a personal-plan thread onto TrueFoundry.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 

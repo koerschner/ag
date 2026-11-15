@@ -49,16 +49,17 @@ const privateEnvOk = (instance: any) =>
 // personal) instead of TrueFoundry. Only these instances load the pi-claude-code extension (a pinned checkout, via
 // launch args), which sends requests through `claude -p` signed in with the lane's own Claude Code config dir. The
 // shell's TrueFoundry overrides for Claude Code are blanked (the extension refuses to run with them). piPersonal stores
-// its sessions off the record, like piPrivate; piWork syncs like pi.
+// its sessions off the record, like piPrivate; piWork syncs like pi. piWork also keeps every TrueFoundry model
+// (AG_PI_LANE_TRUEFOUNDRY=1 tells truefoundry-only to allow them); piPersonal runs only the subscription.
 const CLAUDE_CODE_EXTENSION = {
 	repo: "https://github.com/earendil-works/pi-claude-code",
 	rev: "d5b5e04c314d3452d357174d16d10dda34daa2d2",
 	dir: `${HOME}/.local/share/pi-claude-code`,
 };
 const SUBSCRIPTION_MODEL = "claude-code/claude-opus-5-5";
-type SubscriptionLane = { displayName: string; configDir: string; sessionDir?: string };
+type SubscriptionLane = { displayName: string; configDir: string; sessionDir?: string; trueFoundry?: boolean };
 const SUBSCRIPTION_LANES: Record<string, SubscriptionLane> = {
-	piWork: { displayName: "Pi \u00b7 work", configDir: `${HOME}/.claude-work` },
+	piWork: { displayName: "Pi \u00b7 work", configDir: `${HOME}/.claude-work`, trueFoundry: true },
 	piPersonal: { displayName: "Pi \u00b7 personal", configDir: `${HOME}/.claude-personal`, sessionDir: PRIVATE_SESSIONS },
 };
 const onClaudeCode = (slug: string) => slug.startsWith("claude-code/");
@@ -68,7 +69,10 @@ const subscriptionEnvironment = (lane: SubscriptionLane) => [
 	{ name: "ANTHROPIC_BASE_URL", value: "", sensitive: false },
 	{ name: "ANTHROPIC_AUTH_TOKEN", value: "", sensitive: false },
 	...(lane.sessionDir ? [{ name: "PI_CODING_AGENT_SESSION_DIR", value: lane.sessionDir, sensitive: false }] : []),
+	...(lane.trueFoundry ? [{ name: "AG_PI_LANE_TRUEFOUNDRY", value: "1", sensitive: false }] : []),
 ];
+// What a subscription lane's picker shows: the claude-code models, plus TrueFoundry's where the lane allows them.
+const laneAllows = (lane: SubscriptionLane, slug: string) => onClaudeCode(slug) || (!!lane.trueFoundry && onTrueFoundry(slug));
 const subscriptionInstanceOk = (instance: any, lane: SubscriptionLane) => {
 	const want = subscriptionEnvironment(lane);
 	const have = instance?.environment ?? [];
@@ -76,7 +80,9 @@ const subscriptionInstanceOk = (instance: any, lane: SubscriptionLane) => {
 		want.every((w) => have.some((v: any) => v.name === w.name && v.value === w.value));
 };
 function modelProblem(model: string, instance = "pi"): string | null {
-	if (SUBSCRIPTION_LANES[instance]) return onClaudeCode(model) ? null
+	const lane = SUBSCRIPTION_LANES[instance];
+	if (lane) return laneAllows(lane, model) ? null : lane.trueFoundry
+		? `the ${instance} lane runs Claude Code subscription and TrueFoundry models; Pi's truefoundry-only extension switches this to the TrueFoundry copy`
 		: `the ${instance} lane runs only Claude Code subscription models; Pi's truefoundry-only extension switches this to claude-code Opus`;
 	if (model === "default" || onTrueFoundry(model)) return null;
 	return "every Pi session runs on TrueFoundry; Pi's truefoundry-only extension silently switches this to the TrueFoundry copy";
@@ -200,12 +206,13 @@ function laneModelPreferences(settings: any) {
 	const modelOrder = [DEFAULT_MODEL, ...(prefs.modelOrder ?? []).filter((s: string) => s !== DEFAULT_MODEL && onTrueFoundry(s))];
 	const providerModelPreferences = { ...settings.providerModelPreferences };
 	for (const instance of LANE_INSTANCES) providerModelPreferences[instance] = { hiddenModels, modelOrder };
-	for (const instance of Object.keys(SUBSCRIPTION_LANES)) {
-		const own = settings.providerModelPreferences?.[instance] ?? {};
+	for (const [instance, lane] of Object.entries(SUBSCRIPTION_LANES)) {
+		// A lane with TrueFoundry starts from the synced lane's hidden list (so models hidden there stay hidden here).
+		const base = lane.trueFoundry ? hiddenModels : settings.providerModelPreferences?.[instance]?.hiddenModels ?? [];
 		providerModelPreferences[instance] = {
-			hiddenModels: [...new Set([...(own.hiddenModels ?? []), ...subscriptionCatalog(instance).filter((s) => !onClaudeCode(s))])]
-				.filter((s) => s !== SUBSCRIPTION_MODEL),
-			modelOrder: [SUBSCRIPTION_MODEL, ...(own.modelOrder ?? []).filter((s: string) => s !== SUBSCRIPTION_MODEL && onClaudeCode(s))],
+			hiddenModels: [...new Set([...base, ...subscriptionCatalog(instance).filter((s) => s !== "default" && !laneAllows(lane, s))])]
+				.filter((s) => !onClaudeCode(s)),
+			modelOrder: [SUBSCRIPTION_MODEL, ...(lane.trueFoundry ? modelOrder : [])],
 		};
 	}
 	const pinnedFavorites = [{ provider: "pi", model: DEFAULT_MODEL }, ...Object.keys(SUBSCRIPTION_LANES).map((provider) => ({ provider, model: SUBSCRIPTION_MODEL }))];
@@ -213,7 +220,7 @@ function laneModelPreferences(settings: any) {
 		...pinnedFavorites,
 		...(settings.favorites ?? []).filter((f: any) =>
 			!pinnedFavorites.some((p) => p.provider === f.provider && p.model === f.model) &&
-			(SUBSCRIPTION_LANES[f.provider] ? onClaudeCode(f.model) : !LANE_INSTANCES.includes(f.provider) || onTrueFoundry(f.model))),
+			(SUBSCRIPTION_LANES[f.provider] ? laneAllows(SUBSCRIPTION_LANES[f.provider], f.model) : !LANE_INSTANCES.includes(f.provider) || onTrueFoundry(f.model))),
 	];
 	return { favorites, providerModelPreferences };
 }
@@ -318,8 +325,8 @@ function doctor(): number {
 			continue;
 		}
 		const hidden = new Set(settings.providerModelPreferences?.[id]?.hiddenModels ?? []);
-		const visible = subscriptionCatalog(id).filter((s) => !onClaudeCode(s) && !hidden.has(s));
-		if (visible.length) warnings.push(`${visible.length} models outside Claude Code are visible in the ${id} T3 picker (e.g. ${visible[0]}); run ag-t3 setup`);
+		const visible = subscriptionCatalog(id).filter((s) => s !== "default" && !laneAllows(lane, s) && !hidden.has(s));
+		if (visible.length) warnings.push(`${visible.length} models the lane doesn't run are visible in the ${id} T3 picker (e.g. ${visible[0]}); run ag-t3 setup`);
 		const login = claudeLogin(lane.configDir);
 		const dir = lane.configDir.replace(HOME, "~");
 		if (login.error) warnings.push(`${id}: couldn't check the Claude Code login (${login.error})`);

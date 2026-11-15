@@ -11,8 +11,10 @@
  *
  * The one exception is T3's subscription lanes (piWork, piPersonal; ag's docs/t3.md, "Subscription lanes"): their
  * instance sets PI_CLAUDE_CODE_CONFIG_DIR and loads the pi-claude-code extension, so the session bills the user's own
- * Claude plan through Claude Code. There the guard does the reverse: it keeps the session on claude-code and refuses
- * prompts while no claude-code model is selected, so those threads never fall back to TrueFoundry. A Pi started with
+ * Claude plan through Claude Code. There the guard allows claude-code models. In the work lane
+ * (AG_PI_LANE_TRUEFOUNDRY=1) TrueFoundry models stay allowed too, and anything else goes to its TrueFoundry copy as
+ * usual. In the personal lane the guard does the reverse of its usual job: it keeps the session on claude-code and
+ * refuses prompts while no claude-code model is selected, so those threads never fall back to TrueFoundry. A Pi started with
  * the variable but without the extension (e.g. a subagent child) is an ordinary TrueFoundry session.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -24,6 +26,7 @@ const onTrueFoundry = (provider?: string) => !!provider && provider.startsWith("
 // TrueFoundry's anthropic-primary/claude-opus-5-5 are both claude-opus-5-5. These are unique among TrueFoundry models.
 const bare = (id: string) => id.split("/").pop()!.replace(/\./g, "-");
 const subscriptionLane = (ctx: any) => !!process.env.PI_CLAUDE_CODE_CONFIG_DIR && !!ctx.modelRegistry.find(...SUBSCRIPTION);
+const laneAllowsTrueFoundry = () => process.env.AG_PI_LANE_TRUEFOUNDRY === "1";
 
 export default function (pi: ExtensionAPI) {
 	const keepOnSubscription = async (ctx: any) => {
@@ -40,8 +43,10 @@ export default function (pi: ExtensionAPI) {
 		if (model) ctx.ui.notify(`This lane runs on your Claude subscription; using ${target.provider}/${target.id} instead of ${model.provider}/${model.id}.`, "warning");
 	};
 	const guard = async (ctx: any) => {
-		if (subscriptionLane(ctx)) return keepOnSubscription(ctx);
+		const lane = subscriptionLane(ctx);
+		if (lane && !laneAllowsTrueFoundry()) return keepOnSubscription(ctx);
 		const model = ctx.model;
+		if (lane && model?.provider === SUBSCRIPTION[0]) return;
 		if (!model || onTrueFoundry(model.provider)) return;
 		const available: any[] = ctx.modelRegistry.getAvailable().filter((m: any) => onTrueFoundry(m.provider));
 		const target =
@@ -56,7 +61,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", (_event, ctx) => guard(ctx));
 	// Backstop: a subscription lane never sends a prompt anywhere but Claude Code (e.g. while it isn't signed in).
 	pi.on("input", (event: any, ctx: any) => {
-		if (!subscriptionLane(ctx) || ctx.model?.provider === SUBSCRIPTION[0] || String(event.text ?? "").startsWith("/")) return;
+		if (!subscriptionLane(ctx) || laneAllowsTrueFoundry() || ctx.model?.provider === SUBSCRIPTION[0] || String(event.text ?? "").startsWith("/")) return;
 		ctx.ui.notify("This lane only runs on your Claude subscription, and no Claude Code model is selected; nothing was sent.", "error");
 		return { action: "handled" as const };
 	});

@@ -7,7 +7,8 @@
  * to the strongest model on LADDER not yet tried in this run, and resend the same
  * request. Once a fallback chain has started, any terminal error on a fallback
  * model (e.g. it is unavailable) also moves down the ladder. The session stays on
- * the model that answered; switch back with /model.
+ * the model that answered; switch back with /model. Claude Code subscription models (T3's subscription lanes)
+ * never fall back: that would move a work- or personal-plan thread onto TrueFoundry.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -32,7 +33,7 @@ export default function (pi: ExtensionAPI) {
 	pi.on("agent_settled", () => tried.clear());
 
 	pi.on("agent_before_settle", async (event, ctx) => {
-		if (event.outcome !== "error") return;
+		if (event.outcome !== "error" || ctx.model?.provider === "claude-code") return;
 		const entry = [...ctx.sessionManager.getBranch()]
 			.reverse()
 			.find((e: any) => e.type === "message" && e.message.role === "assistant") as any;

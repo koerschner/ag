@@ -172,7 +172,7 @@ Intentionally not tracked in git:
 ## Routines
 
 A **routine** is a job that repeats on its own. New routines are **T3 scheduled tasks** (`schedule_task` with an
-`interval` or `fixed_time` schedule, `bindToCurrentThread: false`, `freshSession: true`, project Ag): each run is
+`interval` or `fixed_time` schedule, `bindToCurrentThread: false`, `freshSession: true`, project Work, `~`): each run is
 a fresh session in that routine's one thread, listed in T3 → Settings → Scheduled tasks. `fixed_time` is in the
 server's zone (UTC), so convert from Central (and adjust at DST changes). Write prompts that are self-contained and
 say what success looks like, since nobody answers questions mid-run. The `ag routine` definitions in `routines/`

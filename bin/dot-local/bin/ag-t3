@@ -195,7 +195,7 @@ function projectFor(dir: string): string {
 		const hit = rows.find((r) => r.root === dir);
 		if (hit) return hit.id;
 	} catch {} finally { db.close(); }
-	const out = execFileSync(T3, ["project", "add", dir, "--title", dir === HOME ? "Ag" : basename(dir)], { encoding: "utf8" });
+	const out = execFileSync(T3, ["project", "add", dir, "--title", dir === HOME ? "Work" : basename(dir)], { encoding: "utf8" });
 	return out.match(/project ([0-9a-f-]{36})/)?.[1] ?? die(`couldn't add a T3 project for ${dir}: ${out}`);
 }
 
@@ -255,6 +255,29 @@ function personalClaudeLogin(): { loggedIn: boolean; plan?: string; error?: stri
 	catch { return { loggedIn: false, error: `unexpected claude auth status output: ${out.slice(0, 120)}` }; }
 }
 
+// Two projects over the home directory (docs/t3.md, "Work and Personal projects"), so the project picker picks the lane:
+// "Work" at ~ starts threads on TrueFoundry Opus in `pi`; "Personal" starts them on the personal Pi lane. T3 allows one
+// project per path and doesn't resolve symlinks, so Personal's root is a symlink to ~ (processes still see ~ as cwd).
+const PERSONAL_ROOT = `${T3_HOME}/roots/personal`;
+async function setupProjects(rpc: Rpc) {
+	mkdirSync(dirname(PERSONAL_ROOT), { recursive: true });
+	let target: string | null = null;
+	try { target = readlinkSync(PERSONAL_ROOT); } catch {}
+	if (target !== HOME) { if (target !== null) execFileSync("rm", [PERSONAL_ROOT]); symlinkSync(HOME, PERSONAL_ROOT); }
+	const db = new Database(DB, { readonly: true });
+	const rows = (() => { try { return db.query(`SELECT project_id AS id, workspace_root AS root FROM projection_projects WHERE deleted_at IS NULL`).all() as any[]; } finally { db.close(); } })();
+	const projects = [
+		{ root: HOME, title: "Work", defaultModelSelection: { instanceId: "pi", model: DEFAULT_MODEL } },
+		{ root: PERSONAL_ROOT, title: "Personal", defaultModelSelection: { instanceId: PERSONAL_PI, model: PERSONAL_PI_MODEL } },
+	];
+	for (const { root, title, defaultModelSelection } of projects) {
+		let id = rows.find((r) => r.root === root)?.id;
+		if (!id) { id = uuid(); await rpc.call("projects.mutate", { type: "project.create", commandId: uuid(), projectId: id, title, workspaceRoot: root }); }
+		// Create ignores the default model; set it (and the title) with an update.
+		await rpc.call("projects.mutate", { type: "project.update", commandId: uuid(), projectId: id, title, defaultModelSelection });
+	}
+}
+
 // ---------- commands ----------
 async function setup() {
 	const rpc = await open();
@@ -299,8 +322,9 @@ async function setup() {
 			die("T3 did not persist the private Pi lane");
 		if (!personalClaudeOk(updated.providerInstances?.[PERSONAL_CLAUDE])) die("T3 did not persist the personal Claude instance");
 		if (!personalPiOk(updated.providerInstances?.[PERSONAL_PI])) die("T3 did not persist the personal Pi lane");
+		await setupProjects(rpc);
 	} finally { rpc.close(); }
-	console.log("T3 Pi work, private and personal lanes and personal Claude configured");
+	console.log("T3 Pi work, private and personal lanes, personal Claude, and the Work and Personal projects configured");
 }
 function doctor(): number {
 	const problems: string[] = [];

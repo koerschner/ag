@@ -7,8 +7,7 @@
 //   ag-t3 new [--title T] [--pin] [--model M] [--project DIR] <text>   start a thread and send it <text>; prints id + link
 //   ag-t3 send [--model M [--instance I] [--thinking L]] <thread|session id|session file> <text>
 //                                                                       queue <text> into a thread (resumes its Pi session); --model
-//                                                                       switches the thread's model (I: pi, piPrivate or piPersonal)
-//                                                                       when <text> starts
+//                                                                       switches the thread's model (I: pi or piPrivate) when <text> starts
 //   ag-t3 thread <session id|session file>                              the T3 thread bound to a Pi session (exit 1: none)
 //   ag-t3 threads [--json]                                              every thread: id, title, pinned, Pi session file
 //   ag-t3 import [--dry-run] [--title T] [--all-open | <session>…]     import closed Pi sessions into T3 (history, pin, title)
@@ -23,7 +22,7 @@
 
 import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname } from "node:path";
 
@@ -45,41 +44,20 @@ const PRIVATE_SESSIONS = `${HOME}/private-chat/pi-sessions`;
 const onTrueFoundry = (slug: string) => /^truefoundry(-[a-z]+)?\//.test(slug);
 const privateEnvOk = (instance: any) =>
 	(instance?.environment ?? []).some((v: any) => v.name === "PI_CODING_AGENT_SESSION_DIR" && v.value === PRIVATE_SESSIONS);
-// The personal subscription lane (docs/t3.md, "Personal subscription lane"): Claude through Nathan's own Claude plan
-// instead of TrueFoundry. Work needs no lane of its own: the synced `pi` lane ("Pi · work") is work, on TrueFoundry.
-// Only this instance loads the pi-claude-code extension (a pinned checkout, via launch args), which sends requests
-// through `claude -p` signed in with the lane's own Claude Code config dir. The
-// shell's TrueFoundry overrides for Claude Code are blanked (the extension refuses to run with them). piPersonal stores
-// its sessions off the record, like piPrivate, and runs only subscription models.
-const CLAUDE_CODE_EXTENSION = {
-	repo: "https://github.com/earendil-works/pi-claude-code",
-	rev: "d5b5e04c314d3452d357174d16d10dda34daa2d2",
-	dir: `${HOME}/.local/share/pi-claude-code`,
-};
-const SUBSCRIPTION_MODEL = "claude-code/claude-opus-5-5";
-type SubscriptionLane = { displayName: string; configDir: string; sessionDir?: string };
-// Instances setup removes (an earlier work subscription lane; work runs on TrueFoundry in `pi`).
-const RETIRED_INSTANCES = ["piWork"];
-const SUBSCRIPTION_LANES: Record<string, SubscriptionLane> = {
-	piPersonal: { displayName: "Pi \u00b7 personal", configDir: `${HOME}/.claude-personal`, sessionDir: PRIVATE_SESSIONS },
-};
-const onClaudeCode = (slug: string) => slug.startsWith("claude-code/");
-const subscriptionLaunchArgs = `-e ${CLAUDE_CODE_EXTENSION.dir}`;
-const subscriptionEnvironment = (lane: SubscriptionLane) => [
-	{ name: "PI_CLAUDE_CODE_CONFIG_DIR", value: lane.configDir, sensitive: false },
-	{ name: "ANTHROPIC_BASE_URL", value: "", sensitive: false },
-	{ name: "ANTHROPIC_AUTH_TOKEN", value: "", sensitive: false },
-	...(lane.sessionDir ? [{ name: "PI_CODING_AGENT_SESSION_DIR", value: lane.sessionDir, sensitive: false }] : []),
-];
-const subscriptionInstanceOk = (instance: any, lane: SubscriptionLane) => {
-	const want = subscriptionEnvironment(lane);
-	const have = instance?.environment ?? [];
-	return instance?.enabled === true && instance.config?.launchArgs === subscriptionLaunchArgs && have.length === want.length &&
-		want.every((w) => have.some((v: any) => v.name === w.name && v.value === w.value));
-};
-function modelProblem(model: string, instance = "pi"): string | null {
-	const lane = SUBSCRIPTION_LANES[instance];
-	if (lane) return onClaudeCode(model) ? null : `the ${instance} lane runs only Claude Code subscription models; Pi's truefoundry-only extension switches this to claude-code Opus`;
+// Personal Claude (docs/t3.md, "Personal Claude"): T3's own Claude Code driver on Nathan's personal Claude plan, with its
+// own Claude Code config dir and the shell's TrueFoundry overrides blanked, so it bills the plan and never TrueFoundry.
+// Work needs no instance of its own: the synced `pi` lane ("Pi · work") is work, on TrueFoundry.
+const PERSONAL_CLAUDE = "claudePersonal";
+const PERSONAL_CLAUDE_HOME = `${HOME}/.claude-personal`;
+const PERSONAL_CLAUDE_MODEL = "claude-opus-5-5";
+const AG_CLAUDE = `${HOME}/ag/claude/dot-claude`; // the Claude Code config ag stows into ~/.claude
+const NO_TRUEFOUNDRY = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"].map((name) => ({ name, value: "", sensitive: false }));
+// Instances setup removes: earlier subscription lanes (pi-claude-code), which Anthropic billed as extra usage.
+const RETIRED_INSTANCES = ["piWork", "piPersonal"];
+const personalClaudeOk = (instance: any) =>
+	instance?.enabled === true && instance.driver === "claudeAgent" && instance.config?.homePath === PERSONAL_CLAUDE_HOME &&
+	NO_TRUEFOUNDRY.every((w) => (instance.environment ?? []).some((v: any) => v.name === w.name && v.value === ""));
+function modelProblem(model: string): string | null {
 	if (model === "default" || onTrueFoundry(model)) return null;
 	return "every Pi session runs on TrueFoundry; Pi's truefoundry-only extension silently switches this to the TrueFoundry copy";
 }
@@ -192,52 +170,45 @@ function projectFor(dir: string): string {
 // for every Pi instance. Hide everything outside TrueFoundry in the server's model preferences (synced to every
 // client) and put the default first; the private lane's picker mirrors the synced lane's. Pi's truefoundry-only
 // extension catches stray picks.
-const piCatalog = (instance = "pi"): string[] => existsSync(`${T3_HOME}/caches/${instance}.json`)
-	? (JSON.parse(readFileSync(`${T3_HOME}/caches/${instance}.json`, "utf8")).models ?? []).map((m: any) => m.slug) : [];
-// The subscription lanes' pickers show only the claude-code models (their catalogs are the lane catalog plus those).
-const subscriptionCatalog = (instance: string) => [...new Set([...piCatalog(), ...piCatalog(instance)])];
+const piCatalog = (): string[] => existsSync(`${T3_HOME}/caches/pi.json`)
+	? (JSON.parse(readFileSync(`${T3_HOME}/caches/pi.json`, "utf8")).models ?? []).map((m: any) => m.slug) : [];
 function laneModelPreferences(settings: any) {
 	const prefs = settings.providerModelPreferences?.pi ?? {};
 	const hiddenModels = [...new Set([...(prefs.hiddenModels ?? []), ...piCatalog().filter((s) => s !== "default" && !onTrueFoundry(s))])];
 	const modelOrder = [DEFAULT_MODEL, ...(prefs.modelOrder ?? []).filter((s: string) => s !== DEFAULT_MODEL && onTrueFoundry(s))];
 	const providerModelPreferences = { ...settings.providerModelPreferences };
 	for (const instance of LANE_INSTANCES) providerModelPreferences[instance] = { hiddenModels, modelOrder };
-	for (const instance of Object.keys(SUBSCRIPTION_LANES)) {
-		const own = settings.providerModelPreferences?.[instance]?.hiddenModels ?? [];
-		providerModelPreferences[instance] = {
-			hiddenModels: [...new Set([...own, ...subscriptionCatalog(instance).filter((s) => s !== "default" && !onClaudeCode(s))])]
-				.filter((s) => !onClaudeCode(s)),
-			modelOrder: [SUBSCRIPTION_MODEL],
-		};
-	}
 	for (const instance of RETIRED_INSTANCES) delete providerModelPreferences[instance];
-	const pinnedFavorites = [{ provider: "pi", model: DEFAULT_MODEL }, ...Object.keys(SUBSCRIPTION_LANES).map((provider) => ({ provider, model: SUBSCRIPTION_MODEL }))];
+	const pinned = [{ provider: "pi", model: DEFAULT_MODEL }, { provider: PERSONAL_CLAUDE, model: PERSONAL_CLAUDE_MODEL }];
 	const favorites = [
-		...pinnedFavorites,
+		...pinned,
 		...(settings.favorites ?? []).filter((f: any) =>
-			!pinnedFavorites.some((p) => p.provider === f.provider && p.model === f.model) && !RETIRED_INSTANCES.includes(f.provider) &&
-			(SUBSCRIPTION_LANES[f.provider] ? onClaudeCode(f.model) : !LANE_INSTANCES.includes(f.provider) || onTrueFoundry(f.model))),
+			!pinned.some((p) => p.provider === f.provider && p.model === f.model) && !RETIRED_INSTANCES.includes(f.provider) &&
+			(!LANE_INSTANCES.includes(f.provider) || onTrueFoundry(f.model))),
 	];
 	return { favorites, providerModelPreferences };
 }
 
-// The pinned pi-claude-code checkout the subscription lanes load (Pi supplies its peer dependencies; it has no others).
-function ensureClaudeCodeExtension() {
-	const { repo, rev, dir } = CLAUDE_CODE_EXTENSION;
-	const git = (...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-	if (!existsSync(`${dir}/.git`)) {
-		mkdirSync(dirname(dir), { recursive: true });
-		execFileSync("git", ["clone", "--quiet", repo, dir], { stdio: ["ignore", "ignore", "inherit"] });
-	}
-	if (git("rev-parse", "HEAD") !== rev) {
-		try { git("cat-file", "-e", `${rev}^{commit}`); } catch { git("fetch", "--quiet", "origin"); }
-		git("checkout", "--quiet", "--detach", rev);
-	}
+// The personal Claude home shares ag's Claude Code config (instructions, settings, skills); its login and transcripts
+// stay its own. Links only what's missing or already a link, never a real file.
+function linkPersonalClaudeConfig() {
+	mkdirSync(`${PERSONAL_CLAUDE_HOME}/skills`, { recursive: true, mode: 0o700 });
+	chmodSync(PERSONAL_CLAUDE_HOME, 0o700);
+	const link = (target: string, path: string) => {
+		let current: string | null = null;
+		try { const st = lstatSync(path); if (!st.isSymbolicLink()) return; current = readlinkSync(path); } catch {}
+		if (current === target) return;
+		if (current !== null) execFileSync("rm", [path]);
+		symlinkSync(target, path);
+	};
+	for (const f of ["CLAUDE.md", "settings.json"]) if (existsSync(`${AG_CLAUDE}/${f}`)) link(`${AG_CLAUDE}/${f}`, `${PERSONAL_CLAUDE_HOME}/${f}`);
+	if (existsSync(`${AG_CLAUDE}/skills`))
+		for (const s of readdirSync(`${AG_CLAUDE}/skills`)) link(`${AG_CLAUDE}/skills/${s}`, `${PERSONAL_CLAUDE_HOME}/skills/${s}`);
 }
-// Claude Code's own view of a lane's login, with the shell's TrueFoundry overrides removed (they read as "logged in").
-function claudeLogin(configDir: string): { loggedIn: boolean; plan?: string; error?: string } {
-	const env: Record<string, string | undefined> = { ...process.env, CLAUDE_CONFIG_DIR: configDir };
-	delete env.ANTHROPIC_BASE_URL; delete env.ANTHROPIC_AUTH_TOKEN; delete env.ANTHROPIC_API_KEY;
+// Claude Code's own view of the personal login, with the shell's TrueFoundry overrides removed (they read as "logged in").
+function personalClaudeLogin(): { loggedIn: boolean; plan?: string; error?: string } {
+	const env: Record<string, string | undefined> = { ...process.env, CLAUDE_CONFIG_DIR: PERSONAL_CLAUDE_HOME };
+	for (const { name } of NO_TRUEFOUNDRY) delete env[name];
 	let out = "";
 	try { out = execFileSync("claude", ["auth", "status"], { env, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 20_000 }); }
 	catch (e: any) { out = String(e.stdout ?? ""); if (!out) return { loggedIn: false, error: String(e.message ?? e).split("\n")[0] }; }
@@ -266,30 +237,25 @@ async function setup() {
 			environment: [{ name: "PI_CODING_AGENT_SESSION_DIR", value: PRIVATE_SESSIONS, sensitive: false }],
 			config: { ...instances[PRIVATE]?.config, binaryPath: `${HOME}/.local/bin/pi` },
 		};
-		ensureClaudeCodeExtension();
-		const subscription = Object.fromEntries(Object.entries(SUBSCRIPTION_LANES).map(([id, lane]) => {
-			mkdirSync(lane.configDir, { recursive: true, mode: 0o700 });
-			chmodSync(lane.configDir, 0o700);
-			return [id, {
-				...instances[id], driver: "pi", displayName: lane.displayName, enabled: true, environment: subscriptionEnvironment(lane),
-				config: { ...instances[id]?.config, binaryPath: `${HOME}/.local/bin/pi`, launchArgs: subscriptionLaunchArgs },
-			}];
-		}));
+		linkPersonalClaudeConfig();
+		const claudePersonal = {
+			...instances[PERSONAL_CLAUDE], driver: "claudeAgent", displayName: "Claude \u00b7 personal", enabled: true, environment: NO_TRUEFOUNDRY,
+			config: { ...instances[PERSONAL_CLAUDE]?.config, homePath: PERSONAL_CLAUDE_HOME, binaryPath: `${HOME}/.local/bin/claude` },
+		};
 		const textModel = settings.textGenerationModelSelection;
 		const textGenerationModelSelection = textModel?.instanceId === "pi" && textModel?.model !== "default" && !modelProblem(textModel.model)
 			? textModel : { instanceId: "pi", model: "truefoundry-chat/gemini-group/gemini-3.7-flash" };
 		const updated = await rpc.call("server.updateSettings", { patch: {
-			providerInstances: { ...instances, pi, [PRIVATE]: piPrivate, ...subscription }, textGenerationModelSelection, ...laneModelPreferences(settings),
+			providerInstances: { ...instances, pi, [PRIVATE]: piPrivate, [PERSONAL_CLAUDE]: claudePersonal }, textGenerationModelSelection, ...laneModelPreferences(settings),
 		} });
 		const saved = updated.providerInstances?.pi;
 		if (!saved?.enabled || saved.config?.binaryPath !== pi.config.binaryPath)
 			die("T3 did not persist the Pi provider configuration");
 		if (!updated.providerInstances?.[PRIVATE]?.enabled || !privateEnvOk(updated.providerInstances[PRIVATE]))
 			die("T3 did not persist the private Pi lane");
-		for (const [id, lane] of Object.entries(SUBSCRIPTION_LANES))
-			if (!subscriptionInstanceOk(updated.providerInstances?.[id], lane)) die(`T3 did not persist the ${id} subscription lane`);
+		if (!personalClaudeOk(updated.providerInstances?.[PERSONAL_CLAUDE])) die("T3 did not persist the personal Claude instance");
 	} finally { rpc.close(); }
-	console.log("T3 Pi work, private and personal lanes configured");
+	console.log("T3 Pi work and private lanes and personal Claude configured");
 }
 function doctor(): number {
 	const problems: string[] = [];
@@ -313,26 +279,16 @@ function doctor(): number {
 		const visible = piCatalog().filter((s) => s !== "default" && !onTrueFoundry(s) && !hidden.has(s));
 		if (visible.length) warnings.push(`${visible.length} models outside TrueFoundry are visible in the ${instance} T3 picker (e.g. ${visible[0]}); run ag-t3 setup`);
 	}
-	const { dir: extensionDir, rev } = CLAUDE_CODE_EXTENSION;
-	let extensionRev = "";
-	try { extensionRev = execFileSync("git", ["-C", extensionDir, "rev-parse", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch {}
-	if (extensionRev !== rev) problems.push(`pi-claude-code isn't checked out at ${rev.slice(0, 7)} in ${extensionDir}; run ag-t3 setup`);
-	for (const [id, lane] of Object.entries(SUBSCRIPTION_LANES)) {
-		if (!subscriptionInstanceOk(settings.providerInstances?.[id], lane)) {
-			problems.push(`T3's ${id} subscription lane (${lane.displayName}) is missing or changed; run ag-t3 setup`);
-			continue;
-		}
-		const hidden = new Set(settings.providerModelPreferences?.[id]?.hiddenModels ?? []);
-		const visible = subscriptionCatalog(id).filter((s) => s !== "default" && !onClaudeCode(s) && !hidden.has(s));
-		if (visible.length) warnings.push(`${visible.length} models outside Claude Code are visible in the ${id} T3 picker (e.g. ${visible[0]}); run ag-t3 setup`);
-		const login = claudeLogin(lane.configDir);
-		const dir = lane.configDir.replace(HOME, "~");
-		if (login.error) warnings.push(`${id}: couldn't check the Claude Code login (${login.error})`);
-		else if (!login.loggedIn) warnings.push(`${id}: Claude Code isn't signed in; run env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN CLAUDE_CONFIG_DIR=${dir} claude auth login`);
-		else if (!login.plan) warnings.push(`${id}: Claude Code in ${dir} is signed in without a Claude plan (API billing); sign in with a subscription account`);
-		else if (existsSync(`${T3_HOME}/caches/${id}.json`) && !piCatalog(id).includes(SUBSCRIPTION_MODEL))
-			warnings.push(`${id}: T3 hasn't listed ${SUBSCRIPTION_MODEL} yet (it refreshes provider models periodically)`);
+	if (!personalClaudeOk(settings.providerInstances?.[PERSONAL_CLAUDE]))
+		problems.push(`T3's personal Claude instance (${PERSONAL_CLAUDE}) is missing or changed; run ag-t3 setup`);
+	else {
+		const login = personalClaudeLogin();
+		const fix = "run env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN CLAUDE_CONFIG_DIR=~/.claude-personal claude auth login";
+		if (login.error) warnings.push(`personal Claude: couldn't check the login (${login.error})`);
+		else if (!login.loggedIn) warnings.push(`personal Claude isn't signed in; ${fix}`);
+		else if (!login.plan) warnings.push(`personal Claude is signed in without a Claude plan (API billing); ${fix} with a subscription account`);
 	}
+	for (const id of RETIRED_INSTANCES) if (settings.providerInstances?.[id]) warnings.push(`retired instance ${id} is still configured; run ag-t3 setup`);
 	const authFile = `${HOME}/.pi/agent/auth.json`;
 	if (existsSync(authFile)) {
 		const auth = JSON.parse(readFileSync(authFile, "utf8"));
@@ -345,7 +301,8 @@ function doctor(): number {
 		const db = new Database(DB, { readonly: true });
 		try {
 			for (const row of db.query(`SELECT title, json_extract(payload_json, '$.modelSelection.instanceId') AS instance, json_extract(payload_json, '$.modelSelection.model') AS model FROM orchestration_v2_projection_threads WHERE deleted_at IS NULL`).all() as { title: string; instance: string | null; model: string | null }[]) {
-				const problem = row.model ? modelProblem(row.model, row.instance ?? "pi") : null;
+				// Only Pi lanes are pinned to TrueFoundry; personal Claude threads run Claude Code models.
+				const problem = row.model && LANE_INSTANCES.includes(row.instance ?? "pi") ? modelProblem(row.model) : null;
 				if (problem) problems.push(`thread "${row.title}" (${row.instance ?? "pi"}) selects ${row.model}: ${problem}`);
 			}
 		} finally { db.close(); }
@@ -499,7 +456,7 @@ switch (cmd) {
 	case "send": {
 		const json = bool("--json");
 		const model = flag("--model"), instance = flag("--instance") ?? "pi", thinking = flag("--thinking");
-		if (model && modelProblem(model, instance)) die(`model ${model}: ${modelProblem(model, instance)}`, 2);
+		if (model && modelProblem(model)) die(`model ${model}: ${modelProblem(model)}`, 2);
 		const ref = argv.shift() ?? die("usage: ag-t3 send [--model M [--instance I] [--thinking L]] <thread|session> <text>", 2);
 		const text = await readText(argv) || die("usage: ag-t3 send [--model M [--instance I] [--thinking L]] <thread|session> <text>", 2);
 		const selection = model ? { instanceId: instance, model, ...(thinking ? { options: [{ id: "thinking", value: thinking }] } : {}) } : undefined;

@@ -235,7 +235,8 @@ systemctl --user enable --now ag-telemetry.service >/dev/null 2>&1 && echo "  ag
 # Pi enabled, then the service (host only). ~/.local/bin/t3 is ag-t3-update's launcher for the installed runtime.
 if "$AG/bin/dot-local/bin/ag-machine-role" host 2>/dev/null; then
   [[ -d /data ]] && { sudo install -d -o "$USER" -g "$USER" /data/t3; [[ -e ~/.t3 ]] || ln -s /data/t3 ~/.t3; }
-  grep -q '/runtime/versions/' ~/.local/bin/t3 2>/dev/null || "$AG/bin/dot-local/bin/ag-t3-update" --now || warn "ag-t3-update (T3 Code isn't installed)"
+  # Only warn: installing restarts the server, which cancels running turns, so it never runs from a sync.
+  grep -q '/runtime/versions/' ~/.local/bin/t3 2>/dev/null || warn "T3 Code isn't installed: run ag-t3-update"
   mkdir -p ~/.t3/userdata; [[ -f ~/.t3/userdata/settings.json ]] || printf '{"providers":{"pi":{"enabled":true,"binaryPath":"%s/.local/bin/pi"},"codex":{"enabled":false},"claudeAgent":{"enabled":false},"cursor":{"enabled":false},"grok":{"enabled":false},"opencode":{"enabled":false},"antigravity":{"enabled":false}}}\n' "$HOME" > ~/.t3/userdata/settings.json
   systemctl --user enable --now ag-t3.service >/dev/null 2>&1 && echo "  ag-t3 (T3 Code, https://ag.<tailnet>.ts.net) on" || warn "ag-t3.service"
   # T3's Pi catalog is populated asynchronously on first boot. Check the actual integration,

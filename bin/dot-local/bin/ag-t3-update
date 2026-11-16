@@ -59,7 +59,7 @@ if [[ ! -x $RUNTIME ]]; then
 fi
 [[ -x $RUNTIME ]] || die "no runtime at $RUNTIME after install"
 
-# 2. Wait for running turns to finish (up to 3 h, then restart anyway, like ag/ship did).
+# 2. Wait for running turns to finish (up to 3 h, then restart anyway).
 if ((!NOW)) && busy; then
 	say "turns are running: waiting for them to finish"
 	for _ in $(seq 2160); do busy || break; sleep 5; done

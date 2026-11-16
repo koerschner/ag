@@ -566,14 +566,6 @@ const RULES: Rule[] = [
 		if (v === "tools") return "List Read AI tools";
 		if (v === "auth") return "Sign in to Read AI";
 	} },
-	{ id: "ag-deepsearch", cmd: /^ag-deepsearch$/, fn: (a) => {
-		// semantic search over open T3 threads and Ag tabs
-		const [v, ...r] = positional(a, ["-n", "--limit"]);
-		if (v === "search") return r.length ? `Deep-search sessions for "${clip(r.join(" ").replace(/\s+/g, " "), 40)}"` : undefined;
-		if (v === "status") return "Check the deep-search index";
-		if (v === "setup") return "Set up deep search (llama.cpp + model)";
-		if (v === "serve") return "Serve deep search";
-	} },
 	{ id: "xurl", cmd: /^xurl$/, fn: (a) => {
 		// the X API CLI: xurl [flags] /2/path, or xurl <verb> …
 		const p = positional(a, ["-X", "--method", "-d", "--data", "-H", "--header", "-n", "--max-results", "--app", "-u", "--username", "--auth", "-F", "--file", "--of"]);

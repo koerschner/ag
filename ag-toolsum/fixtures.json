@@ -3601,16 +3601,6 @@
  {
   "tool": "bash",
   "args": {
-   "command": "timeout 80 ag-deepsearch search 'ROICX moderators Philippines' 2>&1 | head -20"
-  },
-  "sum": "Deep-search sessions for \"ROICX moderators Philippines\"",
-  "hosts": [
-   "ag-engine"
-  ]
- },
- {
-  "tool": "bash",
-  "args": {
    "command": "cd ~/ten-a-day && xcodegen generate -q"
   },
   "sum": "Generate the Xcode project (xcodegen)",

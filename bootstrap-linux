@@ -220,10 +220,6 @@ systemctl --user enable --now ag-sms-watch.timer >/dev/null 2>&1 && echo "  ag-s
 systemctl --user enable --now ag-mux.service >/dev/null 2>&1 && echo "  ag-mux (agd, tmux -L ag) on" || warn "ag-mux.service"
 systemctl --user enable --now ag-dash.service >/dev/null 2>&1 && echo "  ag-dash (http://ag:7376) on" || warn "ag-dash.service"
 ~/.local/bin/ag-shortcuts-check >/dev/null 2>&1 && echo "  shortcuts match tmux/SHORTCUTS.md" || warn "ag shortcuts drifted (run ag-shortcuts-check)"
-if ~/.local/bin/ag-machine-role host; then  # EmbeddingGemma 2 search for T3's ⌥⌘K deep search (builds llama.cpp once)
-  ~/.local/bin/ag-deepsearch setup >/dev/null 2>&1 && systemctl --user enable --now ag-deepsearch.service >/dev/null 2>&1 &&
-    echo "  ag-deepsearch on" || warn "ag-deepsearch (run ag-deepsearch setup)"
-fi
 if ~/.local/bin/ag-machine-role host; then  # Rex server, tailnet-only on :7297 (docs/reference.md "Rex")
   ~/.local/bin/ag-rex-install >/dev/null 2>&1 && echo "  rex-server (tailnet :7297) on" || warn "ag-rex-install"
 fi

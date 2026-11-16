@@ -223,7 +223,8 @@ systemctl --user enable --now ag-dash.service >/dev/null 2>&1 && echo "  ag-dash
 if ~/.local/bin/ag-machine-role host; then  # Rex server, tailnet-only on :7297 (docs/reference.md "Rex")
   ~/.local/bin/ag-rex-install >/dev/null 2>&1 && echo "  rex-server (tailnet :7297) on" || warn "ag-rex-install"
 fi
-systemctl --user enable --now ag-nessie.service >/dev/null 2>&1 && echo "  nessie (trace sync) on" || warn "ag-nessie.service"
+# Nessie trace sync is off since 2026-11-15 (docs/reference.md "Nessie"): installed and signed in, never started.
+systemctl --user disable --now ag-nessie.service >/dev/null 2>&1 || true
 systemctl --user enable --now ag-telegram.service >/dev/null 2>&1 && echo "  ag-telegram (Telegram replies) on" || warn "ag-telegram.service"
 systemctl --user enable --now ag-discord.service >/dev/null 2>&1 && echo "  ag-discord (Discord feedback buttons) on" || warn "ag-discord.service"
 systemctl --user enable --now ag-telemetry.service >/dev/null 2>&1 && echo "  ag-telemetry (crash readout, http://ag:7378) on" || warn "ag-telemetry.service"

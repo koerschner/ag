@@ -1,8 +1,0 @@
-#!/bin/zsh
-# ag-pi-private: pi with its session kept off the record: stored in ~/private-chat/pi-sessions, which Nessie doesn't
-# watch (it syncs everything under ~/.pi). Same TrueFoundry models as every session. In T3, the private lane
-# (piPrivate) does the same (docs/t3.md, "Two lanes").
-dir=$HOME/private-chat/pi-sessions
-mkdir -p $dir && chmod 700 $HOME/private-chat $dir
-export PI_CODING_AGENT_SESSION_DIR=$dir
-exec pi "$@"

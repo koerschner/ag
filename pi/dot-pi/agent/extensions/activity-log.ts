@@ -4,7 +4,7 @@
 //            they send (injections.jsonl); a matching hash means it wasn't typed.
 //   devices  which devices had Ag's tmux attached at that moment (from presence's poll, ≤30s old)
 //   client   presence state and HID idle seconds on the client, to tell the user's typing from agent-sent prompts
-// Private sessions (ag-pi-private, ~/private-chat) are skipped entirely. Cost: a few small file reads per prompt.
+// Sessions in ~/private-chat (T3's personal Pi lane) are skipped entirely. Cost: a few small file reads per prompt.
 import { createHash } from "node:crypto";
 import { appendFileSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync } from "node:fs";
 import { homedir } from "node:os";

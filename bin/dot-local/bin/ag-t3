@@ -7,7 +7,7 @@
 //   ag-t3 new [--title T] [--pin] [--model M] [--project DIR] <text>   start a thread and send it <text>; prints id + link
 //   ag-t3 send [--model M [--instance I] [--thinking L]] <thread|session id|session file> <text>
 //                                                                       queue <text> into a thread (resumes its Pi session); --model
-//                                                                       switches the thread's model (I: pi, piPrivate or piPersonal)
+//                                                                       switches the thread's model (I: pi or piPersonal)
 //                                                                       when <text> starts
 //   ag-t3 thread <session id|session file>                              the T3 thread bound to a Pi session (exit 1: none)
 //   ag-t3 threads [--json]                                              every thread: id, title, pinned, Pi session file
@@ -36,15 +36,11 @@ const TOKEN_FILE = `${HOME}/.config/ag/t3.token`;
 const T3 = `${HOME}/.local/bin/t3`;
 const PI_SETTINGS = existsSync(`${HOME}/.pi/agent/settings.json`) ? JSON.parse(readFileSync(`${HOME}/.pi/agent/settings.json`, "utf8")) : {};
 const DEFAULT_MODEL = process.env.AG_T3_MODEL ?? (PI_SETTINGS.defaultProvider && PI_SETTINGS.defaultModel ? `${PI_SETTINGS.defaultProvider}/${PI_SETTINGS.defaultModel}` : "truefoundry/anthropic-primary/claude-opus-5-5");
-// Two Pi lanes (docs/t3.md, "Two lanes"), both on the same TrueFoundry models. "pi": sessions under ~/.pi, synced to
-// Nessie. "piPrivate": off the record, same Pi and config but sessions stored in ~/private-chat/pi-sessions (outside
-// Nessie, like ag-pi-private). A thread stays in the lane it starts in until it's moved (ag private, the composer, send --instance).
-const PRIVATE = "piPrivate";
-const LANE_INSTANCES = ["pi", PRIVATE];
+// "pi" ("Pi · work"): Pi on TrueFoundry, sessions under ~/.pi. The personal Pi lane stores its sessions in
+// ~/private-chat/pi-sessions (below).
+const LANE_INSTANCES = ["pi"];
 const PRIVATE_SESSIONS = `${HOME}/private-chat/pi-sessions`;
 const onTrueFoundry = (slug: string) => /^truefoundry(-[a-z]+)?\//.test(slug);
-const privateEnvOk = (instance: any) =>
-	(instance?.environment ?? []).some((v: any) => v.name === "PI_CODING_AGENT_SESSION_DIR" && v.value === PRIVATE_SESSIONS);
 // Personal Claude (docs/t3.md, "Personal Claude"): T3's own Claude Code driver on Nathan's personal Claude plan, with its
 // own Claude Code config dir and the shell's TrueFoundry overrides blanked, so it bills the plan and never TrueFoundry.
 // Work needs no instance of its own: the synced `pi` lane ("Pi · work") is work, on TrueFoundry.
@@ -53,12 +49,13 @@ const PERSONAL_CLAUDE_HOME = `${HOME}/.claude-personal`;
 const PERSONAL_CLAUDE_MODEL = "claude-opus-5-5";
 const AG_CLAUDE = `${HOME}/ag/claude/dot-claude`; // the Claude Code config ag stows into ~/.claude
 const NO_TRUEFOUNDRY = ["ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"].map((name) => ({ name, value: "", sensitive: false }));
-// Instances setup removes: an earlier work subscription lane (work runs on TrueFoundry in `pi`).
-const RETIRED_INSTANCES = ["piWork"];
+// Instances setup removes: an earlier work subscription lane (work runs on TrueFoundry in `pi`) and the private
+// lane (piPrivate, retired 2026-11-15 with Nessie; its threads moved to `pi`).
+const RETIRED_INSTANCES = ["piWork", "piPrivate"];
 // The personal Pi lane (docs/t3.md, "Personal Pi lane"): Pi on the same personal Claude plan through pi-claude-bridge,
 // which runs Claude Code through Anthropic's Agent SDK (Claude Code's own system prompt first, Pi's appended), so it
 // bills the plan. Only this instance loads the bridge (a pinned install, via launch args). AG_PI_SUBSCRIPTION tells
-// truefoundry-only to keep the lane on claude-bridge. Sessions are stored off the record, like piPrivate.
+// truefoundry-only to keep the lane on claude-bridge. Sessions are stored in ~/private-chat/pi-sessions.
 const PERSONAL_PI = "piPersonal";
 const CLAUDE_BRIDGE = { name: "pi-claude-bridge", version: "0.12.0", dir: `${HOME}/.local/share/pi-claude-bridge` };
 const CLAUDE_BRIDGE_PATH = `${CLAUDE_BRIDGE.dir}/node_modules/${CLAUDE_BRIDGE.name}`;
@@ -201,7 +198,7 @@ function projectFor(dir: string): string {
 
 // T3 lists Pi's whole catalog (hundreds of OpenRouter models plus the direct anthropic and openai-codex logins)
 // for every Pi instance. Hide everything outside TrueFoundry in the server's model preferences (synced to every
-// client) and put the default first; the private lane's picker mirrors the synced lane's. Pi's truefoundry-only
+// client) and put the default first. Pi's truefoundry-only
 // extension catches stray picks.
 const piCatalog = (): string[] => existsSync(`${T3_HOME}/caches/pi.json`)
 	? (JSON.parse(readFileSync(`${T3_HOME}/caches/pi.json`, "utf8")).models ?? []).map((m: any) => m.slug) : [];
@@ -287,18 +284,12 @@ async function setup() {
 		// record so the other instances survive.
 		const instances = { ...settings.providerInstances };
 		for (const id of RETIRED_INSTANCES) delete instances[id];
-		// The synced lane is the work lane: TrueFoundry, sessions synced to Nessie.
+		// The work lane: TrueFoundry, sessions under ~/.pi.
 		const pi = { ...instances.pi, driver: "pi", displayName: "Pi \u00b7 work", enabled: true, config: { ...instances.pi?.config, binaryPath: `${HOME}/.local/bin/pi` } };
-		// The private lane runs the same Pi and models, but its sessions land in ~/private-chat/pi-sessions (T3 never
-		// passes a session dir, so the environment decides), which Nessie doesn't watch.
+		// The personal lane's sessions land in ~/private-chat/pi-sessions (T3 never passes a session dir).
 		mkdirSync(PRIVATE_SESSIONS, { recursive: true, mode: 0o700 });
 		chmodSync(`${HOME}/private-chat`, 0o700);
 		chmodSync(PRIVATE_SESSIONS, 0o700);
-		const piPrivate = {
-			...instances[PRIVATE], driver: "pi", displayName: "Pi \u00b7 private (unsynced)", enabled: true,
-			environment: [{ name: "PI_CODING_AGENT_SESSION_DIR", value: PRIVATE_SESSIONS, sensitive: false }],
-			config: { ...instances[PRIVATE]?.config, binaryPath: `${HOME}/.local/bin/pi` },
-		};
 		linkPersonalClaudeConfig();
 		const claudePersonal = {
 			...instances[PERSONAL_CLAUDE], driver: "claudeAgent", displayName: "Claude \u00b7 personal", enabled: true, environment: NO_TRUEFOUNDRY,
@@ -313,18 +304,16 @@ async function setup() {
 		const textGenerationModelSelection = textModel?.instanceId === "pi" && textModel?.model !== "default" && !modelProblem(textModel.model)
 			? textModel : { instanceId: "pi", model: "truefoundry-chat/gemini-group/gemini-3.7-flash" };
 		const updated = await rpc.call("server.updateSettings", { patch: {
-			providerInstances: { ...instances, pi, [PRIVATE]: piPrivate, [PERSONAL_CLAUDE]: claudePersonal, [PERSONAL_PI]: piPersonal }, textGenerationModelSelection, ...laneModelPreferences(settings),
+			providerInstances: { ...instances, pi, [PERSONAL_CLAUDE]: claudePersonal, [PERSONAL_PI]: piPersonal }, textGenerationModelSelection, ...laneModelPreferences(settings),
 		} });
 		const saved = updated.providerInstances?.pi;
 		if (!saved?.enabled || saved.config?.binaryPath !== pi.config.binaryPath)
 			die("T3 did not persist the Pi provider configuration");
-		if (!updated.providerInstances?.[PRIVATE]?.enabled || !privateEnvOk(updated.providerInstances[PRIVATE]))
-			die("T3 did not persist the private Pi lane");
 		if (!personalClaudeOk(updated.providerInstances?.[PERSONAL_CLAUDE])) die("T3 did not persist the personal Claude instance");
 		if (!personalPiOk(updated.providerInstances?.[PERSONAL_PI])) die("T3 did not persist the personal Pi lane");
 		await setupProjects(rpc);
 	} finally { rpc.close(); }
-	console.log("T3 Pi work, private and personal lanes, personal Claude, and the Work and Personal projects configured");
+	console.log("T3 Pi work and personal lanes, personal Claude, and the Work and Personal projects configured");
 }
 function doctor(): number {
 	const problems: string[] = [];
@@ -334,9 +323,6 @@ function doctor(): number {
 	const piInstance = settings.providerInstances?.pi;
 	if (piInstance?.enabled !== true || piInstance.config?.binaryPath !== `${HOME}/.local/bin/pi` || !existsSync(`${HOME}/.local/bin/pi`))
 		problems.push("T3 Pi provider is not enabled with a working ~/.local/bin/pi");
-	const privateInstance = settings.providerInstances?.[PRIVATE];
-	if (privateInstance?.enabled !== true || !privateEnvOk(privateInstance))
-		problems.push(`T3's private Pi lane (${PRIVATE}, sessions in ~/private-chat/pi-sessions) is missing; run ag-t3 setup`);
 	if (!existsSync(`${HOME}/.pi/agent/models.json`)) problems.push("Pi custom models.json is missing; TrueFoundry models will not load");
 	if (!existsSync(`${T3_HOME}/caches/pi.json`)) problems.push("T3 has not probed Pi models yet");
 	else {
@@ -496,8 +482,8 @@ async function importSessions(sessions: AgSession[], dry: boolean) {
 		const threadId = uuid();
 		await dispatch(rpc!, {
 			type: "thread.create", threadId, projectId: project, title: s.title.slice(0, 120) || "Imported session",
-			// A session stored off the record (ag-pi-private) stays in the private lane.
-			modelSelection: { instanceId: file.startsWith(`${PRIVATE_SESSIONS}/`) ? PRIVATE : "pi", model }, runtimeMode: "full-access", interactionMode: "default",
+			// A session stored in ~/private-chat/pi-sessions belongs to the personal lane.
+			modelSelection: { instanceId: file.startsWith(`${PRIVATE_SESSIONS}/`) ? PERSONAL_PI : "pi", model }, runtimeMode: "full-access", interactionMode: "default",
 			branch: null, worktreePath: null, createdBy: "user", creationSource: "web",
 			importedNativeThread: { ref: { driver: "pi", nativeId: file, strength: "strong" }, metadata: { itemIdentityVersion: 2, title: s.title } },
 		});

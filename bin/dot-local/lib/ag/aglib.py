@@ -41,7 +41,7 @@ def user_name():
 
 
 SESSIONS = HOME / ".pi/agent/sessions"
-# Off-the-record sessions (the private lane, ag-pi-private): flat, outside ~/.pi so Nessie never syncs them.
+# T3's personal Pi lane stores its sessions here: flat, outside ~/.pi.
 PRIVATE_SESSIONS = HOME / "private-chat/pi-sessions"
 
 

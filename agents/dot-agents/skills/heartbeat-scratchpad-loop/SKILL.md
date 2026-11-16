@@ -98,4 +98,4 @@ Split into several tasks (scout / validator / monitor / coordinator) only when t
 
 ## Where to run it
 
-Run each loop in its **own thread/session**, not in a busy working thread (runs wait for idle turns and fill the thread). If it shouldn't sync to Nessie, start that session with the `piPrivate` provider or `ag private`.
+Run each loop in its **own thread/session**, not in a busy working thread (runs wait for idle turns and fill the thread).

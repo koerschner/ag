@@ -17,6 +17,8 @@
 	"hosts": {
 		"ag-mac":    "MAC_IP",
 		"ag-client": "CLIENT_IP",
+		// tm-core: the Mac mini replacing ag-engine and ag-mac (the standalone "tm" system); the engine drives its setup.
+		"tm-core":   "TM_CORE_IP",
 	},
 
 	"grants": [
@@ -28,6 +30,8 @@
 		// scripts call http://ag:…). Never the phones.
 		{"src": ["tag:ag-engine"], "dst": ["ag-mac", "tag:ag-engine", "tag:ag-worker", "svc:ag"], "ip": ["*"]},
 		{"src": ["tag:ag-engine"], "dst": ["ag-client"], "ip": ["tcp:22"]},
+		// tm-core on any port while the engine sets it up and hands over to it.
+		{"src": ["tag:ag-engine"], "dst": ["tm-core"], "ip": ["*"]},
 		// Workers only talk to the engine and each other, never to the owner's personal devices.
 		{"src": ["tag:ag-worker"], "dst": ["tag:ag-engine", "tag:ag-worker"], "ip": ["*"]},
 	],
@@ -68,7 +72,7 @@
 
 	"tests": [
 		{"src": "OWNER_EMAIL", "accept": ["tag:ag-engine:22", "tag:ag-worker:22"]},
-		{"src": "tag:ag-engine", "accept": ["tag:ag-worker:22", "ag-mac:22", "ag-mac:7376", "ag-mac:8443", "ag-mac:8444", "ag-client:22", "svc:ag:7373"], "deny": ["ag-client:5900", "ag-client:35385"]},
+		{"src": "tag:ag-engine", "accept": ["tag:ag-worker:22", "ag-mac:22", "ag-mac:7376", "ag-mac:8443", "ag-mac:8444", "ag-client:22", "tm-core:22", "svc:ag:7373"], "deny": ["ag-client:5900", "ag-client:35385"]},
 		// ag-mac:8443/8444 are private tailscale-serve services (personal data): owner devices and the engine only.
 		{"src": "tag:ag-worker", "accept": ["tag:ag-engine:22"], "deny": ["OWNER_EMAIL:22", "ag-mac:8443", "ag-mac:8444"]},
 	],
